@@ -1,0 +1,49 @@
+# 市场基准注册表（Phase 3 任务书 8.1 节）
+# 市场基准根据证券板块和配置表确定；不得把当前表现最接近的指数自动选作市场基准。
+# board_scope: main=沪深主板 / gem=创业板 / star=科创板
+
+market_benchmarks:
+  - benchmark_entity_id: "index:000300.SH"
+    name: 沪深300
+    market_scope: A-share
+    board_scope: [main, gem, star]
+    valid_from: null
+    valid_to: null
+    source_ids: [sina_quote]
+    notes: 全市场默认基准（无更精确板块匹配时的 fallback）
+
+  - benchmark_entity_id: "index:000001.SH"
+    name: 上证指数
+    market_scope: A-share
+    board_scope: [main]
+    valid_from: null
+    valid_to: null
+    source_ids: [sina_quote]
+    notes: 沪市主板
+
+  - benchmark_entity_id: "index:399001.SZ"
+    name: 深证成指
+    market_scope: A-share
+    board_scope: [main]
+    valid_from: null
+    valid_to: null
+    source_ids: [sina_quote]
+    notes: 深市主板
+
+  - benchmark_entity_id: "index:399006.SZ"
+    name: 创业板指
+    market_scope: A-share
+    board_scope: [gem]
+    valid_from: null
+    valid_to: null
+    source_ids: [sina_quote]
+    notes: 创业板
+
+  - benchmark_entity_id: "index:000688.SH"
+    name: 科创50
+    market_scope: A-share
+    board_scope: [star]
+    valid_from: null
+    valid_to: null
+    source_ids: [sina_quote]
+    notes: 科创板
