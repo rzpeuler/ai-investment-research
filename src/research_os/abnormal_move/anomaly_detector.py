@@ -86,10 +86,15 @@ def robust_z_score(x: float, median: float, mad: float) -> Optional[float]:
 
 
 def historical_percentile(x: float, history: List[float]) -> float:
-    """历史经验分位（0-100，双侧）：<= x 的比例。"""
+    """历史经验分位（0-100，双侧），平均秩法：严格小于 + 等于/2。
+
+    避免重复值（如平坦序列的常见值）被算作极端分位。
+    """
     if not history:
         return 50.0
-    return (sum(1.0 for h in history if h <= x) / len(history)) * 100.0
+    less = sum(1.0 for h in history if h < x)
+    equal = sum(1.0 for h in history if h == x)
+    return ((less + equal / 2.0) / len(history)) * 100.0
 
 
 def severity_from_percentile(pct: float) -> int:

@@ -76,6 +76,10 @@ class AttributionSynthesizer:
             "unknown_claim_ids": [],
         }
         primary = score_result.primary_ids + score_result.multi_ids
+        # 非解释类状态不得携带主原因（INSUFFICIENT/UNEXPLAINED/SOURCE_CONFLICT/
+        # DATA_DEGRADED 时主原因列表必须为空，防止 validator/报告误报）
+        if status not in ("EXPLAINED", "MULTI_CAUSE"):
+            primary = []
         confidence = self._confidence(status, score_result, observation)
 
         attribution = AttributionResult(
@@ -120,15 +124,15 @@ class AttributionSynthesizer:
         # 2. 高等级来源冲突未解决 -> SOURCE_CONFLICT
         if contradictions.high_authority_conflict:
             return "SOURCE_CONFLICT", "高等级来源冲突未解决"
-        # 3. UNEXPLAINED_MOVE 条件
-        reasons = unexplained_conditions(score_result.candidates)
-        if reasons and not score_result.primary_ids:
-            return "UNEXPLAINED_MOVE", "; ".join(reasons)
-        # 4. EXPLAINED / MULTI_CAUSE
+        # 3. EXPLAINED / MULTI_CAUSE（多原因共同作用先于无法归因判定）
         if score_result.multi_ids:
             return "MULTI_CAUSE", "多原因共同作用"
         if score_result.primary_ids:
             return "EXPLAINED", "主原因成立"
+        # 4. UNEXPLAINED_MOVE 条件
+        reasons = unexplained_conditions(score_result.candidates)
+        if reasons:
+            return "UNEXPLAINED_MOVE", "; ".join(reasons)
         # 5. 只有次级/假设
         if score_result.secondary_ids or score_result.hypothesis_ids:
             return "INSUFFICIENT_EVIDENCE", "仅有次级催化或假设，证据不足"

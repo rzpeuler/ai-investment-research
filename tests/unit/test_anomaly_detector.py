@@ -96,9 +96,16 @@ class TestRobustStats:
 
     def test_percentile(self):
         hist = [1.0, 2.0, 3.0, 4.0, 5.0]
-        assert historical_percentile(3.0, hist) == 60.0
-        assert historical_percentile(5.0, hist) == 100.0
+        # 平均秩分位：严格小于 + 等于/2
+        assert historical_percentile(3.0, hist) == 50.0
+        assert historical_percentile(5.0, hist) == 90.0
         assert historical_percentile(0.5, hist) == 0.0
+
+    def test_percentile_duplicate_values_not_extreme(self):
+        """重复常见值不得被算作极端分位（平坦序列误判修复）。"""
+        hist = [0.001] * 40 + [0.0015] * 5
+        # 0.0015 出现 5/45：平均秩 = (40 + 2.5)/45 ≈ 94.4
+        assert 0 < historical_percentile(0.0015, hist) < 100
 
 
 class TestSeverity:

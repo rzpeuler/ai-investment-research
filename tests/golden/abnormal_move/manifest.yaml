@@ -1,0 +1,47 @@
+# 异动分析黄金测试清单（Phase 3 任务书 20 节）
+# 每个案例：行情 fixture、事件池、预期 attribution_status、允许/禁止原因类别、
+# 最低独立证据数量、置信度范围。不要求逐字匹配 Markdown。
+
+cases:
+  - id: announcement_direct_trigger
+    category: attributable
+    expected_status: EXPLAINED
+  - id: industry_policy_resonance
+    category: attributable
+    expected_status: EXPLAINED
+  - id: earnings_forecast
+    category: attributable
+    expected_status: EXPLAINED
+  - id: after_fact_media_report
+    category: misattribution
+    expected_status: UNEXPLAINED_MOVE
+  - id: old_news_recirculation
+    category: misattribution
+    expected_status: UNEXPLAINED_MOVE
+  - id: title_match_wrong_entity
+    category: misattribution
+    expected_status: UNEXPLAINED_MOVE
+  - id: reposts_counted_once
+    category: misattribution
+    expected_status: EXPLAINED
+  - id: community_first_official_later
+    category: misattribution
+    expected_status: INSUFFICIENT_EVIDENCE
+  - id: positive_news_stock_down
+    category: misattribution
+    expected_status: UNEXPLAINED_MOVE
+  - id: no_credible_event
+    category: unattributable
+    expected_status: UNEXPLAINED_MOVE
+  - id: only_anonymous_rumor
+    category: unattributable
+    expected_status: UNEXPLAINED_MOVE
+  - id: high_authority_conflict
+    category: unattributable
+    expected_status: SOURCE_CONFLICT
+  - id: insufficient_quotes
+    category: data_insufficient
+    expected_status: INSUFFICIENT_EVIDENCE
+  - id: mad_zero
+    category: boundary
+    expected_status: UNEXPLAINED_MOVE
