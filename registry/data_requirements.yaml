@@ -53,7 +53,7 @@ requirements:
     failure_policy: insufficient_data
 
   market_daily_ohlcv:
-    description: 带有明确交易日期的历史日线序列（Phase 1.1 修正：实时快照源不得用于日线）
+    description: 带有明确交易日期的历史日线序列（Phase 1.1 修正：实时快照源不得用于日线；Phase 3 起支持 manual_import 导入批次，见 market_daily_series_manifest）
     primary: []
     secondary: []
     fallback:
@@ -61,6 +61,24 @@ requirements:
     minimum_acceptable:
       fields:
         - trade_date
+        - open
+        - high
+        - low
+        - close
+        - volume
+    failure_policy: insufficient_data
+
+  market_minute_bar:
+    description: 分钟级行情（Phase 3 仅完成 Schema、Pydantic 模型与 Loader Protocol；不创建虚构分钟源）
+    primary: []
+    secondary: []
+    fallback: []
+    minimum_acceptable:
+      fields:
+        - symbol
+        - trade_date
+        - bar_time
+        - interval
         - open
         - high
         - low

@@ -369,7 +369,7 @@ def run_morning_brief(report_date, as_of, depth, force, dry_run, live) -> None:
         click.echo(f"[DRY-RUN] 报告日期: {day.isoformat()}")
         click.echo(f"[DRY-RUN] 信息窗口: {window_start} 至 {window_end}")
         click.echo(f"[DRY-RUN] as_of: {as_of_value}  建议运行: {scheduled}")
-        click.echo(f"[DRY-RUN] 数据获取: {'live（cninfo/cls/nbs/sina）' if live else 'manual_inbox（离线）'}")
+        click.echo(f"[DRY-RUN] 数据获取: {'live（cninfo/cls/nbs）' if live else 'manual_inbox（离线）'}")
         click.echo(f"[DRY-RUN] 模块计划: 窗口过滤 -> 去重 -> 事件聚类（确定性第一版） -> 分类 -> 否决 -> 评分 -> 渲染 -> 校验")
         click.echo(f"[DRY-RUN] 预期输出: {report_path_for(day, str(root / 'reports'))}")
         click.echo(f"[DRY-RUN] 不写入任何产物（任务/事件/报告/知识库均不修改）")

@@ -170,15 +170,15 @@ sources:
     storage_policy: metadata_and_excerpt
     rate_limit: null
     update_frequency: realtime
-    allowed_usage: 日级 OHLCV 行情候选（需 Referer，稳定性待探测）
+    allowed_usage: 实时行情快照专用（不得映射为历史日线、日级收益或历史基线）
     primary_topics:
     - 行情
-    - OHLCV
+    - 实时快照
     status: watchlist
     last_verified_at: '2026-08-05T18:01:49'
     verification_evidence:
     - data/source_probes/sina_quote.json
-    notes: 行情候选：实时报价可达；日级 OHLCV 需历史接口，Phase 1 仅结论
+    notes: 实时快照源（Phase 1.1 起）：仅用于 market_realtime_snapshot；历史日线需求见 data_requirements.yaml（fallback=manual_import）
   sse:
     source_id: sse
     name: 上海证券交易所

@@ -59,7 +59,14 @@
 
 - date: 2026-08-05
   source_id: sina_quote
-  change: verified
-  reason: 行情接口 HTTP 200（需 Referer），GBK 字段实测确认；日级 OHLCV 待历史接口。
-  evidence: data/source_probes/sina_quote.json
+  change: contract_clarified
+  reason: Phase 1.1 起 sina_quote 仅为实时快照源（market_realtime_snapshot），不得映射为历史日线/日级收益/历史基线；修正 allowed_usage/primary_topics/notes 文案。历史日线需求 fallback=manual_import（见 data_requirements.yaml）。
+  evidence: DECISIONS.md #6；registry/data_requirements.yaml
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: "(registry)"
+  change: contract_added
+  reason: Phase 3 Commit 1 契约清理：新增 market_minute_bar 数据需求（无来源，仅 Schema/模型/Loader Protocol）；晨报 dry-run 来源展示移除 sina（行情快照非内容采集源）。
+  evidence: registry/data_requirements.yaml；src/research_os/cli/main.py
   agent: Hermes Agent
