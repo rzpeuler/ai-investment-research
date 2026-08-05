@@ -1,0 +1,65 @@
+# 数据需求注册表（Phase 1 任务 8.1 节）
+# 主源失败后才使用备源；备源结果不得伪装成主源；
+# 最低字段不满足时返回 insufficient_data；禁止估算缺失值；
+# 禁止把空响应解释为"没有事件"。
+
+requirements:
+  company_announcement:
+    primary:
+      - cninfo
+    secondary:
+      - sse
+      - szse
+    fallback:
+      - company_ir
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - title
+        - published_at
+        - url
+        - company
+    failure_policy: degraded
+
+  macro_data:
+    primary:
+      - nbs
+    secondary:
+      - csrc
+    fallback:
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - title
+        - publish_date
+        - url
+    failure_policy: degraded
+
+  market_daily_ohlcv:
+    primary:
+      - sina_quote
+    secondary: []
+    fallback:
+      - manual_import
+    minimum_acceptable:
+      fields:
+        - trade_date
+        - open
+        - high
+        - low
+        - close
+        - volume
+    failure_policy: insufficient_data
+
+  news_flash:
+    primary:
+      - cls
+    secondary: []
+    fallback:
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - title
+        - published_at
+        - url
+    failure_policy: degraded

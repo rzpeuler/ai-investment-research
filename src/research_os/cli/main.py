@@ -133,27 +133,69 @@ def validate(report_path, check_schemas) -> None:
         raise SystemExit(1)
     click.echo(f"[OK] 全部 {len(SCHEMA_NAMES)} 个 Schema 通过")
 
-
 @cli.command()
-@click.option("--source", default=None, help="指定来源 ID（默认全部 stub）。")
-def probe_sources(source) -> None:
-    """探测来源可访问性（Phase 0：仅输出 stub 状态，不发起任何网络请求）。"""
-    from research_os.collectors.stub import StubCollector
+@click.option("--all", "probe_all", is_flag=True, default=False, help="探测注册表全部来源。")
+@click.option("--source", "source_id", default=None, help="探测指定来源 ID。")
+@click.option("--group", "group", default=None,
+              help="按分组探测（official / government / market / news / company）。")
+@click.option("--output", "output_dir", default=None, help="探测证据输出目录（默认 data/source_probes/）。")
+@click.option("--no-write", is_flag=True, default=False, help="只输出结果，不写文件/数据库。")
+def probe_sources(probe_all, source_id, group, output_dir, no_write) -> None:
+    """探测来源可访问性。
 
-    ids = [source] if source else ["sse", "szse", "cninfo", "cls", "xueqiu", "nbs"]
-    all_ok = True
-    for sid in ids:
-        stub = StubCollector(source_id=sid)
-        status = stub.healthcheck()
-        flag = "OK " if status.ok else "STUB"
-        if not status.ok:
-            all_ok = False
-        click.echo(f"[{flag}] {status.source_id:12s} access={status.access:12s} {status.message}")
+    Phase 1：真实 HTTP 探测（curl），只验证可达性/字段/登录/JS 依赖，
+    不抓取内容、不保存全文。未指定参数时列出全部已登记来源（不探测）。
+    """
+    from research_os.source_probe import PROBE_SPECS, probe_source, save_probe
+    from research_os.storage import Database
+
+    root = _project_root()
+
+    # 选择探测目标
+    specs = []
+    if source_id:
+        specs = [s for s in PROBE_SPECS if s.source_id == source_id]
+        if not specs:
+            raise click.ClickException(f"未登记来源: {source_id}")
+    elif group:
+        specs = [s for s in PROBE_SPECS if s.group == group]
+        if not specs:
+            raise click.ClickException(f"未登记分组: {group}")
+    elif probe_all:
+        specs = list(PROBE_SPECS)
+    else:
+        click.echo("已登记探测规格（未执行探测；使用 --all / --source / --group 发起）：")
+        for s in PROBE_SPECS:
+            click.echo(f"  [{s.group:10s}] {s.source_id:14s} {s.name}")
+        return
+
+    out_dir = output_dir or str(root / "data" / "source_probes")
+    db = None if no_write else Database(root / "data" / "sqlite" / "research.db")
+
+    referer = None
+    for spec in specs:
+        click.echo(f"=== 探测 {spec.source_id} ({spec.name}) ===")
+        try:
+            probe = probe_source(spec, referer=referer)
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"[FAIL] {spec.source_id}: 探测失败 {exc}", err=True)
+            continue
+        click.echo(f"  状态: {probe.status}  HTTP: {probe.http_status}  "
+                   f"访问级别: {probe.access_level_detected}  "
+                   f"JS依赖: {probe.requires_javascript}  登录: {probe.requires_login}")
+        if probe.fields_detected:
+            click.echo(f"  确认字段: {', '.join(probe.fields_detected)}")
+        for n in probe.notes:
+            click.echo(f"  注: {n}")
+        for e in probe.errors:
+            click.echo(f"  错: {e}")
+        if not no_write:
+            path = save_probe(root, probe, db=db)
+            click.echo(f"  证据: {path}")
+    if db is not None:
+        db.close()
     click.echo("")
-    click.echo("Phase 0：全部来源为 stub，尚未探测。")
-    click.echo("Phase 1 将运行 scripts/probe_sources.py 进行真实探测（TODO）。")
-    if not all_ok:
-        click.echo("[INFO] stub 状态 ok=False 属预期行为（未探测来源禁止标记为可用）")
+    click.echo("探测完成。结论写入 data/source_probes/；来源注册表状态更新见 registry/changelog.md。")
 
 
 if __name__ == "__main__":

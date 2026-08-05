@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/source.schema.json",
+  "title": "Source",
+  "description": "来源注册表条目（工程指南 23 节、Phase 1 任务 4.1 节）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_id", "name", "platform", "base_domain", "source_type", "source_tier",
+    "authority_score", "accuracy_score", "timeliness_score", "coverage_score",
+    "stability_score", "originality_score", "opinion_influence_score",
+    "access_level", "automation_level", "login_required", "paid",
+    "storage_policy", "rate_limit", "update_frequency", "allowed_usage",
+    "primary_topics", "status", "last_verified_at", "verification_evidence", "notes"
+  ],
+  "properties": {
+    "source_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "platform": { "type": "string", "minLength": 1 },
+    "base_domain": { "type": "string", "format": "uri" },
+    "source_type": { "type": "string", "minLength": 1 },
+    "source_tier": { "type": "string", "enum": ["S", "A", "B", "C", "D"] },
+    "authority_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "accuracy_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "timeliness_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "coverage_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "stability_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "originality_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "opinion_influence_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "access_level": {
+      "type": "string",
+      "enum": ["public", "public_but_unstable", "login_required", "client_only",
+               "paid", "manual_only", "unavailable", "unknown"]
+    },
+    "automation_level": {
+      "type": "string",
+      "enum": ["api", "html", "browser", "export_import", "manual", "none", "unknown"]
+    },
+    "login_required": { "type": "boolean" },
+    "paid": { "type": "boolean" },
+    "storage_policy": {
+      "type": "string",
+      "enum": ["metadata_only", "metadata_and_excerpt", "full_text_allowed", "unknown"]
+    },
+    "rate_limit": {
+      "type": ["string", "null"],
+      "description": "限速描述，如 '10 req/min'；未探测为 null"
+    },
+    "update_frequency": { "type": "string", "minLength": 1 },
+    "allowed_usage": { "type": "string", "minLength": 1 },
+    "primary_topics": { "type": "array", "items": { "type": "string" } },
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "approved", "watchlist", "deprecated", "blocked"]
+    },
+    "last_verified_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "verification_evidence": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "探测证据引用（probe_id 或文件路径）"
+    },
+    "notes": { "type": "string" }
+  }
+}

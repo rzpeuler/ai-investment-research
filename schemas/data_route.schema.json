@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/data_route.schema.json",
+  "title": "DataRoute",
+  "description": "数据获取路由结果（Phase 1 任务 8.2 节）。主源失败才使用备源；空响应不等于无事件。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "data_type", "requested_sources", "attempted_sources", "selected_source",
+    "fallback_used", "status", "missing_fields", "warnings"
+  ],
+  "properties": {
+    "data_type": { "type": "string", "minLength": 1 },
+    "requested_sources": { "type": "array", "items": { "type": "string" } },
+    "attempted_sources": { "type": "array", "items": { "type": "string" } },
+    "selected_source": { "type": ["string", "null"] },
+    "fallback_used": { "type": "boolean" },
+    "status": {
+      "type": "string",
+      "enum": ["success", "degraded", "insufficient_data", "failed"]
+    },
+    "missing_fields": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

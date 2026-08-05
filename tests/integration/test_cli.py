@@ -102,7 +102,7 @@ def test_validate_schemas_ok(project_root):
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
     assert result.exit_code == 0, result.output
-    assert "9 个 Schema 通过" in result.output
+    assert "13 个 Schema 通过" in result.output
 
 
 def test_validate_report_missing_frontmatter_fails(project_root):
@@ -143,11 +143,27 @@ def test_validate_report_missing_project_root_fails(monkeypatch, tmp_path):
 
 
 def test_probe_sources_ok(project_root):
+    """无参数 probe-sources：列出已登记探测规格，不发起网络请求（离线）。"""
     runner = CliRunner()
     result = runner.invoke(cli, ["probe-sources"])
     assert result.exit_code == 0
-    assert "STUB" in result.output
-    assert "Phase 0" in result.output
+    assert "已登记探测规格" in result.output
+    assert "cninfo" in result.output
+    assert "nbs" in result.output
+
+
+def test_probe_sources_unknown_source_fails(project_root):
+    runner = CliRunner()
+    result = runner.invoke(cli, ["probe-sources", "--source", "no_such_source"])
+    assert result.exit_code != 0
+    assert "未登记来源" in result.output
+
+
+def test_probe_sources_unknown_group_fails(project_root):
+    runner = CliRunner()
+    result = runner.invoke(cli, ["probe-sources", "--group", "aliens"])
+    assert result.exit_code != 0
+    assert "未登记分组" in result.output
 
 
 def test_run_plan_contains_scenario(project_root):

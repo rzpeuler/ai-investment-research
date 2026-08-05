@@ -37,6 +37,11 @@ SCHEMA_NAMES = [
     "evidence",
     "module_result",
     "graph_change",
+    # Phase 1：来源层
+    "source",
+    "source_probe",
+    "data_route",
+    "manual_inbox",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -94,6 +99,10 @@ def validate_model(model: Any) -> List[str]:
         "Evidence": "evidence",
         "ModuleResult": "module_result",
         "GraphChange": "graph_change",
+        "Source": "source",
+        "SourceProbe": "source_probe",
+        "DataRoute": "data_route",
+        "ManualInbox": "manual_inbox",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")

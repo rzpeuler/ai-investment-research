@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/source_probe.schema.json",
+  "title": "SourceProbe",
+  "description": "来源探测结果（Phase 1 任务 5.2 节）。探测证据禁止保存完整页面正文。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "probe_id", "source_id", "started_at", "finished_at", "status",
+    "http_status", "access_level_detected", "automation_level_detected",
+    "historical_depth", "fields_detected", "requires_javascript",
+    "requires_login", "rate_limit_observed", "storage_policy_recommendation",
+    "evidence", "errors", "notes"
+  ],
+  "properties": {
+    "probe_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "source_id": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "status": {
+      "type": "string",
+      "enum": ["success", "partial", "blocked", "login_required", "failed"]
+    },
+    "http_status": { "type": ["integer", "null"] },
+    "access_level_detected": {
+      "type": "string",
+      "enum": ["public", "public_but_unstable", "login_required", "client_only",
+               "paid", "manual_only", "unavailable", "unknown"]
+    },
+    "automation_level_detected": {
+      "type": "string",
+      "enum": ["api", "html", "browser", "export_import", "manual", "none", "unknown"]
+    },
+    "historical_depth": { "type": ["string", "null"], "description": "历史范围评估" },
+    "fields_detected": { "type": "array", "items": { "type": "string" } },
+    "requires_javascript": { "type": "boolean" },
+    "requires_login": { "type": "boolean" },
+    "rate_limit_observed": { "type": ["string", "null"] },
+    "storage_policy_recommendation": {
+      "type": "string",
+      "enum": ["metadata_only", "metadata_and_excerpt", "full_text_allowed", "unknown"]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "最小文本证据（最终 URL/HTTP 状态/标题/关键字段名），禁止完整正文"
+      }
+    },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  }
+}

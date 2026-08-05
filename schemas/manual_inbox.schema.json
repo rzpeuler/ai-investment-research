@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/manual_inbox.schema.json",
+  "title": "ManualInbox",
+  "description": "人工 Inbox 条目（Phase 1 任务 9.1 节）。用户提供的摘录不自动视为事实；不自动进入知识图谱。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "inbox_id", "source_name", "source_url", "title", "published_at",
+    "submitted_at", "submitted_by", "content_excerpt", "notes",
+    "intended_entities", "status", "url_accessible"
+  ],
+  "properties": {
+    "inbox_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "source_name": { "type": "string", "minLength": 1 },
+    "source_url": { "type": "string", "format": "uri" },
+    "title": { "type": "string", "minLength": 1 },
+    "published_at": { "type": ["string", "null"], "format": "date-time" },
+    "submitted_at": { "type": "string", "format": "date-time" },
+    "submitted_by": { "type": "string", "default": "user" },
+    "content_excerpt": { "type": "string", "description": "用户提供的最小摘录（不视为事实）" },
+    "notes": { "type": "string", "default": "" },
+    "intended_entities": { "type": "array", "items": { "type": "string" } },
+    "status": {
+      "type": "string",
+      "enum": ["submitted", "parsed", "accepted", "rejected", "needs_review"]
+    },
+    "url_accessible": { "type": "boolean", "description": "链接无法访问时标记 false" }
+  }
+}

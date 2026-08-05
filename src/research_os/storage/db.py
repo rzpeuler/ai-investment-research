@@ -25,6 +25,11 @@ TABLES = {
     "Evidence": "evidence",
     "ModuleResult": "module_results",
     "GraphChange": "graph_changes",
+    # Phase 1：来源层
+    "Source": "sources",
+    "SourceProbe": "source_probes",
+    "DataRoute": "data_routes",
+    "ManualInbox": "manual_inbox",
 }
 
 # 各表主键列名（与 001_initial.sql 保持一致）
@@ -37,6 +42,9 @@ PK_COLUMNS = {
     "claims": "claim_id",
     "evidence": "evidence_id",
     "graph_changes": "graph_change_id",
+    "sources": "source_id",
+    "source_probes": "probe_id",
+    "manual_inbox": "inbox_id",
 }
 
 
@@ -119,6 +127,15 @@ class Database:
         if name == "GraphChange":
             return {"change_type": d["change_type"], "review_status": d["review_status"],
                     "created_at": d["created_at"]}
+        if name == "Source":
+            return {"name": d["name"], "status": d["status"],
+                    "last_verified_at": d["last_verified_at"]}
+        if name == "SourceProbe":
+            return {"source_id": d["source_id"], "status": d["status"],
+                    "started_at": d["started_at"], "finished_at": d["finished_at"]}
+        if name == "ManualInbox":
+            return {"source_name": d["source_name"], "status": d["status"],
+                    "submitted_at": d["submitted_at"]}
         raise ValueError(f"未知对象类型: {name}")
 
     def upsert(self, obj: Any, task_id: Optional[str] = None) -> None:
@@ -135,12 +152,19 @@ class Database:
         extra = self._extra_columns(obj, now)
 
         with self._conn:
-            if name == "ModuleResult":
-                self._conn.execute(
-                    "INSERT INTO module_results (task_id, module, payload, status, as_of, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (task_id or "", d["module"], payload, d["status"], d["as_of"], now),
-                )
+            if name in ("ModuleResult", "DataRoute"):
+                if name == "ModuleResult":
+                    self._conn.execute(
+                        "INSERT INTO module_results (task_id, module, payload, status, as_of, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (task_id or "", d["module"], payload, d["status"], d["as_of"], now),
+                    )
+                else:
+                    self._conn.execute(
+                        "INSERT INTO data_routes (data_type, payload, status, selected_source, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (d["data_type"], payload, d["status"], d.get("selected_source"), now),
+                    )
                 return
 
             pk_col = PK_COLUMNS[table]
