@@ -46,7 +46,7 @@ class RetrievedItem:
     source_id: str
     title: str
     published_at: Optional[str]
-    retrieved_at: Optional[str]
+    retrieved_at: Optional[str] = None
     url: str = ""
     excerpt: str = ""
     entities: List[str] = field(default_factory=list)

@@ -1,0 +1,74 @@
+# 异动分析配置（Phase 3）
+# 版本号进入幂等键与结构化结果；窗口/阈值/权重为确定性规则，不得由模型决定。
+
+rules:
+  anomaly: anomaly.v1
+  benchmark: benchmark.v1
+  cause_score: cause.v1
+  attribution: attribution.v1
+
+windows:
+  baseline: 60            # 历史基线窗口（有效交易日）
+  min_robust: 40          # 最低 robust 基线
+  short_median: 20        # 短窗口中位数
+  volatility_short: 5     # 波动率短窗
+  volatility_baseline: 60 # 波动率基准窗
+  beta_regression: 60     # Beta 回归窗口
+  beta_min_samples: 40
+
+severity:
+  table:
+    - {percentile: 0.80, z: 1.28, severity: 1}
+    - {percentile: 0.90, z: 1.65, severity: 2}
+    - {percentile: 0.95, z: 1.96, severity: 3}
+    - {percentile: 0.975, z: 2.24, severity: 4}
+    - {percentile: 0.99, z: 2.58, severity: 5}
+
+benchmark:
+  weights: {stable_industry: 25, main_business: 20, supply_chain: 10,
+            preexisting_concept: 10, historical_correlation: 15,
+            event_window_linkage: 10, current_event_relevance: 10}
+  min_total_industry: 60
+  min_stable_business: 25
+  min_total_concept: 65
+  min_pre_window_subtotal: 45
+  correlation_window: 60
+  correlation_min_samples: 30
+  min_peers_industry: 10
+  min_peers_concept: 8
+
+cause_score:
+  weights: {time_match_score: 25, entity_link_score: 20, novelty_score: 15,
+            peer_linkage_score: 15, source_reliability_score: 10,
+            explanation_coverage_score: 10, verifiability_score: 5}
+  primary_min: 75
+  primary_top_gap: 8
+  multi_min: 70
+  secondary_min: 60
+  hypothesis_min: 45
+
+model_route:
+  default_model: deepseek-v4-flash
+  pro_model: deepseek-v4-pro
+  max_flash_fix_attempts: 2
+  max_pro_calls: 1
+
+output:
+  report_dir_template: reports/abnormal_moves/{year}/{year}-{month}
+  report_file_template: "{date}_{entity_id}_abnormal_move.md"
+  run_artifacts:
+    - abnormal_move_request.json
+    - market_data_routes.json
+    - market_data_quality.json
+    - abnormal_move_observation.json
+    - anomaly_metrics.json
+    - benchmark_candidates.json
+    - benchmark_selection.json
+    - retrieved_events.json
+    - cause_candidates.json
+    - cause_evidence_links.json
+    - contradictions.json
+    - attribution_result.json
+    - model_route.json
+    - validation.json
+    - errors.log
