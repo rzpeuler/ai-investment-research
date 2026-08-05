@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 数据（全部本地生成，不提交）
+data/sqlite/*.db
+data/sqlite/*.db-*
+data/parquet/
+data/cache/
+data/exports/
+data/quarantine/
+
+# 运行产物
+reports/runs/
+reports/morning/
+reports/evening/
+reports/daily_review/
+reports/stocks/
+reports/industries/
+reports/themes/
+reports/earnings/
+knowledge/inbox/
+knowledge/candidates/
+knowledge/wiki/
+knowledge/history/
+knowledge/graph/
+
+# 测试与工具
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# 编辑器
+.idea/
+.vscode/
+*.swp

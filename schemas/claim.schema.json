@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/claim.schema.json",
+  "title": "Claim",
+  "description": "结论声明对象。所有报告中的关键句必须能映射到 Claim。依据工程指南 11.6 节。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "claim_id",
+    "claim_type",
+    "statement",
+    "subject_entities",
+    "predicate",
+    "object",
+    "as_of",
+    "evidence_ids",
+    "support_level",
+    "confidence",
+    "valid_until",
+    "review_status"
+  ],
+  "properties": {
+    "claim_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "claim_type": {
+      "type": "string",
+      "enum": ["FACT", "SOURCE_OPINION", "MODEL_INFERENCE", "HYPOTHESIS", "UNKNOWN", "CONFLICT"]
+    },
+    "statement": { "type": "string", "minLength": 1 },
+    "subject_entities": { "type": "array", "items": { "type": "string" } },
+    "predicate": { "type": "string", "minLength": 1 },
+    "object": { "type": "object", "description": "任意 JSON 对象" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "support_level": { "type": "string", "enum": ["direct", "indirect", "inferred"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "valid_until": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "review_status": {
+      "type": "string",
+      "enum": ["unreviewed", "approved", "rejected", "pending_revision", "superseded"]
+    }
+  }
+}

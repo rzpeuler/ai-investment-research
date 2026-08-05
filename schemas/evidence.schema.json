@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/evidence.schema.json",
+  "title": "Evidence",
+  "description": "证据对象。依据工程指南 11.7 节。independence_group 用于识别多个媒体转载同一原始消息，防止把十篇转载误判为十个独立证据。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_id",
+    "source_id",
+    "raw_item_id",
+    "title",
+    "publisher",
+    "published_at",
+    "retrieved_at",
+    "url",
+    "excerpt",
+    "evidence_type",
+    "independence_group",
+    "source_tier",
+    "access_status"
+  ],
+  "properties": {
+    "evidence_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "source_id": { "type": "string", "minLength": 1 },
+    "raw_item_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "title": { "type": "string", "minLength": 1 },
+    "publisher": { "type": "string", "minLength": 1 },
+    "published_at": { "type": "string", "format": "date-time" },
+    "retrieved_at": { "type": "string", "format": "date-time" },
+    "url": { "type": "string", "format": "uri" },
+    "excerpt": { "type": "string", "description": "支持该 Claim 的最小摘录" },
+    "evidence_type": {
+      "type": "string",
+      "enum": [
+        "official_disclosure",
+        "official_statistics",
+        "company_official",
+        "news_report",
+        "media_report",
+        "social_opinion",
+        "institution_material",
+        "market_data",
+        "manual_input",
+        "unknown"
+      ]
+    },
+    "independence_group": { "type": "string", "description": "原始事件组标识" },
+    "source_tier": { "type": "string", "enum": ["S", "A", "B", "C", "D"] },
+    "access_status": {
+      "type": "string",
+      "enum": ["ok", "partial", "failed", "unauthorized", "unknown"]
+    }
+  }
+}

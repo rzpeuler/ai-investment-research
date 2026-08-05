@@ -1,0 +1,122 @@
+# AI＋A股投研 Skill 系统
+
+个人使用的 AI＋A 股投研系统。四层框架（需求场景层 / 功能模块层 / 数据采集层 /
+知识库层）+ 横向工程控制面（任务编排、模型路由、数据契约、证据追踪、来源治理、
+质量校验、失败降级、日志审计、版本控制、用户反馈闭环）。
+
+完整规范见 [`docs/engineering-guide.md`](docs/engineering-guide.md)，
+执行规则见 [`AGENTS.md`](AGENTS.md)。
+
+## 当前状态
+
+**Phase 0（项目骨架与契约）**：目录结构、配置模板、9 个核心 JSON Schema、
+Python 数据模型、SQLite 初始化与迁移、`ResearchModule` / `CollectorAdapter` 抽象、
+空 Orchestrator、基础 CLI、运行目录与日志、Front Matter 校验器、单元与集成测试。
+
+**尚未开始**：Phase 1 来源探测与数据底座（当前全部采集器为 stub）。
+
+## 快速开始
+
+### 环境要求
+
+- Python >= 3.11（开发验证于 3.12）
+- [uv](https://docs.astral.sh/uv/)（推荐）或 pip
+
+### 安装
+
+```powershell
+# 项目根目录（含 schemas/ 与 src/）
+cd ai-investment-research
+
+# 方式一：pip（推荐）
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install ".[dev]"
+
+# 方式二：uv（同样有效）
+uv venv
+uv pip install ".[dev]"
+```
+
+> **Windows 中文路径注意**：项目位于含中文的路径（如 `投研工作台`）且系统 locale 为
+> GBK 时，**editable 安装（`-e`）存在已知坑**——setuptools/uv 以 UTF-8 写入 `.pth`
+> 文件，而 Python 3.11 读 `.pth` 用 locale 编码（cp936），导致路径乱码、模块无法
+> 导入。请使用普通安装（不带 `-e`）。代码修改后重装即可：
+> `pip install ".[dev]"`。
+>
+> 开发迭代提示：`pytest` 通过 `pythonpath=src` 直接运行源码，不受安装方式影响；
+> `scripts/*.py` 自带 `sys.path` 注入，也可直接运行。
+
+### 初始化数据库
+
+```powershell
+python scripts/bootstrap.py
+# 或等价的迁移工具
+python scripts/migrate.py --status
+```
+
+### CLI 用法
+
+```powershell
+# 运行空任务（生成 Task、Plan 和 Run 目录；Phase 0 不采集数据）
+research run --scenario morning_brief --entity 600519.SH --depth standard
+
+# 指定 task_id（相同 ID 重复执行幂等：已完成后跳过，--force 重建）
+research run --task-id <uuid> --scenario abnormal_move_analysis
+
+# 校验报告 Front Matter（缺少必需字段即失败）
+research validate --report reports/morning/2026/2026-08/2026-08-05_morning.md
+
+# 校验全部 JSON Schema
+research validate
+research validate --schemas
+
+# 来源探测（Phase 0 输出 stub 状态，无网络请求）
+research probe-sources
+```
+
+### 运行测试
+
+```powershell
+python -m pytest
+```
+
+## 目录结构
+
+```text
+ai-investment-research/
+├── AGENTS.md               # 不可违反的研究与工程规则
+├── docs/engineering-guide.md
+├── config/                 # app / model_routing / schedules / source_policy / report_policy / knowledge_policy
+├── schemas/                # 9 个核心 JSON Schema（权威数据契约）
+├── registry/               # 来源注册表（sources / source_groups / changelog）
+├── src/research_os/
+│   ├── cli/                # research 命令
+│   ├── orchestrator/       # Orchestrator + 运行目录
+│   ├── routing/            # 模型路由（占位）
+│   ├── collectors/         # CollectorAdapter + stub（Phase 1 实现真实适配器）
+│   ├── normalizers/        # 标准化（Phase 1+）
+│   ├── modules/            # ResearchModule 抽象（P0-P2 模块清单见指南 12 节）
+│   ├── evidence/           # 证据管理（Phase 2+）
+│   ├── knowledge/          # 知识库（Phase 5+）
+│   ├── reports/            # Front Matter 校验器 + 基础报告校验器
+│   ├── storage/            # SQLite + 版本化迁移
+│   ├── validators/         # Schema 校验器
+│   └── utils/              # 时间 / ID / 日志
+├── reports/runs/{task_id}/ # 每次运行：task.json plan.json retrieval_log.jsonl
+│                           #   module_results/ evidence_index.json validation.json final.md errors.log
+├── tests/                  # unit / integration / contracts / golden / source_health / fixtures
+└── scripts/                # bootstrap / probe_sources / run_scenario / validate_report / rebuild_graph / migrate
+```
+
+## 数据契约
+
+9 个核心对象（Task / Entity / RawItem / Event / Opinion / Claim / Evidence /
+ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现位于
+`src/research_os/models/`。所有对象必须通过对应 Schema 校验：
+确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
+
+## 输出边界
+
+本系统**不输出**目标价、买卖评级、仓位建议或任何交易建议。
+报告中的关键结论必须可映射到带证据的 Claim。

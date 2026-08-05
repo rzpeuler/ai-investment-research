@@ -1,0 +1,43 @@
+# 模型路由配置
+# 依据工程指南第 51-53 节。业务升级与 provider 故障回退必须分离。
+
+routing:
+  default_model: deepseek-v4-flash
+  escalation_model: deepseek-v4-pro
+
+  # 不使用模型的任务（确定性逻辑必须用代码，见指南 6.3）
+  deterministic_only:
+    - date_calculation
+    - trading_day_check
+    - security_code_mapping
+    - numeric_calculation
+    - financial_ratios
+    - valuation_formulas
+    - return_and_alpha
+    - dedup_hash
+    - schema_validation
+    - report_section_validation
+    - data_date_validation
+    - file_path_and_naming
+    - database_writes
+    - task_idempotency
+
+  # Flash 升级 Pro 的触发条件（指南 72 节）
+  escalation_rules:
+    reasoning_conflict_count: 3
+    independent_high_tier_sources_conflict: true
+    supply_chain_hops: 3
+    candidate_causes_top2_score_gap: 8
+    flash_validation_failures: 2
+    ontology_change: true
+    core_rule_change: true
+
+  # 升级后仍失败 → 输出待人工审核，禁止继续升级或循环
+
+  # 路由记录字段（指南 53 节）
+  record_fields:
+    - module
+    - initial_model
+    - final_model
+    - escalation_reason
+    - attempts

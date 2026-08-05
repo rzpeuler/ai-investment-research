@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/opinion.schema.json",
+  "title": "Opinion",
+  "description": "观点对象。依据工程指南 11.5 节。观点不得自动转化为事实。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "opinion_id",
+    "speaker_entity_id",
+    "source_id",
+    "published_at",
+    "target_entities",
+    "stance",
+    "thesis",
+    "arguments",
+    "predictions",
+    "conditions",
+    "time_horizon",
+    "evidence_ids",
+    "influence_score"
+  ],
+  "properties": {
+    "opinion_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "speaker_entity_id": { "type": "string", "minLength": 1, "description": "如 creator:xxx" },
+    "source_id": { "type": "string", "minLength": 1 },
+    "published_at": { "type": "string", "format": "date-time" },
+    "target_entities": { "type": "array", "items": { "type": "string" } },
+    "stance": { "type": "string", "enum": ["bullish", "bearish", "mixed", "neutral"] },
+    "thesis": { "type": "string", "minLength": 1 },
+    "arguments": { "type": "array", "items": { "type": "string" } },
+    "predictions": { "type": "array", "items": { "type": "string" } },
+    "conditions": { "type": "array", "items": { "type": "string" } },
+    "time_horizon": { "type": ["string", "null"] },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "influence_score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }
+  }
+}

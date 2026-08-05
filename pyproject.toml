@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "research-os"
+version = "0.1.0"
+description = "AI + A股投研 Skill 系统 —— 场景编排 / 功能模块 / 数据采集 / 知识库四层框架 + 工程控制面"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "个人投研项目" }]
+dependencies = [
+    "pydantic>=2.5",
+    "jsonschema>=4.20",
+    "click>=8.1",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+research = "research_os.cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_os"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["research_os"]

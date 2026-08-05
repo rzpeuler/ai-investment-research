@@ -1,0 +1,37 @@
+# 定时任务配置（指南 55-56 节）
+# 说明：本文件为模板，Cron 实际注册由用户在 Hermes 侧完成。
+# 所有任务必须设置：绝对 workdir、明确模型、明确 provider、输出目录、失败告警。
+
+timezone: Asia/Shanghai
+
+jobs:
+  morning_brief:
+    schedule: "10 8 * * *"
+    skill: morning-brief
+    scenario: morning_brief
+    depth: standard
+    # 数据窗口：前一日 20:00 至当日 08:00（延迟执行仍使用原始窗口）
+    window: "20:00_prev -> 08:00_today"
+    delayed_ok: true
+
+  evening_brief:
+    schedule: "10 20 * * *"
+    skill: evening-brief
+    scenario: evening_brief
+    depth: standard
+    window: "08:00_today -> 20:00_today"
+    delayed_ok: true
+
+  daily_review:
+    schedule: "30 18 * * 1-5"
+    skill: daily-review
+    scenario: daily_review
+    depth: standard
+    delayed_ok: true
+
+# 补跑机制（指南 56 节）：每个定时场景启动前
+# 检查目标时间窗口 → 检查对应报告是否存在且通过校验
+# → 不存在则补跑 → 已存在则幂等退出
+catchup:
+  enabled: true
+  report_required_valid: true

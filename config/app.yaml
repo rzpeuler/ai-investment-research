@@ -1,0 +1,30 @@
+# 应用基础配置
+# Phase 0：仅为模板，供后续阶段读取。所有路径相对项目根目录。
+
+project:
+  name: ai-investment-research
+  market: A-share
+  timezone: Asia/Shanghai
+  default_output: markdown
+
+paths:
+  reports: reports
+  runs: reports/runs
+  data: data
+  sqlite_dir: data/sqlite
+  registry: registry
+  knowledge: knowledge
+  schemas: schemas
+
+runtime:
+  # 任务档位预算（秒），对应工程指南第 5 节
+  budgets:
+    fast: 480          # 3-8 分钟
+    standard: 1200     # 10-20 分钟
+    deep: 1800         # 不超过 30 分钟
+  default_depth: standard
+
+logging:
+  level: INFO
+  # 每次运行日志写入 reports/runs/{task_id}/errors.log
+  max_errors_log_bytes: 1048576

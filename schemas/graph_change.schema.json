@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/graph_change.schema.json",
+  "title": "GraphChange",
+  "description": "产业图谱变更候选。依据工程指南 46 节（变更类型/当前知识/新证据/建议变更/影响范围/冲突信息/验证节点/审核选项）。未审核不得进入核心图谱。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "graph_change_id",
+    "change_type",
+    "node",
+    "edge",
+    "current_knowledge",
+    "new_evidence_ids",
+    "suggested_change",
+    "impact_scope",
+    "conflicts",
+    "verification_points",
+    "review_status",
+    "created_at",
+    "reviewed_at"
+  ],
+  "properties": {
+    "graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "change_type": {
+      "type": "string",
+      "enum": ["add_node", "add_edge", "modify_attribute", "retire_edge", "retire_node"]
+    },
+    "node": {
+      "type": ["object", "null"],
+      "description": "变更涉及的图谱节点（指南 42 节结构）。新增节点时必填。",
+      "additionalProperties": true
+    },
+    "edge": {
+      "type": ["object", "null"],
+      "description": "变更涉及的图谱关系（指南 43 节结构）。新增/废止关系时必填。",
+      "additionalProperties": true
+    },
+    "current_knowledge": { "type": "string", "description": "当前知识" },
+    "new_evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "suggested_change": { "type": "string", "minLength": 1, "description": "建议变更" },
+    "impact_scope": { "type": "array", "items": { "type": "string" } },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "verification_points": { "type": "array", "items": { "type": "string" } },
+    "review_status": {
+      "type": "string",
+      "enum": ["candidate", "approved", "approved_with_changes", "deferred", "rejected"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "reviewed_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] }
+  }
+}

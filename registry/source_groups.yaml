@@ -1,0 +1,51 @@
+# 来源分组
+# 依据工程指南第 22 节。Phase 0：仅登记分组结构，不预填未经探测的来源。
+
+groups:
+  regulatory_disclosure:
+    name: 法定披露与监管
+    candidates: []   # TODO Phase1: 巨潮资讯/上交所/深交所/证监会/国家企业信用信息
+    usage: 公司基本事实、财务数据、合同、融资、股权、治理、风险事件
+    min_tier: S
+
+  government_statistics:
+    name: 政府、部委、统计与行业机构
+    candidates: []   # TODO Phase1: 国务院及部委/国家统计局/地方政府/行业协会/公共采购平台
+    usage: 政策、行业数据、项目审批、采购、产业背景
+    min_tier: A
+
+  company_official:
+    name: 公司官方渠道
+    candidates: []   # TODO Phase1: 公司官网/IR页面/官方公众号/新闻稿/互动平台/投关活动记录
+    usage: 公司官方信息与投资者关系
+    min_tier: A
+
+  market_quote:
+    name: 市场和行情
+    candidates: []   # TODO Phase1: 本地行情引擎/公开数据接口/公开行情网页/交易所交易信息/龙虎榜
+    usage: 行情、成交、龙虎榜
+    min_tier: S
+
+  news_flash:
+    name: 新闻与快讯
+    candidates: []   # TODO Phase1: 财联社/三大报/央视财经/新闻联播/华尔街见闻等
+    usage: 新闻与快讯
+    min_tier: B
+
+  industry_media:
+    name: 行业资深自媒体
+    candidates: []   # TODO Phase1 种子: 半导体行业观察/智东西/芯东西/机器之心/量子位/新智元/甲子光年/高工锂电/医药魔法
+    usage: 行业背景与线索
+    min_tier: C
+
+  community:
+    name: 社区与博主
+    candidates: []   # TODO Phase1: 雪球/淘股吧/微博/微信公众号/小红书/韭研公社
+    usage: 关注点、叙事传播、市场分歧、线索发现（不得单独支持核心事实）
+    min_tier: C
+
+  institution_flow:
+    name: 机构动向
+    candidates: []   # TODO Phase1: 机构调研/公开电话会/机构晨报方向/研报数量与主题集中度/研报平台热度
+    usage: 机构关注度（必须区分真实机构行为/卖方覆盖行为/平台用户热度/二次汇总/未验证纪要）
+    min_tier: B

@@ -1,0 +1,57 @@
+# 来源注册表
+# 依据工程指南第 22-24 节。
+# Phase 0：仅结构模板。真实来源必须经 probe_sources.py 探测后，以 candidate 状态登记，
+# 通过审核后转 approved。禁止在未验证的情况下写入具体来源字段。
+
+# 来源字段定义（指南 23 节）：
+# source_id, name, platform, source_type, source_tier, authority_score, accuracy_score,
+# timeliness_score, coverage_score, stability_score, originality_score,
+# opinion_influence_score, access_level, automation_level, login_required, paid,
+# storage_policy, rate_limit, update_frequency, allowed_usage, primary_topics,
+# status, last_verified_at, notes
+
+# 来源等级（指南 24 节）：
+#   S: 法定披露、监管、交易所、官方统计
+#   A: 公司官方、政府机构、正式采购、行业协会、可验证原始文件
+#   B: 高质量财经媒体、行业专业媒体、机构公开材料
+#   C: 有明确身份和历史记录的博主、自媒体、社区高影响用户
+#   D: 匿名消息、转述、截图、无法访问原文的二手内容
+# 规则：核心事实优先 S/A；B 补充背景；C 用于舆情和线索；D 只能进入待验证线索。
+# 多个转载同一原始消息只算一个独立证据；来源等级不能自动决定观点正确性。
+
+# 来源状态（指南 23.1）：candidate / approved / watchlist / deprecated / blocked
+# 访问状态（指南 23.2）：public / public_but_unstable / login_required / client_only / paid / manual_only / unavailable
+# 自动化等级（指南 23.3）：api / html / browser / export_import / manual
+
+sources: {}
+
+# 示例（Phase 1 探测后取消注释并按实际填写）：
+#   cninfo:
+#     name: 巨潮资讯
+#     platform: cninfo
+#     source_type: official_disclosure
+#     source_tier: S
+#     access_level: public
+#     automation_level: api
+#     login_required: false
+#     paid: false
+#     storage_policy: metadata_and_excerpt
+#     rate_limit: unknown
+#     update_frequency: realtime
+#     status: candidate
+#     last_verified_at: null
+#     notes: 待 Phase1 探测
+
+# IMA 第一版标记为 manual_or_client_only，不作为稳定自动采集依赖（指南 22.8）
+ima:
+  name: IMA 知识库
+  platform: ima
+  source_type: client_shared_knowledge
+  source_tier: C
+  access_level: client_only
+  automation_level: manual
+  login_required: true
+  paid: false
+  storage_policy: metadata_and_excerpt
+  status: candidate
+  notes: 用户分享链接或摘要进入 inbox，再由系统结构化

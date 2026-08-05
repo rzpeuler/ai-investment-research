@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/raw_item.schema.json",
+  "title": "RawItem",
+  "description": "采集记录（非网页全文存档）。依据工程指南 11.3 节。处理完成后仅保留元数据、URL、内容哈希、最小必要证据摘录、结构化事件与观点、访问时间、解析状态。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "raw_item_id",
+    "source_id",
+    "external_id",
+    "url",
+    "title",
+    "publisher",
+    "author",
+    "published_at",
+    "retrieved_at",
+    "content_hash",
+    "content_excerpt",
+    "content_storage",
+    "language",
+    "access_status",
+    "entities",
+    "raw_category"
+  ],
+  "properties": {
+    "raw_item_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "source_id": { "type": "string", "minLength": 1 },
+    "external_id": { "type": ["string", "null"], "description": "来源侧原生 ID" },
+    "url": { "type": "string", "format": "uri" },
+    "title": { "type": "string", "minLength": 1 },
+    "publisher": { "type": "string", "minLength": 1 },
+    "author": { "type": ["string", "null"] },
+    "published_at": { "type": "string", "format": "date-time" },
+    "retrieved_at": { "type": "string", "format": "date-time" },
+    "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256" },
+    "content_excerpt": { "type": "string", "description": "最小必要证据摘录，不得保存全文" },
+    "content_storage": {
+      "type": "string",
+      "enum": ["metadata_only", "metadata_and_excerpt", "full_text_allowed", "unknown"]
+    },
+    "language": { "type": "string", "default": "zh-CN" },
+    "access_status": {
+      "type": "string",
+      "enum": ["ok", "partial", "failed", "unauthorized", "unknown"]
+    },
+    "entities": { "type": "array", "items": { "type": "string" } },
+    "raw_category": { "type": ["string", "null"] }
+  }
+}

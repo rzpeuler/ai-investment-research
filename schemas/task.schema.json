@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/task.schema.json",
+  "title": "Task",
+  "description": "研究任务对象。依据工程指南 11.1 节。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "scenario",
+    "status",
+    "requested_at",
+    "as_of",
+    "timezone",
+    "entities",
+    "time_window",
+    "depth",
+    "max_runtime_seconds",
+    "source_policy",
+    "output_formats",
+    "model_policy",
+    "warnings"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "scenario": {
+      "type": "string",
+      "enum": [
+        "morning_brief",
+        "evening_brief",
+        "daily_review",
+        "abnormal_move_analysis",
+        "stock_research_report",
+        "first_coverage",
+        "stock_review",
+        "industry_research",
+        "theme_discovery",
+        "earnings_expectation"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "running", "completed", "failed", "cancelled"]
+    },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "timezone": { "type": "string", "default": "Asia/Shanghai" },
+    "entities": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "time_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+        "end": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] }
+      }
+    },
+    "depth": { "type": "string", "enum": ["fast", "standard", "deep"] },
+    "max_runtime_seconds": { "type": "integer", "minimum": 1 },
+    "source_policy": { "type": "string", "enum": ["public_first", "official_first", "manual_only"] },
+    "output_formats": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["markdown", "excel", "json"] }
+    },
+    "model_policy": { "type": "string", "enum": ["flash_default", "pro_escalation", "no_model"] },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

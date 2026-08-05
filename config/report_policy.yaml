@@ -1,0 +1,70 @@
+# 报告策略配置
+# 依据工程指南第 4、49、57、59 节。
+
+frontmatter:
+  required_fields:
+    - report_id
+    - scenario
+    - title
+    - created_at
+    - as_of
+    - timezone
+    - entities
+    - time_window
+    - data_status
+    - source_coverage
+    - model_route
+    - runtime_seconds
+    - validator_status
+    - knowledge_coordinates
+  default_timezone: Asia/Shanghai
+
+# 报告命名规则（指南 48 节）
+naming:
+  morning: "reports/morning/{YYYY}/{YYYY-MM}/{YYYY-MM-DD}_morning.md"
+  evening: "reports/evening/{YYYY}/{YYYY-MM}/{YYYY-MM-DD}_evening.md"
+  daily_review: "reports/daily_review/{YYYY}/{YYYY-MM}/{YYYY-MM-DD}_review.md"
+  stock: "reports/stocks/{ticker}/{YYYY-MM-DD}_{scenario}.md"
+  industry: "reports/industries/{industry_id}/{YYYY-MM-DD}_{scenario}.md"
+  theme: "reports/themes/{theme_id}/{YYYY-MM-DD}_{scenario}.md"
+  run: "reports/runs/{task_id}/"
+
+# 禁止输出项（指南 4 节输出边界）。机械校验器使用（指南 59 节）。
+forbidden_outputs:
+  target_price: true
+  buy_sell_rating: true
+  position_advice: true
+  tomorrow_trade_advice: true
+  # 引导性语言检测关键词（校验器据此扫描）
+  forbidden_words:
+    - "目标价"
+    - "买入评级"
+    - "卖出评级"
+    - "建议买入"
+    - "建议卖出"
+    - "建议加仓"
+    - "建议减仓"
+    - "建议仓位"
+    - "可以买"
+    - "可以跟"
+    - "上车"
+    - "满仓"
+    - "清仓"
+
+# 运行目录内容（指南 50 节）
+run_directory:
+  files:
+    - task.json
+    - plan.json
+    - retrieval_log.jsonl
+    - module_results/
+    - evidence_index.json
+    - validation.json
+    - final.md
+    - errors.log
+
+# 校验失败处理（指南 59 节）：格式类自动修复；逻辑/证据类返回模块重跑，最多 2 次；仍失败输出 partial
+validation:
+  auto_fix_format: true
+  max_module_reruns: 2
+  final_on_failure: partial

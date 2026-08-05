@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/event.schema.json",
+  "title": "Event",
+  "description": "事件对象。依据工程指南 11.4 节。必须区分事件发生时间/信息发布时间/计划生效时间/报告检索时间。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "subject_entities",
+    "object_entities",
+    "event_time",
+    "announced_at",
+    "effective_at",
+    "status",
+    "summary",
+    "quantitative_fields",
+    "industry_coordinates",
+    "novelty",
+    "impact_direction",
+    "impact_horizon",
+    "evidence_ids",
+    "confidence",
+    "conflicts"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "event_type": { "type": "string", "minLength": 1 },
+    "subject_entities": { "type": "array", "items": { "type": "string" } },
+    "object_entities": { "type": "array", "items": { "type": "string" } },
+    "event_time": { "type": "string", "format": "date-time", "description": "事件发生时间" },
+    "announced_at": { "type": "string", "format": "date-time", "description": "信息发布时间" },
+    "effective_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ], "description": "计划生效时间" },
+    "status": {
+      "type": "string",
+      "enum": ["announced", "confirmed", "expected", "superseded", "cancelled", "unknown"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "quantitative_fields": {
+      "type": "object",
+      "additionalProperties": { "type": ["number", "string", "null"] }
+    },
+    "industry_coordinates": { "type": "array", "items": { "type": "string" } },
+    "novelty": { "type": "number", "minimum": 0, "maximum": 1 },
+    "impact_direction": {
+      "type": "string",
+      "enum": ["positive", "negative", "mixed", "neutral", "unknown"]
+    },
+    "impact_horizon": {
+      "type": "string",
+      "enum": ["intraday", "short", "medium", "long"]
+    },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "conflicts": { "type": "array", "items": { "type": "string" } }
+  }
+}

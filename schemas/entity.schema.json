@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/entity.schema.json",
+  "title": "Entity",
+  "description": "实体对象。依据工程指南 11.2 节与第 40 节节点类型。支持代码变化/更名/ST/同名消歧/多重归属/历史有效期。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entity_id",
+    "entity_type",
+    "canonical_name",
+    "aliases",
+    "market",
+    "industry_ids",
+    "concept_ids",
+    "valid_from",
+    "valid_to",
+    "source_ids"
+  ],
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "pattern": "^(company|industry|industry_segment|product|technology|material|equipment|application|policy|event|metric|person_or_institution|report|investment_theme|creator|unknown):[A-Za-z0-9._: -]+$"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": [
+        "industry",
+        "industry_segment",
+        "company",
+        "product",
+        "technology",
+        "material",
+        "equipment",
+        "application",
+        "policy",
+        "event",
+        "metric",
+        "person_or_institution",
+        "report",
+        "investment_theme",
+        "creator",
+        "unknown"
+      ]
+    },
+    "canonical_name": { "type": "string", "minLength": 1 },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "market": {
+      "type": "string",
+      "enum": ["A-share", "HK", "US", "commodity", "macro", "unknown"]
+    },
+    "industry_ids": { "type": "array", "items": { "type": "string" } },
+    "concept_ids": { "type": "array", "items": { "type": "string" } },
+    "valid_from": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "valid_to": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "source_ids": { "type": "array", "items": { "type": "string" } }
+  }
+}

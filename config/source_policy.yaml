@@ -1,0 +1,52 @@
+# 来源策略配置
+# 依据工程指南第 23-25 节。主源/备源按"数据字段或任务"定义，不按整个网站定义。
+
+storage:
+  # 项目默认存储权限：metadata_and_excerpt，不保存全文（指南 23.4）
+  default: metadata_and_excerpt
+  allowed:
+    - metadata_only
+    - metadata_and_excerpt
+    - full_text_allowed
+    - unknown
+
+# 主源与后备（指南 25 节）。Phase 0 仅登记结构，Phase 1 探测后填充真实来源 ID。
+backup_plan:
+  company_announcement:
+    primary: null            # TODO Phase1: cninfo
+    secondary: []
+    fallback: []
+    minimum_acceptable: official_metadata
+
+  macro_data:
+    primary: null            # TODO Phase1: nbs
+    secondary: []
+    fallback: []
+    minimum_acceptable: official_release
+
+  market_price:
+    primary: null            # TODO Phase1: local_market_engine
+    secondary: []
+    fallback: []
+    minimum_acceptable: daily_ohlcv
+
+# 降级规则（指南 25 节）：主源失败时记录失败 → 切换备源 → 标明降级 → 禁止估数 → 披露实际数据日
+degradation:
+  record_failure: true
+  switch_secondary: true
+  mark_degraded: true
+  forbid_estimation: true
+  disclose_actual_data_date: true
+
+# 社区来源边界（指南 22.7）：只用于关注点/叙事/分歧/线索，不得单独支持核心事实
+community_usage:
+  allowed: [attention, narrative, divergence, lead_generation]
+  forbidden: [sole_support_of_core_fact]
+
+# 来源状态机（指南 23.1）
+source_status:
+  - candidate
+  - approved
+  - watchlist
+  - deprecated
+  - blocked

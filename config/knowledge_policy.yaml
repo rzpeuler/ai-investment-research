@@ -1,0 +1,53 @@
+# 知识库策略配置
+# 依据工程指南第 38-47 节。
+
+# 三套并存分类（指南 38 节）
+taxonomy:
+  stable_industry_tree: 申万一级/二级/三级   # 稳定主树
+  industry_chain_tree: [上游材料和设备, 中游制造和组件, 下游产品与应用, 支撑基础设施, 服务与软件]
+  dynamic_theme_tags: 通达信概念与市场临时主题  # 仅作为标签，不承担稳定树结构
+
+# 首批行业骨架（指南 39 节）
+initial_domains:
+  - AI_hardware
+  - semiconductor
+  - AI_software
+
+# 入库状态机（指南 45 节）
+ingest_status:
+  - inbox
+  - parsed
+  - event_accepted
+  - graph_candidate
+  - approved
+  - active
+  - superseded
+  - expired
+  - rejected
+
+# 三层存储（指南 44 节）
+layers:
+  raw_index: 元数据、链接、哈希、摘录
+  event_opinion: 达到基本结构化标准的信息（主体/时间/来源/实体明确、非垃圾）
+  core_knowledge: 对产业结构供需技术成本价格产能竞争格局有实质影响、可映射节点、证据足够、关系明确、有有效期、已通过人工审核
+
+# 核心图谱写入门槛：必须已通过人工审核（指南 44.3）
+core_write_requires_review: true
+
+# 知识复核周期（指南 47 节）
+review_cycles:
+  company_basics: low_frequency
+  capacity_projects: mandatory_at_expiry
+  product_prices: short_term
+  industry_structure: quarterly_or_major_event
+  blogger_opinions: historical_only
+  policy_expectations: on_landing_or_expiry
+
+# 版本与失效（指南 47 节）：不得覆盖历史
+versioning:
+  preserve_history: true
+
+# 图谱变更候选审核（指南 46 节）：第一版通过 Markdown 审核
+review:
+  format: markdown
+  options: [批准, 修改后批准, 暂缓, 拒绝]

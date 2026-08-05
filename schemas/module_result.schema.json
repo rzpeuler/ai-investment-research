@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/module_result.schema.json",
+  "title": "ModuleResult",
+  "description": "功能模块执行结果。依据工程指南 11.8 节。status 必须显式返回，禁止静默失败。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "module",
+    "version",
+    "status",
+    "as_of",
+    "inputs",
+    "facts",
+    "source_opinions",
+    "analyses",
+    "hypotheses",
+    "open_questions",
+    "evidence_ids",
+    "confidence",
+    "warnings",
+    "missing_data",
+    "metrics",
+    "artifacts"
+  ],
+  "properties": {
+    "module": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "status": {
+      "type": "string",
+      "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]
+    },
+    "as_of": { "type": "string", "format": "date-time" },
+    "inputs": { "type": "object" },
+    "facts": { "type": "array", "items": { "type": "string" } },
+    "source_opinions": { "type": "array", "items": { "type": "string" } },
+    "analyses": { "type": "array", "items": { "type": "string" } },
+    "hypotheses": { "type": "array", "items": { "type": "string" } },
+    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } },
+    "metrics": { "type": "object" },
+    "artifacts": { "type": "array", "items": { "type": "string" } }
+  }
+}
