@@ -30,6 +30,17 @@ TABLES = {
     "SourceProbe": "source_probes",
     "DataRoute": "data_routes",
     "ManualInbox": "manual_inbox",
+    # Phase 3：异动分析
+    "MarketDailySeriesManifest": "market_daily_series_manifests",
+    "AbnormalMoveRequest": "abnormal_move_requests",
+    "AbnormalMoveObservation": "abnormal_move_observations",
+    "AnomalyMetric": "anomaly_metrics",
+    "BenchmarkCandidate": "benchmark_candidates",
+    "BenchmarkSelection": "benchmark_selections",
+    "CauseCandidate": "cause_candidates",
+    "CauseEvidenceLink": "cause_evidence_links",
+    "AttributionResult": "attribution_results",
+    "AbnormalMoveRun": "abnormal_move_runs",
 }
 
 # 各表主键列名（与 001_initial.sql 保持一致）
@@ -45,6 +56,18 @@ PK_COLUMNS = {
     "sources": "source_id",
     "source_probes": "probe_id",
     "manual_inbox": "inbox_id",
+    # Phase 3
+    "market_daily_series_manifests": "import_id",
+    "abnormal_move_requests": "request_id",
+    "abnormal_move_observations": "observation_id",
+    "anomaly_metrics": "metric_id",
+    "benchmark_candidates": "benchmark_candidate_id",
+    "benchmark_selections": "benchmark_selection_id",
+    "cause_candidates": "cause_candidate_id",
+    "cause_evidence_links": "link_id",
+    "attribution_results": "attribution_result_id",
+    "abnormal_move_runs": "run_id",
+    "llm_call_records": "call_id",
 }
 
 
@@ -136,6 +159,44 @@ class Database:
         if name == "ManualInbox":
             return {"source_name": d["source_name"], "status": d["status"],
                     "submitted_at": d["submitted_at"]}
+        if name == "MarketDailySeriesManifest":
+            return {"source_kind": d["source_kind"], "adjustment_method": d["adjustment_method"],
+                    "validation_status": d["validation_status"], "date_start": d["date_start"],
+                    "date_end": d["date_end"], "data_version": d["data_version"],
+                    "imported_at": d["imported_at"]}
+        if name == "AbnormalMoveRequest":
+            return {"entity_id": d["entity_id"], "entity_type": d["entity_type"],
+                    "analysis_date": d["analysis_date"], "status": d["status"],
+                    "created_at": d["as_of"]}
+        if name == "AbnormalMoveObservation":
+            return {"request_id": d["request_id"], "entity_id": d["entity_id"],
+                    "trade_date": d["trade_date"], "status": d["status"]}
+        if name == "AnomalyMetric":
+            return {"observation_id": d["observation_id"], "metric_type": d["metric_type"],
+                    "status": d["status"]}
+        if name == "BenchmarkCandidate":
+            return {"request_id": d["request_id"], "subject_entity_id": d["subject_entity_id"],
+                    "benchmark_entity_id": d["benchmark_entity_id"],
+                    "benchmark_type": d["benchmark_type"],
+                    "eligible": 1 if d["eligible"] else 0}
+        if name == "BenchmarkSelection":
+            return {"request_id": d["request_id"], "observation_id": d["observation_id"],
+                    "fallback_status": d["fallback_status"]}
+        if name == "CauseCandidate":
+            return {"request_id": d["request_id"], "observation_id": d["observation_id"],
+                    "cause_category": d["cause_category"], "final_score": d["final_score"],
+                    "status": d["status"]}
+        if name == "CauseEvidenceLink":
+            return {"cause_candidate_id": d["cause_candidate_id"],
+                    "evidence_id": d["evidence_id"], "relation": d["relation"]}
+        if name == "AttributionResult":
+            return {"request_id": d["request_id"], "observation_id": d["observation_id"],
+                    "attribution_status": d["attribution_status"],
+                    "overall_confidence": d["overall_confidence"]}
+        if name == "AbnormalMoveRun":
+            return {"task_id": d["task_id"], "request_id": d["request_id"],
+                    "idempotency_key": d["idempotency_key"], "run_version": d["run_version"],
+                    "status": d["status"], "validation_status": d["validation_status"]}
         raise ValueError(f"未知对象类型: {name}")
 
     def upsert(self, obj: Any, task_id: Optional[str] = None) -> None:
@@ -182,11 +243,7 @@ class Database:
 
     def get(self, table: str, pk_value: str) -> Optional[dict]:
         """按主键读取对象（返回 JSON payload dict）。"""
-        pk_col = {"tasks": "task_id", "entities": "entity_id", "raw_items": "raw_item_id",
-                  "events": "event_id", "opinions": "opinion_id", "claims": "claim_id",
-                  "evidence": "evidence_id", "graph_changes": "graph_change_id",
-                  "sources": "source_id", "source_probes": "probe_id",
-                  "manual_inbox": "inbox_id"}.get(table)
+        pk_col = PK_COLUMNS.get(table)
         if pk_col is None:
             raise ValueError(f"不支持的主键表: {table}")
         row = self._conn.execute(

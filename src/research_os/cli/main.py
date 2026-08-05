@@ -522,5 +522,71 @@ def _error_raw_item(source_id: str, message: str) -> "object":
     )
 
 
+@cli.group()
+def market_data() -> None:
+    """市场数据管理：人工日线导入（Phase 3）。"""
+
+
+@market_data.command("import-daily")
+@click.option("--file", "file_path", required=True,
+              type=click.Path(exists=True, dir_okay=False, path_type=str),
+              help="CSV/Parquet 文件路径。")
+@click.option("--source", "source_id", default="manual_import",
+              help="来源 ID（默认 manual_import）。")
+@click.option("--adjustment", default="none",
+              type=click.Choice(["none", "qfq", "hfq"]),
+              help="复权口径（一个批次只能一种）。")
+@click.option("--calendar", "calendar_id", default="cn-exchange",
+              help="交易日历 ID（默认 cn-exchange，周一至周五）。")
+@click.option("--imported-by", default="user", help="导入人标识。")
+@click.option("--data-version", default=None, help="数据版本号（默认自动生成）。")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="只解析和校验，展示预计写入行数/日期范围/重复行/问题；不写数据库、不建 manifest。")
+def market_data_import_daily(file_path, source_id, adjustment, calendar_id,
+                             imported_by, data_version, dry_run) -> None:
+    """人工导入历史日线（最低字段 symbol/trade_date/open/high/low/close/volume）。
+
+    质量检查：日期、重复键、OHLC 关系、负值、停牌缺口、交易日。
+    失败导入（存在 rejected 行）不写入正式日线表；不允许静默修改用户数据。
+    """
+    from research_os.abnormal_move.market_data_loader import DailyImportService
+    from research_os.storage import Database
+
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    service = DailyImportService(db)
+    try:
+        result = service.import_file(
+            path=file_path, source_id=source_id, adjustment=adjustment,
+            calendar_id=calendar_id, imported_by=imported_by,
+            data_version=data_version, dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        db.close()
+        raise click.ClickException(str(exc)) from None
+    db.close()
+
+    p = result.preview
+    prefix = "[DRY-RUN]" if dry_run else "[OK]"
+    click.echo(f"{prefix} 文件: {p.file_name}  复权: {p.adjustment_method}  日历: {p.calendar_id}")
+    click.echo(f"{prefix} 行数: {p.rows_total}（accepted={p.rows_accepted}, rejected={p.rows_rejected}）")
+    click.echo(f"{prefix} 符号: {', '.join(p.symbols) or '（空）'}")
+    click.echo(f"{prefix} 日期范围: {p.date_start or '?'} 至 {p.date_end or '?'}")
+    if p.duplicate_keys:
+        click.echo(f"{prefix} 重复行: {len(p.duplicate_keys)}（{', '.join(p.duplicate_keys[:5])}...）")
+    for issue in p.issues[:20]:
+        click.echo(f"{prefix}  问题: {issue}")
+    for w in p.warnings[:20]:
+        click.echo(f"{prefix}  警告: {w}")
+    if dry_run:
+        click.echo("[DRY-RUN] 未写入数据库、未创建 manifest、未修改任何报告或知识库。")
+        return
+    if result.validation_status == "rejected":
+        click.echo(f"[WARN] 存在 rejected 行（{p.rows_rejected}），正式日线表仅写入 accepted 行（{result.written_rows} 行）；manifest validation_status=rejected。")
+    else:
+        click.echo(f"[OK] 已写入正式日线表 {result.written_rows} 行；manifest {result.manifest.import_id}（{result.validation_status}）。")
+
+
 if __name__ == "__main__":
     cli()
