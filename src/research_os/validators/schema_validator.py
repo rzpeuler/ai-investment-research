@@ -45,6 +45,11 @@ SCHEMA_NAMES = [
     # Phase 1.1：行情契约
     "market_realtime_snapshot",
     "market_daily_ohlcv",
+    # Phase 2：晨报流水线
+    "candidate_item",
+    "event_cluster",
+    "information_score",
+    "morning_brief_run",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -108,6 +113,10 @@ def validate_model(model: Any) -> List[str]:
         "ManualInbox": "manual_inbox",
         "MarketRealtimeSnapshot": "market_realtime_snapshot",
         "MarketDailyOhlcv": "market_daily_ohlcv",
+        "CandidateItem": "candidate_item",
+        "EventCluster": "event_cluster",
+        "InformationScore": "information_score",
+        "MorningBriefRun": "morning_brief_run",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")

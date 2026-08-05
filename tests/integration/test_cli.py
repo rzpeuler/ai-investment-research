@@ -102,7 +102,7 @@ def test_validate_schemas_ok(project_root):
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
     assert result.exit_code == 0, result.output
-    assert "15 个 Schema 通过" in result.output
+    assert "19 个 Schema 通过" in result.output
 
 
 def test_validate_report_missing_frontmatter_fails(project_root):
@@ -119,7 +119,7 @@ def test_validate_report_ok(project_root):
     p = project_root / "good_report.md"
     fm = (
         "---\n"
-        "report_id: rep-1\nscenario: morning_brief\ntitle: 测试\n"
+        "report_id: rep-1\nscenario: stock_research_report\ntitle: 测试\n"
         "created_at: 2026-08-05T08:00:00\nas_of: 2026-08-05T08:00:00\n"
         "timezone: Asia/Shanghai\nentities: []\n"
         "time_window: {start: null, end: null}\ndata_status: ok\n"
