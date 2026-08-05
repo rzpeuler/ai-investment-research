@@ -588,5 +588,91 @@ def market_data_import_daily(file_path, source_id, adjustment, calendar_id,
         click.echo(f"[OK] 已写入正式日线表 {result.written_rows} 行；manifest {result.manifest.import_id}（{result.validation_status}）。")
 
 
+def _param_error(message: str) -> None:
+    """参数错误：退出码 2（任务书 17 节），不显示 traceback。"""
+    exc = click.ClickException(message)
+    exc.exit_code = 2
+    raise exc
+
+
+@run.command("abnormal-move")
+@click.option("--entity", "entity_code", default=None, help="股票代码（如 600519.SH）。")
+@click.option("--industry", "industry_id", default=None, help="行业实体 ID（如 industry:白酒）。")
+@click.option("--concept", "concept_id", default=None, help="概念实体 ID（如 concept:白酒概念）。")
+@click.option("--date", "analysis_date", default=None, help="分析日期 YYYY-MM-DD（默认最近完整收盘交易日）。")
+@click.option("--depth", default="standard", type=click.Choice(["fast", "standard", "deep"]))
+@click.option("--granularity", default="daily", type=click.Choice(["daily", "minute"]))
+@click.option("--force", is_flag=True, help="已存在通过验证的结果时强制重跑（新 run_version，不覆盖旧产物）。")
+@click.option("--dry-run", is_flag=True, help="只计算不写入任何产物。")
+@click.option("--as-of", default=None, help="数据截止时间 ISO-8601。")
+@click.option("--window-start", default=None, help="分析窗口开始 YYYY-MM-DD。")
+@click.option("--window-end", default=None, help="分析窗口结束 YYYY-MM-DD。")
+@click.option("--peer", "peers", multiple=True, help="同行股票代码（可重复）。")
+@click.option("--name", "entity_name", default="", help="报告显示名称。")
+def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth,
+                      granularity, force, dry_run, as_of, window_start, window_end,
+                      peers, entity_name) -> None:
+    """异动分析流水线（Phase 3）。
+
+    --entity / --industry / --concept 三选一；股票代码必须通过实体解析。
+    UNEXPLAINED_MOVE 是合法报告（退出码 0）；数据不足退出码 3；
+    Validator 失败退出码 4；内部异常退出码 5；参数错误退出码 2。
+    """
+    import re
+
+    from research_os.abnormal_move.pipeline import (
+        EXIT_INSUFFICIENT,
+        EXIT_OK,
+        EXIT_PARAM,
+        AbnormalMovePipeline,
+    )
+    from research_os.storage import Database
+
+    # 参数校验：三选一
+    chosen = [x for x in (entity_code, industry_id, concept_id) if x]
+    if len(chosen) != 1:
+        _param_error("必须且只能指定一个：--entity / --industry / --concept")
+    if granularity == "minute":
+        _param_error("minute 粒度暂无数据源（仅 Schema/模型/Loader Protocol），请使用 daily")
+    if entity_code is not None:
+        if not re.match(r"^\d{6}\.(SH|SZ)$", entity_code):
+            _param_error(
+                f"股票代码非法: {entity_code!r}（需要 6 位数字 + .SH/.SZ，如 600519.SH）")
+        entity_id = entity_code
+        entity_type = "company"
+    else:
+        entity_id = industry_id or concept_id
+        entity_type = "industry" if industry_id else "concept"
+
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    pipeline = AbnormalMovePipeline(root, db)
+    outcome = pipeline.run(
+        entity_id=entity_id, entity_type=entity_type,
+        analysis_date=analysis_date, depth=depth, granularity=granularity,
+        force=force, dry_run=dry_run, as_of=as_of,
+        window_start=window_start, window_end=window_end,
+        peers=list(peers), entity_name=entity_name,
+    )
+    db.close()
+
+    if outcome.status == "idempotent_skipped":
+        click.echo(f"[IDEMPOTENT] {outcome.message}")
+        raise SystemExit(EXIT_OK)
+    if outcome.status == "insufficient_data":
+        click.echo(f"[DATA_INSUFFICIENT] {outcome.message}")
+        raise SystemExit(EXIT_INSUFFICIENT)
+    if outcome.status == "failed":
+        click.echo(f"[FAILED] {outcome.message}", err=True)
+        raise SystemExit(outcome.exit_code or EXIT_PARAM)
+
+    click.echo(f"[OK] {outcome.message}")
+    if outcome.report_path:
+        click.echo(f"[OK] 报告: {outcome.report_path}")
+    if outcome.run_dir:
+        click.echo(f"[OK] 运行目录: {outcome.run_dir}")
+
+
 if __name__ == "__main__":
     cli()

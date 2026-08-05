@@ -452,6 +452,38 @@ class MarketDataLoader:
         return row[0]["d"] if row and row[0]["d"] else None
 
 
+def aggregate_peer_bars(peer_bars: Dict[str, List[MarketDailyOhlcv]],
+                        symbol: str = "synthetic:peer_basket") -> List[MarketDailyOhlcv]:
+    """行业/概念板块合成序列：按 trade_date 对齐成分股，close 取等权均值。
+
+    用于行业/概念异动检测（板块收益）；数据为合成代理，observation 须标记
+    provisional 且不得与个股日线混淆。成分不足时返回空列表。
+    """
+    by_date: Dict[str, List[MarketDailyOhlcv]] = {}
+    for bars in peer_bars.values():
+        for b in bars:
+            by_date.setdefault(b.trade_date, []).append(b)
+    if not by_date:
+        return []
+    out: List[MarketDailyOhlcv] = []
+    for trade_date in sorted(by_date):
+        group = by_date[trade_date]
+        if len(group) < 2:
+            continue
+        closes = [b.close for b in group]
+        opens = [b.open for b in group]
+        highs = [b.high for b in group]
+        lows = [b.low for b in group]
+        out.append(MarketDailyOhlcv(
+            bar_id=new_uuid(), symbol=symbol, trade_date=trade_date,
+            open=sum(opens) / len(opens), high=sum(highs) / len(highs),
+            low=sum(lows) / len(lows), close=sum(closes) / len(closes),
+            volume=sum(b.volume for b in group),
+            amount=sum(b.amount for b in group if b.amount is not None) or None,
+        ))
+    return out
+
+
 def _validate_manifest(m: MarketDailySeriesManifest) -> List[str]:
     from research_os.validators.schema_validator import validate_model
     return validate_model(m)
