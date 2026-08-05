@@ -353,6 +353,12 @@ def run_morning_brief(report_date, as_of, depth, force, dry_run, live) -> None:
         day = parse_report_date(report_date) if report_date else shanghai_now().date()
     except ValueError as exc:
         raise click.ClickException(f"--date 非法: {exc}（需要 YYYY-MM-DD）") from None
+    if as_of:
+        from research_os.utils.time import validate_iso
+
+        if not validate_iso(as_of):
+            raise click.ClickException(
+                f"--as-of 非法: {as_of!r}（需要 ISO-8601，如 2026-08-06T08:00:00+08:00）")
     window_start, window_end = morning_window(day)
     as_of_value = as_of or as_of_for(day)
     scheduled = scheduled_for(day)

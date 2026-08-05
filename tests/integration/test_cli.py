@@ -98,6 +98,32 @@ def test_run_valid_uuid_still_works(project_root):
     assert (project_root / "reports" / "runs" / tid).exists()
 
 
+def test_morning_brief_invalid_params_clean_errors():
+    """非法日期/非法 as-of：清晰错误、无 traceback、不创建部分任务（19.2 节）。"""
+    runner = CliRunner()
+    r1 = runner.invoke(cli, ["run", "morning-brief", "--date", "not-a-date", "--dry-run"])
+    assert r1.exit_code != 0
+    assert "--date 非法" in r1.output
+    assert "Traceback" not in r1.output
+    r2 = runner.invoke(cli, ["run", "morning-brief", "--as-of", "yesterday", "--dry-run"])
+    assert r2.exit_code != 0
+    assert "--as-of 非法" in r2.output
+    assert "Traceback" not in r2.output
+
+
+def test_morning_brief_dry_run_no_side_effects(project_root):
+    """dry-run：只输出计划，不写任何产物。"""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["run", "morning-brief",
+                                 "--date", "2026-08-06", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "[DRY-RUN]" in result.output
+    assert "信息窗口" in result.output
+    # 未生成报告与运行目录
+    assert not (project_root / "reports" / "morning").exists()
+    assert not (project_root / "reports" / "runs").exists()
+
+
 def test_validate_schemas_ok(project_root):
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
