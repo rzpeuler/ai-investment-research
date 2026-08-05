@@ -39,7 +39,7 @@ class Source(StrictModel):
     source_id: str = Field(..., min_length=1)
     name: str = Field(..., min_length=1)
     platform: str = Field(..., min_length=1)
-    base_domain: str
+    base_domain: Optional[str] = Field(None, description="无域名的客户端/手动来源可为 null")
     source_type: str = Field(..., min_length=1)
     source_tier: SourceTier = "B"
     authority_score: int = Field(0, ge=0, le=5)
@@ -126,6 +126,16 @@ class ManualInbox(StrictModel):
     intended_entities: List[str] = Field(default_factory=list)
     status: Literal["submitted", "parsed", "accepted", "rejected", "needs_review"] = "submitted"
     url_accessible: bool = True
+
+    @field_validator("source_url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(value.strip())
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            raise ValueError(f"source_url 必须是 http/https URL: {value!r}")
+        return value.strip()
 
     @field_validator("published_at", "submitted_at")
     @classmethod

@@ -1,0 +1,32 @@
+{
+  "probe_id": "7517596e-ec00-4f90-837e-c50892dfeec7",
+  "source_id": "csrc",
+  "started_at": "2026-08-05T17:55:20",
+  "finished_at": "2026-08-05T17:55:20",
+  "status": "partial",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [],
+  "requires_javascript": false,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "http://www.csrc.gov.cn/csrc/c100028/common_list.shtml",
+      "final_url": "http://www.csrc.gov.cn/csrc/c100028/common_list.shtml",
+      "http_status": 200,
+      "elapsed_ms": 0.061,
+      "redirects": 0,
+      "title": "证监会要闻",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html lang=\"en\"> <head> <meta charset=\"UTF-8\"> <meta name=\"viewport\" content=\"width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no\" /> <meta http-equiv=\""
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "页面可达但目标字段未在页面静态内容中确认（可能依赖 JS 或接口）"
+  ]
+}

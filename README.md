@@ -9,11 +9,19 @@
 
 ## 当前状态
 
-**Phase 0（项目骨架与契约）**：目录结构、配置模板、9 个核心 JSON Schema、
+**Phase 0（项目骨架与契约）**：目录结构、配置模板、13 个 JSON Schema、
 Python 数据模型、SQLite 初始化与迁移、`ResearchModule` / `CollectorAdapter` 抽象、
-空 Orchestrator、基础 CLI、运行目录与日志、Front Matter 校验器、单元与集成测试。
+Orchestrator、CLI、运行目录与日志、Front Matter 校验器、单元与集成测试。
 
-**尚未开始**：Phase 1 来源探测与数据底座（当前全部采集器为 stub）。
+**Phase 0.1（控制面加固）**：模型-契约说明、CLI UUID 校验、任务失败状态持久化
+（task.json/DB/validation.json 同步 failed + finished_at）、结构化 JSONL 错误记录
+（含敏感字段过滤）。
+
+**Phase 1（来源探测与数据底座）**：来源注册表（7 个来源已真实探测）、探测框架
+（curl 引擎，证据最小化）、正式披露适配器（巨潮 API 已验证）、政府统计适配器
+（统计局列表页）、行情候选（新浪报价）、新闻元数据候选（财联社 B 级）、
+人工 Inbox、主备路由、健康检查。**未开始**：晨报生成、异动归因、个股研报、
+产业图谱自动入库（Phase 2+）。
 
 ## 快速开始
 
@@ -71,8 +79,21 @@ research validate --report reports/morning/2026/2026-08/2026-08-05_morning.md
 research validate
 research validate --schemas
 
-# 来源探测（Phase 0 输出 stub 状态，无网络请求）
+# 来源探测（Phase 1：真实 HTTP 探测；无参数时仅列出已登记规格，不联网）
 research probe-sources
+research probe-sources --all
+research probe-sources --source cninfo
+research probe-sources --group official
+research probe-sources --output data/source_probes/ --no-write
+
+# 来源健康检查（可达性/结构探测）
+research health
+research health --source cninfo
+
+# 人工 Inbox（用户放入链接/标题/摘要，不自动进入知识图谱）
+research inbox add --name 雪球 --url https://xueqiu.com/xxx --title 标题 --excerpt 摘录
+research inbox list [--status submitted]
+research inbox status <inbox_id> needs_review
 ```
 
 ### 运行测试

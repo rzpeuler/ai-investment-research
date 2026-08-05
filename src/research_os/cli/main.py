@@ -171,6 +171,8 @@ def probe_sources(probe_all, source_id, group, output_dir, no_write) -> None:
 
     out_dir = output_dir or str(root / "data" / "source_probes")
     db = None if no_write else Database(root / "data" / "sqlite" / "research.db")
+    if db is not None:
+        db.initialize()  # 确保迁移已应用
 
     referer = None
     for spec in specs:
@@ -196,6 +198,111 @@ def probe_sources(probe_all, source_id, group, output_dir, no_write) -> None:
         db.close()
     click.echo("")
     click.echo("探测完成。结论写入 data/source_probes/；来源注册表状态更新见 registry/changelog.md。")
+
+
+@cli.group()
+def inbox() -> None:
+    """人工 Inbox：用户放入 URL/标题/摘要（不自动进入知识图谱）。"""
+
+
+@inbox.command("add")
+@click.option("--name", "source_name", required=True, help="来源名称。")
+@click.option("--url", "source_url", required=True, help="来源 URL。")
+@click.option("--title", required=True, help="标题。")
+@click.option("--excerpt", default="", help="手动摘录（不自动视为事实）。")
+@click.option("--notes", default="", help="备注。")
+@click.option("--entity", "entities", multiple=True, help="意图关联实体（可重复）。")
+def inbox_add(source_name, source_url, title, excerpt, notes, entities) -> None:
+    """新增 inbox 条目（submitted 状态）。"""
+    from pydantic import ValidationError
+
+    from research_os.collectors.manual import ManualInboxService
+    from research_os.storage import Database
+
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    service = ManualInboxService(db)
+    try:
+        entry = service.add(
+            source_name=source_name, source_url=source_url, title=title,
+            content_excerpt=excerpt, notes=notes, intended_entities=list(entities),
+        )
+    except ValidationError as exc:
+        db.close()
+        first = exc.errors()[0] if exc.errors() else {}
+        raise click.ClickException(
+            f"inbox 参数无效: {first.get('loc', '?')} {first.get('msg', '')}"
+        ) from None
+    db.close()
+    click.echo(f"[OK] inbox 条目 {entry.inbox_id} 已提交（status=submitted）")
+
+
+@inbox.command("list")
+@click.option("--status", default=None,
+              type=click.Choice(["submitted", "parsed", "accepted", "rejected", "needs_review"]))
+def inbox_list(status) -> None:
+    """列出 inbox 条目。"""
+    from research_os.collectors.manual import ManualInboxService
+    from research_os.storage import Database
+
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    service = ManualInboxService(db)
+    entries = service.list(status=status)
+    db.close()
+    if not entries:
+        click.echo("（空）")
+        return
+    for e in entries:
+        click.echo(f"  [{e['status']:10s}] {e['inbox_id'][:8]}  {e['title'][:40]}  {e['source_url'][:50]}")
+
+
+@inbox.command("status")
+@click.argument("inbox_id")
+@click.argument("new_status",
+                type=click.Choice(["submitted", "parsed", "accepted", "rejected", "needs_review"]))
+def inbox_status(inbox_id, new_status) -> None:
+    """更新 inbox 条目状态。"""
+    from research_os.collectors.manual import ManualInboxService
+    from research_os.storage import Database
+
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    service = ManualInboxService(db)
+    entry = service.update_status(inbox_id, new_status)
+    db.close()
+    click.echo(f"[OK] {entry.inbox_id} -> {entry.status}")
+
+
+@cli.command()
+@click.option("--source", "source_id", default=None, help="仅检查指定来源。")
+def health(source_id) -> None:
+    """运行来源健康检查（可达性/结构探测，不抓取内容）。"""
+    from research_os.collectors.market import SinaQuoteCollector
+    from research_os.collectors.official import CninfoCollector
+    from research_os.source_health import SourceHealthMonitor
+    from research_os.source_registry import SourceRegistry
+    from research_os.storage import Database
+
+    root = _project_root()
+    registry = SourceRegistry(root / "registry" / "sources.yaml")
+    adapters = {
+        "cninfo": CninfoCollector(),
+        "sina_quote": SinaQuoteCollector(),
+    }
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    monitor = SourceHealthMonitor(registry, adapters, db)
+    records = monitor.check(source_ids=[source_id] if source_id else None)
+    db.close()
+    if not records:
+        click.echo("（无可检查来源；已实现适配器: cninfo, sina_quote）")
+    for r in records:
+        msg = r.payload.get("message", "")
+        click.echo(f"  [{r.status:15s}] {r.source_id:12s} {msg}")
 
 
 if __name__ == "__main__":

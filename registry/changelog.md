@@ -14,3 +14,52 @@
   reason: 维持客户端依赖边界，禁止绕过登录。
   evidence: 工程指南 22.8 节
   agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: cninfo
+  change: verified
+  reason: 真实探测：公告查询 API HTTP 200 JSON，字段确认（announcementTitle/Time/adjunctUrl）。
+  evidence: data/source_probes/cninfo.json
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: sse
+  change: verified
+  reason: 主页与公告页 HTTP 200，字段未静态确认，依赖 JS。
+  evidence: data/source_probes/sse.json
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: szse
+  change: verified
+  reason: HTTP 200，静态确认 title 字段，依赖 JS。
+  evidence: data/source_probes/szse.json
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: csrc
+  change: verified
+  reason: HTTP 200，字段未静态确认。
+  evidence: data/source_probes/csrc.json
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: nbs
+  change: verified
+  reason: 数据发布列表页静态 HTML 可提取标题+链接（实测）。
+  evidence: data/source_probes/nbs.json
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: cls
+  change: verified
+  reason: 电报页 HTTP 200，静态确认 title/content 文本；B 级元数据候选。
+  evidence: data/source_probes/cls.json
+  agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: sina_quote
+  change: verified
+  reason: 行情接口 HTTP 200（需 Referer），GBK 字段实测确认；日级 OHLCV 待历史接口。
+  evidence: data/source_probes/sina_quote.json
+  agent: Hermes Agent

@@ -1,0 +1,42 @@
+{
+  "probe_id": "7a84d64a-fc19-4137-8a50-9de6c2b4028d",
+  "source_id": "sse",
+  "started_at": "2026-08-05T17:55:19",
+  "finished_at": "2026-08-05T17:55:19",
+  "status": "partial",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [],
+  "requires_javascript": false,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "http://www.sse.com.cn/",
+      "final_url": "http://www.sse.com.cn/",
+      "http_status": 200,
+      "elapsed_ms": 0.202,
+      "redirects": 0,
+      "title": "首页 | 上海证券交易所",
+      "error": null,
+      "text_hint": "<!doctype html> <html> <head><!--获取栏目id页--> <!-- 站点属性 --> <meta charset=\"utf-8\"> <meta name=\"description\" content=\"\"> <meta name=\"author\" content=\"上海证券交易所\"> <meta name=\"renderer\" content=\"webkit\"> <me"
+    },
+    {
+      "url": "http://www.sse.com.cn/disclosure/listedinfo/announcement/",
+      "final_url": "http://www.sse.com.cn/disclosure/listedinfo/announcement/",
+      "http_status": 200,
+      "elapsed_ms": 0.185,
+      "redirects": 0,
+      "title": "最新公告  | 上海证券交易所",
+      "error": null,
+      "text_hint": "<!doctype html> <html> <head><!--获取栏目id页--> <!-- 站点属性 --><meta charset=\"utf-8\"> <meta name=\"description\" content=\"\"> <meta name=\"author\" content=\"上海证券交易所\"> <meta name=\"renderer\" content=\"webkit\"> <met"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "页面可达但目标字段未在页面静态内容中确认（可能依赖 JS 或接口）"
+  ]
+}

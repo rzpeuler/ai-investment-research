@@ -23,6 +23,7 @@ class ProbeUrl(BaseModel):
     expect_status: int = 200          # 期望 HTTP 状态
     expect_contains: List[str] = Field(default_factory=list)   # 期望出现的文本特征
     require_https: bool = True
+    referer: Optional[str] = None     # 需要的 Referer 头（部分公开接口要求）
 
 
 class ProbeSpec(BaseModel):
@@ -143,7 +144,8 @@ PROBE_SPECS: List[ProbeSpec] = [
         urls=[
             ProbeUrl(url="https://hq.sinajs.cn/list=sh000001",
                      purpose="行情接口（指数）",
-                     expect_contains=["000001"]),
+                     expect_contains=["000001"],
+                     referer="https://finance.sina.com.cn"),
         ],
         expected_fields=["open", "high", "low", "close", "volume", "date"],
         note="日级 OHLCV 候选（公开接口，需 Referer；本探测仅验证可达性）",

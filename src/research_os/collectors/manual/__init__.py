@@ -1,1 +1,4 @@
-"""Phase 1 预留：手动 inbox 适配器（用户分享链接/摘要进入 inbox，再结构化）。"""
+"""人工 Inbox 适配器包。"""
+from research_os.collectors.manual.inbox import ManualInboxService
+
+__all__ = ["ManualInboxService"]

@@ -129,7 +129,7 @@ def probe_source(spec: ProbeSpec, referer: Optional[str] = None) -> SourceProbe:
     requires_login = False
 
     for u in spec.urls:
-        ev = probe_url(u.url, u, spec.timeout_seconds, referer=referer)
+        ev = probe_url(u.url, u, spec.timeout_seconds, referer=u.referer or referer)
         evidence.append(ev)
         if ev.get("http_status") is not None:
             http_status = ev["http_status"]
@@ -166,6 +166,15 @@ def probe_source(spec: ProbeSpec, referer: Optional[str] = None) -> SourceProbe:
             requires_js = True
             notes.append("检测到脚本加载，结构化提取可能依赖 JS/接口")
 
+    if status in ("success", "partial"):
+        access_level = "public"
+    elif requires_login:
+        access_level = "login_required"
+    elif status == "blocked":
+        access_level = "unavailable"  # 被阻止 = 不可自动访问
+    else:
+        access_level = "unknown"
+
     probe = SourceProbe(
         probe_id=new_uuid(),
         source_id=spec.source_id,
@@ -173,9 +182,7 @@ def probe_source(spec: ProbeSpec, referer: Optional[str] = None) -> SourceProbe:
         finished_at=now_iso(),
         status=status,
         http_status=http_status,
-        access_level_detected="public" if status in ("success", "partial") else
-                             ("login_required" if requires_login else
-                              ("blocked" if status == "blocked" else "unknown")),
+        access_level_detected=access_level,
         automation_level_detected="html" if spec.urls else "unknown",
         historical_depth=None,
         fields_detected=fields_found,

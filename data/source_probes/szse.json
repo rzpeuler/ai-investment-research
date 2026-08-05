@@ -1,0 +1,44 @@
+{
+  "probe_id": "c121dcbd-ea48-417a-be0b-a98db021a0f9",
+  "source_id": "szse",
+  "started_at": "2026-08-05T17:55:19",
+  "finished_at": "2026-08-05T17:55:20",
+  "status": "success",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [
+    "title"
+  ],
+  "requires_javascript": true,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "http://www.szse.cn/",
+      "final_url": "http://www.szse.cn/",
+      "http_status": 200,
+      "elapsed_ms": 0.103,
+      "redirects": 0,
+      "title": "深交所主页",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html> <head> <meta charset=\"utf-8\"> <!-- <title>深交所主页</title> --> <script> var title = '<a href=\"./\" class=\"CurrChnlCls\">首页</a> '; title = title.substring(title.indexOf('>')+1,title.i"
+    },
+    {
+      "url": "http://www.szse.cn/disclosure/listed/notice/index.html",
+      "final_url": "http://www.szse.cn/disclosure/listed/notice/index.html",
+      "http_status": 200,
+      "elapsed_ms": 0.078,
+      "redirects": 0,
+      "title": "深交所主页",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html lang=\"zh-cmn-Hans\"> <head> <meta charset=\"utf-8\"> <!-- <title>深交所主页</title> --> <script> var title = '<a href=\"./\" class=\"CurrChnlCls\">上市公司公告</a> '; title = title.substring(title"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "检测到脚本加载，结构化提取可能依赖 JS/接口"
+  ]
+}

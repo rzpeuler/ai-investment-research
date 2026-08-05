@@ -1,1 +1,8 @@
-"""模型路由（工程指南 51-53 节）。Phase 0：仅占位，路由规则在 Phase 2+ 使用。"""
+"""路由包（Phase 1）：数据需求注册表 + 主备路由。"""
+from research_os.routing.requirements import (
+    DataRequirement,
+    DataRequirementRegistry,
+)
+from research_os.routing.router import Router
+
+__all__ = ["DataRequirement", "DataRequirementRegistry", "Router"]

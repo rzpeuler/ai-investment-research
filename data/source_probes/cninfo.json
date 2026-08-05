@@ -1,0 +1,42 @@
+{
+  "probe_id": "57dfed17-0fad-4a0c-864d-861841894dfb",
+  "source_id": "cninfo",
+  "started_at": "2026-08-05T17:55:19",
+  "finished_at": "2026-08-05T17:55:19",
+  "status": "partial",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [],
+  "requires_javascript": false,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "http://www.cninfo.com.cn/new/index",
+      "final_url": "http://www.cninfo.com.cn/new/index",
+      "http_status": 200,
+      "elapsed_ms": 0.23,
+      "redirects": 0,
+      "title": "巨潮资讯网",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html> <!-- 公共头部样式 --> <head> <meta charset=\"utf-8\"> <meta name=\"format-detection\" content=\"telephone=no\"> <meta name=\"author\" content=\"深圳证券信息有限公司\"> <meta name=\"renderer\" content=\"webk"
+    },
+    {
+      "url": "http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search",
+      "final_url": "http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search",
+      "http_status": 200,
+      "elapsed_ms": 0.123,
+      "redirects": 0,
+      "title": "巨潮资讯网",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html lang=\"zh-CN\"> <!-- 公共头部样式 --> <head> <meta charset=\"utf-8\"> <meta name=\"format-detection\" content=\"telephone=no\"> <meta name=\"author\" content=\"深圳证券信息有限公司\"> <meta name=\"renderer\" "
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "页面可达但目标字段未在页面静态内容中确认（可能依赖 JS 或接口）"
+  ]
+}

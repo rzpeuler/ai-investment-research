@@ -17,7 +17,7 @@
     "source_id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
     "platform": { "type": "string", "minLength": 1 },
-    "base_domain": { "type": "string", "format": "uri" },
+    "base_domain": { "anyOf": [ { "type": "string", "format": "uri" }, { "type": "null" } ], "description": "无域名的客户端/手动来源可为 null" },
     "source_type": { "type": "string", "minLength": 1 },
     "source_tier": { "type": "string", "enum": ["S", "A", "B", "C", "D"] },
     "authority_score": { "type": "integer", "minimum": 0, "maximum": 5 },

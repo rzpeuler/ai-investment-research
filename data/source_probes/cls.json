@@ -1,0 +1,33 @@
+{
+  "probe_id": "4105595f-8343-4642-8790-bfdad31402fc",
+  "source_id": "cls",
+  "started_at": "2026-08-05T17:55:21",
+  "finished_at": "2026-08-05T17:55:21",
+  "status": "success",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [
+    "title",
+    "content"
+  ],
+  "requires_javascript": false,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "https://www.cls.cn/telegraph",
+      "final_url": "https://www.cls.cn/telegraph",
+      "http_status": 200,
+      "elapsed_ms": 0.425,
+      "redirects": 0,
+      "title": "财联社A股24小时电报-上市公司动态-今日股市行情报道",
+      "error": null,
+      "text_hint": "<!DOCTYPE html><html lang=\"zh\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"width=device-width\" data-next-head=\"\"/><title data-next-head=\"\">财联社A股24小时电报-上市公司动态-今日股市行情报道"
+    }
+  ],
+  "errors": [],
+  "notes": []
+}

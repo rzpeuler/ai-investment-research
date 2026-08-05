@@ -1,0 +1,32 @@
+{
+  "probe_id": "a10bdbac-eb2e-459e-9751-f303c1b6687e",
+  "source_id": "sina_quote",
+  "started_at": "2026-08-05T17:56:06",
+  "finished_at": "2026-08-05T17:56:06",
+  "status": "partial",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [],
+  "requires_javascript": false,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "https://hq.sinajs.cn/list=sh000001",
+      "final_url": "https://hq.sinajs.cn/list=sh000001",
+      "http_status": 200,
+      "elapsed_ms": 0.094,
+      "redirects": 0,
+      "title": null,
+      "error": null,
+      "text_hint": "var hq_str_sh000001=\"��ָ֤��,3815.1217,3822.2846,3878.4296,3884.3971,3815.1217,0,0,592155124,1208723017752,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2026-08-05,16:19:58,00,\"; "
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "页面可达但目标字段未在页面静态内容中确认（可能依赖 JS 或接口）"
+  ]
+}

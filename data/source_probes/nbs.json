@@ -1,0 +1,42 @@
+{
+  "probe_id": "80365a56-3460-406b-88ba-486330910e06",
+  "source_id": "nbs",
+  "started_at": "2026-08-05T17:55:20",
+  "finished_at": "2026-08-05T17:55:21",
+  "status": "partial",
+  "http_status": 200,
+  "access_level_detected": "public",
+  "automation_level_detected": "html",
+  "historical_depth": null,
+  "fields_detected": [],
+  "requires_javascript": false,
+  "requires_login": false,
+  "rate_limit_observed": null,
+  "storage_policy_recommendation": "metadata_and_excerpt",
+  "evidence": [
+    {
+      "url": "https://www.stats.gov.cn/",
+      "final_url": "https://www.stats.gov.cn/",
+      "http_status": 200,
+      "elapsed_ms": 0.568,
+      "redirects": 0,
+      "title": "国家统计局",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html translate=\"no\" lang=\"zh-CN\"> <head> <meta charset=\"UTF-8\" /> <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\" /> <meta name=\"viewport\" content=\"width=device-width, initial-sc"
+    },
+    {
+      "url": "https://www.stats.gov.cn/sj/",
+      "final_url": "https://www.stats.gov.cn/sj/",
+      "http_status": 200,
+      "elapsed_ms": 0.488,
+      "redirects": 0,
+      "title": "数据 - 国家统计局",
+      "error": null,
+      "text_hint": "<!DOCTYPE html> <html translate=\"no\" lang=\"zh-CN\"> <head> <meta charset=\"UTF-8\" /> <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\" /> <meta name=\"viewport\" content=\"width=device-width, initial-sc"
+    }
+  ],
+  "errors": [],
+  "notes": [
+    "页面可达但目标字段未在页面静态内容中确认（可能依赖 JS 或接口）"
+  ]
+}

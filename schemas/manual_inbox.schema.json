@@ -15,7 +15,7 @@
     "source_name": { "type": "string", "minLength": 1 },
     "source_url": { "type": "string", "format": "uri" },
     "title": { "type": "string", "minLength": 1 },
-    "published_at": { "type": ["string", "null"], "format": "date-time" },
+    "published_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
     "submitted_at": { "type": "string", "format": "date-time" },
     "submitted_by": { "type": "string", "default": "user" },
     "content_excerpt": { "type": "string", "description": "用户提供的最小摘录（不视为事实）" },

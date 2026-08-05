@@ -1,145 +1,6 @@
-# 来源注册表（工程指南 23 节 / Phase 1 任务 4 节）
-# 状态机: candidate -> approved / watchlist / deprecated / blocked
-# 分数规则: 0-5 整数，必须有探测或使用依据，不得因来源知名自动给高分。
-# 探测证据见 data/source_probes/{source_id}.json，更新记录见 changelog.md。
-
 sources:
-  cninfo:
-    name: 巨潮资讯
-    platform: cninfo
-    base_domain: http://www.cninfo.com.cn
-    source_type: official_disclosure
-    source_tier: S
-    authority_score: 5
-    accuracy_score: 5
-    timeliness_score: 4
-    coverage_score: 5
-    stability_score: 0
-    originality_score: 5
-    opinion_influence_score: 0
-    access_level: unknown
-    automation_level: unknown
-    login_required: false
-    paid: false
-    storage_policy: metadata_and_excerpt
-    rate_limit: null
-    update_frequency: realtime
-    allowed_usage: 公司公告元数据与摘录（法定披露主源候选）
-    primary_topics: [公司公告, 定期报告, 法定披露]
-    status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中；存在公开 JSON 接口但稳定性待验证
-
-  sse:
-    name: 上海证券交易所
-    platform: sse
-    base_domain: http://www.sse.com.cn
-    source_type: exchange_disclosure
-    source_tier: S
-    authority_score: 5
-    accuracy_score: 5
-    timeliness_score: 4
-    coverage_score: 5
-    stability_score: 0
-    originality_score: 5
-    opinion_influence_score: 0
-    access_level: unknown
-    automation_level: unknown
-    login_required: false
-    paid: false
-    storage_policy: metadata_and_excerpt
-    rate_limit: null
-    update_frequency: realtime
-    allowed_usage: 上交所公司公告与交易信息披露
-    primary_topics: [公司公告, 交易信息]
-    status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中；公告查询依赖 JS
-
-  szse:
-    name: 深圳证券交易所
-    platform: szse
-    base_domain: http://www.szse.cn
-    source_type: exchange_disclosure
-    source_tier: S
-    authority_score: 5
-    accuracy_score: 5
-    timeliness_score: 4
-    coverage_score: 5
-    stability_score: 0
-    originality_score: 5
-    opinion_influence_score: 0
-    access_level: unknown
-    automation_level: unknown
-    login_required: false
-    paid: false
-    storage_policy: metadata_and_excerpt
-    rate_limit: null
-    update_frequency: realtime
-    allowed_usage: 深交所公司公告与交易信息披露
-    primary_topics: [公司公告, 交易信息]
-    status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中
-
-  csrc:
-    name: 中国证监会
-    platform: csrc
-    base_domain: http://www.csrc.gov.cn
-    source_type: regulatory_disclosure
-    source_tier: S
-    authority_score: 5
-    accuracy_score: 5
-    timeliness_score: 4
-    coverage_score: 4
-    stability_score: 0
-    originality_score: 5
-    opinion_influence_score: 0
-    access_level: unknown
-    automation_level: unknown
-    login_required: false
-    paid: false
-    storage_policy: metadata_and_excerpt
-    rate_limit: null
-    update_frequency: daily
-    allowed_usage: 监管政策与处罚信息
-    primary_topics: [监管政策, 行政处罚]
-    status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中
-
-  nbs:
-    name: 国家统计局
-    platform: nbs
-    base_domain: https://www.stats.gov.cn
-    source_type: government_statistics
-    source_tier: S
-    authority_score: 5
-    accuracy_score: 5
-    timeliness_score: 3
-    coverage_score: 4
-    stability_score: 0
-    originality_score: 5
-    opinion_influence_score: 0
-    access_level: unknown
-    automation_level: unknown
-    login_required: false
-    paid: false
-    storage_policy: metadata_and_excerpt
-    rate_limit: null
-    update_frequency: monthly
-    allowed_usage: 宏观统计数据的元数据与指标
-    primary_topics: [宏观数据, 统计指标]
-    status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中
-
   cls:
+    source_id: cls
     name: 财联社
     platform: cls
     base_domain: https://www.cls.cn
@@ -149,51 +10,88 @@ sources:
     accuracy_score: 2
     timeliness_score: 5
     coverage_score: 3
-    stability_score: 0
+    stability_score: 2
     originality_score: 3
     opinion_influence_score: 4
-    access_level: unknown
-    automation_level: unknown
+    access_level: public
+    automation_level: html
     login_required: false
     paid: false
     storage_policy: metadata_and_excerpt
     rate_limit: null
     update_frequency: realtime
     allowed_usage: 快讯元数据（B 级补充背景，不作核心事实唯一来源）
-    primary_topics: [快讯, 市场新闻]
+    primary_topics:
+    - 快讯
+    - 市场新闻
     status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中；电报页依赖 JS
-
-  sina_quote:
-    name: 新浪行情
-    platform: sina
-    base_domain: https://hq.sinajs.cn
-    source_type: market_quote
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/cls.json
+    notes: B 级新闻元数据候选；电报条目需 JS 渲染，仅元数据
+  cninfo:
+    source_id: cninfo
+    name: 巨潮资讯
+    platform: cninfo
+    base_domain: http://www.cninfo.com.cn
+    source_type: official_disclosure
     source_tier: S
-    authority_score: 3
-    accuracy_score: 3
-    timeliness_score: 5
-    coverage_score: 4
-    stability_score: 0
-    originality_score: 2
+    authority_score: 5
+    accuracy_score: 5
+    timeliness_score: 4
+    coverage_score: 5
+    stability_score: 3
+    originality_score: 5
     opinion_influence_score: 0
-    access_level: unknown
-    automation_level: unknown
+    access_level: public
+    automation_level: api
     login_required: false
     paid: false
     storage_policy: metadata_and_excerpt
     rate_limit: null
     update_frequency: realtime
-    allowed_usage: 日级 OHLCV 行情候选（需 Referer，稳定性待探测）
-    primary_topics: [行情, OHLCV]
-    status: candidate
-    last_verified_at: null
-    verification_evidence: []
-    notes: Phase 1 探测中；公开接口但可能限制来源
-
+    allowed_usage: 公司公告元数据与摘录（法定披露主源候选）
+    primary_topics:
+    - 公司公告
+    - 定期报告
+    - 法定披露
+    status: watchlist
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/cninfo.json
+    notes: 公开 JSON 接口已实测可用（hisAnnouncement/query）；正式适配器已建立
+  csrc:
+    source_id: csrc
+    name: 中国证监会
+    platform: csrc
+    base_domain: http://www.csrc.gov.cn
+    source_type: regulatory_disclosure
+    source_tier: S
+    authority_score: 5
+    accuracy_score: 5
+    timeliness_score: 4
+    coverage_score: 4
+    stability_score: 2
+    originality_score: 5
+    opinion_influence_score: 0
+    access_level: public
+    automation_level: html
+    login_required: false
+    paid: false
+    storage_policy: metadata_and_excerpt
+    rate_limit: null
+    update_frequency: daily
+    allowed_usage: 监管政策与处罚信息
+    primary_topics:
+    - 监管政策
+    - 行政处罚
+    status: watchlist
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/csrc.json
+    notes: 监管公开信息；页面结构可能变更
   ima:
+    source_id: ima
     name: IMA 知识库
     platform: ima
     base_domain: null
@@ -214,13 +112,135 @@ sources:
     rate_limit: null
     update_frequency: manual
     allowed_usage: 用户分享链接/摘要进入 inbox 后结构化
-    primary_topics: [用户分享, 知识库]
+    primary_topics:
+    - 用户分享
+    - 知识库
     status: watchlist
     last_verified_at: null
     verification_evidence: []
     notes: 客户端依赖，禁止绕过登录；维持 manual_or_export_import
-
+  nbs:
+    source_id: nbs
+    name: 国家统计局
+    platform: nbs
+    base_domain: https://www.stats.gov.cn
+    source_type: government_statistics
+    source_tier: S
+    authority_score: 5
+    accuracy_score: 5
+    timeliness_score: 3
+    coverage_score: 4
+    stability_score: 3
+    originality_score: 5
+    opinion_influence_score: 0
+    access_level: public
+    automation_level: html
+    login_required: false
+    paid: false
+    storage_policy: metadata_and_excerpt
+    rate_limit: null
+    update_frequency: monthly
+    allowed_usage: 宏观统计数据的元数据与指标
+    primary_topics:
+    - 宏观数据
+    - 统计指标
+    status: candidate
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/nbs.json
+    notes: 政府/统计元数据适配器已建立（nbs）
+  sina_quote:
+    source_id: sina_quote
+    name: 新浪行情
+    platform: sina
+    base_domain: https://hq.sinajs.cn
+    source_type: market_quote
+    source_tier: S
+    authority_score: 3
+    accuracy_score: 3
+    timeliness_score: 5
+    coverage_score: 4
+    stability_score: 3
+    originality_score: 2
+    opinion_influence_score: 0
+    access_level: public
+    automation_level: api
+    login_required: false
+    paid: false
+    storage_policy: metadata_and_excerpt
+    rate_limit: null
+    update_frequency: realtime
+    allowed_usage: 日级 OHLCV 行情候选（需 Referer，稳定性待探测）
+    primary_topics:
+    - 行情
+    - OHLCV
+    status: watchlist
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/sina_quote.json
+    notes: 行情候选：实时报价可达；日级 OHLCV 需历史接口，Phase 1 仅结论
+  sse:
+    source_id: sse
+    name: 上海证券交易所
+    platform: sse
+    base_domain: http://www.sse.com.cn
+    source_type: exchange_disclosure
+    source_tier: S
+    authority_score: 5
+    accuracy_score: 5
+    timeliness_score: 4
+    coverage_score: 5
+    stability_score: 2
+    originality_score: 5
+    opinion_influence_score: 0
+    access_level: public
+    automation_level: html
+    login_required: false
+    paid: false
+    storage_policy: metadata_and_excerpt
+    rate_limit: null
+    update_frequency: realtime
+    allowed_usage: 上交所公司公告与交易信息披露
+    primary_topics:
+    - 公司公告
+    - 交易信息
+    status: watchlist
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/sse.json
+    notes: 公告查询依赖 JS，结构化提取待 Phase 2 确认
+  szse:
+    source_id: szse
+    name: 深圳证券交易所
+    platform: szse
+    base_domain: http://www.szse.cn
+    source_type: exchange_disclosure
+    source_tier: S
+    authority_score: 5
+    accuracy_score: 5
+    timeliness_score: 4
+    coverage_score: 5
+    stability_score: 3
+    originality_score: 5
+    opinion_influence_score: 0
+    access_level: public
+    automation_level: html
+    login_required: false
+    paid: false
+    storage_policy: metadata_and_excerpt
+    rate_limit: null
+    update_frequency: realtime
+    allowed_usage: 深交所公司公告与交易信息披露
+    primary_topics:
+    - 公司公告
+    - 交易信息
+    status: candidate
+    last_verified_at: '2026-08-05T18:01:49'
+    verification_evidence:
+    - data/source_probes/szse.json
+    notes: 字段部分确认（title）；结构化提取依赖 JS/接口
   xueqiu:
+    source_id: xueqiu
     name: 雪球
     platform: xueqiu
     base_domain: https://xueqiu.com
@@ -241,7 +261,9 @@ sources:
     rate_limit: null
     update_frequency: realtime
     allowed_usage: 关注点/叙事/分歧/线索（不得单独支持核心事实）
-    primary_topics: [社区观点, 舆情]
+    primary_topics:
+    - 社区观点
+    - 舆情
     status: watchlist
     last_verified_at: null
     verification_evidence: []

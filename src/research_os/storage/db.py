@@ -184,7 +184,9 @@ class Database:
         """按主键读取对象（返回 JSON payload dict）。"""
         pk_col = {"tasks": "task_id", "entities": "entity_id", "raw_items": "raw_item_id",
                   "events": "event_id", "opinions": "opinion_id", "claims": "claim_id",
-                  "evidence": "evidence_id", "graph_changes": "graph_change_id"}.get(table)
+                  "evidence": "evidence_id", "graph_changes": "graph_change_id",
+                  "sources": "source_id", "source_probes": "probe_id",
+                  "manual_inbox": "inbox_id"}.get(table)
         if pk_col is None:
             raise ValueError(f"不支持的主键表: {table}")
         row = self._conn.execute(
