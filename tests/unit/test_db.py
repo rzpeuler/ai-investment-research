@@ -1,6 +1,8 @@
 """SQLite 存储层测试：初始化、迁移、幂等写入。"""
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from research_os.models import Task, Evidence
@@ -89,6 +91,17 @@ def test_query_unknown_table_raises(db):
     db.initialize()
     with pytest.raises(ValueError):
         db.get("no_such_table", "x")
+
+
+def test_insert_violating_not_null_constraint_fails(db):
+    """失败场景：违反 NOT NULL 约束的插入必须被 SQLite 拒绝（禁止静默失败）。"""
+    db.initialize()
+    with pytest.raises(sqlite3.IntegrityError):
+        db._conn.execute(
+            "INSERT INTO tasks (task_id, payload, status, scenario, created_at, updated_at) "
+            "VALUES (?, ?, NULL, ?, ?, ?)",
+            ("bad-id", "{}", "x", "2026-08-05T08:00:00", "2026-08-05T08:00:00"),
+        )
 
 
 def test_database_file_created(tmp_path):

@@ -117,3 +117,35 @@ def test_invalid_scenario_rejected(project):
     orch = Orchestrator(project)
     with pytest.raises(Exception):
         orch.run(scenario="buy_stocks")
+
+
+def test_run_failure_path_returns_failed_and_logs_error(project, monkeypatch):
+    """失败场景：运行中异常必须返回显式 failed 状态并写入 errors.log。
+
+    模拟存储层异常（db.upsert 抛错），验证：
+    - outcome.status == "failed"（禁止静默失败）
+    - errors.log 记录时间、组件、异常消息
+    - 不产生成功产物
+    """
+    orch = Orchestrator(project)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("模拟数据库写入失败")
+
+    monkeypatch.setattr(orch.db, "upsert", boom)
+    outcome = orch.run(task_id="eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
+
+    assert outcome.status == "failed"
+    assert outcome.errors == ["模拟数据库写入失败"]
+    assert "任务执行失败" in outcome.message
+
+    from research_os.utils.logging import ErrorLog
+
+    log = ErrorLog(outcome.run_dir / "errors.log")
+    entries = log.read()
+    assert entries, "errors.log 应有记录"
+    entry = entries[0]
+    assert entry["level"] == "ERROR"
+    assert entry["component"] == "orchestrator"
+    assert entry["ts"], "必须记录时间"
+    assert "模拟数据库写入失败" in entry["message"]
