@@ -8,6 +8,9 @@
 c398e58 fix: validator rule 12 allows downgrade path without candidates
 ```
 
+> HEAD 字段 = Phase 3 代码基线（末个代码/测试提交）。其后仅状态文档维护
+> 提交（03c43d4、8cd5267 等 docs: 同步/收尾），不改变代码基线，故不更新本字段。
+
 提交链（Phase 3，13 个 Commit）：
 
 ```
