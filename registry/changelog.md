@@ -70,3 +70,13 @@
   reason: Phase 3 Commit 1 契约清理：新增 market_minute_bar 数据需求（无来源，仅 Schema/模型/Loader Protocol）；晨报 dry-run 来源展示移除 sina（行情快照非内容采集源）。
   evidence: registry/data_requirements.yaml；src/research_os/cli/main.py
   agent: Hermes Agent
+
+- date: 2026-08-05
+  source_id: "(phase3)"
+  change: phase_completed
+  reason: Phase 3 异动分析完成：人工日线导入（market-data import-daily，CSV/Parquet）、
+    确定性异动检测、基准选择（registry/market_benchmarks.yaml 新增）、分层事件检索、
+    原因评分、统一 LLM Client（Fake Provider 全链路）、18 章节报告 + 33 条 Validator、
+    CLI abnormal-move + Hermes Skill、14 黄金案例。Schema 19->30，迁移 user_version=4。
+  evidence: docs/project-state/CURRENT_STATE.md；551 passed
+  agent: Hermes Agent
