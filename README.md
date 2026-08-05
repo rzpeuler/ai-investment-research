@@ -20,8 +20,19 @@ Orchestrator、CLI、运行目录与日志、Front Matter 校验器、单元与�
 **Phase 1（来源探测与数据底座）**：来源注册表（7 个来源已真实探测）、探测框架
 （curl 引擎，证据最小化）、正式披露适配器（巨潮 API 已验证）、政府统计适配器
 （统计局列表页）、行情候选（新浪报价）、新闻元数据候选（财联社 B 级）、
-人工 Inbox、主备路由、健康检查。**未开始**：晨报生成、异动归因、个股研报、
-产业图谱自动入库（Phase 2+）。
+人工 Inbox、主备路由、健康检查。
+
+**Phase 1.1（行情契约修正）**：实时快照与历史日线严格分离
+（sina_quote 仅实时快照；日线 primary 空 + manual_import fallback，19 个 Schema）。
+
+**Phase 2（信息筛选系统与每日晨报）**：候选筛选流水线（窗口过滤→去重→聚类→
+分类→硬性否决→评分→Claim→选择→渲染→校验）、四个监测方向覆盖说明、
+`research run morning-brief`（幂等/延迟补跑/force/dry-run）、报告验证器升级、
+Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/）、
+黄金测试集（tests/golden/morning_brief）。
+
+**尚未开始**：异动分析、个股研报、晚报/复盘、主题挖掘、首次覆盖、
+自动产业图谱入库（Phase 3+）。
 
 ## 快速开始
 
