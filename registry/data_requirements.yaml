@@ -35,9 +35,26 @@ requirements:
         - url
     failure_policy: degraded
 
-  market_daily_ohlcv:
+  market_realtime_snapshot:
+    description: 单个证券当前交易日的实时或延迟快照（Phase 1.1 拆分）
     primary:
       - sina_quote
+    secondary: []
+    fallback: []
+    minimum_acceptable:
+      fields:
+        - symbol
+        - observed_at
+        - open
+        - high
+        - low
+        - last_price
+        - volume
+    failure_policy: insufficient_data
+
+  market_daily_ohlcv:
+    description: 带有明确交易日期的历史日线序列（Phase 1.1 修正：实时快照源不得用于日线）
+    primary: []
     secondary: []
     fallback:
       - manual_import

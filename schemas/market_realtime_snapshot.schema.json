@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/market_realtime_snapshot.schema.json",
+  "title": "MarketRealtimeSnapshot",
+  "description": "单个证券当前交易日的实时或延迟快照（Phase 1.1）。不是历史日线；不得映射为 close/trade_date。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshot_id", "symbol", "observed_at", "open", "high", "low",
+    "last_price", "volume"
+  ],
+  "properties": {
+    "snapshot_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "symbol": { "type": "string", "minLength": 1 },
+    "observed_at": { "type": "string", "format": "date-time", "description": "观测时间（当前交易日）" },
+    "open": { "type": "number" },
+    "high": { "type": "number" },
+    "low": { "type": "number" },
+    "last_price": { "type": "number", "description": "当前最新价，不是历史收盘价" },
+    "volume": { "type": "number" },
+    "previous_close": { "type": ["number", "null"] },
+    "amount": { "type": ["number", "null"] }
+  }
+}

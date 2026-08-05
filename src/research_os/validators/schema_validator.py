@@ -42,12 +42,15 @@ SCHEMA_NAMES = [
     "source_probe",
     "data_route",
     "manual_inbox",
+    # Phase 1.1：行情契约
+    "market_realtime_snapshot",
+    "market_daily_ohlcv",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
 _format_checker = FormatChecker()
 _format_checker.checkers = {
-    k: v for k, v in FormatChecker().checkers.items() if k in ("uri",)
+    k: v for k, v in FormatChecker().checkers.items() if k in ("uri", "date")
 }
 
 
@@ -103,6 +106,8 @@ def validate_model(model: Any) -> List[str]:
         "SourceProbe": "source_probe",
         "DataRoute": "data_route",
         "ManualInbox": "manual_inbox",
+        "MarketRealtimeSnapshot": "market_realtime_snapshot",
+        "MarketDailyOhlcv": "market_daily_ohlcv",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")

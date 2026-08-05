@@ -163,9 +163,9 @@ def test_numeric_bounds_fail():
 
 
 def test_all_schema_files_present():
-    """13 个核心 Schema 文件必须齐全（Phase 0 的 9 个 + Phase 1 来源层 4 个）。"""
+    """15 个核心 Schema 文件必须齐全（Phase 0 的 9 + 来源层 4 + 行情契约 2）。"""
     from research_os.validators.schema_validator import schema_path
 
     for name in SCHEMA_NAMES:
         assert schema_path(name).exists(), f"缺少 {name}.schema.json"
-    assert len(SCHEMA_NAMES) == 13
+    assert len(SCHEMA_NAMES) == 15

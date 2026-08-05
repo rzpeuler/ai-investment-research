@@ -27,6 +27,7 @@ from research_os.models.core import (
     TaskStatus,
     TimeWindow,
 )
+from research_os.models.market import MarketDailyOhlcv, MarketRealtimeSnapshot
 from research_os.models.sources import (
     AccessLevel,
     AutomationLevel,
@@ -57,6 +58,8 @@ __all__ = [
     "ImpactDirection",
     "ImpactHorizon",
     "ManualInbox",
+    "MarketDailyOhlcv",
+    "MarketRealtimeSnapshot",
     "ModelPolicy",
     "ModuleResult",
     "ModuleStatus",

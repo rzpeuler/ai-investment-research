@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/market_daily_ohlcv.schema.json",
+  "title": "MarketDailyOhlcv",
+  "description": "带有明确交易日期的历史日线序列（Phase 1.1）。必须含 trade_date 与 close；快照不得写入本表。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bar_id", "symbol", "trade_date", "open", "high", "low", "close", "volume"
+  ],
+  "properties": {
+    "bar_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "symbol": { "type": "string", "minLength": 1 },
+    "trade_date": { "type": "string", "format": "date", "description": "交易日（YYYY-MM-DD），唯一确定历史 bar 归属" },
+    "open": { "type": "number" },
+    "high": { "type": "number" },
+    "low": { "type": "number" },
+    "close": { "type": "number", "description": "该交易日收盘价（非 last_price）" },
+    "volume": { "type": "number" },
+    "amount": { "type": ["number", "null"] }
+  }
+}
