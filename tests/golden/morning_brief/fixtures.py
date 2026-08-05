@@ -42,7 +42,7 @@ HIGH_VALUE = [
          entities=["company:bad"], url="https://static.cninfo.com.cn/risk1"),
 ]
 
-# ---------- 应拒绝信息（7 条；重复转载由精确去重单测覆盖） ----------
+# ---------- 应拒绝信息（8 条，任务 24.1 至少 8 条） ----------
 
 REJECTED = [
     item("cls", "2026年5月旧闻重传：某公司发布旧产品", "无新进展",
@@ -57,6 +57,8 @@ REJECTED = [
     item("cls", "某明星八卦与股市无关", "娱乐消息", url="https://www.cls.cn/irr1"),
     item("xueqiu", "某股又要暴涨了！！！", "情绪帖", entities=[],
          url="https://xueqiu.com/emo2"),
+    item("cls", "某公司快讯（解析失败）", "正文解析失败",
+         url="https://www.cls.cn/perr1", channel_ok=False),
 ]
 
 # ---------- 事件聚类（5 组） ----------

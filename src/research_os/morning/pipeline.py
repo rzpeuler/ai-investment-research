@@ -131,7 +131,8 @@ class MorningBriefPipeline:
             else:
                 survived.append(c)
 
-        # 5. 语义聚类（只对存活候选）
+        # 5. 事件相似聚类（确定性第一版：实体+日期预分桶 + 标题相似度；
+        #    语义模型未接入，见 clustering.py 说明）
         builder = ClusterBuilder(
             time_tolerance_hours=self.config.time_tolerance_hours,
             similarity_threshold=self.config.similarity_threshold)

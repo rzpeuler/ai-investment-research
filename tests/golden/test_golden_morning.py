@@ -55,7 +55,8 @@ def test_golden_high_value_selected():
 
 def test_golden_rejected_with_reasons():
     a = pipeline().run(REJECTED, REPORT_DATE)
-    assert len(a.vetoed) >= 6, f"应拒绝至少 6 条，实际否决 {len(a.vetoed)}"
+    # 8 条中 7 条被否决（窗口外旧闻被前置过滤，也不进正文）
+    assert len(a.vetoed) >= 7, f"应拒绝至少 7 条，实际否决 {len(a.vetoed)}"
     assert a.vetoed  # 有否决记录
 
 

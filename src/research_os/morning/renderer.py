@@ -65,7 +65,12 @@ def _frontmatter(artifacts: PipelineArtifacts, report_date: date,
         f"delay_seconds: {delay_seconds}",
         f"data_status: {status}",
         "source_coverage: {}",
-        "model_route: flash_default",
+        # 诚实记录模型路由：Phase 2 未接入 LLM，语义环节为确定性规则回退
+        "model_route:",
+        "  mode: deterministic_fallback",
+        "  llm_called: false",
+        "  intended_default_model: deepseek-v4-flash",
+        "  limitation: semantic_llm_modules_not_connected",
         f"runtime_seconds: 0",
         "validator_status: pending",
         "knowledge_coordinates: []",
@@ -242,7 +247,9 @@ def render_morning_brief(
     out += [f"- Manual Inbox：{'有' if _has_manual(artifacts) else '无'}"]
     out += [f"- 缺失数据：{'; '.join(artifacts.missing_data) or '无'}"]
     out += ["- 来源等级：S（法定披露）/A（政府公司官方）/B（财经媒体）/C（社区）/D（匿名）"]
-    out += ["- 报告限制：LLM 语义细化环节尚未接入（规则回退），影响路径与新颖性评分为确定性近似"]
+    out += ["- 报告限制：LLM 语义细化环节尚未接入（确定性规则回退），"
+            "新颖性/影响路径评分为确定性近似；事件聚类为确定性第一版"
+            "（实体+日期预分桶+标题相似度），语义模型接入前不宣称语义聚类"]
     out += [""]
     return "\n".join(out)
 

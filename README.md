@@ -25,11 +25,13 @@ Orchestrator、CLI、运行目录与日志、Front Matter 校验器、单元与�
 **Phase 1.1（行情契约修正）**：实时快照与历史日线严格分离
 （sina_quote 仅实时快照；日线 primary 空 + manual_import fallback，19 个 Schema）。
 
-**Phase 2（信息筛选系统与每日晨报）**：候选筛选流水线（窗口过滤→去重→聚类→
+**Phase 2（信息筛选系统与每日晨报）**：候选筛选流水线（窗口过滤→去重→
+事件聚类（确定性第一版：实体+日期预分桶+标题相似度，语义模型未接入）→
 分类→硬性否决→评分→Claim→选择→渲染→校验）、四个监测方向覆盖说明、
 `research run morning-brief`（幂等/延迟补跑/force/dry-run）、报告验证器升级、
 Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/）、
-黄金测试集（tests/golden/morning_brief）。
+黄金测试集（tests/golden/morning_brief）。模型路由诚实记录
+（deterministic_fallback / llm_called: false）。
 
 **尚未开始**：异动分析、个股研报、晚报/复盘、主题挖掘、首次覆盖、
 自动产业图谱入库（Phase 3+）。
