@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/abnormal_move_observation.schema.json",
+  "title": "AbnormalMoveObservation",
+  "description": "异动事实观察（Phase 3）。记录价格/量价/板块事实、特殊市场状态与置信度；快照不得进入日级计算。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "observation_id", "request_id", "entity_id", "entity_type", "window_start",
+    "window_end", "trade_date", "granularity", "provisional", "market_data_ids",
+    "data_manifest_ids", "adjustment_method", "raw_return",
+    "market_relative_return", "industry_relative_return", "concept_relative_returns",
+    "metric_ids", "primary_anomaly_types", "peer_moves", "move_start_at",
+    "move_end_at", "timing_precision", "market_state_flags", "status",
+    "confidence", "evidence_ids", "warnings", "missing_data"
+  ],
+  "properties": {
+    "observation_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "entity_id": { "type": "string", "minLength": 1 },
+    "entity_type": { "type": "string", "enum": ["company", "industry", "concept"] },
+    "window_start": { "type": "string", "format": "date" },
+    "window_end": { "type": "string", "format": "date" },
+    "trade_date": { "type": "string", "format": "date" },
+    "granularity": { "type": "string", "enum": ["daily", "minute"] },
+    "provisional": { "type": "boolean", "description": "当前交易日未收盘时为 true" },
+    "market_data_ids": { "type": "array", "items": { "type": "string" } },
+    "data_manifest_ids": { "type": "array", "items": { "type": "string" } },
+    "adjustment_method": { "type": "string", "enum": ["none", "qfq", "hfq"] },
+    "raw_return": { "type": ["number", "null"] },
+    "market_relative_return": { "type": ["number", "null"] },
+    "industry_relative_return": { "type": ["number", "null"] },
+    "concept_relative_returns": {
+      "type": "object",
+      "additionalProperties": { "type": ["number", "null"] }
+    },
+    "metric_ids": { "type": "array", "items": { "type": "string" } },
+    "primary_anomaly_types": { "type": "array", "items": { "type": "string" } },
+    "peer_moves": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/peer_move" }
+    },
+    "move_start_at": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "move_end_at": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "timing_precision": { "type": "string", "enum": ["minute", "session", "day", "unknown"] },
+    "market_state_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "SUSPENDED", "RESUMPTION", "NEW_LISTING", "ST", "PRICE_LIMIT_UP",
+          "PRICE_LIMIT_DOWN", "EX_RIGHTS", "EX_DIVIDEND", "NON_TRADING_DAY",
+          "CURRENT_SESSION_NOT_CLOSED", "MISSING_BENCHMARK", "MIXED_ADJUSTMENT"
+        ]
+      }
+    },
+    "status": { "type": "string" },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "peer_move": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "peer_entity_id", "peer_name", "return_value", "robust_z",
+        "severity", "same_direction", "abnormal", "note"
+      ],
+      "properties": {
+        "peer_entity_id": { "type": "string", "minLength": 1 },
+        "peer_name": { "type": "string" },
+        "return_value": { "type": ["number", "null"] },
+        "robust_z": { "type": ["number", "null"] },
+        "severity": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "same_direction": { "type": "boolean" },
+        "abnormal": { "type": "boolean" },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

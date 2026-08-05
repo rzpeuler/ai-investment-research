@@ -50,6 +50,18 @@ SCHEMA_NAMES = [
     "event_cluster",
     "information_score",
     "morning_brief_run",
+    # Phase 3：异动分析（任务书 5 节）
+    "market_daily_series_manifest",
+    "market_minute_bar",
+    "abnormal_move_request",
+    "anomaly_metric",
+    "abnormal_move_observation",
+    "benchmark_candidate",
+    "benchmark_selection",
+    "cause_candidate",
+    "cause_evidence_link",
+    "attribution_result",
+    "abnormal_move_run",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -117,6 +129,18 @@ def validate_model(model: Any) -> List[str]:
         "EventCluster": "event_cluster",
         "InformationScore": "information_score",
         "MorningBriefRun": "morning_brief_run",
+        # Phase 3：异动分析
+        "MarketDailySeriesManifest": "market_daily_series_manifest",
+        "MarketMinuteBar": "market_minute_bar",
+        "AbnormalMoveRequest": "abnormal_move_request",
+        "AnomalyMetric": "anomaly_metric",
+        "AbnormalMoveObservation": "abnormal_move_observation",
+        "BenchmarkCandidate": "benchmark_candidate",
+        "BenchmarkSelection": "benchmark_selection",
+        "CauseCandidate": "cause_candidate",
+        "CauseEvidenceLink": "cause_evidence_link",
+        "AttributionResult": "attribution_result",
+        "AbnormalMoveRun": "abnormal_move_run",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")

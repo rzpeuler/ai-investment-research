@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/cause_candidate.schema.json",
+  "title": "CauseCandidate",
+  "description": "原因候选（Phase 3）。七维评分 base_score 由确定性权重计算；final_score = clamp(base - penalties, 0, 100)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cause_candidate_id", "request_id", "observation_id", "event_id",
+    "claim_ids", "title", "cause_category", "retrieval_layer", "event_time",
+    "first_disclosed_at", "published_at", "retrieved_at", "affected_entity_ids",
+    "mechanism_summary", "time_match_score", "entity_link_score", "novelty_score",
+    "peer_linkage_score", "source_reliability_score", "explanation_coverage_score",
+    "verifiability_score", "base_score", "penalties", "final_score",
+    "causal_eligibility", "timing_relation", "evidence_ids",
+    "opposing_evidence_ids", "independence_groups", "confidence", "status",
+    "warnings", "missing_data"
+  ],
+  "properties": {
+    "cause_candidate_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "observation_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "event_id": { "type": ["string", "null"] },
+    "claim_ids": { "type": "array", "items": { "type": "string" } },
+    "title": { "type": "string", "minLength": 1 },
+    "cause_category": {
+      "type": "string",
+      "enum": [
+        "direct_trigger", "secondary_catalyst", "industry_or_theme_resonance",
+        "market_style_background", "funding_and_trading_structure",
+        "expectation_revision", "old_news_recirc", "after_the_fact_explanation",
+        "unverified_rumor", "multi_cause_component", "unexplained"
+      ]
+    },
+    "retrieval_layer": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "event_time": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "first_disclosed_at": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "published_at": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "retrieved_at": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "affected_entity_ids": { "type": "array", "items": { "type": "string" } },
+    "mechanism_summary": { "type": "string" },
+    "time_match_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "entity_link_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "novelty_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "peer_linkage_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "source_reliability_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "explanation_coverage_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "verifiability_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "base_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "penalties": { "type": "number", "minimum": 0 },
+    "final_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "causal_eligibility": { "type": "boolean" },
+    "timing_relation": {
+      "type": "string",
+      "enum": ["BEFORE_MOVE", "DURING_MOVE", "AFTER_MOVE", "UNKNOWN_ORDER"]
+    },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "opposing_evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "independence_groups": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "status": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } }
+  }
+}

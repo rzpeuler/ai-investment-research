@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/benchmark_candidate.schema.json",
+  "title": "BenchmarkCandidate",
+  "description": "基准候选（Phase 3）。pre_window_subtotal >= 45 防事后选择；异动期联动只用于确认。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "benchmark_candidate_id", "request_id", "subject_entity_id",
+    "benchmark_entity_id", "benchmark_type", "relationship_valid_from",
+    "relationship_valid_to", "stable_industry_score", "main_business_score",
+    "supply_chain_score", "preexisting_concept_score",
+    "historical_correlation_score", "event_window_linkage_score",
+    "current_event_relevance_score", "pre_window_subtotal", "total_score",
+    "correlation_window", "correlation_sample_size", "event_window_breadth",
+    "eligible", "exclusion_reasons", "evidence_ids", "confidence", "warnings"
+  ],
+  "properties": {
+    "benchmark_candidate_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "subject_entity_id": { "type": "string", "minLength": 1 },
+    "benchmark_entity_id": { "type": "string", "minLength": 1 },
+    "benchmark_type": { "type": "string", "enum": ["market", "industry", "concept", "peer_basket"] },
+    "relationship_valid_from": {
+      "anyOf": [
+        { "type": "string", "format": "date" },
+        { "type": "null" }
+      ]
+    },
+    "relationship_valid_to": {
+      "anyOf": [
+        { "type": "string", "format": "date" },
+        { "type": "null" }
+      ]
+    },
+    "stable_industry_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "main_business_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "supply_chain_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "preexisting_concept_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "historical_correlation_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "event_window_linkage_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "current_event_relevance_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "pre_window_subtotal": { "type": "number", "minimum": 0, "description": "窗口前已知关系维度小计，>=45 才允许成为合格基准" },
+    "total_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "correlation_window": { "type": ["integer", "null"], "minimum": 0 },
+    "correlation_sample_size": { "type": ["integer", "null"], "minimum": 0 },
+    "event_window_breadth": { "type": ["integer", "null"], "minimum": 0 },
+    "eligible": { "type": "boolean" },
+    "exclusion_reasons": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

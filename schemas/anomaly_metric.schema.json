@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/anomaly_metric.schema.json",
+  "title": "AnomalyMetric",
+  "description": "异动指标（Phase 3 确定性计算）。robust Z 基于中位数与 MAD；MAD=0 时回退历史经验分位。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "metric_id", "observation_id", "metric_type", "value", "unit", "direction",
+    "benchmark_entity_id", "baseline_window", "baseline_method",
+    "baseline_median", "baseline_mad", "robust_z", "historical_percentile",
+    "cross_sectional_percentile", "severity", "sample_size",
+    "minimum_sample_size", "status", "calculation_version", "evidence_ids",
+    "warnings", "missing_data"
+  ],
+  "properties": {
+    "metric_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "observation_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "metric_type": {
+      "type": "string",
+      "enum": [
+        "absolute_return", "market_excess_return", "industry_excess_return",
+        "concept_excess_return", "beta_adjusted_residual", "volume_anomaly",
+        "amount_anomaly", "turnover_anomaly", "amplitude_anomaly",
+        "volatility_anomaly", "return_streak", "gap", "peer_breadth",
+        "peer_median_return", "idiosyncratic_move"
+      ]
+    },
+    "value": { "type": ["number", "null"] },
+    "unit": { "type": "string" },
+    "direction": { "type": "string", "enum": ["positive", "negative", "neutral", "unknown"] },
+    "benchmark_entity_id": { "type": ["string", "null"] },
+    "baseline_window": { "type": ["integer", "null"], "minimum": 0 },
+    "baseline_method": { "type": ["string", "null"] },
+    "baseline_median": { "type": ["number", "null"] },
+    "baseline_mad": { "type": ["number", "null"] },
+    "robust_z": { "type": ["number", "null"] },
+    "historical_percentile": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "cross_sectional_percentile": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "severity": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "sample_size": { "type": "integer", "minimum": 0 },
+    "minimum_sample_size": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["valid", "insufficient_sample", "missing_input", "not_applicable"] },
+    "calculation_version": { "type": "string" },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } }
+  }
+}

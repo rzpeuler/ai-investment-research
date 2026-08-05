@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/attribution_result.schema.json",
+  "title": "AttributionResult",
+  "description": "归因结果（Phase 3）。attribution_status 可合法为 UNEXPLAINED_MOVE；模型路由如实记录 llm_called。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attribution_result_id", "request_id", "observation_id",
+    "benchmark_selection_id", "attribution_status", "primary_cause_ids",
+    "secondary_cause_ids", "background_cause_ids", "hypothesis_cause_ids",
+    "excluded_cause_ids", "contradictions", "fact_claim_ids",
+    "source_opinion_claim_ids", "model_inference_claim_ids",
+    "hypothesis_claim_ids", "unknown_claim_ids", "overall_confidence",
+    "explanation_coverage", "evidence_ids", "model_route", "rules_version",
+    "warnings", "missing_data"
+  ],
+  "properties": {
+    "attribution_result_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "observation_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "benchmark_selection_id": { "type": ["string", "null"] },
+    "attribution_status": {
+      "type": "string",
+      "enum": [
+        "EXPLAINED", "MULTI_CAUSE", "UNEXPLAINED_MOVE",
+        "INSUFFICIENT_EVIDENCE", "SOURCE_CONFLICT", "DATA_DEGRADED"
+      ]
+    },
+    "primary_cause_ids": { "type": "array", "items": { "type": "string" } },
+    "secondary_cause_ids": { "type": "array", "items": { "type": "string" } },
+    "background_cause_ids": { "type": "array", "items": { "type": "string" } },
+    "hypothesis_cause_ids": { "type": "array", "items": { "type": "string" } },
+    "excluded_cause_ids": { "type": "array", "items": { "type": "string" } },
+    "contradictions": { "type": "array", "items": { "type": "string" } },
+    "fact_claim_ids": { "type": "array", "items": { "type": "string" } },
+    "source_opinion_claim_ids": { "type": "array", "items": { "type": "string" } },
+    "model_inference_claim_ids": { "type": "array", "items": { "type": "string" } },
+    "hypothesis_claim_ids": { "type": "array", "items": { "type": "string" } },
+    "unknown_claim_ids": { "type": "array", "items": { "type": "string" } },
+    "overall_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "explanation_coverage": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "model_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode", "llm_called", "intended_default_model", "selected_model",
+        "failure_stage", "limitation", "escalated", "escalation_reasons",
+        "business_escalation_reason", "provider_fallback_used",
+        "provider_fallback_reason"
+      ],
+      "properties": {
+        "mode": { "type": "string", "enum": ["deterministic_fallback", "llm"] },
+        "llm_called": { "type": "boolean" },
+        "intended_default_model": { "type": "string" },
+        "selected_model": { "type": ["string", "null"] },
+        "failure_stage": { "type": ["string", "null"] },
+        "limitation": { "type": "string" },
+        "escalated": { "type": "boolean" },
+        "escalation_reasons": { "type": "array", "items": { "type": "string" } },
+        "business_escalation_reason": { "type": ["string", "null"], "description": "业务复杂度升级（Flash->Pro），与 provider 故障回退分离" },
+        "provider_fallback_used": { "type": "boolean" },
+        "provider_fallback_reason": { "type": ["string", "null"], "description": "同级模型故障回退，与业务升级不得混用" }
+      }
+    },
+    "rules_version": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } }
+  }
+}

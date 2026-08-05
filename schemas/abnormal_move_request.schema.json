@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/abnormal_move_request.schema.json",
+  "title": "AbnormalMoveRequest",
+  "description": "异动分析请求（Phase 3）。三种实体类型只允许一种；timezone=Asia/Shanghai；显式非交易日不得静默平移。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id", "task_id", "entity_id", "entity_type", "analysis_date",
+    "window_start", "window_end", "granularity", "depth", "use_realtime",
+    "force", "dry_run", "as_of", "timezone", "data_policy",
+    "benchmark_policy", "requested_metrics", "status", "warnings"
+  ],
+  "properties": {
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "entity_id": { "type": "string", "minLength": 1 },
+    "entity_type": { "type": "string", "enum": ["company", "industry", "concept"] },
+    "analysis_date": { "type": "string", "format": "date", "description": "最近一个已完整收盘的交易日（未指定时自动确定）" },
+    "window_start": { "type": "string", "format": "date" },
+    "window_end": { "type": "string", "format": "date" },
+    "granularity": { "type": "string", "enum": ["daily", "minute"], "description": "首版 minute 仅数据可用时接受" },
+    "depth": { "type": "string", "enum": ["fast", "standard", "deep"] },
+    "use_realtime": { "type": "boolean" },
+    "force": { "type": "boolean" },
+    "dry_run": { "type": "boolean" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "timezone": { "type": "string", "const": "Asia/Shanghai" },
+    "data_policy": { "type": "string" },
+    "benchmark_policy": { "type": "string" },
+    "requested_metrics": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

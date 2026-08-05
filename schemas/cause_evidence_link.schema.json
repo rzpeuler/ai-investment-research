@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/cause_evidence_link.schema.json",
+  "title": "CauseEvidenceLink",
+  "description": "原因候选与证据的关联（Phase 3）。转载按 independence_group 计数，十篇转载只算一个独立证据组。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "link_id", "cause_candidate_id", "evidence_id", "relation", "directness",
+    "timing_relation", "independence_group", "weight", "notes", "created_at",
+    "warnings"
+  ],
+  "properties": {
+    "link_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "cause_candidate_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "relation": { "type": "string", "enum": ["supports", "contradicts", "context", "timing_only"] },
+    "directness": { "type": "string", "enum": ["direct", "indirect", "inferred"] },
+    "timing_relation": { "type": "string", "enum": ["before", "during", "after", "unknown"] },
+    "independence_group": { "type": "string", "minLength": 1 },
+    "weight": { "type": "number" },
+    "notes": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

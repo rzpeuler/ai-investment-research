@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/benchmark_selection.schema.json",
+  "title": "BenchmarkSelection",
+  "description": "基准选择结果（Phase 3）。information_cutoff 必须等于或早于异动窗口开始，防止事后选择。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "benchmark_selection_id", "request_id", "observation_id",
+    "market_benchmark_id", "primary_industry_benchmark_id",
+    "auxiliary_concept_benchmark_ids", "peer_basket_id", "selected_at",
+    "information_cutoff", "scoring_version", "candidate_ids", "fallback_status",
+    "selection_rationale", "evidence_ids", "confidence", "warnings", "missing_data"
+  ],
+  "properties": {
+    "benchmark_selection_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "observation_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "market_benchmark_id": { "type": ["string", "null"] },
+    "primary_industry_benchmark_id": { "type": ["string", "null"] },
+    "auxiliary_concept_benchmark_ids": { "type": "array", "items": { "type": "string" } },
+    "peer_basket_id": { "type": ["string", "null"] },
+    "selected_at": { "type": "string", "format": "date-time" },
+    "information_cutoff": { "type": "string", "format": "date-time", "description": "必须 <= 异动窗口开始" },
+    "scoring_version": { "type": "string" },
+    "candidate_ids": { "type": "array", "items": { "type": "string" } },
+    "fallback_status": { "type": "string" },
+    "selection_rationale": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } }
+  }
+}

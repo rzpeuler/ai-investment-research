@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/market_minute_bar.schema.json",
+  "title": "MarketMinuteBar",
+  "description": "分钟级行情（Phase 3 仅 Schema/模型/Loader Protocol，无来源）。不得与日线混合；不得创建虚构分钟源。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bar_id", "symbol", "trade_date", "bar_time", "timezone", "interval",
+    "open", "high", "low", "close", "volume", "amount", "source_id",
+    "data_version", "status", "warnings"
+  ],
+  "properties": {
+    "bar_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "symbol": { "type": "string", "minLength": 1 },
+    "trade_date": { "type": "string", "format": "date" },
+    "bar_time": { "type": "string", "format": "date-time", "description": "K 线时间戳（Asia/Shanghai）" },
+    "timezone": { "type": "string", "const": "Asia/Shanghai" },
+    "interval": { "type": "string", "minLength": 1, "description": "如 1min/5min/15min" },
+    "open": { "type": "number" },
+    "high": { "type": "number" },
+    "low": { "type": "number" },
+    "close": { "type": "number" },
+    "volume": { "type": "number" },
+    "amount": { "type": ["number", "null"] },
+    "source_id": { "type": "string", "minLength": 1 },
+    "data_version": { "type": "string", "minLength": 1 },
+    "status": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

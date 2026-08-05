@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/market_daily_series_manifest.schema.json",
+  "title": "MarketDailySeriesManifest",
+  "description": "人工/自动导入的日线批次清单（Phase 3）。一个批次只能使用一种复权口径；checksum+data_version 进入异动任务幂等键。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "import_id", "source_id", "source_kind", "file_name", "file_checksum",
+    "imported_at", "imported_by", "symbols", "date_start", "date_end",
+    "row_count", "adjustment_method", "adjustment_description", "calendar_id",
+    "calendar_version", "currency", "price_unit", "volume_unit",
+    "available_optional_fields", "data_version", "validation_status",
+    "validation_errors", "warnings"
+  ],
+  "properties": {
+    "import_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "source_id": { "type": "string", "minLength": 1 },
+    "source_kind": { "type": "string", "enum": ["manual_import", "verified_automatic"] },
+    "file_name": { "type": "string", "minLength": 1 },
+    "file_checksum": { "type": "string", "minLength": 1, "description": "SHA-256，进入异动任务幂等键" },
+    "imported_at": { "type": "string", "format": "date-time" },
+    "imported_by": { "type": "string", "minLength": 1 },
+    "symbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "date_start": { "type": "string", "format": "date" },
+    "date_end": { "type": "string", "format": "date" },
+    "row_count": { "type": "integer", "minimum": 0 },
+    "adjustment_method": { "type": "string", "enum": ["none", "qfq", "hfq"], "description": "一个批次只能使用一种复权口径" },
+    "adjustment_description": { "type": "string" },
+    "calendar_id": { "type": "string", "minLength": 1 },
+    "calendar_version": { "type": "string", "minLength": 1 },
+    "currency": { "type": "string", "minLength": 1 },
+    "price_unit": { "type": "string", "minLength": 1 },
+    "volume_unit": { "type": "string", "minLength": 1 },
+    "available_optional_fields": { "type": "array", "items": { "type": "string" } },
+    "data_version": { "type": "string", "minLength": 1, "description": "进入异动任务幂等键" },
+    "validation_status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+    "validation_errors": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

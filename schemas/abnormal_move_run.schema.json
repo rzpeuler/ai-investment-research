@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/abnormal_move_run.schema.json",
+  "title": "AbnormalMoveRun",
+  "description": "异动分析运行记录（Phase 3）。idempotency_key+run_version 唯一；--force 产生新版本不覆盖旧产物。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id", "task_id", "request_id", "observation_id",
+    "attribution_result_id", "idempotency_key", "run_version", "started_at",
+    "finished_at", "module_results", "data_routes", "model_route",
+    "rules_versions", "artifact_paths", "report_path", "validation_status",
+    "status", "warnings", "missing_data"
+  ],
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "observation_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "attribution_result_id": { "type": ["string", "null"] },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "run_version": { "type": "integer", "minimum": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "module_results": { "type": "array", "items": { "type": "string" } },
+    "data_routes": { "type": "array", "items": { "type": "string" } },
+    "model_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode", "llm_called", "intended_default_model", "selected_model",
+        "failure_stage", "limitation", "escalated", "escalation_reasons",
+        "business_escalation_reason", "provider_fallback_used",
+        "provider_fallback_reason"
+      ],
+      "properties": {
+        "mode": { "type": "string", "enum": ["deterministic_fallback", "llm"] },
+        "llm_called": { "type": "boolean" },
+        "intended_default_model": { "type": "string" },
+        "selected_model": { "type": ["string", "null"] },
+        "failure_stage": { "type": ["string", "null"] },
+        "limitation": { "type": "string" },
+        "escalated": { "type": "boolean" },
+        "escalation_reasons": { "type": "array", "items": { "type": "string" } },
+        "business_escalation_reason": { "type": ["string", "null"] },
+        "provider_fallback_used": { "type": "boolean" },
+        "provider_fallback_reason": { "type": ["string", "null"] }
+      }
+    },
+    "rules_versions": { "type": "object", "additionalProperties": { "type": "string" } },
+    "artifact_paths": { "type": "array", "items": { "type": "string" } },
+    "report_path": { "type": ["string", "null"] },
+    "validation_status": { "type": "string" },
+    "status": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } }
+  }
+}
