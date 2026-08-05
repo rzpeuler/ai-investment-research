@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/information_score.schema.json",
+  "title": "InformationScore",
+  "description": "信息价值评分（Phase 2 任务 6.3 / 13 节）。各维度原始评分 0-5，最终 0-100。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "candidate_id", "novelty", "impact_strength", "authority", "certainty",
+    "impact_scope", "expectation_gap", "verifiability", "market_relevance",
+    "base_score", "penalties", "bonuses", "final_score", "hard_veto",
+    "veto_reasons", "score_reasons", "forced_include", "forced_include_reason"
+  ],
+  "properties": {
+    "candidate_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "novelty": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "impact_strength": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "authority": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "certainty": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "impact_scope": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "expectation_gap": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "verifiability": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "market_relevance": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "base_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "penalties": { "type": "array", "items": { "type": "string" } },
+    "bonuses": { "type": "array", "items": { "type": "string" } },
+    "final_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "hard_veto": { "type": "boolean" },
+    "veto_reasons": { "type": "array", "items": { "type": "string" } },
+    "score_reasons": { "type": "array", "items": { "type": "string" } },
+    "forced_include": { "type": "boolean", "description": "强制纳入（重大监管/法定公告/重大政策等）" },
+    "forced_include_reason": { "type": ["string", "null"] }
+  }
+}

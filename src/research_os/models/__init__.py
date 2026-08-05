@@ -28,6 +28,16 @@ from research_os.models.core import (
     TimeWindow,
 )
 from research_os.models.market import MarketDailyOhlcv, MarketRealtimeSnapshot
+from research_os.models.morning import (
+    CLASSIFICATION_TREE,
+    MONITORING_CHANNELS,
+    CandidateItem,
+    ContentType,
+    EventCluster,
+    InformationScore,
+    MonitoringChannel,
+    MorningBriefRun,
+)
 from research_os.models.sources import (
     AccessLevel,
     AutomationLevel,
@@ -47,11 +57,15 @@ __all__ = [
     "AutomationLevel",
     "Claim",
     "ClaimType",
+    "CLASSIFICATION_TREE",
+    "CandidateItem",
     "ContentStorage",
+    "ContentType",
     "DataRoute",
     "Entity",
     "EntityType",
     "Event",
+    "EventCluster",
     "Evidence",
     "GraphChange",
     "GraphChangeType",
@@ -63,6 +77,9 @@ __all__ = [
     "ModelPolicy",
     "ModuleResult",
     "ModuleStatus",
+    "MONITORING_CHANNELS",
+    "MonitoringChannel",
+    "MorningBriefRun",
     "Opinion",
     "ProbeStatus",
     "RawItem",

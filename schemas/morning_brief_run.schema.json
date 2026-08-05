@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/morning_brief_run.schema.json",
+  "title": "MorningBriefRun",
+  "description": "每日晨报运行记录（Phase 2 任务 6.4 / 7 节）。记录窗口、延迟、覆盖与选择。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "report_id", "task_id", "as_of", "window_start", "window_end",
+    "actual_started_at", "actual_finished_at", "scheduled_for",
+    "delayed", "delay_seconds", "coverage", "selected_cluster_ids",
+    "missing_data", "warnings", "status"
+  ],
+  "properties": {
+    "report_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "window_start": { "type": "string", "format": "date-time" },
+    "window_end": { "type": "string", "format": "date-time" },
+    "actual_started_at": { "type": "string", "format": "date-time" },
+    "actual_finished_at": { "type": "string", "format": "date-time" },
+    "scheduled_for": { "type": "string", "format": "date-time" },
+    "delayed": { "type": "boolean" },
+    "delay_seconds": { "type": "integer", "minimum": 0 },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["monitoring_channel", "status", "sources_attempted",
+                     "sources_succeeded", "limitations"]
+      }
+    },
+    "selected_cluster_ids": { "type": "array", "items": { "type": "string" } },
+    "missing_data": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "status": {
+      "type": "string",
+      "enum": ["success", "partial_success", "insufficient_data", "failed"]
+    }
+  }
+}

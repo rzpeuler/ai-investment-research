@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/candidate_item.schema.json",
+  "title": "CandidateItem",
+  "description": "进入筛选流水线的候选信息（Phase 2 任务 6.1 节）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "candidate_id", "raw_item_ids", "source_ids", "monitoring_channel",
+    "title", "summary", "published_at", "retrieved_at", "event_time",
+    "entities", "classification_path", "content_type", "language",
+    "status", "warnings"
+  ],
+  "properties": {
+    "candidate_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "raw_item_ids": { "type": "array", "items": { "type": "string" } },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "monitoring_channel": {
+      "type": "string",
+      "enum": ["fast_news", "deep_financial_media", "community_sentiment",
+               "institutional_activity", "official_disclosure",
+               "government_and_regulator", "company_official", "market_data",
+               "manual_submission", "unknown"]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string" },
+    "published_at": { "type": "string", "format": "date-time" },
+    "retrieved_at": { "type": "string", "format": "date-time" },
+    "event_time": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "entities": { "type": "array", "items": { "type": "string" } },
+    "classification_path": { "type": "array", "items": { "type": "string" } },
+    "content_type": {
+      "type": "string",
+      "enum": ["fact_report", "opinion", "analysis", "market_data", "unknown"]
+    },
+    "language": { "type": "string", "default": "zh-CN" },
+    "status": {
+      "type": "string",
+      "enum": ["collected", "classified", "scored", "selected", "vetoed",
+               "quarantined", "deduplicated"]
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

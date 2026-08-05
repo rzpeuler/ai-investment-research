@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/event_cluster.schema.json",
+  "title": "EventCluster",
+  "description": "语义事件簇（Phase 2 任务 6.2 节）。多家媒体报道同一事件归入一簇；同一公司不同事件/同一项目不同阶段不得错误合并。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cluster_id", "canonical_title", "event_type", "event_time",
+    "first_published_at", "last_updated_at", "subject_entities",
+    "member_candidate_ids", "source_ids", "independence_groups",
+    "official_confirmation", "primary_evidence_ids", "conflicts", "status"
+  ],
+  "properties": {
+    "cluster_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$", "description": "UUID" },
+    "canonical_title": { "type": "string", "minLength": 1 },
+    "event_type": { "type": "string", "minLength": 1 },
+    "event_time": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "first_published_at": { "type": "string", "format": "date-time" },
+    "last_updated_at": { "type": "string", "format": "date-time" },
+    "subject_entities": { "type": "array", "items": { "type": "string" } },
+    "member_candidate_ids": { "type": "array", "items": { "type": "string" } },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "independence_groups": { "type": "array", "items": { "type": "string" } },
+    "official_confirmation": { "type": "boolean" },
+    "primary_evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["active", "resolved", "superseded", "rejected"] }
+  }
+}
