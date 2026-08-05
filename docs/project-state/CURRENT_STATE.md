@@ -5,12 +5,14 @@
 ## 当前 HEAD
 
 ```
-1c680ee test: add abnormal move golden and failure coverage
+c398e58 fix: validator rule 12 allows downgrade path without candidates
 ```
 
-提交链（Phase 3，12 个 Commit）：
+提交链（Phase 3，13 个 Commit）：
 
 ```
+c398e58 fix: validator rule 12 allows downgrade path without candidates
+03c43d4 docs: close phase 3 and update project state
 1c680ee test: add abnormal move golden and failure coverage
 efbae2b feat: expose abnormal move cli and hermes skill
 5f0d097 feat: add attribution synthesis report and validation
