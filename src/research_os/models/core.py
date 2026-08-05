@@ -81,6 +81,7 @@ class Task(StrictModel):
     status: TaskStatus = "planned"
     requested_at: str
     as_of: str
+    finished_at: Optional[str] = Field(None, description="任务结束时间（completed/failed 时写入）")
     timezone: str = "Asia/Shanghai"
     entities: List[str] = Field(default_factory=list)
     time_window: TimeWindow = Field(default_factory=TimeWindow)
@@ -102,6 +103,13 @@ class Task(StrictModel):
     @classmethod
     def _iso(cls, value: str) -> str:
         return _iso_validator(value)
+
+    @field_validator("finished_at")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
 
     @field_validator("timezone")
     @classmethod

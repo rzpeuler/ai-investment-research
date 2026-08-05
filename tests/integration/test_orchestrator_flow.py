@@ -124,7 +124,7 @@ def test_run_failure_path_returns_failed_and_logs_error(project, monkeypatch):
 
     模拟存储层异常（db.upsert 抛错），验证：
     - outcome.status == "failed"（禁止静默失败）
-    - errors.log 记录时间、组件、异常消息
+    - errors.log 记录时间、组件、异常类型、消息
     - 不产生成功产物
     """
     orch = Orchestrator(project)
@@ -144,8 +144,74 @@ def test_run_failure_path_returns_failed_and_logs_error(project, monkeypatch):
     log = ErrorLog(outcome.run_dir / "errors.log")
     entries = log.read()
     assert entries, "errors.log 应有记录"
-    entry = entries[0]
-    assert entry["level"] == "ERROR"
-    assert entry["component"] == "orchestrator"
-    assert entry["ts"], "必须记录时间"
-    assert "模拟数据库写入失败" in entry["message"]
+    main = next(e for e in entries if "模拟数据库写入失败" in e["message"])
+    assert main["level"] == "ERROR"
+    assert main["component"] == "orchestrator"
+    assert main["timestamp"], "必须记录时间"
+    assert main["exception_type"] == "RuntimeError", "必须记录异常类型"
+    assert main["task_id"] == "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    # 二次失败（upsert 再次抛错）必须记录
+    assert any("二次失败" in e["message"] for e in entries), "二次失败必须记录"
+
+
+def test_run_failure_persists_failed_state(project, monkeypatch):
+    """失败状态持久化（Phase 0.1 / 2.3）：
+
+    - task.json.status == failed
+    - task.json.finished_at 已写入
+    - 数据库任务状态为 failed
+    - validation.json 标明未完成
+    - 无成功 final.md（保持占位）
+    - 重复读取该任务时仍识别失败状态
+    """
+    from research_os.orchestrator import RunDirectory
+
+    orch = Orchestrator(project)
+
+    def module_boom(self, *args, **kwargs):
+        raise RuntimeError("模拟模块执行异常")
+
+    # 模拟任务执行中途（写 plan 阶段）模块异常；_mark_failed 中的
+    # write_task/write_validation/db.upsert 均正常，从而验证状态同步。
+    monkeypatch.setattr(RunDirectory, "write_plan", module_boom)
+    tid = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    outcome = orch.run(task_id=tid)
+    assert outcome.status == "failed"
+
+    # task.json 状态
+    task_json = outcome.run_dir / "task.json"
+    import json
+
+    task_data = json.loads(task_json.read_text(encoding="utf-8"))
+    assert task_data["status"] == "failed"
+    assert task_data["finished_at"], "finished_at 必须写入"
+    assert task_data["task_id"] == tid
+
+    # validation.json 标明未完成
+    validation = json.loads((outcome.run_dir / "validation.json").read_text(encoding="utf-8"))
+    assert validation["status"] == "failed"
+
+    # final.md 不得为成功报告（保持占位）
+    final = (outcome.run_dir / "final.md").read_text(encoding="utf-8")
+    assert "待生成报告" in final
+
+    # 数据库同步为 failed
+    from research_os.storage import Database
+
+    db = Database(project / "data" / "sqlite" / "research.db")
+    stored = db.get("tasks", tid)
+    db.close()
+    assert stored is not None
+    assert stored["status"] == "failed"
+    assert stored["finished_at"], "数据库 finished_at 必须写入"
+
+    # 重复读取该任务：仍识别失败状态（不重跑、不覆盖证据）
+    retry = orch.run(task_id=tid)
+    assert retry.status == "failed"
+    assert "此前已失败" in retry.message
+    task_data2 = json.loads(task_json.read_text(encoding="utf-8"))
+    assert task_data2["status"] == "failed"
+
+    # --force 可重跑（但 write_plan 仍抛错，仍为 failed）
+    forced = orch.run(task_id=tid, force=True)
+    assert forced.status == "failed"

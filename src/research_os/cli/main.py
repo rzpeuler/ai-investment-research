@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
 import click
@@ -44,8 +45,23 @@ def cli() -> None:
     """AI＋A股投研 Skill 系统 CLI。"""
 
 
+def _validate_uuid(ctx: click.Context, param: click.Parameter, value: Optional[str]) -> Optional[str]:
+    """校验 task-id 为合法 UUID；非法时返回清晰参数错误（不创建任何东西）。"""
+    if value is None:
+        return None
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        raise click.BadParameter(
+            f"'{value}' 不是合法 UUID。task-id 必须是 36 字符 UUID，"
+            "例如 12345678-1234-1234-1234-123456789abc。"
+        ) from None
+    return value
+
+
 @cli.command()
-@click.option("--task-id", default=None, help="任务 ID（UUID）。相同 ID 重复执行幂等。")
+@click.option("--task-id", default=None, callback=_validate_uuid,
+              help="任务 ID（UUID）。相同 ID 重复执行幂等。")
 @click.option("--scenario", default="morning_brief",
               type=click.Choice([
                   "morning_brief", "evening_brief", "daily_review",

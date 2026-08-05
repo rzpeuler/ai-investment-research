@@ -1,17 +1,18 @@
 """Orchestrator（工程指南 7 节逻辑架构中的研究计划器与执行控制）。
 
-Phase 0：空 Orchestrator。只负责：
+Phase 0/0.1：空 Orchestrator。负责：
 - 任务创建（Task 必须通过 Schema 校验）
 - 计划生成（Plan 占位）
-- 运行目录创建（指南 50 节）
+- 运行目录创建（指南 50 节，全部原子写入）
 - SQLite 持久化（幂等 upsert）
 - 相同 task_id 幂等（补跑机制基础，指南 56 节）
+- 失败状态持久化：task.json/validation.json/数据库 同步 failed + finished_at
+- 结构化错误记录（JSONL，含异常类型/时间/组件，敏感字段过滤）
 
 不执行任何模块，不采集任何数据。Phase 1+ 在此扩展。
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -66,6 +67,50 @@ class Orchestrator:
         self.runs_root = self.project_root / "reports" / "runs"
         self.db = db or Database(self.project_root / "data" / "sqlite" / "research.db")
         self.db.initialize()  # 确保迁移已应用（幂等）
+
+    # ---------- 失败状态持久化 ----------
+
+    def _mark_failed(self, task: Task, run_dir: RunDirectory, exc: BaseException) -> None:
+        """将任务持久化为 failed 状态（尽力而为，任何二次失败都要记录）。"""
+        task.status = "failed"
+        task.finished_at = now_iso()
+        error_log = ErrorLog(run_dir.errors_log, task_id=task.task_id)
+
+        # 1. task.json 原子更新为 failed（文件状态优先，失败也继续）
+        try:
+            run_dir.write_task(task.model_dump())
+        except Exception as inner:  # noqa: BLE001
+            error_log.record_exception(
+                "orchestrator", "二次失败：无法写入 task.json failed 状态", inner,
+                module="task_state", retryable=False,
+            )
+
+        # 2. validation.json 标明任务未完成
+        try:
+            run_dir.write_validation({
+                "status": "failed", "task_id": task.task_id,
+                "checks": [], "message": "任务执行失败，未完成，禁止视为成功产物",
+            })
+        except Exception as inner:  # noqa: BLE001
+            error_log.record_exception(
+                "orchestrator", "二次失败：无法写入 validation.json", inner,
+                module="task_state", retryable=False,
+            )
+
+        # 3. 数据库同步为 failed（失败则记录二次失败，但文件状态已尽力保留）
+        try:
+            self.db.upsert(task)
+        except Exception as inner:  # noqa: BLE001
+            error_log.record_exception(
+                "orchestrator", "二次失败：数据库无法同步 failed 状态", inner,
+                module="task_state", retryable=False,
+            )
+
+        # 4. 主错误记录（结构化，含异常类型与堆栈）
+        error_log.record_exception(
+            "orchestrator", f"任务执行失败: {exc}", exc,
+            task_id=task.task_id, retryable=False, attempt=1,
+        )
 
     # ---------- 任务创建 ----------
 
@@ -125,8 +170,10 @@ class Orchestrator:
     ) -> RunOutcome:
         """执行空任务。
 
-        幂等规则：相同 task_id 的运行目录已存在且 task.json 状态为 completed
-        时，幂等跳过（不重复生成）。force=True 时重建。
+        幂等规则：
+        - 运行目录存在且状态 completed -> 幂等跳过（不重复生成）；
+        - 状态 failed -> 返回失败（不覆盖失败证据），--force 可重跑；
+        - force=True 时重建。
         """
         task = self.create_task(scenario=scenario, entities=entities, depth=depth,
                                 as_of=as_of, task_id=task_id)
@@ -140,6 +187,14 @@ class Orchestrator:
                     task=task,
                     run_dir=run_dir.root,
                     message=f"任务 {task.task_id} 已存在且已完成，幂等跳过（--force 可重建）",
+                )
+            if existing and existing.get("status") == "failed":
+                return RunOutcome(
+                    status="failed",
+                    task=task,
+                    run_dir=run_dir.root,
+                    message=f"任务 {task.task_id} 此前已失败（失败状态已持久化），--force 可重跑",
+                    errors=["此前执行失败"],
                 )
 
         plan = self.create_plan(task)
@@ -164,6 +219,7 @@ class Orchestrator:
             )
             # 4. SQLite 持久化（幂等 upsert）
             task.status = "completed"
+            task.finished_at = now_iso()
             self.db.upsert(task)
             # 5. 回写 task.json 最终状态
             run_dir.write_task(task.model_dump())
@@ -175,8 +231,7 @@ class Orchestrator:
                 message=f"空任务完成：{task.task_id}",
             )
         except Exception as exc:  # noqa: BLE001 —— 失败必须显式记录
-            error_log = ErrorLog(run_dir.errors_log)
-            error_log.error("orchestrator", f"任务执行失败: {exc}")
+            self._mark_failed(task, run_dir, exc)
             return RunOutcome(
                 status="failed",
                 task=task,

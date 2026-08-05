@@ -20,6 +20,7 @@ def valid_task(**overrides: Any) -> Dict[str, Any]:
         "status": "planned",
         "requested_at": T0,
         "as_of": T0,
+        "finished_at": None,
         "timezone": "Asia/Shanghai",
         "entities": ["company:600519.SH"],
         "time_window": {"start": T0, "end": T1},

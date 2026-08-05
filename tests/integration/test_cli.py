@@ -62,10 +62,40 @@ def test_run_force_rebuilds(project_root):
     assert "[OK] 任务" in second.output
 
 
+def test_run_invalid_uuid_fails_cleanly(project_root):
+    """非法 --task-id：无 traceback、清晰错误、非零退出码、不创建任务目录/DB 记录。"""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["run", "--task-id", "not-a-uuid"])
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output, "不得输出 Pydantic traceback"
+    assert "UUID" in result.output, "应提示 task-id 必须是合法 UUID"
+    # 不创建任务目录
+    assert not (project_root / "reports" / "runs").exists() or \
+        not any((project_root / "reports" / "runs").iterdir()), "不得创建任务目录"
+    # 不创建数据库记录
+    import sqlite3
+
+    db_path = project_root / "data" / "sqlite" / "research.db"
+    if db_path.exists():
+        conn = sqlite3.connect(db_path)
+        n = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        conn.close()
+        assert n == 0, "不得写入数据库记录"
+
+
 def test_run_invalid_scenario_fails(project_root):
     runner = CliRunner()
     result = runner.invoke(cli, ["run", "--scenario", "buy_stocks"])
     assert result.exit_code != 0
+
+
+def test_run_valid_uuid_still_works(project_root):
+    """合法 UUID 不受校验影响。"""
+    runner = CliRunner()
+    tid = "99999999-9999-4999-8999-999999999999"
+    result = runner.invoke(cli, ["run", "--task-id", tid])
+    assert result.exit_code == 0, result.output
+    assert (project_root / "reports" / "runs" / tid).exists()
 
 
 def test_validate_schemas_ok(project_root):

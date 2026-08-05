@@ -16,6 +16,7 @@ reports/runs/{task_id}/
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -75,12 +76,15 @@ class RunDirectory:
         if not self.final_md.exists():
             self.final_md.write_text("# 待生成报告\n", encoding="utf-8")
 
-    # ---------- 写入 ----------
+    # ---------- 写入（全部原子：先写临时文件再替换，避免半写状态） ----------
 
     def write_json(self, filename: str, data: Any) -> Path:
         path = self.root / filename
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, path)
         return path
 
     def write_task(self, task_dict: Dict[str, Any]) -> Path:

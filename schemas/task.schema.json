@@ -44,6 +44,7 @@
     },
     "requested_at": { "type": "string", "format": "date-time" },
     "as_of": { "type": "string", "format": "date-time" },
+    "finished_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ], "description": "任务结束时间（completed/failed 时写入）" },
     "timezone": { "type": "string", "default": "Asia/Shanghai" },
     "entities": {
       "type": "array",
