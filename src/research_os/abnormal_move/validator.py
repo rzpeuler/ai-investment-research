@@ -129,8 +129,11 @@ class AbnormalMoveValidator:
             r.errors.append("[11] 概念基准选择缺少评分依据")
 
         # 12. BenchmarkSelection 有评分和降级依据
-        if ctx.selection and not ctx.selection.candidate_ids:
-            r.errors.append("[12] BenchmarkSelection 无候选评分记录")
+        if ctx.selection:
+            if ctx.selection.fallback_status == "full" and not ctx.selection.candidate_ids:
+                r.errors.append("[12] BenchmarkSelection 无候选评分记录")
+            if ctx.selection.fallback_status != "full" and not ctx.selection.selection_rationale:
+                r.warnings.append("[12] 降级选择缺少说明")
 
         # 13. 板块联动有效样本数达到最低要求（由 peer_info 标记）
         #     （不足时 peer_breadth status=insufficient_sample，此处检查状态）
