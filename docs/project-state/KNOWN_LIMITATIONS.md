@@ -65,3 +65,31 @@
 
 - 无全市场自动扫描、无分钟级实盘扫描（明确非目标）
 - 事件检索依赖 DB/晨报产物中已有的结构化数据；外部事件源实时采集不在 Phase 3
+
+## 12. 个股研报自动化程度（Phase 4 延续，任务书 5.3）
+
+- **真实 LLM Provider 仍未配置**：语义模块（业务描述标准化/管理层摘要/竞争因素候选/
+  催化剂风险候选等）为确定性回退或未启用；`llm_called=false` 如实记录；
+  Flash/Pro 任务级预算与升级条件已实现待真实 Provider 接入后生效
+- **自动财务源未验证**：financial_statement_data 无 primary/secondary，
+  仅 `manual_financial_import` + `disclosure_extraction`；未验证接口不得登记
+- **历史行情仍仅人工导入**：日线 fallback=manual_import；市值/股本历史序列无自动来源
+- **PDF 表格解析覆盖有限**：原生文本/CSV 表格可解析；通用 PDF 表格识别为协议层
+  （native_text/table_parser 部分支持）；完整年报表格依赖人工校正
+- **OCR 状态**：仅协议层（返回空列表，不虚构块）；低置信 OCR 不进入有效 FACT；
+  无通用 OCR 平台
+- **金融企业专用指标覆盖**：仅通用适用性降级（EV/EBITDA、流动比率等 N/A）；
+  银行资本充足率、NIM 等专用指标未实现
+- **深度媒体和机构信息覆盖**：仍 manual_only / not_covered（同 Phase 2/3）
+- **同行注册表覆盖**：registry/equity_peer_universe.yaml 为骨架（scoring 权重与
+  门槛已定义）；具体公司关系数据按公司登记时填充
+- **无 GitHub Actions**：无远端 CI/commit status；验收依赖本地实测证据
+- **预测能力边界**：仅确定性外推与显式用户/公司指引假设；model_generated 须真实调用
+- 报告必须章节覆盖：行业位置/竞争格局/管理层治理/重大项目等章节依赖人工或语义
+  模块补充，缺数据时如实写覆盖状态，不套话
+
+## 13. Phase 4 数据输入依赖
+
+- 研报需用户提供 `--financial-file`（CSV/JSON/XLSX）；无自动财务源
+- 公司画像（CompanyProfile）/证券画像（SecurityProfile）无自动来源，fallback 人工
+- 同行比较与历史分位受限于用户导入的同行财务数据

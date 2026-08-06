@@ -118,3 +118,17 @@
     valuation.yaml、llm_equity.yaml 模板；README 修正 Phase 0-3 PASS 与 Phase 4 实施中。
   evidence: registry/；config/；docs/tasks/phase4-equity-research.md
   agent: Hermes Agent
+
+- date: 2026-08-06
+  source_id: "(phase4_complete)"
+  change: phase_implemented_pending_acceptance
+  reason: Phase 4 实施完成（18 提交序列，Commit 1-18）：
+    20 新 Schema（30->50）、迁移 005（user_version=5）、CSV/JSON/XLSX 财务导入、
+    文档底座（哈希/页码/表格/OCR 协议/纠错）、财务标准化（期间/单位/重述/冲突）、
+    24 个确定性财务指标、三表勾稽与质量规则、业务分部、同行选择（防事后选择）、
+    估值观察（无目标价）、情景预测（默认关闭）、催化剂/风险（Phase 3 只读）、
+    LLM 语义模块（统一 LlmClient+任务级预算）、38 章节渲染、ERV-001—070 Validator、
+    CLI equity-research + Skill、25 类黄金案例。全量回归 906 passed。
+  evidence: docs/project-state/CURRENT_STATE.md；tests/golden/equity_research/
+  agent: Hermes Agent
+  notes: 状态=待独立验收；验收 PASS 前不得声明 Phase 4 完成

@@ -107,3 +107,74 @@ Phase 3 起统一 LLM Client 已实现：真实 Provider 未配置时同样诚�
 
 股票上涨或下跌方向不得直接给候选新闻加分或减分；方向语义验证属于 LLM 层，
 确定性引擎只提供机制覆盖度近似。
+
+## 16. 财务数据采用离线优先混合路径（Phase 4 任务书 5.2）
+
+CSV/JSON/XLSX 人工导入为最低可运行路径；法定公告辅助抽取须实际解析成功才能生成
+财务事实；未验证的自动财务接口不得登记为 primary/secondary；离线导入、Manifest
+和来源治理阻塞实施，自动来源不阻塞。
+
+## 17. 文档、财务事实、派生指标、研究发现四层分离（Phase 4 决策 2/4/5）
+
+DocumentRecord → DocumentBlock → FinancialFact/Claim/Evidence；
+FinancialReport → FinancialFact → FinancialMetric 三层结构；
+报告只能引用已进入结构化对象的内容；报告不得先于结构化对象生成；
+PDF 文件存在不自动证明抽取数字正确。
+
+## 18. 财务数值使用 Decimal（Phase 4 决策 3/任务书 3.11）
+
+内部计算 Decimal；持久化十进制字符串；区分 null（缺失）/ "0"（报告为零）/
+负数（合法原始事实）/ not_applicable / conflict；渲染四舍五入不得回写结构化对象。
+
+## 19. Company 与 Security 分离（Phase 4 决策 6）
+
+Entity(company) → CompanyProfile；Entity(security) → SecurityProfile(company_entity_id)；
+EntityType 兼容扩展 `security`；ReportPeriod 不作顶层 Schema（标准字段组合）；
+BusinessSegment 作顶层对象。
+
+## 20. 同行冻结和防事后选择（Phase 4 决策 8）
+
+候选宇宙版本 + 评分权重进幂等键；估值前冻结；不得按估值/涨跌结果删除同行；
+relationship_valid_from <= information_cutoff；用户 --peer 只增加候选不自动合格；
+样本 >=5 完整、3-4 有限、<3 不足。
+
+## 21. 估值仅作观察，无目标价（Phase 4 决策 9）
+
+PE/PB/PS/EV_EBITDA/FCF_Yield/股息率/历史分位/同行分位/敏感性为允许范围；
+禁止目标价/合理价值/上涨空间/买卖区间/用行业平均倍数乘预测利润生成目标市值；
+DCF/DDM 不实现；负 FCF Yield 允许显示但不得解释为"便宜"。
+
+## 22. 情景预测默认关闭且不得为 FACT（Phase 4 决策 10）
+
+CLI 默认 --include-forecast=false；假设 claim_type 只允许 SOURCE_OPINION/
+MODEL_INFERENCE/HYPOTHESIS；model_generated 必须有实际模型调用；无 Provider 时
+确定性回退不得伪装成模型假设；每个假设须有来源/期间/驱动/敏感性/置信度/失效条件。
+
+## 23. Phase 3 结果只读（Phase 4 决策 11）
+
+Phase 4 可读 AbnormalMoveRun/AttributionResult/CauseCandidate/CauseEvidenceLink；
+不得修改 Phase 3 归因状态、不得把 UNEXPLAINED_MOVE 改成猜测原因、不得改写主次原因；
+晨报复用结构化中间产物（CandidateItem/EventCluster/Event/Claim/manual_inbox），
+不得只读 Markdown 做摘要。
+
+## 24. 知识图谱仍属 Phase 5（Phase 4 决策 14）
+
+Phase 4 只允许输出 GraphChange 候选、填写 knowledge_coordinates、生成待审核关系建议；
+禁止自动批准图谱节点/边、禁止自动写入核心产业图谱、禁止提前实现 Phase 5。
+
+## 25. LLM 不得修改数字或资格（Phase 4 决策 15）
+
+允许模型参与语义候选（业务描述/管理层摘要/产品映射/竞争因素/催化剂/风险/反证/
+研究问题/章节草稿）；禁止模型修改财务事实/公式/质量告警/同行资格/估值数值/
+删除反证/把缺失写成事实/绕过结构化对象直接形成最终报告；统一经 LlmClient 调用。
+
+## 26. 金融企业指标适用性（Phase 4 决策 3.16）
+
+银行/证券/保险：EV/EBITDA、流动比率、速动比率等通用指标 N/A（合法降级）；
+ROIC 对金融企业 not_applicable；周期企业 PE 仅作观察并提示周期位置。
+
+## 27. 报告必须由结构化对象生成（Phase 4 决策 2/3.21）
+
+研报渲染只聚合结构化对象（Findings/Result/Metrics/Segments/Peers/Valuation/...）；
+必须章节无论有无数据都显示，缺数据写覆盖状态/缺失字段/不能得出的结论/降级原因；
+禁止空章节套话（"公司未来可期"等）。

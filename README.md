@@ -40,9 +40,14 @@ Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/�
 （UNEXPLAINED_MOVE 合法输出）、18 章节报告 + 33 条 Validator、
 `research run abnormal-move`、Hermes Skill、14 黄金案例。Schema 19→30，迁移 user_version=4。
 
-**Phase 4（个股研报）**：**实施中**（正式任务书见 [`docs/tasks/phase4-equity-research.md`](docs/tasks/phase4-equity-research.md)）。
-目标：离线优先、数据优先、证据可定位、财务可复算、结论可审计的 A 股个股研究档案与
-Markdown 报告流水线。计划 Schema 30→50，迁移 user_version=5。
+**Phase 4（个股研报）**：**实施完成，待独立验收**（正式任务书见
+[`docs/tasks/phase4-equity-research.md`](docs/tasks/phase4-equity-research.md)）。
+离线优先、数据优先、证据可定位、财务可复算、结论可审计的 A 股个股研究档案与
+Markdown 报告流水线：CSV/JSON/XLSX 财务导入（Manifest/行级校验/dry-run/幂等）、
+财务标准化与 24 个确定性指标、三表勾稽与质量告警、业务分部、同行选择（防事后选择）、
+估值观察（结构性禁止目标价）、情景预测（默认关闭）、38 章节研报、ERV-001—070
+Validator、`research run equity-research`、Hermes Skill、25 类黄金案例。
+Schema 30→50，迁移 user_version=5。
 **尚未开始**：晚报/复盘、主题挖掘、首次覆盖、自动产业图谱入库（Phase 5+）。
 
 ## 快速开始
@@ -159,9 +164,8 @@ ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现�
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
 
-当前 **30 个 Schema**（Phase 0：9 / Phase 1：4 / Phase 1.1：2 / Phase 2：4 /
-Phase 3：11）。Phase 4 将新增 20 个（公司画像、证券、文档、财务、同行、估值、
-研报运行对象等），完成后共 50 个。Schema 校验：`research validate`。
+当前 **50 个 Schema**（Phase 0：9 / Phase 1：4 / Phase 1.1：2 / Phase 2：4 /
+Phase 3：11 / Phase 4：20）。Schema 校验：`research validate`。
 
 ## 输出边界
 
