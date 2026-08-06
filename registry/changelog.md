@@ -170,3 +170,15 @@
     validator.py；financials/import_service.py；tests/golden/equity_research/
   agent: Hermes Agent
   notes: 状态=修复完成待三审；Phase 5 继续阻塞
+
+- date: 2026-08-06
+  source_id: "(phase4_final_acceptance)"
+  change: phase_accepted
+  reason: Phase 4 最终验收修复完成：指标公式参数声明并共享允许的 statement_type，
+    生成器与 Validator 同时拒绝报表类型语义错配；Decimal 输入接受有限科学计数法，
+    在模型、导入、计算与验证边界统一规范化为固定小数字符串；三个 P1 攻击全部关闭。
+    全量 collection 成功，947 passed，0 failed，0 skipped。
+  evidence: commit 4f7cdbd；docs/project-state/CURRENT_STATE.md；
+    tests/unit/test_phase4_validator.py；tests/unit/test_phase4_metrics.py
+  agent: Codex
+  notes: 状态=Phase 4 独立验收 PASS；Phase 5 等待正式任务书，尚未实施

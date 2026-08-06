@@ -1,20 +1,19 @@
 # 当前项目状态（CURRENT STATE）
 
-> 生成日期：2026-08-06 · 由 Phase 4 收尾后更新
+> 生成日期：2026-08-06 · Phase 4 最终验收后更新
 
 ## 版本基线（任务书 5.1 节规范）
 
 ```yaml
-remote_head: 5844ea3（fix: address independent acceptance FAIL (3 blockers)，本地 HEAD）
-code_baseline: 5844ea3（Phase 4 二次验收修复完成后的代码基线）
+remote_head: 不在本次本地验收范围（未访问远端）
+code_baseline: 4f7cdbd（fix: enforce phase4 metric input contracts）
 phase4_start_baseline: 2b7827c
-phase4_end_code_commit: 待三次独立验收后记录
-documentation_head: 待三次独立验收后记录
+phase4_end_code_commit: 4f7cdbd
+documentation_head: 本状态更新提交
 ```
 
-> 说明：本地 Phase 4 实施 18 提交序列 + 二次验收修复已提交；
-> 最终代码基线/文档 HEAD 以独立验收核实的提交为准（验收任务书 5.9：不允许把
-> 仓库文档中的历史本地状态当作当前本地状态，本地 HEAD 只有实际运行 git 后记录）。
+> 说明：本地 Phase 4 实施 18 提交序列、三轮验收修复与最终复验均已完成；
+> 远端状态未查询，不作为本次验收证据。
 
 ## Phase 0—4 状态
 
@@ -26,7 +25,7 @@ documentation_head: 待三次独立验收后记录
 | Phase 1.1（行情契约修正） | **PASS** | 实时快照与历史日线严格分离 |
 | Phase 2（信息筛选系统与每日晨报） | **PASS** | 晨报流水线、四方向覆盖、19 Schema、CLI morning-brief、Skill、Cron 文档、黄金测试集 |
 | **Phase 3（异动分析）** | **PASS** | 独立验收结论 PHASE 3 PASS；551 passed；30 Schema；迁移 4 |
-| **Phase 4（个股研报）** | **实施完成，待独立验收** | 见下方 Phase 4 交付清单 |
+| **Phase 4（个股研报）** | **PASS** | 三个 P1 全部 CLOSED；947 项测试可稳定收集并全量通过 |
 
 **Phase 5（产业图谱）尚未开始**（见 NEXT_PHASE.md）。
 
@@ -72,12 +71,31 @@ documentation_head: 待三次独立验收后记录
 ## 测试数量
 
 ```text
-938 passed（二次验收修复后全量回归，含 Phase 0-3 551 基线 + Phase 4 新增 387）
+947 passed（Phase 4 最终验收修复后全量回归）
 0 failed / 0 skipped    全部离线
 ```
 
-命令：`python -m pytest -ra --tb=short`（在项目根，venv 内）。
-**独立验收必须重新运行，不直接引用本数字**（任务书 5.10）。
+命令：`python -m pytest --collect-only -q`、`python -m pytest -q`
+（项目根，系统 Python 3.12.10）。
+
+## Phase 4 最终验收结论（2026-08-06）
+
+**Phase 4 独立验收 PASS**：0 BLOCKER、0 未处置 HIGH，三个 P1 全部 CLOSED。
+
+1. **P1-A valid 指标精确复算 CLOSED**：生成器与 Validator 共用 Decimal 规范化；
+   `precision` 不作容差；毛利率 `+1E-9`、`-1E-9` 和最后有效位篡改均触发
+   ERV-019；尾随零、负零与科学计数法等价值通过；输入统一规范化为固定小数字符串。
+2. **P1-B 参数血缘完整身份 CLOSED**：binding 持久化并核验公司、报告、taxonomy、
+   scope、statement type、期间、币种和单位；公式参数额外声明允许的报表类型，事实与
+   binding 同步改写 `statement_type` 仍触发 ERV-019；公司/scope/报告版本/币种/单位等
+   11 类独立攻击全部失败。
+3. **P1-C Markdown 无标记伪造数字 CLOSED**：Renderer 与 Validator 共用
+   MetricDisplaySpec、标签/别名和格式化规则；六类指定无标记注入全部触发 ERV-060。
+4. **测试收集 CLOSED**：`tests` 为本地显式包，`conftest.py` 注入项目根与 `src/`；
+   `tests.golden` / `tests.fixtures` 导入失败未复现；collection 与全量测试均成功。
+
+定向实测：Validator 89 passed；metric/markdown/validator 172 passed、595 deselected；
+CLI 集成 16 passed；Phase 4 黄金案例 45 passed。完整回归 947 passed。
 
 ## 二次独立验收修复记录（2026-08-06 三审前）
 
@@ -157,11 +175,11 @@ Phase 0（9）+ Phase 1（4）+ Phase 1.1（2）+ Phase 2（4）+ Phase 3（11�
 ## 当前工作区状态
 
 ```text
-git status: clean（Phase 4 提交序列完成后）
+git status: clean（Phase 4 最终状态提交后）
 分支: master
 安装: 普通 pip 安装（非 editable，Windows 中文路径 + GBK locale 约束）
-Python: venv 3.11.15（uv 托管）；系统 3.12.10
+Python: 系统 3.12.10（本次验收实测解释器）
 包名: research-os 0.1.0
 ```
 
-> 本地 HEAD 与远端同步状态、最终代码基线、独立验收结论：待独立验收核实后记录。
+> Phase 4 最终代码基线为 `4f7cdbd`；远端同步状态未查询。Phase 5 须等待正式任务书。
