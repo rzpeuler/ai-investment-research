@@ -437,6 +437,28 @@ class TestPhase4Contracts:
                 if fname in ("raw_value", "normalized_value", "value"):
                     assert "str" in str(finfo.annotation), f"{model.__name__}.{fname}"
 
+    def test_financial_decimal_models_canonicalize_scientific_notation(self):
+        fact_data = _financial_fact().model_dump()
+        fact_data["raw_value"] = "1.2300E+2"
+        fact_data["normalized_value"] = "-0E+4"
+        fact = FinancialFact(**fact_data)
+        assert fact.raw_value == "123"
+        assert fact.normalized_value == "0"
+        assert validate_model(fact) == []
+
+        metric_data = _financial_metric().model_dump()
+        metric_data["value"] = "4E-1"
+        metric = FinancialMetric(**metric_data)
+        assert metric.value == "0.4"
+        assert validate_model(metric) == []
+
+    @pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-Infinity"])
+    def test_financial_decimal_models_reject_non_finite(self, invalid):
+        data = _financial_metric().model_dump()
+        data["value"] = invalid
+        with pytest.raises(ValidationError):
+            FinancialMetric(**data)
+
     def test_nullable_uses_anyof(self):
         """nullable 字段必须显式 anyOf null。"""
         for name in sorted(PHASE4_SCHEMAS):

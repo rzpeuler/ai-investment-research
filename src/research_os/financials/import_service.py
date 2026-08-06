@@ -17,7 +17,6 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,9 +25,9 @@ from research_os.models.financials import (
     FinancialFact,
     FinancialReport,
 )
+from research_os.utils.decimal import normalize_decimal_string
 from research_os.utils.time import now_iso
 
-DECIMAL_RE = re.compile(r"^-?\d+(\.\d+)?$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # 必需列（CSV/XLSX 表头或 JSON 对象键）
@@ -97,27 +96,13 @@ def _parse_value(value: Any) -> Optional[str]:
     """规范化数值为十进制字符串；空/NA 返回 None；非法数字抛 ValueError。"""
     if value is None:
         return None
-    if isinstance(value, (int, float)):
-        if isinstance(value, float) and value != value:  # NaN
-            raise ValueError("NaN 非法")
-        # 避免二进制浮点尾数：用 Decimal 规范化为字符串
-        try:
-            d = Decimal(str(value))
-        except InvalidOperation as exc:
-            raise ValueError(f"非法数字: {value!r}") from exc
-        s = format(d, "f")
-        # 去除十进制尾零（123450000000.0 -> 123450000000），保持整数无小数点
-        if "." in s:
-            s = s.rstrip("0").rstrip(".")
-        if s in ("", "-"):
-            s = "0"
-        return s
     s = str(value).strip()
     if s == "" or s.upper() in ("NA", "N/A", "NULL", "NONE", "-"):
         return None
-    if not DECIMAL_RE.match(s):
-        raise ValueError(f"非法数字: {value!r}")
-    return s
+    try:
+        return normalize_decimal_string(s)
+    except ValueError as exc:
+        raise ValueError(f"非法数字: {value!r}") from exc
 
 
 def _parse_date(value: Any, field_name: str) -> Optional[str]:

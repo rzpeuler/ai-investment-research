@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Callable, Dict, List, Optional, Tuple
 
 from research_os.financials.formulas import (
@@ -16,6 +15,7 @@ from research_os.financials.formulas import (
     MetricResult,
 )
 from research_os.models.financials import FinancialMetric, FinancialMetricInputBinding
+from research_os.utils.decimal import normalize_decimal_string
 from research_os.utils.time import now_iso
 
 
@@ -25,6 +25,7 @@ class MetricParameterSpec:
     taxonomy_code: str
     period_role: str
     required: bool = True
+    allowed_statement_types: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -42,8 +43,40 @@ class MetricFormulaSpec:
     not_applicable_sectors: Tuple[str, ...] = ()
 
 
+_TAXONOMY_STATEMENT_TYPES: Dict[str, Tuple[str, ...]] = {
+    "revenue": ("income_statement",),
+    "net_profit_attr": ("income_statement",),
+    "deducted_net_profit": ("income_statement",),
+    "cost_of_sales": ("income_statement",),
+    "operating_profit": ("income_statement",),
+    "net_profit": ("income_statement",),
+    "ebit": ("income_statement",),
+    "income_tax_rate": ("income_statement", "note", "operating_data"),
+    "rd_expense": ("income_statement",),
+    "selling_expense": ("income_statement",),
+    "admin_expense": ("income_statement",),
+    "equity_attr": ("balance_sheet",),
+    "total_assets": ("balance_sheet",),
+    "total_liabilities": ("balance_sheet",),
+    "current_assets": ("balance_sheet",),
+    "current_liabilities": ("balance_sheet",),
+    "inventory": ("balance_sheet",),
+    "accounts_receivable": ("balance_sheet",),
+    "interest_bearing_debt": ("balance_sheet", "note"),
+    "cash_and_equivalents": ("balance_sheet", "note"),
+    "other_illiquid_assets": ("balance_sheet", "note"),
+    "operating_cash_flow": ("cash_flow",),
+    "capex_paid": ("cash_flow",),
+    "weighted_avg_shares": ("income_statement", "equity_statement", "note", "operating_data"),
+    "period_end_shares": ("balance_sheet", "equity_statement", "note", "operating_data"),
+}
+
+
 def _parameter(name: str, taxonomy: str, role: str = "current", required: bool = True) -> MetricParameterSpec:
-    return MetricParameterSpec(name, taxonomy, role, required)
+    allowed = _TAXONOMY_STATEMENT_TYPES.get(taxonomy)
+    if not allowed:
+        raise ValueError(f"指标参数缺 statement_type 契约: {taxonomy}")
+    return MetricParameterSpec(name, taxonomy, role, required, allowed)
 
 
 def _spec(code: str, unit: str, *parameters: MetricParameterSpec,
@@ -94,23 +127,7 @@ def _fact_value(fact: dict) -> Optional[str]:
 
 def normalize_metric_decimal(value: object, precision: int, rounding_mode: Optional[str]) -> str:
     """Return the canonical persisted value; precision is never an error tolerance."""
-    try:
-        number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError(f"invalid metric decimal: {value!r}") from exc
-    if not number.is_finite():
-        raise ValueError(f"non-finite metric decimal: {value!r}")
-    if rounding_mode is not None:
-        modes = {"ROUND_HALF_UP": ROUND_HALF_UP}
-        if rounding_mode not in modes:
-            raise ValueError(f"unsupported rounding mode: {rounding_mode}")
-        number = number.quantize(Decimal(1).scaleb(-precision), rounding=modes[rounding_mode])
-    if number == 0:
-        return "0"
-    text = format(number, "f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text
+    return normalize_decimal_string(value, precision=precision, rounding_mode=rounding_mode)
 
 
 def fact_selection_key(fact: dict, reports_by_id: Optional[Dict[str, dict]] = None) -> tuple:
@@ -140,7 +157,12 @@ def build_metric_input_binding(parameter: MetricParameterSpec, fact: dict) -> Fi
 def _select_fact(facts: List[dict], parameter: MetricParameterSpec, period_end: str,
                  company_entity_id: Optional[str] = None,
                  reports: Optional[List[dict]] = None) -> Optional[dict]:
-    candidates = [f for f in facts if f.get("taxonomy_code") == parameter.taxonomy_code and _fact_value(f) is not None]
+    candidates = [
+        f for f in facts
+        if f.get("taxonomy_code") == parameter.taxonomy_code
+        and f.get("statement_type") in parameter.allowed_statement_types
+        and _fact_value(f) is not None
+    ]
     if company_entity_id:
         candidates = [f for f in candidates if f.get("company_entity_id") == company_entity_id]
     if parameter.period_role in ("current", "end"):
@@ -207,6 +229,11 @@ def recompute_from_lineage(metric: dict, facts: List[dict], reports: Optional[Li
                 errors.append(f"参数 {parameter.name} 绑定身份字段 {field} 与事实不一致")
         if binding.get("taxonomy_code") != parameter.taxonomy_code or fact.get("taxonomy_code") != parameter.taxonomy_code:
             errors.append(f"参数 {parameter.name} taxonomy 错配")
+        if fact.get("statement_type") not in parameter.allowed_statement_types:
+            errors.append(
+                f"参数 {parameter.name} statement_type 不符合公式契约: "
+                f"{fact.get('statement_type')!r} not in {parameter.allowed_statement_types}"
+            )
         if binding.get("period_role") != parameter.period_role:
             errors.append(f"参数 {parameter.name} 期间角色错配")
         if binding.get("period_end") != fact.get("period_end"):

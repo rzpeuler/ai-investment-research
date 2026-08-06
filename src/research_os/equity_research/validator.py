@@ -53,7 +53,6 @@ MODEL_SCHEMA_MAP = {
     "EquityResearchResult": "equity_research_result",
 }
 
-DECIMAL_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
 
 @dataclass
@@ -184,9 +183,16 @@ def check_derived_not_reported(issues: List[ValidationIssue], fact: Dict[str, An
 
 def check_ratio_decimal(issues: List[ValidationIssue], metrics: List[Dict[str, Any]]) -> None:
     """ERV-017—020/025/026：指标可复算（十进制、零分母显式、输入血缘完整）。"""
+    from research_os.utils.decimal import normalize_decimal_string
+
     for m in metrics:
-        if m.get("value") is not None and not DECIMAL_RE.match(str(m.get("value"))):
-            issues.append(ValidationIssue("ERV-025", "error", "指标值非十进制字符串", m.get("metric_id")))
+        if m.get("value") is not None:
+            try:
+                if not isinstance(m.get("value"), str):
+                    raise ValueError("metric value must be a string")
+                normalize_decimal_string(m.get("value"))
+            except ValueError:
+                issues.append(ValidationIssue("ERV-025", "error", "指标值非有限十进制字符串", m.get("metric_id")))
         if m.get("status") == "zero_denominator" and m.get("value") is not None:
             issues.append(ValidationIssue("ERV-026", "error", "零分母不得输出数值", m.get("metric_id")))
         if not m.get("formula_id") or not m.get("formula_version"):

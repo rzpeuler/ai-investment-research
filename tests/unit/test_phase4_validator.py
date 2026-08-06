@@ -205,6 +205,23 @@ class TestDeterministicMetricRecompute:
         assert normalize_metric_decimal("1.23E+0", 8, None) == "1.23"
         assert normalize_metric_decimal("-0.000", 8, None) == "0"
 
+    def test_scientific_notation_is_validator_equivalent(self):
+        from research_os.equity_research.metric_display import (
+            FINANCIAL_METRIC_DISPLAY,
+            render_metric_line,
+        )
+
+        metric = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "gross_margin"))
+        metric["value"] = "4E-1"
+        report = "## 11. 利润与利润率\n" + render_metric_line(
+            metric, FINANCIAL_METRIC_DISPLAY["gross_margin"], metric["metric_id"],
+        )
+        out = validate_equity_research(
+            metrics=[metric], facts=_formula_facts(), reports=_formula_reports(),
+            report_text=report,
+        )
+        assert out.status == "pass"
+
     def test_trailing_zeros_are_validator_equivalent(self):
         roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
         roe["value"] += "000"
@@ -234,6 +251,28 @@ class TestDeterministicMetricRecompute:
         out = _validate_metric(roe)
         assert out.status == "fail"
         assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_fact_and_binding_statement_type_tamper_fails(self):
+        """攻击者同步改写事实和 binding 时，公式参数契约仍须独立拒绝。"""
+        from research_os.equity_research.metric_display import (
+            FINANCIAL_METRIC_DISPLAY,
+            render_metric_line,
+        )
+
+        metric = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "gross_margin"))
+        facts = deepcopy(_formula_facts())
+        revenue = next(f for f in facts if f["fact_id"] == "revenue-2025")
+        revenue["statement_type"] = "cash_flow"
+        binding = next(b for b in metric["input_bindings"] if b["parameter"] == "revenue")
+        binding["statement_type"] = "cash_flow"
+        report = "## 11. 利润与利润率\n" + render_metric_line(
+            metric, FINANCIAL_METRIC_DISPLAY["gross_margin"], metric["metric_id"],
+        )
+        out = validate_equity_research(
+            metrics=[metric], facts=facts, reports=_formula_reports(), report_text=report,
+        )
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" and "statement_type" in i.message for i in out.errors)
 
     def test_fact_company_substitution_fails(self):
         roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))

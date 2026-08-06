@@ -5,14 +5,13 @@ FinancialReport → FinancialFact → FinancialMetric 三层结构。
 """
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional, Pattern
+from typing import Any, List, Literal, Optional
 
 from pydantic import Field, field_validator
 
 from research_os.models.core import StrictModel
+from research_os.utils.decimal import normalize_decimal_string
 from research_os.utils.time import validate_iso
-
-DECIMAL_RE: Pattern = __import__("re").compile(r"^-?\d+(\.\d+)?$")
 
 SourceKind = Literal["manual_import", "disclosure_extraction", "verified_automatic"]
 FileFormat = Literal["csv", "json", "xlsx", "pdf_extraction"]
@@ -59,9 +58,12 @@ def _check_date(value: Any, field: str) -> Any:
 def _check_decimal(value: Any, field: str) -> Any:
     if value is None:
         return value
-    if not isinstance(value, str) or not DECIMAL_RE.match(value):
-        raise ValueError(f"{field} 必须是十进制定点字符串: {value!r}")
-    return value
+    if not isinstance(value, str):
+        raise ValueError(f"{field} 必须是十进制字符串: {value!r}")
+    try:
+        return normalize_decimal_string(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} 必须是有限十进制字符串: {value!r}") from exc
 
 
 class FinancialDataManifest(StrictModel):

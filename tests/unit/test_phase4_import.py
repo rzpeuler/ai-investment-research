@@ -86,6 +86,14 @@ class TestCsvImport:
         assert fact.raw_value == "0"
         assert fact.value_status == "reported"
 
+    def test_scientific_notation_is_canonicalized(self, tmp_path):
+        scientific = CSV_GOOD.replace("123450000000", "1.2345E+11")
+        p = _write(tmp_path, "scientific.csv", scientific)
+        res = import_financial_file(p, company_entity_id=COMPANY)
+        fact = next(r.fact for r in res.rows if r.accepted and r.fact.taxonomy_code == "revenue")
+        assert fact.raw_value == "123450000000"
+        assert fact.normalized_value == "123450000000"
+
     def test_dry_run_no_side_effects(self, tmp_path):
         db = Database(tmp_path / "test.db")
         db.migrate()

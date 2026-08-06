@@ -36,6 +36,7 @@ from research_os.financials.formulas import (
     share_change,
 )
 from research_os.financials.metrics import (
+    METRIC_FORMULA_REGISTRY,
     METRIC_RECOMPUTE_REGISTRY,
     compute_metric,
     compute_period_metrics,
@@ -304,12 +305,27 @@ class TestMetricsService:
         d = Decimal(m.value)
         assert d.as_tuple().exponent <= -8  # 至少 8 位小数
 
+    def test_generator_rejects_wrong_statement_type(self):
+        facts = [_complete_fact(f) for f in [
+            {"fact_id": "rev", "taxonomy_code": "revenue", "normalized_value": "100",
+             "statement_type": "cash_flow"},
+            {"fact_id": "cogs", "taxonomy_code": "cost_of_sales", "normalized_value": "60"},
+        ]]
+        metric = compute_metric("company:600519.SH", "gross_margin", {}, facts, "2025-12-31")
+        assert metric.status == "missing"
+        assert all(binding.parameter != "revenue" for binding in metric.input_bindings)
+
 
 class TestRecomputeRegistry:
     def test_registry_covers_all_supported_formulas(self):
         from research_os.financials.formulas import METRIC_FUNCTIONS
 
         assert set(METRIC_RECOMPUTE_REGISTRY) == set(METRIC_FUNCTIONS)
+
+    def test_every_parameter_declares_statement_types(self):
+        for spec in METRIC_FORMULA_REGISTRY.values():
+            for parameter in spec.parameters:
+                assert parameter.allowed_statement_types, (spec.metric_code, parameter.name)
 
     def test_lineage_order_does_not_change_gross_margin(self):
         facts = [_complete_fact(f) for f in [
