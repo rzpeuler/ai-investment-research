@@ -674,5 +674,93 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
         click.echo(f"[OK] 运行目录: {outcome.run_dir}")
 
 
+@run.command("equity-research")
+@click.option("--entity", "entity_code", default=None, help="股票代码（如 600519.SH）。必填。")
+@click.option("--date", "report_date", default=None, help="报告日期 YYYY-MM-DD。")
+@click.option("--as-of", default=None, help="数据截止时间 ISO-8601。")
+@click.option("--depth", default="standard", type=click.Choice(["fast", "standard", "deep"]))
+@click.option("--periods", default=5, type=int, help="可比年度数（2-10）。")
+@click.option("--peer", "peers", multiple=True, help="同行股票代码（可重复；只加入候选，不自动合格）。")
+@click.option("--scenario", "scenario_ids", multiple=True, help="情景 ID（可重复；需先有情景数据）。")
+@click.option("--include-valuation", "include_valuation", is_flag=True, default=True,
+              help="计算估值（默认开）。")
+@click.option("--no-include-valuation", "include_valuation", is_flag=True, default=True,
+              help="不计算估值。", flag_value=False)
+@click.option("--include-forecast", is_flag=True, default=False,
+              help="启用情景预测（默认关闭；无 Scenario 时拒绝）。")
+@click.option("--financial-file", "financial_files", multiple=True,
+              help="财务文件路径（CSV/JSON/XLSX，可重复）。")
+@click.option("--document", "documents", multiple=True, help="文档路径（PDF/HTML，可重复）。")
+@click.option("--market-file", "market_file", default=None, help="市值/股本/价格输入文件。")
+@click.option("--force", is_flag=True, help="已存在时强制重跑（新 run_version，不覆盖旧产物）。")
+@click.option("--dry-run", is_flag=True, help="只预览能力/路径/计划/数据缺口，零副作用。")
+@click.option("--live", is_flag=True, help="只允许调用已批准来源（本阶段无已批准自动来源）。")
+def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
+                        scenario_ids, include_valuation, include_forecast,
+                        financial_files, documents, market_file, force, dry_run,
+                        live) -> None:
+    """个股研报流水线（Phase 4）。
+
+    退出码：0 成功/部分成功/合法降级/幂等跳过；2 参数或实体解析错误；
+    3 核心数据不足；4 Validator 失败；5 内部错误。
+    不允许公司名模糊猜代码；--peer 只加入候选不自动合格；--include-forecast
+    无 Scenario 时参数错误；--dry-run 零副作用；--force 不覆盖旧产物。
+    """
+    import re as _re
+
+    from research_os.equity_research.pipeline import (
+        EXIT_INSUFFICIENT,
+        EXIT_OK,
+        EXIT_PARAM,
+        EXIT_VALIDATION,
+        EquityResearchPipeline,
+    )
+    from research_os.storage import Database
+
+    # 参数规则：不静默猜代码
+    if not entity_code:
+        _param_error("--entity 必填（股票代码，如 600519.SH）；不允许公司名模糊猜代码")
+    if not _re.match(r"^\d{6}\.(SH|SZ|BJ)$", entity_code):
+        _param_error(f"股票代码非法: {entity_code!r}（需要 6 位数字 + .SH/.SZ/.BJ）")
+    if not (2 <= periods <= 10):
+        _param_error("--periods 必须在 2-10 之间")
+    if include_forecast and not scenario_ids:
+        _param_error("--include-forecast 需要 --scenario（无 Scenario 时明确拒绝）")
+    if live:
+        _param_error("--live 只允许已批准来源；本阶段无已批准自动来源")
+    if as_of and report_date and as_of[:10] > report_date:
+        _param_error("--as-of 不得晚于 --date")
+
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    pipeline = EquityResearchPipeline(root, db)
+    outcome = pipeline.run({
+        "entity": entity_code, "date": report_date, "as_of": as_of,
+        "depth": depth, "periods": periods, "peers": list(peers),
+        "scenario_ids": list(scenario_ids),
+        "include_valuation": include_valuation,
+        "include_forecast": include_forecast,
+        "financial_files": list(financial_files),
+        "documents": list(documents),
+        "market_file": market_file,
+        "force": force, "dry_run": dry_run, "live": live,
+    })
+    db.close()
+
+    if outcome.status == "idempotent_skipped":
+        click.echo(f"[IDEMPOTENT] {outcome.message}")
+        raise SystemExit(EXIT_OK)
+    if outcome.status == "insufficient_data":
+        click.echo(f"[DATA_INSUFFICIENT] {outcome.message}")
+        raise SystemExit(EXIT_INSUFFICIENT)
+    if outcome.status == "failed":
+        click.echo(f"[FAILED] {outcome.message}", err=True)
+        raise SystemExit(outcome.exit_code or EXIT_PARAM)
+    click.echo(f"[OK] {outcome.message}")
+    if outcome.report_path:
+        click.echo(f"[OK] 报告: {outcome.report_path}")
+
+
 if __name__ == "__main__":
     cli()
