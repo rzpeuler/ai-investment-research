@@ -33,6 +33,7 @@ class FindingInput:
     section_id: str = ""
     model_route: Optional[dict] = None
     invalidation_conditions: List[str] = field(default_factory=list)
+    as_of: Optional[str] = None  # 缺省用当前时间；流水线须显式传 request.as_of（ERV-053）
 
 
 def build_finding(fi: FindingInput) -> ResearchFinding:
@@ -55,7 +56,7 @@ def build_finding(fi: FindingInput) -> ResearchFinding:
         claim_type=fi.claim_type,  # type: ignore[arg-type]
         predicate=fi.predicate,
         object=fi.object,
-        as_of=now_iso(),
+        as_of=fi.as_of or now_iso(),
         evidence_ids=fi.evidence_ids,
         supporting_object_ids=fi.supporting_object_ids,
         counter_evidence_ids=fi.counter_evidence_ids,

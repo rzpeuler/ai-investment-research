@@ -144,3 +144,96 @@ class TestSkillBoundary:
         assert "total_score_min" not in text
         assert "robust_z" not in text
         assert "PE_TTM" not in text
+
+
+# 2 个可比年度 fixture（满足最低条件）
+CSV_2Y = "\n".join([
+    CSV_HEADER,
+    f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,income_statement,revenue,营业收入,85000000000,10000,CNY",
+    f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,income_statement,cost_of_sales,营业成本,40000000000,10000,CNY",
+    f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,balance_sheet,total_assets,资产总计,230000000000,10000,CNY",
+    f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,income_statement,revenue,营业收入,100000000000,10000,CNY",
+    f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,income_statement,cost_of_sales,营业成本,45000000000,10000,CNY",
+    f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,balance_sheet,total_assets,资产总计,260000000000,10000,CNY",
+])
+
+
+def _write_fin_2y(tmp_path):
+    p = tmp_path / "fin2y.csv"
+    p.write_text(CSV_2Y, encoding="utf-8")
+    return str(p)
+
+
+class TestExitCodesAndIdempotency:
+    def test_validator_failure_exit_4(self, runner, tmp_path):
+        """Validator 失败 → exit 4（未来信息污染：as_of 早于财务期间）。"""
+        fin = _write_fin_2y(tmp_path)
+        result = runner.invoke(cli, [
+            "run", "equity-research", "--entity", "600519.SH",
+            "--date", "2026-08-06", "--as-of", "2023-06-01T00:00:00",
+            "--financial-file", fin,
+        ])
+        assert result.exit_code == 4, result.output
+        assert "VALIDATOR" in result.output.upper() or "Validator" in result.output
+
+    def test_internal_error_exit_5(self, runner, tmp_path, monkeypatch):
+        """内部错误 → exit 5。"""
+        from research_os.equity_research import pipeline as pl_module
+
+        fin = _write_fin_2y(tmp_path)
+        orig = pl_module.EquityResearchPipeline._execute
+
+        def boom(self, *a, **kw):
+            raise RuntimeError("模拟内部故障")
+
+        monkeypatch.setattr(pl_module.EquityResearchPipeline, "_execute", boom)
+        result = runner.invoke(cli, [
+            "run", "equity-research", "--entity", "600519.SH",
+            "--date", "2026-08-06", "--financial-file", fin,
+        ])
+        monkeypatch.setattr(pl_module.EquityResearchPipeline, "_execute", orig)
+        assert result.exit_code == 5, result.output
+
+    def test_idempotent_skip(self, runner, tmp_path):
+        """相同参数重复运行 → 幂等跳过（exit 0）。"""
+        fin = _write_fin_2y(tmp_path)
+        r1 = runner.invoke(cli, ["run", "equity-research", "--entity", "600519.SH",
+                                 "--date", "2026-08-06", "--financial-file", fin])
+        assert r1.exit_code == 0, r1.output
+        r2 = runner.invoke(cli, ["run", "equity-research", "--entity", "600519.SH",
+                                 "--date", "2026-08-06", "--financial-file", fin])
+        assert r2.exit_code == 0
+        assert "IDEMPOTENT" in r2.output
+
+    def test_force_new_version_no_overwrite(self, runner, tmp_path):
+        """--force 生成 v2 报告，旧报告不被覆盖。"""
+        fin = _write_fin_2y(tmp_path)
+        runner.invoke(cli, ["run", "equity-research", "--entity", "600519.SH",
+                            "--date", "2026-08-06", "--financial-file", fin])
+        r2 = runner.invoke(cli, ["run", "equity-research", "--entity", "600519.SH",
+                                 "--date", "2026-08-06", "--financial-file", fin,
+                                 "--force"])
+        assert r2.exit_code == 0, r2.output
+        base = tmp_path / "reports" / "stocks" / "600519.SH" / "2026-08-06_equity_research.md"
+        v2 = tmp_path / "reports" / "stocks" / "600519.SH" / "2026-08-06_equity_research_v2.md"
+        assert base.exists() and v2.exists()
+
+    def test_peers_and_valuation_flags_accepted(self, runner, tmp_path):
+        """--peer / --include-valuation / --market-file 全部进入流水线（exit 0）。"""
+        fin = _write_fin_2y(tmp_path)
+        mkt = tmp_path / "market.json"
+        mkt.write_text(json.dumps({"price": "1500", "shares_outstanding": "100000000"}),
+                       encoding="utf-8")
+        result = runner.invoke(cli, [
+            "run", "equity-research", "--entity", "600519.SH",
+            "--date", "2026-08-06", "--financial-file", fin,
+            "--market-file", str(mkt),
+            "--peer", "000858.SZ", "--peer", "000568.SZ",
+        ])
+        assert result.exit_code == 0, result.output
+        # 运行目录含 peer_selection 与 valuation_snapshot 产物
+        import pathlib as _pl
+        run_dirs = list((tmp_path / "reports" / "runs").iterdir())
+        assert run_dirs
+        assert (run_dirs[0] / "peer_selection.json").exists()
+        assert (run_dirs[0] / "valuation_snapshot.json").exists()

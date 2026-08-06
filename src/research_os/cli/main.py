@@ -760,6 +760,8 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
     click.echo(f"[OK] {outcome.message}")
     if outcome.report_path:
         click.echo(f"[OK] 报告: {outcome.report_path}")
+    if outcome.run_dir:
+        click.echo(f"[OK] 运行目录: {outcome.run_dir}")
 
 
 if __name__ == "__main__":

@@ -72,12 +72,42 @@ documentation_head: "待独立验收后记录"
 ## 测试数量
 
 ```text
-906 passed（Phase 4 收尾时全量回归，含 Phase 0-3 551 基线 + Phase 4 新增 355）
+921 passed（独立验收修复后全量回归，含 Phase 0-3 551 基线 + Phase 4 新增 370）
 0 failed / 0 skipped    全部离线
 ```
 
 命令：`python -m pytest -ra --tb=short`（在项目根，venv 内）。
 **独立验收必须重新运行，不直接引用本数字**（任务书 5.10）。
+
+## 独立验收修复记录（2026-08-06 二审前）
+
+首次独立验收 FAIL（3 BLOCKER），已全部修复：
+
+1. **BLOCKER 1 流水线骨架化** → 已修复：EquityResearchPipeline 接入全部已开发模块
+   （文档登记/解析、财务标准化校验、三表勾稽、24 指标、质量规则、业务分部、同行
+   候选与选择、估值、Phase 3 归因只读关联、晨报事件复用、催化剂/风险、冲突检测、
+   Findings、Claim/Evidence 索引），25 阶段全部执行；研究状态按真实覆盖计算
+   （>=2 可比年度 success / 1 年 partial_success / 0 年 insufficient_data exit 3）；
+   可选模块缺数据时如实标记 missing_data 并降级 degraded，不以空章节代替。
+2. **BLOCKER 2 Validator 未实现** → 已修复：ERV-001—070 全集实现并接入主入口
+   （含 check_schema ERV-001/002、check_idempotent_no_duplicate ERV-070、
+   财务 ERV-009—027、估值 ERV-029—040、Evidence/OCR ERV-042/050/051、
+   引用一致性 ERV-057/058、未来信息 ERV-053 覆盖 facts/blocks）；HYPOTHESIS
+   缺失效条件升级为 error（ERV-046 硬约束）；pipeline 传入真实对象
+   （facts/metrics/reports/peers/peer_selection/valuation/factors/blocks/
+   phase3/runs）。
+3. **BLOCKER 3 CLI 语义未实现** → 已修复：Validator 失败 exit 4（独立异常类，
+   不再被内部异常吞成 exit 5）；幂等查询返回 idempotent_skipped；force 生成新
+   run_version 不覆盖旧产物；peer/scenario/valuation/forecast/document/
+   market-file 全部进入 _execute；Request/Run/Result 持久化 + 完整运行目录产物
+   （JSON + JSONL）+ 原子写入。
+4. **黄金测试非端到端** → 已重建：tests/golden/equity_research/ 改为真实跑
+   EquityResearchPipeline（>=2 年度 fixture → 断言 Request/Run/Result/指标/
+   facts/运行产物/研究状态/模型路由/Validator/报告无目标价/幂等/force/同行
+   不自动合格/Phase 3 只读/重述冲突检出/未来信息 exit 4），删除无意义断言。
+5. **CLI 集成覆盖不足** → 已补齐：exit 4/5、幂等、force 不覆盖旧产物、
+   peer+valuation 进入流水线。
+6. **最低两个可比年度** → 已落实到能力检查（1 年 partial_success、0 年 exit 3）。
 
 ## Schema、迁移版本和 CLI
 

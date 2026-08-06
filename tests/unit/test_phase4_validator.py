@@ -43,7 +43,9 @@ class TestForbiddenOutput:
         assert out.status == "pass"
 
     def test_disclaimer_not_false_positive(self):
-        out = validate_equity_research(report_text="本报告不构成投资建议，不提供目标价。")
+        """免责声明固定文案（含"目标价"字样）不误伤。"""
+        disclaimer = "本报告由 AI＋A 股投研系统自动生成，仅供研究参考，不构成投资建议。不提供目标价、买卖评级、仓位建议或任何交易建议。"
+        out = validate_equity_research(report_text=disclaimer)
         assert out.status in ("pass", "pass_with_warnings")
 
 
@@ -64,9 +66,11 @@ class TestClaimRules:
         ])
         assert not any(i.rule_id == "ERV-044" for i in out.issues)
 
-    def test_hypothesis_without_failure_condition_warns(self):
+    def test_hypothesis_without_failure_condition_fails(self):
+        """ERV-046 硬约束：HYPOTHESIS 缺失效条件 → error（任务书要求，独立验收指出 warning 不足）。"""
         out = validate_equity_research(findings=[_finding(claim_type="HYPOTHESIS", invalidation_conditions=[])])
-        assert any(i.rule_id == "ERV-046" for i in out.warnings)
+        assert any(i.rule_id == "ERV-046" for i in out.errors)
+        assert out.status == "fail"
 
     def test_unknown_written_as_negative_fails(self):
         out = validate_equity_research(findings=[
@@ -157,9 +161,24 @@ class TestSeverity:
         assert out.status == "fail"
 
     def test_warning_allows_pass_with_warnings(self):
-        out = validate_equity_research(findings=[
-            _finding(claim_type="HYPOTHESIS", invalidation_conditions=[]),
+        """warning（非 error）允许 pass_with_warnings：外币事实无汇率证据。"""
+        out = validate_equity_research(facts=[
+            {"fact_id": "fa-w", "fact_key": "k", "taxonomy_code": "revenue",
+             "company_entity_id": "company:1", "period_end": "2025-12-31",
+             "statement_scope": "consolidated", "currency": "USD",
+             "unit_scale": 1, "raw_value": "100", "normalized_value": "100",
+             "period_start": "2025-01-01", "instant_or_duration": "duration",
+             "period_basis": "reported_period", "value_status": "reported",
+             "sign_convention": "reported", "audit_status": "unknown",
+             "source_priority": 5, "restatement_version": 1,
+             "evidence_ids": [], "source_block_ids": [], "warnings": [],
+             "valid_from": "2026-08-06T00:00:00", "valid_to": None,
+             "version": 1, "created_at": "2026-08-06T00:00:00", "label_raw": "收入",
+             "normalized_unit": "USD", "statement_type": "income_statement",
+             "financial_report_id": "r1", "segment_id": None,
+             "source_document_id": None, "conflict_group_id": None},
         ])
+        assert any(i.rule_id == "ERV-010" for i in out.warnings)
         assert out.status == "pass_with_warnings"
 
     def test_outcome_helpers(self):

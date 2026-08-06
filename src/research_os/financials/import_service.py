@@ -221,7 +221,7 @@ def _validate_row(data: Dict[str, Any], row_index: int, default_scope: str) -> R
         evidence_ids=[],
         source_priority=5,
         restatement_version=1,
-        valid_from=now_iso(),
+        valid_from=f"{period_end}T00:00:00",  # 事实自报告期末有效（<= as_of，ERV-053）
         valid_to=None,
         conflict_group_id=None,
         warnings=[],

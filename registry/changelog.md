@@ -132,3 +132,22 @@
   evidence: docs/project-state/CURRENT_STATE.md；tests/golden/equity_research/
   agent: Hermes Agent
   notes: 状态=待独立验收；验收 PASS 前不得声明 Phase 4 完成
+
+- date: 2026-08-06
+  source_id: "(phase4_acceptance_fix)"
+  change: rework_fix
+  reason: 独立验收 FAIL（3 BLOCKER）修复：1) 流水线接入全部已开发模块
+    （文档/标准化/勾稽/质量/分部/同行/竞争/估值/Phase2+3 复用/催化剂风险/
+    findings/claims/run 产物），能力检查落实 >=2 可比年度，研究状态按真实覆盖
+    计算（0 年 exit 3/1 年 partial/2+ 年 success）；2) Validator 补齐并实际调用
+    ERV-001—070（schema/幂等/财务/估值/Evidence/OCR/引用一致性），HYPOTHESIS
+    失效条件升级 error（ERV-046），pipeline 传入真实对象；3) Run/Result/Request
+    持久化 + 幂等键 + force 新版本不覆盖 + 原子写入 + Validator 失败 exit 4 +
+    peer/scenario/valuation/forecast/document/market-file 进 _execute；
+    4) 黄金测试重建为端到端（真实流水线，删除无意义断言）；
+    5) CLI 补 exit 4/5/幂等/force/不覆盖/同行/估值集成测试；
+    6) 最低两个可比年度落实到能力检查。全量回归 921 passed。
+  evidence: src/research_os/equity_research/pipeline.py；validator.py；
+    tests/golden/equity_research/；tests/integration/test_equity_research_cli.py
+  agent: Hermes Agent
+  notes: 状态=修复完成待复审；Phase 5 继续阻塞
