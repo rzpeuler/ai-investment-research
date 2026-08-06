@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/peer_selection.schema.json",
+  "title": "PeerSelection",
+  "description": "本次研究冻结的同行选择（Phase 4 任务书 3.9.3-11）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "peer_selection_id", "request_id", "subject_company_id", "information_cutoff",
+    "universe_version", "scoring_version", "candidate_ids", "selected_company_ids",
+    "sample_size", "minimum_required", "status", "selection_rationale",
+    "outlier_policy", "evidence_ids", "warnings", "version", "created_at"
+  ],
+  "properties": {
+    "peer_selection_id": { "type": "string" },
+    "request_id": { "type": "string" },
+    "subject_company_id": { "type": "string", "pattern": "^company:" },
+    "information_cutoff": { "type": "string", "format": "date-time" },
+    "universe_version": { "type": "string", "minLength": 1 },
+    "scoring_version": { "type": "string", "minLength": 1 },
+    "candidate_ids": { "type": "array", "items": { "type": "string" } },
+    "selected_company_ids": { "type": "array", "items": { "type": "string" } },
+    "sample_size": { "type": "integer", "minimum": 0 },
+    "minimum_required": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["full", "limited", "insufficient"] },
+    "selection_rationale": { "type": "array", "items": { "type": "string" } },
+    "outlier_policy": { "type": "string" },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/financial_report.schema.json",
+  "title": "FinancialReport",
+  "description": "一份定期报告的标准元数据（Phase 4 任务书 3.9.3-6）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "financial_report_id", "company_entity_id", "document_id", "manifest_id",
+    "report_type", "period_start", "period_end", "fiscal_year", "fiscal_period",
+    "duration_months", "statement_scope", "accounting_standard", "currency",
+    "unit_scale", "audit_status", "audit_opinion", "restatement_status",
+    "supersedes_report_id", "filing_version", "source_ids", "evidence_ids",
+    "data_status", "version", "published_at", "created_at"
+  ],
+  "properties": {
+    "financial_report_id": { "type": "string" },
+    "company_entity_id": { "type": "string", "pattern": "^company:" },
+    "document_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "manifest_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "report_type": { "type": "string", "enum": ["annual", "interim", "q1", "q3", "other"] },
+    "period_start": { "type": "string", "format": "date" },
+    "period_end": { "type": "string", "format": "date" },
+    "fiscal_year": { "type": "integer" },
+    "fiscal_period": { "type": "string", "enum": ["FY", "H1", "Q1", "Q3", "OTHER"] },
+    "duration_months": { "type": "integer", "minimum": 1 },
+    "statement_scope": { "type": "string", "enum": ["consolidated", "parent"] },
+    "accounting_standard": { "type": "string", "enum": ["CAS", "IFRS", "OTHER"] },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "unit_scale": { "type": "integer" },
+    "audit_status": { "type": "string", "enum": ["audited", "reviewed", "unaudited", "unknown"] },
+    "audit_opinion": { "type": "string", "enum": ["unmodified", "qualified", "adverse", "disclaimer", "not_applicable", "unknown"] },
+    "restatement_status": { "type": "string", "enum": ["original", "restated", "superseded"] },
+    "supersedes_report_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "filing_version": { "type": "string" },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "data_status": { "type": "string", "enum": ["complete", "partial", "failed"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "published_at": { "type": "string", "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

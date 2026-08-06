@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/company_profile.schema.json",
+  "title": "CompanyProfile",
+  "description": "公司主体在某有效期内的主数据（Phase 4 任务书 3.9.3-1）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "company_profile_id", "entity_id", "canonical_name", "unified_social_credit_code",
+    "registered_address", "industry_ids", "business_description", "fiscal_year_end",
+    "reporting_currency", "ownership_type", "controlling_shareholder_entity_id",
+    "actual_controller_entity_ids", "valid_from", "valid_to", "source_ids",
+    "evidence_ids", "status", "version", "created_at", "updated_at"
+  ],
+  "properties": {
+    "company_profile_id": { "type": "string" },
+    "entity_id": { "type": "string", "pattern": "^company:" },
+    "canonical_name": { "type": "string", "minLength": 1 },
+    "unified_social_credit_code": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "registered_address": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "industry_ids": { "type": "array", "items": { "type": "string" } },
+    "business_description": { "type": "string" },
+    "fiscal_year_end": { "type": "string", "pattern": "^\\d{2}-\\d{2}$" },
+    "reporting_currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "ownership_type": {
+      "type": "string",
+      "enum": ["state_owned", "central_state_owned", "local_state_owned", "private", "foreign_invested", "collective", "mixed", "unknown"]
+    },
+    "controlling_shareholder_entity_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "actual_controller_entity_ids": { "type": "array", "items": { "type": "string" } },
+    "valid_from": { "type": "string", "format": "date" },
+    "valid_to": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["active", "superseded", "incomplete"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

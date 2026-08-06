@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/valuation_snapshot.schema.json",
+  "title": "ValuationSnapshot",
+  "description": "特定时点的估值输入、指标和分位（Phase 4 任务书 3.9.3-12）。估值仅作观察，不含目标价。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "valuation_snapshot_id", "company_entity_id", "security_entity_id", "as_of",
+    "market_data_manifest_id", "price", "shares_outstanding", "market_cap",
+    "enterprise_value", "financial_period_end", "financial_basis", "metrics",
+    "history_window_start", "history_window_end", "history_sample_size",
+    "peer_selection_id", "peer_sample_size", "percentile_method",
+    "applicability_notes", "status", "source_ids", "evidence_ids",
+    "version", "calculated_at"
+  ],
+  "properties": {
+    "valuation_snapshot_id": { "type": "string" },
+    "company_entity_id": { "type": "string", "pattern": "^company:" },
+    "security_entity_id": { "type": "string", "pattern": "^security:" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "market_data_manifest_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "price": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+    "shares_outstanding": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+    "market_cap": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+    "enterprise_value": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+    "financial_period_end": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "financial_basis": { "type": "string", "enum": ["TTM", "FY", "latest", "none"] },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "numerator", "denominator", "value", "unit", "status", "formula_version", "warnings"],
+        "properties": {
+          "metric_code": { "type": "string" },
+          "numerator": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+          "denominator": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+          "value": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+          "unit": { "type": "string" },
+          "status": { "type": "string" },
+          "formula_version": { "type": "string" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "history_window_start": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "history_window_end": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "history_sample_size": { "type": "integer", "minimum": 0 },
+    "peer_selection_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "peer_sample_size": { "type": "integer", "minimum": 0 },
+    "percentile_method": { "type": "string" },
+    "applicability_notes": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["complete", "partial", "not_applicable", "insufficient_data"] },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 },
+    "calculated_at": { "type": "string", "format": "date-time" }
+  }
+}

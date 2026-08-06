@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/competitive_factor.schema.json",
+  "title": "CompetitiveFactor",
+  "description": "竞争优势/劣势因素（Phase 4 任务书 3.9.3-14）。管理层自述单独支持时 management_only=true、status=weakly_supported。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "factor_id", "company_entity_id", "factor_type", "direction", "statement",
+    "business_segment_ids", "mechanism", "required_evidence_types", "evidence_ids",
+    "counter_evidence_ids", "management_only", "confidence", "status",
+    "valid_from", "valid_to", "version", "created_at"
+  ],
+  "properties": {
+    "factor_id": { "type": "string" },
+    "company_entity_id": { "type": "string", "pattern": "^company:" },
+    "factor_type": { "type": "string", "enum": ["technology", "brand", "cost", "channel", "customer_switching", "network_effects", "scale", "regulation", "resource", "governance", "other"] },
+    "direction": { "type": "string", "enum": ["advantage", "disadvantage", "mixed", "unknown"] },
+    "statement": { "type": "string", "minLength": 1 },
+    "business_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "mechanism": { "type": "string" },
+    "required_evidence_types": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "counter_evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "management_only": { "type": "boolean" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": { "type": "string", "enum": ["supported", "weakly_supported", "contested", "unknown"] },
+    "valid_from": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "valid_to": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

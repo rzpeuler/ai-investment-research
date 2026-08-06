@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/equity_research_run.schema.json",
+  "title": "EquityResearchRun",
+  "description": "个股研报运行（Phase 4 任务书 3.9.3-19）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id", "request_id", "task_id", "idempotency_key", "run_version",
+    "started_at", "finished_at", "status", "stage_statuses", "artifact_paths",
+    "input_versions", "model_route_summary", "validation_status", "error_codes",
+    "warnings", "version"
+  ],
+  "properties": {
+    "run_id": { "type": "string" },
+    "request_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "run_version": { "type": "integer", "minimum": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+    "status": { "type": "string", "enum": ["planned", "running", "success", "partial_success", "degraded", "insufficient_data", "validation_failed", "failed"] },
+    "stage_statuses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stage", "status", "started_at", "finished_at", "warnings", "missing_data"],
+        "properties": {
+          "stage": { "type": "string" },
+          "status": { "type": "string" },
+          "started_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+          "finished_at": { "anyOf": [ { "type": "string", "format": "date-time" }, { "type": "null" } ] },
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "missing_data": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "artifact_paths": { "type": "array", "items": { "type": "string" } },
+    "input_versions": { "type": "object" },
+    "model_route_summary": { "type": "object" },
+    "validation_status": { "type": "string", "enum": ["pending", "pass", "pass_with_warnings", "fail"] },
+    "error_codes": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 }
+  }
+}

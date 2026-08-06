@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/financial_data_manifest.schema.json",
+  "title": "FinancialDataManifest",
+  "description": "一次财务数据导入或抽取批次（Phase 4 任务书 3.9.3-5）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_id", "source_kind", "source_id", "file_name", "file_format",
+    "file_checksum", "imported_at", "imported_by", "company_entity_ids",
+    "document_ids", "report_period_start", "report_period_end",
+    "default_statement_scope", "default_currency", "default_unit_scale",
+    "row_count", "accepted_count", "rejected_count", "data_version",
+    "validation_status", "validation_errors", "warnings", "source_ids", "version"
+  ],
+  "properties": {
+    "manifest_id": { "type": "string" },
+    "source_kind": { "type": "string", "enum": ["manual_import", "disclosure_extraction", "verified_automatic"] },
+    "source_id": { "type": "string", "minLength": 1 },
+    "file_name": { "type": "string" },
+    "file_format": { "type": "string", "enum": ["csv", "json", "xlsx", "pdf_extraction"] },
+    "file_checksum": { "type": "string", "minLength": 1 },
+    "imported_at": { "type": "string", "format": "date-time" },
+    "imported_by": { "type": "string" },
+    "company_entity_ids": { "type": "array", "items": { "type": "string" } },
+    "document_ids": { "type": "array", "items": { "type": "string" } },
+    "report_period_start": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "report_period_end": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "default_statement_scope": { "type": "string", "enum": ["consolidated", "parent", "unknown"] },
+    "default_currency": { "anyOf": [ { "type": "string", "pattern": "^[A-Z]{3}$" }, { "type": "null" } ] },
+    "default_unit_scale": { "anyOf": [ { "type": "integer" }, { "type": "null" } ] },
+    "row_count": { "type": "integer", "minimum": 0 },
+    "accepted_count": { "type": "integer", "minimum": 0 },
+    "rejected_count": { "type": "integer", "minimum": 0 },
+    "data_version": { "type": "string", "minLength": 1 },
+    "validation_status": { "type": "string", "enum": ["pending", "accepted", "partial", "rejected"] },
+    "validation_errors": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 }
+  }
+}

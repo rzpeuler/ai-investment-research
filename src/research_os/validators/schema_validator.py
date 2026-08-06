@@ -50,7 +50,7 @@ SCHEMA_NAMES = [
     "event_cluster",
     "information_score",
     "morning_brief_run",
-    # Phase 3：异动分析（任务书 5 节）
+    # Phase 3：异动分析
     "market_daily_series_manifest",
     "market_minute_bar",
     "abnormal_move_request",
@@ -62,6 +62,27 @@ SCHEMA_NAMES = [
     "cause_evidence_link",
     "attribution_result",
     "abnormal_move_run",
+    # Phase 4：个股研报
+    "company_profile",
+    "security_profile",
+    "document_record",
+    "document_block",
+    "financial_data_manifest",
+    "financial_report",
+    "financial_fact",
+    "financial_metric",
+    "business_segment",
+    "peer_candidate",
+    "peer_selection",
+    "valuation_snapshot",
+    "forecast_scenario",
+    "competitive_factor",
+    "catalyst",
+    "risk_factor",
+    "research_finding",
+    "equity_research_request",
+    "equity_research_run",
+    "equity_research_result",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -141,6 +162,27 @@ def validate_model(model: Any) -> List[str]:
         "CauseEvidenceLink": "cause_evidence_link",
         "AttributionResult": "attribution_result",
         "AbnormalMoveRun": "abnormal_move_run",
+        # Phase 4：个股研报
+        "CompanyProfile": "company_profile",
+        "SecurityProfile": "security_profile",
+        "DocumentRecord": "document_record",
+        "DocumentBlock": "document_block",
+        "FinancialDataManifest": "financial_data_manifest",
+        "FinancialReport": "financial_report",
+        "FinancialFact": "financial_fact",
+        "FinancialMetric": "financial_metric",
+        "BusinessSegment": "business_segment",
+        "PeerCandidate": "peer_candidate",
+        "PeerSelection": "peer_selection",
+        "ValuationSnapshot": "valuation_snapshot",
+        "ForecastScenario": "forecast_scenario",
+        "CompetitiveFactor": "competitive_factor",
+        "Catalyst": "catalyst",
+        "RiskFactor": "risk_factor",
+        "ResearchFinding": "research_finding",
+        "EquityResearchRequest": "equity_research_request",
+        "EquityResearchRun": "equity_research_run",
+        "EquityResearchResult": "equity_research_result",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")

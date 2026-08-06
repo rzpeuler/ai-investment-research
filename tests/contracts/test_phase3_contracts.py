@@ -166,8 +166,8 @@ def _with(obj, **overrides):
 
 
 class TestSchemaRegistry:
-    def test_schema_total_count_is_30(self):
-        assert len(SCHEMA_NAMES) == 30
+    def test_schema_total_count_is_50(self):
+        assert len(SCHEMA_NAMES) == 50
 
     def test_phase3_schemas_registered(self):
         assert PHASE3_SCHEMAS <= set(SCHEMA_NAMES)

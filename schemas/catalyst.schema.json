@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/catalyst.schema.json",
+  "title": "Catalyst",
+  "description": "催化剂（Phase 4 任务书 3.9.3-15）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "catalyst_id", "company_entity_id", "event_id", "source_phase", "catalyst_type",
+    "description", "claim_type", "announcement_status", "time_window_start",
+    "time_window_end", "impact_mechanism", "business_segment_ids", "prerequisites",
+    "invalidation_conditions", "evidence_ids", "confidence", "status",
+    "widely_known", "phase3_attribution_result_id", "version", "created_at", "updated_at"
+  ],
+  "properties": {
+    "catalyst_id": { "type": "string" },
+    "company_entity_id": { "type": "string", "pattern": "^company:" },
+    "event_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "source_phase": { "type": "string", "enum": ["phase2", "phase3", "phase4", "manual"] },
+    "catalyst_type": { "type": "string", "enum": ["earnings", "project", "capacity", "product", "price", "policy", "financing", "restructuring", "governance", "other"] },
+    "description": { "type": "string", "minLength": 1 },
+    "claim_type": { "type": "string", "enum": ["FACT", "SOURCE_OPINION", "MODEL_INFERENCE", "HYPOTHESIS", "UNKNOWN", "CONFLICT"] },
+    "announcement_status": { "type": "string", "enum": ["occurred", "announced", "in_progress", "completed", "cancelled", "unknown"] },
+    "time_window_start": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "time_window_end": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "impact_mechanism": { "type": "string" },
+    "business_segment_ids": { "type": "array", "items": { "type": "string" } },
+    "prerequisites": { "type": "array", "items": { "type": "string" } },
+    "invalidation_conditions": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": { "type": "string", "enum": ["active", "realized", "expired", "cancelled", "unknown"] },
+    "widely_known": { "type": "string", "enum": ["yes", "no", "unknown"] },
+    "phase3_attribution_result_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

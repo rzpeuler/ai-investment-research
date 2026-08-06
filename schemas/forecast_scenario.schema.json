@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/forecast_scenario.schema.json",
+  "title": "ForecastScenario",
+  "description": "显式、非 FACT 的情景预测（Phase 4 任务书 3.9.3-13）。默认关闭；假设必须可追溯到来源类型。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario_id", "request_id", "company_entity_id", "name", "scenario_type",
+    "enabled", "forecast_start", "forecast_end", "periods", "assumptions",
+    "outputs", "sensitivity_axes", "confidence", "status", "llm_called",
+    "model_route", "warnings", "version", "created_at"
+  ],
+  "properties": {
+    "scenario_id": { "type": "string" },
+    "request_id": { "type": "string" },
+    "company_entity_id": { "type": "string", "pattern": "^company:" },
+    "name": { "type": "string", "minLength": 1 },
+    "scenario_type": { "type": "string", "enum": ["company_guidance", "external_view", "user_assumption", "deterministic_projection", "model_assisted"] },
+    "enabled": { "type": "boolean" },
+    "forecast_start": { "type": "string", "format": "date" },
+    "forecast_end": { "type": "string", "format": "date" },
+    "periods": { "type": "array", "items": { "type": "string" } },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assumption_id", "driver", "value", "unit", "period", "source_type", "source_ref_ids", "evidence_ids", "claim_type", "confidence", "invalidates_when"],
+        "properties": {
+          "assumption_id": { "type": "string" },
+          "driver": { "type": "string" },
+          "value": { "anyOf": [ { "type": "string" }, { "type": "number" }, { "type": "null" } ] },
+          "unit": { "type": "string" },
+          "period": { "type": "string" },
+          "source_type": { "type": "string", "enum": ["company_guidance", "external_opinion", "user_input", "deterministic_extrapolation", "model_generated"] },
+          "source_ref_ids": { "type": "array", "items": { "type": "string" } },
+          "evidence_ids": { "type": "array", "items": { "type": "string" } },
+          "claim_type": { "type": "string", "enum": ["SOURCE_OPINION", "MODEL_INFERENCE", "HYPOTHESIS"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "invalidates_when": { "type": "string" }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric_code", "period", "value", "unit", "formula_version", "status"],
+        "properties": {
+          "metric_code": { "type": "string" },
+          "period": { "type": "string" },
+          "value": { "anyOf": [ { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" }, { "type": "null" } ] },
+          "unit": { "type": "string" },
+          "formula_version": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "sensitivity_axes": { "type": "array", "items": { "type": "object" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": { "type": "string", "enum": ["valid", "partial", "invalid", "disabled"] },
+    "llm_called": { "type": "boolean" },
+    "model_route": { "anyOf": [ { "type": "object" }, { "type": "null" } ] },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

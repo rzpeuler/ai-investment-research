@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/security_profile.schema.json",
+  "title": "SecurityProfile",
+  "description": "证券与公司主体的映射（Phase 4 任务书 3.9.3-2）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "security_profile_id", "security_entity_id", "company_entity_id", "symbol",
+    "exchange", "board", "security_type", "listing_date", "delisting_date",
+    "currency", "share_class", "current_name", "former_names", "status",
+    "source_ids", "evidence_ids", "version", "created_at", "updated_at"
+  ],
+  "properties": {
+    "security_profile_id": { "type": "string" },
+    "security_entity_id": { "type": "string", "pattern": "^security:" },
+    "company_entity_id": { "type": "string", "pattern": "^company:" },
+    "symbol": { "type": "string", "pattern": "^\\d{6}\\.(SH|SZ|BJ)$" },
+    "exchange": { "type": "string", "enum": ["SH", "SZ", "BJ"] },
+    "board": { "type": "string", "enum": ["main", "gem", "star", "beijing", "other"] },
+    "security_type": { "type": "string", "enum": ["common_share", "preferred_share", "convertible_bond", "other"] },
+    "listing_date": { "type": "string", "format": "date" },
+    "delisting_date": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "share_class": { "type": "string" },
+    "current_name": { "type": "string", "minLength": 1 },
+    "former_names": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "valid_from", "valid_to"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "valid_from": { "type": "string", "format": "date" },
+          "valid_to": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] }
+        }
+      }
+    },
+    "status": { "type": "string", "enum": ["listed", "suspended", "delisted", "unknown"] },
+    "source_ids": { "type": "array", "items": { "type": "string" } },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

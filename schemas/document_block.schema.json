@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/document_block.schema.json",
+  "title": "DocumentBlock",
+  "description": "可定位的文本、表格或单元格证据块（Phase 4 任务书 3.9.3-4）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "block_id", "document_id", "block_type", "page_start", "page_end",
+    "bbox", "sequence_no", "section_path", "content_excerpt", "content_hash",
+    "table_id", "row_index", "column_index", "normalized_payload",
+    "extraction_method", "confidence", "correction_status",
+    "correction_of_block_id", "source_id", "evidence_ids",
+    "version", "created_at"
+  ],
+  "properties": {
+    "block_id": { "type": "string" },
+    "document_id": { "type": "string" },
+    "block_type": { "type": "string", "enum": ["text", "table", "table_row", "table_cell", "image_caption", "header", "footer", "note"] },
+    "page_start": { "type": "integer", "minimum": 1 },
+    "page_end": { "type": "integer", "minimum": 1 },
+    "bbox": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x0", "y0", "x1", "y1"],
+          "properties": {
+            "x0": { "type": "number" },
+            "y0": { "type": "number" },
+            "x1": { "type": "number" },
+            "y1": { "type": "number" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "sequence_no": { "type": "integer", "minimum": 0 },
+    "section_path": { "type": "array", "items": { "type": "string" } },
+    "content_excerpt": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "content_hash": { "type": "string", "minLength": 1 },
+    "table_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "row_index": { "anyOf": [ { "type": "integer", "minimum": 0 }, { "type": "null" } ] },
+    "column_index": { "anyOf": [ { "type": "integer", "minimum": 0 }, { "type": "null" } ] },
+    "normalized_payload": { "anyOf": [ { "type": "object" }, { "type": "null" } ] },
+    "extraction_method": { "type": "string", "enum": ["native_text", "table_parser", "ocr", "manual"] },
+    "confidence": { "anyOf": [ { "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" } ] },
+    "correction_status": { "type": "string", "enum": ["unreviewed", "accepted", "corrected", "rejected"] },
+    "correction_of_block_id": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+    "source_id": { "type": "string", "minLength": 1 },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

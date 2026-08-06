@@ -20,7 +20,7 @@
   "properties": {
     "entity_id": {
       "type": "string",
-      "pattern": "^(company|industry|industry_segment|product|technology|material|equipment|application|policy|event|metric|person_or_institution|report|investment_theme|creator|unknown):[A-Za-z0-9._: -]+$"
+      "pattern": "^(company|security|industry|industry_segment|product|technology|material|equipment|application|policy|event|metric|person_or_institution|report|investment_theme|creator|unknown):[A-Za-z0-9._: -]+$"
     },
     "entity_type": {
       "type": "string",
@@ -28,6 +28,7 @@
         "industry",
         "industry_segment",
         "company",
+        "security",
         "product",
         "technology",
         "material",

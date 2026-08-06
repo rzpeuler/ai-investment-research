@@ -22,7 +22,7 @@ SourcePolicy = Literal["public_first", "official_first", "manual_only"]
 ModelPolicy = Literal["flash_default", "pro_escalation", "no_model"]
 
 EntityType = Literal[
-    "industry", "industry_segment", "company", "product", "technology",
+    "industry", "industry_segment", "company", "security", "product", "technology",
     "material", "equipment", "application", "policy", "event", "metric",
     "person_or_institution", "report", "investment_theme", "creator", "unknown",
 ]
