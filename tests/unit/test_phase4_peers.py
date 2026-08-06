@@ -62,11 +62,14 @@ class TestAntiLookAhead:
         assert not pc.eligible
         assert any("information_cutoff" in r for r in pc.exclusion_reasons)
 
-    def test_user_peer_not_auto_eligible(self):
-        """--peer 只增加候选，不自动合格。"""
+    def test_user_peer_can_qualify_after_full_rules(self):
+        """--peer 只增加候选；高分者仍可按同一资格规则合格。"""
         pc = score_peer(_good(user_override=True))
-        assert not pc.eligible  # 即使分数达标，用户指定也不自动合格
-        assert any("用户指定" in r for r in pc.exclusion_reasons)
+        assert pc.eligible
+
+    def test_user_peer_low_score_is_not_eligible(self):
+        pc = score_peer(_good(user_override=True, industry_score=1, business_model_score=1))
+        assert not pc.eligible
 
 
 class TestSelection:

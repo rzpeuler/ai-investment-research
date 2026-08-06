@@ -117,6 +117,36 @@ class TestEndToEndGolden:
         for forbidden in ("目标价", "买入评级", "建议买入", "上涨空间", "仓位建议"):
             assert forbidden not in body
 
+    def test_forecast_success_is_persisted_rendered_and_validated(self, env):
+        """Forecast 正式链路：输出不丢失、报告第 26 节展示情景、Schema/Validator 通过。"""
+        _, out = _run(env, include_forecast=True, scenario_ids=["base_case"])
+        assert out.exit_code == 0, out.message
+        artifacts = _read_artifacts(out.run_dir)
+        scenario = artifacts["forecast_scenarios.json"][0]
+        assert scenario["name"] == "base_case"
+        assert len(scenario["outputs"]) == 2
+        assert all(item["formula_version"] for item in scenario["outputs"])
+        report = pathlib.Path(out.report_path).read_text(encoding="utf-8")
+        assert "base_case" in report
+        assert artifacts["validation.json"]["status"] in ("pass", "pass_with_warnings")
+
+    def test_unknown_document_time_is_not_replaced_by_mtime(self, env):
+        """本地 mtime 不可充当披露时间；未知文档必须显式降级。"""
+        tmp_path, _, _, _ = env
+        doc = tmp_path / "undated.txt"
+        doc.write_text("公司披露信息", encoding="utf-8")
+        _, out = _run(env, documents=[str(doc)])
+        artifacts = _read_artifacts(out.run_dir)
+        assert artifacts["document_index.json"]["status"] == "not_run"
+        assert "published_at unknown" in pathlib.Path(out.report_path).read_text(encoding="utf-8") or out.status == "degraded"
+
+    def test_run_disk_json_equals_database_payload(self, env):
+        """终态 run 只生成一次：运行目录和 SQLite 中的完整对象必须等价。"""
+        p, out = _run(env)
+        artifacts = _read_artifacts(out.run_dir)
+        row = p.db.query("SELECT payload FROM equity_research_runs WHERE run_id = ?", (out.run_id,))[0]
+        assert artifacts["equity_research_run.json"] == json.loads(row["payload"])
+
     def test_insufficient_years_degraded(self, env):
         """仅 1 个可比年度 → partial_success（最低 2 年条件落实）。"""
         tmp_path, fin, mkt, db = env

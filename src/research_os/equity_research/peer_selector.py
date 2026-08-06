@@ -72,37 +72,34 @@ def dimension_score(raw: int, weight: float) -> float:
     return raw / 5 * weight
 
 
-def score_peer(pi: PeerInput, subject_company_id: str = "company:unknown") -> PeerCandidate:
-    """评分并判定资格（确定性；LLM 不决定最终资格）。"""
+def evaluate_peer_eligibility(pi: PeerInput) -> tuple[float, float, List[str]]:
+    """唯一的同行评分/资格实现，供选择器和 Validator 复用。"""
     scores = {
-        "industry_relation": pi.industry_score,
-        "business_model_similarity": pi.business_model_score,
-        "revenue_mix_similarity": pi.revenue_mix_score,
-        "supply_chain_relation": pi.supply_chain_score,
-        "size": pi.size_score,
-        "listing_tenure": pi.listing_tenure_score,
-        "accounting_comparability": pi.accounting_comparability_score,
-        "region": pi.region_score,
+        "industry_relation": pi.industry_score, "business_model_similarity": pi.business_model_score,
+        "revenue_mix_similarity": pi.revenue_mix_score, "supply_chain_relation": pi.supply_chain_score,
+        "size": pi.size_score, "listing_tenure": pi.listing_tenure_score,
+        "accounting_comparability": pi.accounting_comparability_score, "region": pi.region_score,
         "data_completeness": pi.data_completeness_score,
     }
     core_subtotal = round(sum(dimension_score(scores[d], WEIGHTS[d]) for d in CORE_DIMENSIONS), 2)
-    total_score = round(sum(dimension_score(scores[k], w) for k, w in WEIGHTS.items()), 2)
-
-    exclusion_reasons: List[str] = []
-    # 防事后选择：关系有效期必须早于信息截止日
+    total_score = round(sum(dimension_score(scores[k], weight) for k, weight in WEIGHTS.items()), 2)
+    reasons: List[str] = []
     if pi.relationship_valid_from > pi.information_cutoff[:10]:
-        exclusion_reasons.append("relationship_valid_from 晚于 information_cutoff")
+        reasons.append("relationship_valid_from 晚于 information_cutoff")
     if total_score < ELIGIBILITY["total_score_min"]:
-        exclusion_reasons.append(f"total_score {total_score} < {ELIGIBILITY['total_score_min']}")
+        reasons.append(f"total_score {total_score} < {ELIGIBILITY['total_score_min']}")
     if core_subtotal < ELIGIBILITY["core_subtotal_min"]:
-        exclusion_reasons.append(f"core_subtotal {core_subtotal} < {ELIGIBILITY['core_subtotal_min']}")
+        reasons.append(f"core_subtotal {core_subtotal} < {ELIGIBILITY['core_subtotal_min']}")
     if scores["accounting_comparability"] < ELIGIBILITY["accounting_comparability_min"]:
-        exclusion_reasons.append("会计口径可比分 < 3")
+        reasons.append("会计口径可比分 < 3")
     if scores["data_completeness"] < ELIGIBILITY["data_completeness_min"]:
-        exclusion_reasons.append("数据完整度 < 3")
-    # 用户 --peer 只增加候选，不自动合格（仍需满足资格）
-    if pi.user_override and not exclusion_reasons:
-        exclusion_reasons.append("用户指定候选仍需满足资格规则（不自动合格）")
+        reasons.append("数据完整度 < 3")
+    return total_score, core_subtotal, reasons
+
+
+def score_peer(pi: PeerInput, subject_company_id: str = "company:unknown") -> PeerCandidate:
+    """评分并判定资格（确定性；LLM 不决定最终资格）。"""
+    total_score, core_subtotal, exclusion_reasons = evaluate_peer_eligibility(pi)
     # 新上市公司（上市不足 2 个完整财年）由 listing_tenure_score 体现，不在此硬性排除
 
     eligible = not exclusion_reasons

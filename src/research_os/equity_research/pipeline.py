@@ -179,6 +179,27 @@ class EquityResearchPipeline:
                 coverage["missing_files"] = coverage.get("missing_files", []) + [f]
         return coverage
 
+    @staticmethod
+    def _comparable_fiscal_years(reports: List[dict], as_of: str) -> int:
+        """返回可用于跨年比较的完整年报数。
+
+        不能把 Q1/H1/Q3 拼成年度，也不能使用截止日后才披露或口径混杂的报告。
+        """
+        eligible = [
+            r for r in reports
+            if r.get("report_type") == "annual"
+            and r.get("fiscal_period") == "FY"
+            and r.get("duration_months") == 12
+            and (r.get("published_at") or "9999-12-31T00:00:00") <= as_of
+        ]
+        # 选择数量最多的可比口径组，避免混用不同 scope/currency/accounting standard。
+        groups: Dict[tuple, set] = {}
+        for report in eligible:
+            key = (report.get("statement_scope"), report.get("currency"),
+                   report.get("accounting_standard"))
+            groups.setdefault(key, set()).add(report.get("fiscal_year"))
+        return max((len(years) for years in groups.values()), default=0)
+
     # ---------- 主流程 ----------
 
     def run(self, args: Dict[str, Any]) -> PipelineOutcome:
@@ -308,14 +329,16 @@ class EquityResearchPipeline:
             if not p.exists():
                 doc_warnings.append(f"文档不存在: {d}")
                 continue
-            # B5：文档 published_at 取文件 mtime（真实发布日期），
-            #     不伪造成 request.as_of；无 mtime 时缺省不早于 1970 由调用方保证。
-            import datetime as _dt
-
-            mtime = _dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
+            # 本地文件的 mtime 只是复制/下载时间，绝不是披露时间。未知时间的文档
+            # 不能作为历史截面的关键 FACT 直接证据，保留明确降级而非伪造时间。
+            published_map = args.get("document_published_at") or {}
+            published_at = published_map.get(str(p)) or published_map.get(p.name)
+            if not published_at:
+                doc_warnings.append(f"{p.name}: published_at unknown，未登记为关键事实证据")
+                continue
             rec = register_document(
                 p, document_type="other", source_id="user_document",
-                title=p.name, published_at=mtime,
+                title=p.name, published_at=published_at,
                 company_entity_id=request.company_entity_id,
                 storage_policy="metadata_and_excerpt",
             )
@@ -363,7 +386,7 @@ class EquityResearchPipeline:
             if res.manifest.rejected_count:
                 import_warnings.append(f"{f}: {res.manifest.rejected_count} 行被拒绝")
         # H3：文件缺失/全拒绝/无有效事实 → 记录 missing 状态，由持久化阶段判定 exit 3
-        comparable_years = len({r.get("period_end") for r in all_reports if r.get("period_end")})
+        comparable_years = self._comparable_fiscal_years(all_reports, request.as_of)
         report_published: Dict[str, str] = {
             r.get("financial_report_id"): r.get("published_at") or ""
             for r in all_reports
@@ -533,22 +556,25 @@ class EquityResearchPipeline:
                         latest_revenue = fact.get("normalized_value")
                         break
                 for sid in scenario_ids:
-                    assumptions = [
-                        AssumptionInput(driver="revenue", source_type="deterministic_extrapolation",
-                                        source_detail="基于最新已披露收入线性外推",
-                                        value=str(0.08), basis="annual_growth_rate"),
-                    ]
+                    assumptions = [AssumptionInput(
+                        driver="revenue_growth", value="0.08", unit="ratio",
+                        period="annual", source_type="deterministic_extrapolation",
+                        source_ref_ids=["deterministic_projection_v1"],
+                        invalidates_when="披露的收入增长率与假设不一致",
+                    )]
                     if latest_revenue:
-                        projection = deterministic_projection(latest_revenue, "0.08", "2")
+                        projection = deterministic_projection(latest_revenue, "0.08", 2)
                         sc = build_scenario(ScenarioInput(
                             request_id=request.request_id,
-                            scenario_id=sid,
                             company_entity_id=request.company_entity_id,
-                            scenario_type="deterministic",
+                            name=sid,
+                            scenario_type="deterministic_projection",
+                            forecast_start=request.as_of[:10],
+                            forecast_end=f"{int(request.as_of[:4]) + 2}-12-31",
+                            periods=["FY1", "FY2"],
                             assumptions=assumptions,
-                            horizon_years=2,
-                            base_value=latest_revenue,
                         ))
+                        sc.outputs = projection
                         self.db.upsert(sc)
                         forecast_scenarios.append(sc.model_dump())
                     else:
@@ -861,6 +887,7 @@ class EquityResearchPipeline:
             risks=risks,
             peers=peer_selection,
             valuation=valuation,
+            scenarios=forecast_scenarios,
             model_route={"mode": "deterministic_fallback", "llm_called": False,
                          "limitation": "semantic_llm_modules_not_connected"},
             unknowns=result.unknowns,
@@ -947,6 +974,19 @@ class EquityResearchPipeline:
         tmp_path.replace(report_path)  # 原子写入
 
         # 运行目录产物（任务书 30 个正式产物；不存在模块写明确状态对象，不用空文件掩盖）
+        artifact_names = [
+            "task.json", "entity_resolution.json", "capability.json",
+            "equity_research_request.json", "equity_research_run.json",
+            "equity_research_result.json", "financial_manifests.json",
+            "financial_reports.json", "financial_metrics.json", "financial_validation.json",
+            "financial_quality.json", "business_segments.json", "peer_candidates.json",
+            "peer_selection.json", "competitive_factors.json", "valuation_snapshot.json",
+            "forecast_scenarios.json", "phase3_links.json", "event_links.json", "catalysts.json",
+            "risks.json", "contradictions.json", "research_findings.json", "claims.json",
+            "evidence_index.json", "model_route.json", "validation.json", "errors.log",
+            "document_index.json", "document_blocks.jsonl", "financial_facts.jsonl", "final.md",
+        ]
+        run.artifact_paths = [str(run_dir / name) for name in artifact_names]
         artifacts: Dict[str, Any] = {
             "task.json": {"task_id": request.task_id, "scenario": "stock_research_report",
                           "status": "completed", "created_at": started_at,
@@ -958,7 +998,7 @@ class EquityResearchPipeline:
                                 "comparable_years": comparable_years,
                                 "documents": len(document_records),
                                 "peers": len(peers),
-                                "provider_configured": False,
+                                "provider_configured": run.model_route_summary.get("mode") != "deterministic_fallback",
                                 "status": research_status},
             "equity_research_request.json": request.model_dump(),
             "equity_research_run.json": run.model_dump(),  # H2：最终状态
@@ -1005,9 +1045,6 @@ class EquityResearchPipeline:
             "\n".join(json.dumps(f, ensure_ascii=False) for f in all_facts), encoding="utf-8")
         # final.md（报告副本进运行目录）
         (run_dir / "final.md").write_text(md, encoding="utf-8")
-        run.artifact_paths = [str(run_dir / n) for n in artifacts] + \
-            [str(run_dir / "financial_facts.jsonl"), str(run_dir / "final.md")]
-
         self.db.upsert(run)
         self.db.upsert(request)
 
