@@ -98,3 +98,138 @@ requirements:
         - published_at
         - url
     failure_policy: degraded
+
+  # ===== Phase 4 数据需求（Phase 4 任务书 5.6 节）=====
+  company_profile:
+    description: 公司主体主数据（有效期内；含统一社会信用代码、行业、实控人等）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_inbox
+      - user_document
+    minimum_acceptable:
+      fields:
+        - canonical_name
+        - fiscal_year_end
+        - reporting_currency
+    failure_policy: insufficient_data
+    notes: 无自动来源前只允许人工登记；禁止估算缺失字段
+
+  security_profile:
+    description: 证券与公司主体映射（symbol/exchange/board/股本变化）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_inbox
+      - user_document
+    minimum_acceptable:
+      fields:
+        - symbol
+        - exchange
+        - security_type
+        - current_name
+    failure_policy: insufficient_data
+
+  company_document:
+    description: 公司公告/定期报告文档登记（哈希/页码/表格块；不保存不必要全文）
+    primary:
+      - cninfo
+    secondary:
+      - sse
+      - szse
+    fallback:
+      - user_document
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - title
+        - published_at
+        - document_type
+    failure_policy: degraded
+    notes: 文档元数据可来自法定披露适配器；文档内容解析成功后才能生成财务事实
+
+  financial_statement_data:
+    description: 标准财务科目事实（三表/附注/经营数据；Decimal 字符串持久化）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_financial_import
+      - disclosure_extraction
+    minimum_acceptable:
+      fields:
+        - fact_key
+        - period_end
+        - statement_scope
+        - value
+    failure_policy: insufficient_data
+    notes: 未验证的自动财务源不得登记为 primary/secondary；第 6 级来源不能单独生成财务 FACT
+
+  financial_segment_data:
+    description: 业务/产品/地区分部数据（raw_name/canonical_name/重分类）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_financial_import
+      - disclosure_extraction
+    minimum_acceptable:
+      fields:
+        - segment_type
+        - raw_name
+        - revenue
+    failure_policy: insufficient_data
+    notes: 不得把跨期不同分类直接相加
+
+  market_valuation_snapshot:
+    description: 市值/价格/股本等估值输入（时点对齐）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_inbox
+      - manual_financial_import
+    minimum_acceptable:
+      fields:
+        - as_of
+        - price
+        - shares_outstanding
+    failure_policy: insufficient_data
+    notes: 实时快照源不得用于历史估值基线；市值=价格×股本要求时点一致
+
+  shares_outstanding_history:
+    description: 总股本/加权股本历史序列（拆股/增发单列）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_financial_import
+    minimum_acceptable:
+      fields:
+        - as_of
+        - shares_outstanding
+    failure_policy: insufficient_data
+
+  industry_membership:
+    description: 公司行业归属（截止日前有效；同行宇宙输入）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - industry_id
+        - valid_from
+    failure_policy: insufficient_data
+    notes: 同行关系 relationship_valid_from 不得晚于 information_cutoff
+
+  peer_financial_data:
+    description: 同行公司财务数据（同行比较与分位；未验证来源不得写入 primary）
+    primary: []
+    secondary: []
+    fallback:
+      - manual_financial_import
+    minimum_acceptable:
+      fields:
+        - company_entity_id
+        - period_end
+        - fact_key
+        - value
+    failure_policy: insufficient_data
+    notes: 同行样本 <3 时降级 insufficient_peer_sample，不输出正式分位

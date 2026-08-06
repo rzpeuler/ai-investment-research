@@ -1,0 +1,64 @@
+# 估值配置（Phase 4 任务书 3.16/Commit 11 使用）
+# 估值仅作观察：禁止目标价、合理价值、上涨空间、买卖区间、用行业平均倍数乘预测利润生成目标市值。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+market_cap:
+  precedence: [direct_market_cap, price_times_shares]
+  time_consistency: required
+  notes: 不得用当前股本重算历史市值（除非可复算的股份变动调整）
+
+enterprise_value:
+  formula: market_cap + interest_bearing_debt + preferred_equity + minority_interest - eligible_cash - eligible_non_operating_investments
+  restricted_cash: not_deductible
+  minority_interest_missing: degrade_ev_ebitda
+  net_cash_company: ev_lt_market_cap_allowed_but_recheck
+
+metrics:
+  - code: PE_TTM
+    not_applicable_when: [net_profit_le_0]
+  - code: PB
+    not_applicable_when: [equity_le_0]
+  - code: PS_TTM
+    notes: 收入必须 > 0
+  - code: EV_EBITDA
+    not_applicable_when: [ebitda_le_0, financial_enterprise]
+  - code: FCF_YIELD
+    notes: FCF<0 允许显示负值但不得解释为"便宜"
+  - code: DIVIDEND_YIELD
+    notes: 需要可复算的现金分红记录
+
+applicability:
+  financial_enterprise: [bank, securities, insurance]
+  financial_enterprise_na: [EV_EBITDA, 流动比率, 速动比率]
+  cyclical_enterprise:
+    note: PE 仅作观察，必须提示周期位置和利润基数
+  high_debt:
+    action: 强制展示净债务和利息负担
+  net_cash:
+    action: 强制展示 EligibleCash 构成
+  high_non_recurring:
+    action: 并列展示报告口径和扣非口径 PE
+
+percentile:
+  history:
+    min_samples: 36
+    full_samples: 60
+    label_full: 完整
+    label_limited: 有限
+    label_insufficient: 不足
+  peer:
+    full_samples: 5
+    limited_min: 3
+    limited_max: 4
+    insufficient_max: 2
+  method: 平均秩分位
+
+sensitivity:
+  allowed_axes: [收入增速, 利润率, EBITDA, FCF, 估值倍数, 市场隐含假设]
+  forbidden_outputs:
+    - 每股合理价值
+    - 目标股价
+    - 上涨空间
+    - 买卖区间

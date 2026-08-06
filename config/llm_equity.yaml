@@ -1,0 +1,105 @@
+# Phase 4 LLM 任务配置（Phase 4 任务书 3.18/Commit 14 使用）
+# 统一经现有 LlmClient 调用；禁止旁路 SDK 或直接 HTTP 模型调用；
+# provider 故障回退与业务升级分离；未配置 Provider 时诚实回退。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+tasks:
+  business_description_normalization:
+    output: research_finding
+    default_model: flash
+    pro_eligible: false
+  management_statement_summary:
+    output: research_finding
+    default_model: flash
+    pro_eligible: false
+  product_name_mapping:
+    output: business_segment
+    default_model: flash
+    pro_eligible: false
+  competitive_factor_candidates:
+    output: competitive_factor
+    default_model: flash
+    pro_eligible: false
+  catalyst_candidates:
+    output: catalyst
+    default_model: flash
+    pro_eligible: false
+  risk_candidates:
+    output: risk_factor
+    default_model: flash
+    pro_eligible: false
+  counter_evidence_organizing:
+    output: research_finding
+    default_model: flash
+    pro_eligible: false
+  research_questions:
+    output: research_finding
+    default_model: flash
+    pro_eligible: false
+  section_draft:
+    output: section_draft
+    default_model: flash
+    pro_eligible: false
+  complex_cross_business_conflict:
+    output: section_draft
+    default_model: flash
+    pro_eligible: true
+
+budget_per_task:
+  fast:
+    flash_max: 2
+    pro_max: 0
+  standard:
+    flash_max: 5
+    pro_max: 1
+  deep:
+    flash_max: 8
+    pro_max: 1
+
+pro_escalation_conditions:
+  - "独立 S/A 来源对核心事实冲突"
+  - "未解决的重大反证达到 3 个"
+  - "跨 3 个以上业务分部或超过 3 跳产业链"
+  - "Flash 连续两次结构校验失败"
+  - "管理层表述与外部原始证据存在关键矛盾"
+  - "多个竞争机制候选相互排斥"
+  - "需要形成跨财务、业务、行业的复杂冲突说明"
+escalation_notes: "Provider 超时、限流和故障不构成 Pro 业务升级理由"
+
+prompt_requirements:
+  allowed_inputs:
+    - 最小必要摘录
+    - Evidence ID
+    - 对象 ID
+    - 截止时间
+    - 输出 Schema
+    - 禁止项
+    - Prompt 版本
+  forbidden_inputs:
+    - API Key
+    - Cookie
+    - Authorization
+    - 全文数据库
+    - 模型私有思维过程要求
+
+output_path:
+  - raw_output
+  - json_parse
+  - json_schema
+  - pydantic
+  - model_dump
+  - json_schema_again
+  - business_rules
+  - candidate_object
+  - validator
+
+failure:
+  not_called:
+    llm_called: false
+  called_failed:
+    llm_called: true
+    failure_stage: required
+  deterministic_fallback: "不得产生 MODEL_INFERENCE"
+  pro_failure: "输出人工审核，不循环调用"

@@ -9,23 +9,23 @@
 
 ## 当前状态
 
-**Phase 0（项目骨架与契约）**：目录结构、配置模板、13 个 JSON Schema、
+**Phase 0（项目骨架与契约）**：**PASS**。目录结构、30 Schema 前的 9 个核心 JSON Schema、
 Python 数据模型、SQLite 初始化与迁移、`ResearchModule` / `CollectorAdapter` 抽象、
 Orchestrator、CLI、运行目录与日志、Front Matter 校验器、单元与集成测试。
 
-**Phase 0.1（控制面加固）**：模型-契约说明、CLI UUID 校验、任务失败状态持久化
+**Phase 0.1（控制面加固）**：**PASS**。模型-契约说明、CLI UUID 校验、任务失败状态持久化
 （task.json/DB/validation.json 同步 failed + finished_at）、结构化 JSONL 错误记录
 （含敏感字段过滤）。
 
-**Phase 1（来源探测与数据底座）**：来源注册表（7 个来源已真实探测）、探测框架
+**Phase 1（来源探测与数据底座）**：**PASS**。来源注册表（7 个来源已真实探测）、探测框架
 （curl 引擎，证据最小化）、正式披露适配器（巨潮 API 已验证）、政府统计适配器
 （统计局列表页）、行情候选（新浪报价）、新闻元数据候选（财联社 B 级）、
 人工 Inbox、主备路由、健康检查。
 
-**Phase 1.1（行情契约修正）**：实时快照与历史日线严格分离
-（sina_quote 仅实时快照；日线 primary 空 + manual_import fallback，19 个 Schema）。
+**Phase 1.1（行情契约修正）**：**PASS**。实时快照与历史日线严格分离
+（sina_quote 仅实时快照；日线 primary 空 + manual_import fallback）。
 
-**Phase 2（信息筛选系统与每日晨报）**：候选筛选流水线（窗口过滤→去重→
+**Phase 2（信息筛选系统与每日晨报）**：**PASS**。候选筛选流水线（窗口过滤→去重→
 事件聚类（确定性第一版：实体+日期预分桶+标题相似度，语义模型未接入）→
 分类→硬性否决→评分→Claim→选择→渲染→校验）、四个监测方向覆盖说明、
 `research run morning-brief`（幂等/延迟补跑/force/dry-run）、报告验证器升级、
@@ -33,8 +33,17 @@ Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/�
 黄金测试集（tests/golden/morning_brief）。模型路由诚实记录
 （deterministic_fallback / llm_called: false）。
 
-**尚未开始**：异动分析、个股研报、晚报/复盘、主题挖掘、首次覆盖、
-自动产业图谱入库（Phase 3+）。
+**Phase 3（异动分析）**：**PASS**（551 passed，独立验收结论 PHASE 3 PASS）。人工日线导入
+（`research market-data import-daily`）、确定性异动检测（robust Z/severity/综合规则）、
+基准选择（七维评分+防事后选择）、板块联动、分层事件检索+时间因果、原因候选七维评分、
+统一 LLM Client（Fake Provider 全链路，未配置时诚实回退）、归因合成状态机
+（UNEXPLAINED_MOVE 合法输出）、18 章节报告 + 33 条 Validator、
+`research run abnormal-move`、Hermes Skill、14 黄金案例。Schema 19→30，迁移 user_version=4。
+
+**Phase 4（个股研报）**：**实施中**（正式任务书见 [`docs/tasks/phase4-equity-research.md`](docs/tasks/phase4-equity-research.md)）。
+目标：离线优先、数据优先、证据可定位、财务可复算、结论可审计的 A 股个股研究档案与
+Markdown 报告流水线。计划 Schema 30→50，迁移 user_version=5。
+**尚未开始**：晚报/复盘、主题挖掘、首次覆盖、自动产业图谱入库（Phase 5+）。
 
 ## 快速开始
 
@@ -145,10 +154,14 @@ ai-investment-research/
 
 ## 数据契约
 
-9 个核心对象（Task / Entity / RawItem / Event / Opinion / Claim / Evidence /
+核心对象（Task / Entity / RawItem / Event / Opinion / Claim / Evidence /
 ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现位于
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
+
+当前 **30 个 Schema**（Phase 0：9 / Phase 1：4 / Phase 1.1：2 / Phase 2：4 /
+Phase 3：11）。Phase 4 将新增 20 个（公司画像、证券、文档、财务、同行、估值、
+研报运行对象等），完成后共 50 个。Schema 校验：`research validate`。
 
 ## 输出边界
 

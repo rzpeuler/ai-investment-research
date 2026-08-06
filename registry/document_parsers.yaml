@@ -1,0 +1,49 @@
+# 文档解析器注册表（Phase 4 任务书 3.7/Commit 4 使用）
+# 规则：
+# - 先检查原生文本层；无文本层或指定失败页才用 OCR；
+# - OCR 输出默认 unreviewed；低置信数字不得直接进入有效 FACT；
+# - 不保存不必要全文（metadata_and_excerpt 边界）；
+# - parser_version 变化须记录；解析失败状态如实登记（partial/failed）。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+parsers:
+  - code: native_text
+    name: 原生文本层解析
+    status: implemented_in_commit4
+    input_mime: [application/pdf, text/html, text/plain]
+    output: DocumentBlock(block_type=text)
+    notes: 提取文本块与页码；不进行语义结论
+
+  - code: table_parser
+    name: 表格解析（原生表格）
+    status: implemented_in_commit4
+    input_mime: [application/pdf, text/csv]
+    output: DocumentBlock(block_type=table/table_row/table_cell)
+    notes: 保留表格 ID、行列坐标；不猜缺失数字
+
+  - code: ocr
+    name: OCR 解析（协议层）
+    status: protocol_only
+    input_mime: [application/pdf]
+    output: DocumentBlock(extraction_method=ocr, confidence)
+    notes: 无文本层或指定失败页才使用；输出默认 unreviewed；低置信不进入有效 FACT；Phase 4 PASS 不要求通用 OCR
+
+  - code: manual
+    name: 人工录入/纠错
+    status: implemented_in_commit4
+    input_mime: []
+    output: DocumentBlock(extraction_method=manual, correction_status)
+    notes: 保留前后值；correction_of_block_id 指向原块；不覆盖历史
+
+pdf:
+  text_layer_policy: native_first
+  ocr_policy: only_when_needed
+  ocr_confidence_min: 0.8
+  low_confidence_action: unreviewed
+
+storage:
+  policy: metadata_and_excerpt
+  excerpt_max_chars: 2000
+  notes: 临时正文按策略清理；禁止全文入库；用户文档按 local_file_reference 引用本地文件

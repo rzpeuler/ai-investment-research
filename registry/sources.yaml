@@ -268,3 +268,62 @@ sources:
     last_verified_at: null
     verification_evidence: []
     notes: 本阶段只登记不实施正式采集器（任务 6.6）
+  manual_financial_import:
+    source_id: manual_financial_import
+    name: 人工财务数据导入
+    platform: manual
+    base_domain: null
+    source_type: manual_financial_data
+    source_tier: C
+    authority_score: 2
+    accuracy_score: 3
+    timeliness_score: 2
+    coverage_score: 2
+    stability_score: 3
+    originality_score: 2
+    opinion_influence_score: 0
+    access_level: user_only
+    automation_level: manual
+    login_required: false
+    paid: false
+    storage_policy: metadata_and_excerpt
+    rate_limit: null
+    update_frequency: manual
+    allowed_usage: 用户导入的 CSV/JSON/XLSX 财务数据（须可追溯到原始文件；Phase 4 财务导入主回退）
+    primary_topics:
+    - 财务报表
+    - 财务数据
+    status: candidate
+    last_verified_at: null
+    verification_evidence: []
+    notes: Phase 4 新增人工来源；经 FinancialDataManifest 导入，checksum+data_version 进幂等键；第 5 级来源，不能单独高于法定披露
+  user_document:
+    source_id: user_document
+    name: 用户提供文档
+    platform: manual
+    base_domain: null
+    source_type: user_provided_document
+    source_tier: C
+    authority_score: 2
+    accuracy_score: 2
+    timeliness_score: 2
+    coverage_score: 2
+    stability_score: 3
+    originality_score: 2
+    opinion_influence_score: 0
+    access_level: user_only
+    automation_level: manual
+    login_required: false
+    paid: false
+    storage_policy: local_file_reference
+    rate_limit: null
+    update_frequency: manual
+    allowed_usage: 用户提供的 PDF/HTML/公告文件（登记为 DocumentRecord，正文按 metadata_and_excerpt 边界处理）
+    primary_topics:
+    - 公司文档
+    - 年报
+    - 公告
+    status: candidate
+    last_verified_at: null
+    verification_evidence: []
+    notes: Phase 4 新增人工来源；文档哈希/页码/表格块定位；不得因用户提供而自动升格为法定披露

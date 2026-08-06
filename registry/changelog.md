@@ -80,3 +80,41 @@
     CLI abnormal-move + Hermes Skill、14 黄金案例。Schema 19->30，迁移 user_version=4。
   evidence: docs/project-state/CURRENT_STATE.md；551 passed
   agent: Hermes Agent
+
+- date: 2026-08-06
+  source_id: manual_financial_import
+  change: added
+  reason: Phase 4 Commit 1 登记人工财务数据导入来源（CSV/JSON/XLSX；第 5 级来源，
+    须可追溯到原始文件；经 FinancialDataManifest 导入，checksum+data_version 进幂等键）。
+  evidence: registry/sources.yaml；docs/tasks/phase4-equity-research.md
+  agent: Hermes Agent
+
+- date: 2026-08-06
+  source_id: user_document
+  change: added
+  reason: Phase 4 Commit 1 登记用户提供文档来源（PDF/HTML/公告文件；DocumentRecord
+    登记+哈希+页码/表格块定位；storage_policy=local_file_reference；不自动升格为法定披露）。
+  evidence: registry/sources.yaml；docs/tasks/phase4-equity-research.md
+  agent: Hermes Agent
+
+- date: 2026-08-06
+  source_id: "(data_requirements)"
+  change: contract_added
+  reason: Phase 4 Commit 1 新增 9 项数据需求：company_profile / security_profile /
+    company_document / financial_statement_data / financial_segment_data /
+    market_valuation_snapshot / shares_outstanding_history / industry_membership /
+    peer_financial_data。未验证的自动财务源不得登记为 primary/secondary；
+    财务需求 fallback=manual_financial_import + disclosure_extraction。
+  evidence: registry/data_requirements.yaml；docs/tasks/phase4-equity-research.md
+  agent: Hermes Agent
+
+- date: 2026-08-06
+  source_id: "(phase4)"
+  change: contract_added
+  reason: Phase 4 Commit 1 文档与注册表契约：正式任务书入库 docs/tasks/phase4-equity-research.md；
+    新增 registry/financial_taxonomy.yaml（科目分类）、business_taxonomy.yaml（行业/商业模式）、
+    equity_peer_universe.yaml（同行宇宙+评分权重+样本门槛）、valuation_methods.yaml（估值方法）、
+    document_parsers.yaml（文档解析器）；新增 config/equity_research.yaml、financial_quality.yaml、
+    valuation.yaml、llm_equity.yaml 模板；README 修正 Phase 0-3 PASS 与 Phase 4 实施中。
+  evidence: registry/；config/；docs/tasks/phase4-equity-research.md
+  agent: Hermes Agent

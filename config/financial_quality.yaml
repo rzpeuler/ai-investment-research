@@ -1,0 +1,139 @@
+# 财务质量规则配置（Phase 4 任务书 3.13/Commit 7 使用）
+# 四层阈值优先级：A 会计硬规则 > B 公司历史 robust 统计 > C 同行分位 > D 版本化固定后备阈值。
+# 规则只产生事实/告警/研究问题/风险候选；不得自动认定造假或必然风险。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+reconciliation:
+  balance_sheet_identity:
+    assets_minus_liabilities_minus_equity_tolerance:
+      relative: 0.0001
+      absolute: 0.01
+    notes: max(absolute, |Assets| * relative)
+  cash_flow:
+    formula: ending_cash = beginning_cash + net_increase + fx_effect + other
+    missing_items_action: partial_reconciliation
+    notes: 缺少披露项只输出 partial_reconciliation，不认定报表错误
+
+statistics:
+  historical_min_periods: 5
+  method: robust
+  robust_metric: median_mad
+  robust_z_threshold: 3
+  peer_percentile_thresholds: [P5, P90, P95]
+  fallback_rule_version: "1.0.0"
+
+rules:
+  - code: profit_growth_cashflow_deterioration
+    name: 利润增长但现金流恶化
+    triggers:
+      - 净利润增长为正且 CFO 同比为负
+      - CFO/NP < 0.8 且较历史显著下降
+    severity: warning
+  - code: receivable_growth_exceeds_revenue
+    name: 应收快于收入
+    triggers:
+      - 应收增长 − 收入增长 > max(20pp, 同行P90差值)
+      - 且应收/收入上升 >= 5pp
+    severity: warning
+  - code: inventory_growth_exceeds_revenue
+    name: 存货快于收入
+    triggers:
+      - 存货增长 − 收入增长 > 动态阈值
+      - 且存货周转恶化
+    severity: warning
+  - code: gross_margin_abnormal
+    name: 毛利率异常
+    triggers:
+      - 变化 > 5pp 且 robust Z 绝对值 > 3
+      - 或处于同行 P5/P95 之外
+    severity: warning
+  - code: high_non_recurring
+    name: 非经常性损益高
+    triggers:
+      - abs(非经常性损益)/abs(归母净利润) > 30%（>50% 标高严重度）
+    severity: warning
+  - code: asset_impairment
+    name: 资产减值
+    triggers:
+      - 减值损失显著高于历史中位或同行 P90
+    severity: info
+  - code: goodwill_concentration
+    name: 商誉集中
+    triggers:
+      - 商誉/资产 > 20%
+    severity: warning
+  - code: rd_capitalization_abnormal
+    name: 研发资本化异常
+    triggers:
+      - 资本化比例 > 同行 P90 或固定后备 50%
+    severity: warning
+  - code: related_party_transactions
+    name: 关联交易
+    triggers:
+      - 关联交易/收入 > 5% 或同比异常增加
+    severity: warning
+  - code: audit_opinion_change
+    name: 审计意见变化
+    triggers:
+      - 无保留 → 保留/否定/无法表示意见
+    severity: warning
+  - code: accounting_policy_change
+    name: 会计政策变化
+    triggers:
+      - 影响关键指标的政策或估计变更
+    severity: info
+  - code: restatement
+    name: 报表重述
+    triggers:
+      - 存在 restated 或 superseded 报告
+    severity: warning
+  - code: high_dividend_high_debt
+    name: 高分红与高负债
+    triggers:
+      - 分红/CFO > 100% 且净负债上升或外部融资增加
+    severity: warning
+  - code: financing_and_dividend_conflict
+    name: 融资与分红矛盾
+    triggers:
+      - 同期大额融资和分红
+    severity: warning
+  - code: cip_risk
+    name: 在建工程风险
+    triggers:
+      - 在建工程/资产超过动态阈值
+      - 项目延期或现金流兑现不足
+    severity: warning
+  - code: capacity_delivery_risk
+    name: 产能兑现风险
+    triggers:
+      - 计划/建设/投产/达产分阶段比较差异显著
+    severity: warning
+  - code: customer_concentration
+    name: 客户集中
+    triggers:
+      - 前五客户占比处于历史或同行高位
+    severity: info
+  - code: supplier_concentration
+    name: 供应商集中
+    triggers:
+      - 前五供应商占比处于历史或同行高位
+    severity: info
+  - code: commercial_acceptance_notes
+    name: 商业承兑/应收票据
+    triggers:
+      - 占收入或应收显著上升
+    severity: warning
+  - code: restricted_cash
+    name: 现金受限
+    triggers:
+      - 受限资金占现金比例高
+    severity: warning
+    notes: 禁止把全部货币资金当作可用现金
+
+forbidden_conclusions:
+  - 财务造假
+  - 公司质量差
+  - 必然减值
+  - 必然违约

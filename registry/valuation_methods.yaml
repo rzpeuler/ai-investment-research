@@ -1,0 +1,65 @@
+# 估值方法注册表（Phase 4 任务书 3.16/Commit 11 使用）
+# 规则：
+# - 估值仅作观察：禁止目标价、合理价值、上涨空间、买卖区间；
+# - 方法适用性按公司类别（金融/周期/亏损/高负债/净现金等）判定；
+# - 历史分位 >=36 样本、同行分位 >=5 才输出正式分位；
+# - 市值/股本/价格必须时点一致；受限现金不得扣除。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+methods:
+  - code: PE_TTM
+    name: 市盈率（TTM）
+    formula: market_cap / attributable_net_profit_ttm
+    applicability: 净利润 > 0 才适用；亏损 → not_applicable；周期企业仅观察并提示周期位置
+    inputs: [market_cap, attributable_net_profit_ttm]
+    notes: 非经常性损益高时并列展示报告口径与扣非口径 PE
+
+  - code: PB
+    name: 市净率
+    formula: market_cap / attributable_equity
+    applicability: 净资产 > 0 才适用；负净资产 → not_applicable
+    inputs: [market_cap, attributable_equity]
+    notes: 时点一致（期末净资产 vs 当期市值）
+
+  - code: PS_TTM
+    name: 市销率（TTM）
+    formula: market_cap / revenue_ttm
+    applicability: 收入 > 0；亏损成长公司可有条件使用
+    inputs: [market_cap, revenue_ttm]
+    notes: 低利润率行业解释单位经济性
+
+  - code: EV_EBITDA
+    name: 企业价值 / EBITDA（TTM）
+    formula: ev / ebitda_ttm
+    applicability: EBITDA > 0；银行/证券/保险通常 N/A；少数股东权益缺失时降级
+    inputs: [ev, ebitda_ttm]
+    notes: EV = 市值 + 有息负债 + 优先股 + 少数股东权益 − 可扣除现金 − 非经营性投资
+
+  - code: FCF_YIELD
+    name: 自由现金流收益率（TTM）
+    formula: fcf_ttm / market_cap
+    applicability: FCF < 0 允许显示负值，但不得解释为"便宜"
+    inputs: [fcf_ttm, market_cap]
+    notes: FCF = CFO − 购建长期资产支付现金
+
+  - code: DIVIDEND_YIELD
+    name: 股息率
+    formula: trailing_12m_cash_dividend / market_cap
+    applicability: 有现金分红记录；高分红高负债须强制展示
+    inputs: [trailing_12m_cash_dividend, market_cap]
+    notes: 每股股利 × 股本口径须可复算
+
+percentile:
+  history_min_samples: 36
+  history_full_samples: 60
+  peer_full_samples: 5
+  peer_limited_min: 3
+  peer_limited_max: 4
+  method: 平均秩分位（与 Phase 3 分位法一致）
+  notes: 36—59 样本为"有限"分位，须标注；<36 不输出正式历史分位
+
+sensitivity:
+  allowed_axes: [收入增速, 利润率, EBITDA, FCF, 估值倍数, 市场隐含假设]
+  forbidden_outputs: [每股合理价值, 目标股价, 上涨空间, 买卖区间]

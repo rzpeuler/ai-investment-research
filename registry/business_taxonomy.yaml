@@ -1,0 +1,105 @@
+# 业务分类注册表（Phase 4 任务书 3.7/Commit 8 使用）
+# 规则：
+# - 业务分部 raw_name 先按规则映射 canonical_name；LLM 只生成候选，不得自动批准低置信映射；
+# - 跨期重分类必须保留 reclassification_group_id + valid_from/valid_to，不得直接相加。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+segment_types:
+  - code: product
+    name: 产品分部
+  - code: geography
+    name: 地区分部
+  - code: customer
+    name: 客户分部
+  - code: channel
+    name: 渠道分部
+  - code: other
+    name: 其他
+
+# 行业分类（用于 CompanyProfile.industry_ids 与同行宇宙；稳定行业分类为准）
+industries:
+  - code: "industry:liquor"
+    name: 白酒
+    gics_like: 食品饮料
+  - code: "industry:pharmaceutical"
+    name: 医药制造
+    gics_like: 医药生物
+  - code: "industry:semiconductor"
+    name: 半导体
+    gics_like: 电子
+  - code: "industry:bank"
+    name: 银行
+    gics_like: 银行
+  - code: "industry:securities"
+    name: 证券
+    gics_like: 非银金融
+  - code: "industry:insurance"
+    name: 保险
+    gics_like: 非银金融
+  - code: "industry:real_estate"
+    name: 房地产开发
+    gics_like: 房地产
+  - code: "industry:auto"
+    name: 汽车
+    gics_like: 汽车
+  - code: "industry:new_energy"
+    name: 新能源
+    gics_like: 电力设备
+  - code: "industry:telecom_equipment"
+    name: 通信设备
+    gics_like: 通信
+  - code: "industry:software"
+    name: 软件
+    gics_like: 计算机
+  - code: "industry:steel"
+    name: 钢铁
+    gics_like: 钢铁
+  - code: "industry:chemical"
+    name: 化工
+    gics_like: 基础化工
+  - code: "industry:coal"
+    name: 煤炭
+    gics_like: 煤炭
+  - code: "industry:nonferrous"
+    name: 有色金属
+    gics_like: 有色金属
+  - code: "industry:construction"
+    name: 建筑
+    gics_like: 建筑装饰
+  - code: "industry:retail"
+    name: 零售
+    gics_like: 商贸零售
+  - code: "industry:home_appliance"
+    name: 家用电器
+    gics_like: 家用电器
+  - code: "industry:agriculture"
+    name: 农林牧渔
+    gics_like: 农林牧渔
+  - code: "industry:other"
+    name: 其他
+    gics_like: null
+
+# 商业模式分类（同行"主营业务相似"维度参考）
+business_models:
+  - code: brand_consumer
+    name: 品牌消费品
+  - code: manufacturing
+    name: 制造
+  - code: platform
+    name: 平台
+  - code: asset_heavy
+    name: 重资产
+  - code: asset_light
+    name: 轻资产
+  - code: contract_manufacturing
+    name: 代工
+  - code: distribution
+    name: 经销
+  - code: services
+    name: 服务
+  - code: financial
+    name: 金融
+  - code: other
+    name: 其他

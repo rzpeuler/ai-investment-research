@@ -1,0 +1,57 @@
+# 同行宇宙注册表（Phase 4 任务书 3.15/Commit 9 使用）
+# 规则：
+# - 版本化：universe_version 变化须进 PeerCandidate 与幂等键；
+# - 候选只来自：截止日前有效的稳定行业分类 / 本注册表 / 可验证主营业务关系 / 产业链可比 / 用户显式候选；
+# - relationship_valid_from 不得晚于 information_cutoff（防事后选择）；
+# - 用户 --peer 只增加候选，不自动合格；
+# - 不得根据估值/涨跌结果删除同行。
+
+universe_version: "1.0.0"
+updated_at: "2026-08-06"
+
+# 主题公司 → 候选同行关系（subject_company 的行业/业务关系，截止日前有效）
+# 评分维度见 scoring_weights；eligible 由资格规则计算，不在本表预判。
+relations:
+  # 示例结构（正式数据按公司登记时填充，本版为骨架，不含未验证关系）
+  # - subject_company_id: "company:600519.SH"
+  #   candidates:
+  #     - candidate_company_id: "company:000858.SZ"
+  #       relationship_valid_from: "2000-01-01"
+  #       relationship_valid_to: null
+  #       industry_relation: "industry:liquor"
+  #       business_relation: 白酒制造销售
+  #       supply_chain_relation: 相同行业可比
+  #       evidence_ids: []
+  #       notes: 示例
+  []
+
+scoring_weights:
+  industry_relation: 20
+  business_model_similarity: 20
+  revenue_mix_similarity: 20
+  supply_chain_relation: 10
+  size: 10
+  listing_tenure: 5
+  accounting_comparability: 7
+  region: 3
+  data_completeness: 5
+  total: 100
+
+eligibility:
+  total_score_min: 65
+  core_subtotal_min: 35
+  accounting_comparability_min: 3
+  data_completeness_min: 3
+  relationship_valid_from_le_cutoff: true
+  min_full_year_listed: 2
+
+sample_thresholds:
+  full: 5
+  limited_min: 3
+  limited_max: 4
+  insufficient_max: 2
+
+outlier_policy:
+  method: winsorize
+  version: "1.0.0"
+  notes: 仅使用预配置的 winsorization；不得按结果剔除同行

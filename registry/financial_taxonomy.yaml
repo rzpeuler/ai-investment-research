@@ -1,0 +1,514 @@
+# 财务科目分类注册表（Phase 4 任务书 3.7/Commit 5 使用）
+# 规则：
+# - taxonomy_code 为标准化后的权威科目代码，原始科目名通过 taxonomy 映射到标准科目；
+# - 映射只产生候选，LLM 不得直接定稿；低置信映射须人工确认；
+# - 版本号变化须进 FinancialMetric.formula_version / 幂等键。
+
+version: "1.0.0"
+updated_at: "2026-08-06"
+
+statements:
+  - code: income_statement
+    name: 利润表
+  - code: balance_sheet
+    name: 资产负债表
+  - code: cash_flow
+    name: 现金流量表
+  - code: equity_statement
+    name: 所有者权益变动表
+  - code: note
+    name: 附注
+  - code: operating_data
+    name: 经营数据
+
+# 标准科目（科目→taxonomy_code；同义原始名可多行）
+subjects:
+  revenue:
+    canonical: 营业收入
+    synonyms:
+      - 营业总收入
+      - 主营业务收入
+      - 营业收入合计
+    statement: income_statement
+    instant_or_duration: duration
+
+  revenue_gross:
+    canonical: 营业总收入
+    synonyms:
+      - 营业总收入
+      - 营业收入
+    statement: income_statement
+    instant_or_duration: duration
+
+  cost_of_sales:
+    canonical: 营业成本
+    synonyms:
+      - 营业总成本
+      - 主营业务成本
+    statement: income_statement
+    instant_or_duration: duration
+
+  gross_profit:
+    canonical: 毛利
+    synonyms:
+      - 毛利润
+      - 销售毛利
+    statement: income_statement
+    instant_or_duration: duration
+
+  operating_profit:
+    canonical: 营业利润
+    synonyms:
+      - 营业利润
+    statement: income_statement
+    instant_or_duration: duration
+
+  total_profit:
+    canonical: 利润总额
+    synonyms:
+      - 利润总额
+    statement: income_statement
+    instant_or_duration: duration
+
+  net_profit:
+    canonical: 净利润
+    synonyms:
+      - 净利润
+      - 归属于母公司所有者的净利润（见 net_profit_attr）
+    statement: income_statement
+    instant_or_duration: duration
+
+  net_profit_attr:
+    canonical: 归母净利润
+    synonyms:
+      - 归属于母公司股东的净利润
+      - 归属于母公司所有者的净利润
+      - 归母净利润
+    statement: income_statement
+    instant_or_duration: duration
+
+  net_profit_minority:
+    canonical: 少数股东损益
+    synonyms:
+      - 少数股东损益
+    statement: income_statement
+    instant_or_duration: duration
+
+  net_profit_deducted:
+    canonical: 扣非净利润
+    synonyms:
+      - 扣除非经常性损益后的净利润
+      - 扣非归母净利润
+    statement: income_statement
+    instant_or_duration: duration
+
+  non_recurring_gain_loss:
+    canonical: 非经常性损益
+    synonyms:
+      - 非经常性损益
+      - 非经常性损益合计
+    statement: income_statement
+    instant_or_duration: duration
+
+  ebit:
+    canonical: EBIT
+    synonyms:
+      - 息税前利润
+    statement: income_statement
+    instant_or_duration: duration
+
+  ebitda:
+    canonical: EBITDA
+    synonyms:
+      - 息税折旧摊销前利润
+    statement: income_statement
+    instant_or_duration: duration
+
+  interest_expense:
+    canonical: 利息费用
+    synonyms:
+      - 利息支出
+      - 财务费用-利息支出
+    statement: income_statement
+    instant_or_duration: duration
+
+  income_tax_expense:
+    canonical: 所得税费用
+    synonyms:
+      - 所得税费用
+    statement: income_statement
+    instant_or_duration: duration
+
+  selling_expense:
+    canonical: 销售费用
+    synonyms:
+      - 销售费用
+    statement: income_statement
+    instant_or_duration: duration
+
+  admin_expense:
+    canonical: 管理费用
+    synonyms:
+      - 管理费用
+    statement: income_statement
+    instant_or_duration: duration
+
+  rd_expense:
+    canonical: 研发费用
+    synonyms:
+      - 研发费用
+      - 研发支出
+    statement: income_statement
+    instant_or_duration: duration
+
+  rd_expense_capitalized:
+    canonical: 资本化研发支出
+    synonyms:
+      - 资本化研发支出
+      - 开发支出-本期增加
+    statement: note
+    instant_or_duration: duration
+
+  finance_expense:
+    canonical: 财务费用
+    synonyms:
+      - 财务费用
+    statement: income_statement
+    instant_or_duration: duration
+
+  impairment_loss:
+    canonical: 资产减值损失
+    synonyms:
+      - 资产减值损失
+      - 信用减值损失
+    statement: income_statement
+    instant_or_duration: duration
+
+  total_assets:
+    canonical: 资产总计
+    synonyms:
+      - 资产总计
+      - 总资产
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  total_liabilities:
+    canonical: 负债合计
+    synonyms:
+      - 负债合计
+      - 总负债
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  total_equity:
+    canonical: 所有者权益合计
+    synonyms:
+      - 所有者权益合计
+      - 股东权益合计
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  equity_attr:
+    canonical: 归母所有者权益
+    synonyms:
+      - 归属于母公司所有者权益合计
+      - 归母净资产
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  equity_minority:
+    canonical: 少数股东权益
+    synonyms:
+      - 少数股东权益
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  current_assets:
+    canonical: 流动资产合计
+    synonyms:
+      - 流动资产合计
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  current_liabilities:
+    canonical: 流动负债合计
+    synonyms:
+      - 流动负债合计
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  cash_and_equivalents:
+    canonical: 货币资金
+    synonyms:
+      - 货币资金
+      - 现金及现金等价物
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  restricted_cash:
+    canonical: 受限货币资金
+    synonyms:
+      - 受限货币资金
+      - 使用受限的货币资金
+    statement: note
+    instant_or_duration: instant
+
+  accounts_receivable:
+    canonical: 应收账款
+    synonyms:
+      - 应收账款
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  notes_receivable:
+    canonical: 应收票据
+    synonyms:
+      - 应收票据
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  commercial_acceptance:
+    canonical: 商业承兑汇票
+    synonyms:
+      - 商业承兑汇票
+    statement: note
+    instant_or_duration: instant
+
+  inventory:
+    canonical: 存货
+    synonyms:
+      - 存货
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  prepayments:
+    canonical: 预付款项
+    synonyms:
+      - 预付款项
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  short_term_borrowing:
+    canonical: 短期借款
+    synonyms:
+      - 短期借款
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  long_term_borrowing:
+    canonical: 长期借款
+    synonyms:
+      - 长期借款
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  bonds_payable:
+    canonical: 应付债券
+    synonyms:
+      - 应付债券
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  lease_liability:
+    canonical: 租赁负债
+    synonyms:
+      - 租赁负债
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  interest_bearing_debt_1y:
+    canonical: 一年内到期的非流动负债（有息部分）
+    synonyms:
+      - 一年内到期的非流动负债
+      - 一年内到期的长期借款
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  goodwill:
+    canonical: 商誉
+    synonyms:
+      - 商誉
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  fixed_assets:
+    canonical: 固定资产
+    synonyms:
+      - 固定资产
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  cip:
+    canonical: 在建工程
+    synonyms:
+      - 在建工程
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  financial_assets_nontrading:
+    canonical: 非经营性金融资产
+    synonyms:
+      - 交易性金融资产
+      - 其他非流动金融资产
+      - 长期股权投资（非经营部分须单独确认）
+    statement: balance_sheet
+    instant_or_duration: instant
+
+  operating_cash_flow:
+    canonical: 经营活动产生的现金流量净额
+    synonyms:
+      - 经营活动产生的现金流量净额
+      - 经营现金流
+      - CFO
+    statement: cash_flow
+    instant_or_duration: duration
+
+  investing_cash_flow:
+    canonical: 投资活动产生的现金流量净额
+    synonyms:
+      - 投资活动产生的现金流量净额
+    statement: cash_flow
+    instant_or_duration: duration
+
+  financing_cash_flow:
+    canonical: 筹资活动产生的现金流量净额
+    synonyms:
+      - 筹资活动产生的现金流量净额
+    statement: cash_flow
+    instant_or_duration: duration
+
+  capex_paid:
+    canonical: 购建固定资产、无形资产和其他长期资产支付的现金
+    synonyms:
+      - 购建固定资产无形资产和其他长期资产支付的现金
+      - 资本性支出
+    statement: cash_flow
+    instant_or_duration: duration
+
+  cash_begin:
+    canonical: 期初现金及现金等价物余额
+    synonyms:
+      - 期初现金及现金等价物余额
+    statement: cash_flow
+    instant_or_duration: instant
+
+  cash_end:
+    canonical: 期末现金及现金等价物余额
+    synonyms:
+      - 期末现金及现金等价物余额
+    statement: cash_flow
+    instant_or_duration: instant
+
+  cash_net_increase:
+    canonical: 现金及现金等价物净增加额
+    synonyms:
+      - 现金及现金等价物净增加额
+    statement: cash_flow
+    instant_or_duration: duration
+
+  fx_effect:
+    canonical: 汇率变动对现金的影响
+    synonyms:
+      - 汇率变动对现金及现金等价物的影响
+    statement: cash_flow
+    instant_or_duration: duration
+
+  weighted_avg_shares:
+    canonical: 加权平均股本
+    synonyms:
+      - 加权平均普通股股数
+      - 发行在外普通股加权平均数
+    statement: operating_data
+    instant_or_duration: duration
+
+  period_end_shares:
+    canonical: 期末总股本
+    synonyms:
+      - 总股本
+      - 股本
+    statement: operating_data
+    instant_or_duration: instant
+
+  dividend_per_share:
+    canonical: 每股股利
+    synonyms:
+      - 每股股利
+      - 每10股派息
+    statement: operating_data
+    instant_or_duration: duration
+
+  cash_dividend_paid:
+    canonical: 分配股利、利润或偿付利息支付的现金
+    synonyms:
+      - 分配股利利润或偿付利息支付的现金
+    statement: cash_flow
+    instant_or_duration: duration
+
+  top5_customer_ratio:
+    canonical: 前五名客户销售占比
+    synonyms:
+      - 前五名客户合计销售金额占年度销售总额比例
+    statement: note
+    instant_or_duration: duration
+
+  top5_supplier_ratio:
+    canonical: 前五名供应商采购占比
+    synonyms:
+      - 前五名供应商合计采购金额占年度采购总额比例
+    statement: note
+    instant_or_duration: duration
+
+  related_party_transactions:
+    canonical: 关联交易金额
+    synonyms:
+      - 关联交易
+    statement: note
+    instant_or_duration: duration
+
+# 期间与口径（periods.py 使用）
+periods:
+  - code: FY
+    name: 年报
+    duration_months: 12
+  - code: H1
+    name: 中报
+    duration_months: 6
+  - code: Q1
+    name: 一季报
+    duration_months: 3
+  - code: Q3
+    name: 三季报
+    duration_months: 9
+
+scopes:
+  - code: consolidated
+    name: 合并口径
+    default: true
+  - code: parent
+    name: 母公司口径
+    default: false
+
+standards:
+  - code: CAS
+    name: 中国企业会计准则
+  - code: IFRS
+    name: 国际财务报告准则
+  - code: OTHER
+    name: 其他
+
+units:
+  - code: yuan
+    name: 元
+    scale: 1
+  - code: thousand_yuan
+    name: 千元
+    scale: 1000
+  - code: ten_thousand_yuan
+    name: 万元
+    scale: 10000
+  - code: hundred_million_yuan
+    name: 亿元
+    scale: 100000000
+  - code: share
+    name: 股
+    scale: 1
