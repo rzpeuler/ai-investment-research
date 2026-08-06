@@ -1,7 +1,8 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.0**  
-**状态：需求确认后首版工程基线**  
+**版本：V1.1**
+**变更日期：2026-08-07**
+**状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
 **默认输出：Markdown；估值模型等确定性计算可额外输出 Excel**  
@@ -34,6 +35,35 @@
 - 用户反馈闭环
 
 任何场景、模块、采集器和知识更新都必须受控制面约束。
+
+### 0.1 文档权威顺序（V1.1）
+
+发生冲突时按以下顺序执行：
+
+1. `docs/engineering-guide.md`：长期业务定位、架构基线和不可违反原则；
+2. `docs/project-state/DECISIONS.md`：经正式评审批准的具体设计决策；
+3. `docs/tasks/*.md`：阶段实施授权，只能细化指南和正式决策，不得静默覆盖；
+4. `docs/project-state/CURRENT_STATE.md`：当前实际完成状态；
+5. `docs/project-state/NEXT_PHASE.md`：下一阶段准入条件和边界；
+6. `docs/project-state/KNOWN_LIMITATIONS.md`：当前已知限制；
+7. `README.md`：导航和摘要，不作为权威设计依据。
+
+阶段任务若需改变本指南，必须先在 `DECISIONS.md` 记录经批准的设计变更，再更新本指南
+版本和变更日期，最后同步阶段任务书。任何任务书不得自行声明无条件覆盖本指南。
+
+### 0.2 V1.1 控制面、证据链与状态补充
+
+- 首批三个核心场景必须通过显式场景注册表和统一 Orchestrator 执行；Plan 不得为空，
+  且必须记录步骤、数据需求、运行预算、模型策略、降级路径和输出位置。
+- 报告中的关键事实链必须为 `RawItem → Evidence → Claim → ResearchFinding/Event → Markdown`；
+  Claim ID、Candidate ID 或聚合事件 ID 不得冒充 Evidence ID。
+- 确定性回退不得产生 `MODEL_INFERENCE`；模型实际调用、Provider、模型、预算、耗时、
+  输出校验和降级原因必须如实记录。
+- Phase 4 完整成功不得仅由可比年度数量决定；财务、证据、业务、竞争、风险、催化剂、
+  反证、市场主要矛盾、估值适用性、语义能力、来源质量、截止时间和 Validator 均属于
+  集中、版本化状态判定条件。
+- 在上述完整研究能力未达到最低覆盖前，Phase 4 可保持工程基础 PASS，但完整研究能力
+  必须标为 `PARTIAL_SUCCESS` 或 `DATA_DEGRADED`，Phase 5 保持 `BLOCKED`。
 
 ---
 

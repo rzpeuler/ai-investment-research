@@ -460,8 +460,12 @@ def check_evidence_qualified(issues: List[ValidationIssue], finding: Dict[str, A
         published = ev.get("published_at") or ""
         if published and as_of and published > as_of:
             issues.append(ValidationIssue("ERV-043", "error", "Evidence 披露时间晚于 as_of", finding.get("finding_id")))
-        if ev.get("source_tier") == "D" and finding.get("support_level") == "direct":
-            issues.append(ValidationIssue("ERV-043", "warning", "D 级来源不得作为直接证据", finding.get("finding_id")))
+        if ev.get("source_tier") in ("C", "D") and finding.get("support_level") == "direct":
+            severity = "error" if finding.get("materiality") == "high" else "warning"
+            issues.append(ValidationIssue(
+                "ERV-043", severity, "C/D 级来源不得单独直接支持重大 FACT",
+                finding.get("finding_id"),
+            ))
         if not ev.get("independence_group"):
             issues.append(ValidationIssue("ERV-043", "warning", "Evidence 缺独立证据组", finding.get("finding_id")))
 
@@ -493,6 +497,106 @@ def check_morning_reuse_structured(issues: List[ValidationIssue], event: Dict[st
     """ERV-056：晨报复用结构化中间产物（事件对象而非 Markdown 文本）。"""
     if not event.get("event_id") or not event.get("event_type"):
         issues.append(ValidationIssue("ERV-056", "warning", "事件缺结构化标识", event.get("event_id")))
+
+
+def check_evidence_lineage(issues: List[ValidationIssue], evidences: List[Dict[str, Any]],
+                           raw_items: List[Dict[str, Any]]) -> None:
+    """证据必须逐条回指真实 RawItem，且来源、时间和 URL 与原始记录一致。"""
+    raw_by_id = {item.get("raw_item_id"): item for item in raw_items}
+    for evidence in evidences:
+        eid = evidence.get("evidence_id")
+        raw = raw_by_id.get(evidence.get("raw_item_id"))
+        if raw is None:
+            issues.append(ValidationIssue("ERV-071", "error", "Evidence.raw_item_id 不存在", eid))
+            continue
+        for field in ("source_id", "publisher", "published_at", "retrieved_at", "url"):
+            if evidence.get(field) != raw.get(field):
+                issues.append(ValidationIssue(
+                    "ERV-071", "error", f"Evidence 与 RawItem 的 {field} 不一致", eid,
+                ))
+        if evidence.get("source_id") == "morning_brief_events":
+            issues.append(ValidationIssue("ERV-072", "error", "不得把聚合事件伪装为原始来源", eid))
+        if evidence.get("source_id") == "manual_financial_import":
+            excerpt = raw.get("content_excerpt", "")
+            required = ("manifest=", "checksum=", "locator=", "source_kind=",
+                        "parser_version=", "imported_at=", "is_statutory_original=")
+            missing = [token for token in required if token not in excerpt]
+            if missing:
+                issues.append(ValidationIssue(
+                    "ERV-079", "error", f"人工财务 Evidence 缺原始输入定位元数据: {missing}", eid,
+                ))
+
+
+def check_claim_evidence_contract(issues: List[ValidationIssue], claims: List[Dict[str, Any]],
+                                  evidence_ids: set) -> None:
+    """Claim 引用须存在；事实须有证据；来源观点须标明说话者或发布者。"""
+    for claim in claims:
+        cid = claim.get("claim_id")
+        refs = claim.get("evidence_ids") or []
+        check_foreign_refs(issues, refs, evidence_ids, "ERV-073")
+        if claim.get("claim_type") == "FACT" and not refs:
+            issues.append(ValidationIssue("ERV-073", "error", "FACT Claim 缺 Evidence", cid))
+        if claim.get("claim_type") == "SOURCE_OPINION":
+            obj = claim.get("object") or {}
+            if not (obj.get("speaker") or obj.get("speaker_entity_id") or obj.get("publisher")):
+                issues.append(ValidationIssue("ERV-074", "error", "SOURCE_OPINION 未标明说话者或发布者", cid))
+
+
+def check_report_evidence_refs(issues: List[ValidationIssue], report_text: str,
+                               evidence_ids: set) -> None:
+    """Markdown 中展示的 Evidence ID 必须是真实 Evidence 对象。"""
+    for eid in re.findall(r"Evidence ID:\s*`([0-9a-fA-F-]{36})`", report_text):
+        if eid not in evidence_ids:
+            issues.append(ValidationIssue("ERV-075", "error", f"Markdown 引用不存在的 Evidence: {eid}", eid))
+
+
+def check_research_status_contract(issues: List[ValidationIssue], result: Optional[Dict[str, Any]]) -> None:
+    """核心覆盖不完整时不得宣称 success。"""
+    if not result or result.get("research_status") != "success":
+        return
+    missing = (result.get("coverage") or {}).get("missing_core_modules") or []
+    if missing:
+        issues.append(ValidationIssue("ERV-076", "error", f"核心模块缺失时不得 success: {missing}", result.get("result_id")))
+
+
+def check_semantic_route_contract(issues: List[ValidationIssue], findings: List[Dict[str, Any]],
+                                  claims: List[Dict[str, Any]], run: Optional[Dict[str, Any]],
+                                  semantic_records: List[Dict[str, Any]]) -> None:
+    """模型调用、Provider/模型记录与 MODEL_INFERENCE 标签必须一致。"""
+    called = any(record.get("llm_called") for record in semantic_records)
+    successful = any(
+        record.get("llm_called") and record.get("validation_status") == "pass"
+        for record in semantic_records
+    )
+    for record in semantic_records:
+        if record.get("llm_called") and not (record.get("provider") and record.get("model")):
+            issues.append(ValidationIssue("ERV-077", "error", "实际 LLM 调用缺 Provider 或模型记录",
+                                          record.get("task_name")))
+    route = (run or {}).get("model_route_summary") or {}
+    if bool(route.get("llm_called")) != called:
+        issues.append(ValidationIssue("ERV-077", "error", "run.model_route_summary 与语义调用记录不一致"))
+    if not successful:
+        for item in [*findings, *claims]:
+            if item.get("claim_type") == "MODEL_INFERENCE":
+                issues.append(ValidationIssue("ERV-045", "error",
+                                              "无成功模型输出时不得产生 MODEL_INFERENCE",
+                                              item.get("finding_id") or item.get("claim_id")))
+
+
+def check_market_debate_contract(issues: List[ValidationIssue], market_debate: Dict[str, Any],
+                                 evidence_ids: set) -> None:
+    """市场主要矛盾中的多空主张必须保持结构化证据引用。"""
+    for side in ("bull_claims", "bear_claims", "consensus", "key_variables"):
+        for item in market_debate.get(side, []) or []:
+            if not isinstance(item, dict) or not item.get("statement"):
+                issues.append(ValidationIssue("ERV-078", "error", f"{side} 不是结构化主张"))
+                continue
+            check_foreign_refs(issues, item.get("evidence_ids", []), evidence_ids, "ERV-078")
+    if market_debate.get("status") == "covered":
+        claims = [*(market_debate.get("bull_claims") or []),
+                  *(market_debate.get("bear_claims") or [])]
+        if not claims or any(not item.get("evidence_ids") for item in claims):
+            issues.append(ValidationIssue("ERV-078", "error", "市场主要矛盾标为 covered 但主张缺 Evidence"))
 
 
 def check_report_number_consistency(issues: List[ValidationIssue], report_text: str,
@@ -654,6 +758,7 @@ def validate_equity_research(
     scenarios: Optional[List[Dict[str, Any]]] = None,
     blocks: Optional[List[Dict[str, Any]]] = None,
     evidences: Optional[List[Dict[str, Any]]] = None,
+    raw_items: Optional[List[Dict[str, Any]]] = None,
     claims: Optional[List[Dict[str, Any]]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
     phase3_objects: Optional[List[Dict[str, Any]]] = None,
@@ -668,6 +773,8 @@ def validate_equity_research(
     documents: Optional[List[Dict[str, Any]]] = None,
     catalysts: Optional[List[Dict[str, Any]]] = None,
     risks: Optional[List[Dict[str, Any]]] = None,
+    semantic_records: Optional[List[Dict[str, Any]]] = None,
+    market_debate: Optional[Dict[str, Any]] = None,
 ) -> ValidationOutcome:
     """运行 ERV 规则全集。返回 pass / pass_with_warnings / fail。
 
@@ -683,7 +790,10 @@ def validate_equity_research(
     peers = peers or []
     scenarios = scenarios or []
     blocks = blocks or []
+    lineage_requested = raw_items is not None
+    semantic_validation_requested = semantic_records is not None
     evidences = evidences or []
+    raw_items = raw_items or []
     claims = claims or []
     events = events or []
     documents = documents or []
@@ -694,7 +804,7 @@ def validate_equity_research(
     schema_groups: List[tuple] = [
         (facts, "financial_fact"), (metrics, "financial_metric"), (reports, "financial_report"),
         (peers, "peer_candidate"), (scenarios, "forecast_scenario"), (blocks, "document_block"),
-        (evidences, "evidence"), (claims, "claim"),
+        (evidences, "evidence"), (raw_items, "raw_item"), (claims, "claim"),
         (factors or [], "competitive_factor"),
         (documents, "document_record"), (catalysts, "catalyst"), (risks, "risk_factor"),
     ]
@@ -757,6 +867,7 @@ def validate_equity_research(
     # ERV-041—052：Claim/Evidence/LLM
     fact_ids = {f.get("fact_id") for f in facts if f.get("fact_id")}
     evidence_by_id = {e.get("evidence_id"): e for e in evidences if e.get("evidence_id")}
+    evidence_id_set = set(evidence_by_id)
     block_by_id = {b.get("block_id"): b for b in blocks if b.get("block_id")}
     for f in findings:
         check_fact_has_evidence(issues, f)
@@ -773,6 +884,15 @@ def validate_equity_research(
     for c in claims:
         check_required_fields(issues, c, "claim", "ERV-043",
                               ["claim_id", "claim_type", "statement", "predicate", "evidence_ids"], "claim_id")
+    check_claim_evidence_contract(issues, claims, evidence_id_set)
+    if lineage_requested:
+        check_evidence_lineage(issues, evidences, raw_items)
+    check_report_evidence_refs(issues, report_text, evidence_id_set)
+    check_research_status_contract(issues, result)
+    if semantic_validation_requested:
+        check_semantic_route_contract(issues, findings, claims, run, semantic_records or [])
+    if market_debate is not None:
+        check_market_debate_contract(issues, market_debate, evidence_id_set)
     for s in scenarios:
         check_assumption_has_source(issues, s)  # ERV-047
 
@@ -793,6 +913,7 @@ def validate_equity_research(
     for ev in events:
         check_phase2_readonly(issues, ev)  # ERV-054
         check_morning_reuse_structured(issues, ev)  # ERV-056
+        check_foreign_refs(issues, ev.get("evidence_ids", []), evidence_id_set, "ERV-072")
     finding_ids = {f.get("finding_id") for f in findings if f.get("finding_id")}
     metric_ids = {m.get("metric_id") for m in metrics if m.get("metric_id")}
     check_report_object_consistency(issues, result, finding_ids, metric_ids)

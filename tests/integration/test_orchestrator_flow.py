@@ -57,6 +57,54 @@ def test_plan_file_contents(project):
     assert plan["task_id"] == outcome.task.task_id
     assert plan["scenario"] == "abnormal_move_analysis"
     assert plan["depth"] == "standard"
+    assert plan["steps"]
+    assert plan["data_requirements"]
+    assert plan["runtime_budget"]["max_runtime_seconds"] > 0
+    assert plan["model_policy"]
+    assert plan["fallback_policy"]
+
+
+def test_default_registry_contains_all_core_scenarios(project):
+    orch = Orchestrator(project)
+    assert set(orch.registry.names()) == {
+        "morning_brief", "abnormal_move_analysis", "stock_research_report",
+    }
+    orch.close()
+
+
+def test_execute_rejects_unregistered_scenario(project):
+    orch = Orchestrator(project)
+    outcome = orch.execute("unregistered", {"dry_run": True})
+    orch.close()
+    assert outcome.status == "failed"
+    assert outcome.exit_code == 2
+    assert "未注册场景" in outcome.message
+
+
+def test_execute_rejects_empty_plan(project):
+    from research_os.orchestrator.scenario_registry import ScenarioRegistry
+    from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
+
+    class EmptyPlanRunner:
+        scenario = "morning_brief"
+        version = "1.0.0"
+
+        def validate_request(self, request):
+            return request
+
+        def build_plan(self, request, context):
+            return {"steps": [], "data_requirements": []}
+
+        def execute(self, request, context):
+            return ScenarioExecutionResult(status="success", exit_code=0, task_id=context["task"].task_id)
+
+    registry = ScenarioRegistry()
+    registry.register(EmptyPlanRunner())
+    orch = Orchestrator(project, registry=registry)
+    outcome = orch.execute("morning_brief", {"dry_run": True})
+    orch.close()
+    assert outcome.exit_code == 2
+    assert "空 Plan" in outcome.message
 
 
 def test_same_task_id_idempotent(project):

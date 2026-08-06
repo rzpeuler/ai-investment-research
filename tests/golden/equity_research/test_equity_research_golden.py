@@ -137,7 +137,11 @@ class TestEndToEndGolden:
         assert result["financial_metric_ids"]  # 结构化指标已生成
         assert result["evidence_ids"]  # 证据链已建立
         # 模型路由诚实（无 Provider）
-        assert artifacts["model_route.json"] == {"mode": "deterministic_fallback", "llm_called": False}
+        route = artifacts["model_route.json"]
+        assert route["mode"] == "deterministic_fallback"
+        assert route["llm_called"] is False
+        assert route["semantic_tasks_total"] == 4
+        assert route["semantic_tasks_integrated"] == 0
         # Validator 通过
         assert artifacts["validation.json"]["status"] in ("pass", "pass_with_warnings")
 

@@ -2,6 +2,9 @@
 
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
+> 当前统一结论（2026-08-07）：Phase 4 engineering foundation = PASS；
+> Phase 4 full research capability = PARTIAL_SUCCESS；Phase 5 = BLOCKED。
+
 ## 1. 真实 LLM Provider 尚未接入
 
 - 统一 LLM Client（LlmClient/五步校验/Flash 修复/Pro 升级/故障降级）已实现并
@@ -87,6 +90,12 @@
 - **预测能力边界**：仅确定性外推与显式用户/公司指引假设；model_generated 须真实调用
 - 报告必须章节覆盖：行业位置/竞争格局/管理层治理/重大项目等章节依赖人工或语义
   模块补充，缺数据时如实写覆盖状态，不套话
+- 四个最低 `EquityLlmTasks` 已进入正式 Pipeline 并共享任务预算，但真实 Provider 未配置；
+  Fake Provider 只证明链路和校验可执行，不代表生产语义覆盖
+- 市场主要矛盾、业务分析、竞争格局、反证、研究问题和专业评审已有正式结构化产物；
+  输入不足时产物必须是 `missing_data` / `insufficient_evidence`，不能据此声称完整 success
+- 人工财务 RawItem 已记录 manifest/checksum/locator/source_kind/imported_at/parser_version/
+  is_statutory_original，但当前导入仍为 Tier C，不能等同法定披露原件
 
 ## 13. Phase 4 数据输入依赖
 

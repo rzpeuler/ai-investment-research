@@ -148,3 +148,73 @@ def test_pipeline_artifacts_written_to_run_dir(pipeline, tmp_path):
               "event_clusters.json", "scores.json", "claims.json",
               "source_coverage.json"):
         assert (run_dir.root / f).exists(), f"缺少 {f}"
+
+
+def test_official_fact_has_real_raw_evidence_claim_and_markdown(pipeline):
+    artifacts = pipeline.run(_rich_items(), REPORT_DATE)
+    fact = next(c for c in artifacts.claims if c["claim_type"] == "FACT")
+    evidence_id = fact["evidence_ids"][0]
+    evidence = artifacts.evidence_index[evidence_id]
+    assert evidence["raw_item_id"] in {item.raw_item_id for item in artifacts.raw_items}
+    assert evidence["source_id"] == "cninfo"
+    assert f"Evidence ID: `{evidence_id}`" in artifacts.markdown
+    assert fact["claim_id"] != evidence_id
+
+
+def test_media_opinion_keeps_publisher_and_never_becomes_model_inference(pipeline):
+    item = raw(title="分析师认为行业需求可能改善", external_id="opinion")
+    artifacts = pipeline.run([item], REPORT_DATE)
+    claim = artifacts.claims[0]
+    assert claim["claim_type"] == "SOURCE_OPINION"
+    assert claim["object"]["publisher"] == "财联社"
+    assert all(c["claim_type"] != "MODEL_INFERENCE" for c in artifacts.claims)
+
+
+def test_reposts_share_independence_group(pipeline):
+    artifacts = pipeline.run(_rich_items(), REPORT_DATE)
+    duplicate_evidence = [e for e in artifacts.evidences if "半年报公告" in e.title]
+    assert len(duplicate_evidence) == 2
+    assert len({e.independence_group for e in duplicate_evidence}) == 1
+
+
+@pytest.mark.parametrize("bad_ref", ["claim", "candidate", "missing"])
+def test_evidence_validator_rejects_fake_or_missing_ids(pipeline, bad_ref):
+    from research_os.morning.validation import validate_morning_evidence
+
+    artifacts = pipeline.run(_rich_items(), REPORT_DATE)
+    fact = next(c for c in artifacts.claims if c["claim_type"] == "FACT")
+    if bad_ref == "claim":
+        fact["evidence_ids"] = [fact["claim_id"]]
+    elif bad_ref == "candidate":
+        fact["evidence_ids"] = [artifacts.candidates[0].candidate_id]
+    else:
+        fact["evidence_ids"] = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]
+    outcome = validate_morning_evidence(artifacts)
+    assert outcome.status == "fail"
+
+
+def test_evidence_validator_rejects_fact_without_evidence_and_unattributed_opinion(pipeline):
+    from research_os.morning.validation import validate_morning_evidence
+
+    artifacts = pipeline.run(_rich_items(), REPORT_DATE)
+    fact = next(c for c in artifacts.claims if c["claim_type"] == "FACT")
+    fact["evidence_ids"] = []
+    opinion = next(c for c in artifacts.claims if c["claim_type"] != "FACT")
+    opinion["claim_type"] = "SOURCE_OPINION"
+    opinion["object"]["publisher"] = None
+    opinion["object"]["speaker"] = None
+    outcome = validate_morning_evidence(artifacts)
+    assert any("FACT 缺 Evidence" in error for error in outcome.errors)
+    assert any("SOURCE_OPINION 缺" in error for error in outcome.errors)
+
+
+def test_tier_c_cannot_solely_support_core_fact(pipeline):
+    from research_os.morning.validation import validate_morning_evidence
+
+    artifacts = pipeline.run(_rich_items(), REPORT_DATE)
+    fact = next(c for c in artifacts.claims if c["claim_type"] == "FACT")
+    for evidence_id in fact["evidence_ids"]:
+        artifacts.evidence_index[evidence_id]["source_tier"] = "C"
+        next(e for e in artifacts.evidences if e.evidence_id == evidence_id).source_tier = "C"
+    outcome = validate_morning_evidence(artifacts)
+    assert any("C/D 级来源" in error for error in outcome.errors)

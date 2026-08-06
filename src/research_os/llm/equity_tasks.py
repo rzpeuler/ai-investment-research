@@ -99,6 +99,8 @@ class EquityLlmTasks:
         evidence_excerpts: List[str],
         evidence_ids: List[str],
         cutoff: str,
+        request_id: str = "",
+        company_entity_id: str = "",
         prompt_version: str = "v1",
     ) -> LlmResponse:
         """运行一个语义任务。返回 LlmResponse（未配置时 called=false 诚实回退）。"""
@@ -115,7 +117,10 @@ class EquityLlmTasks:
             )
             return resp
 
-        prompt = self._build_prompt(task_name, evidence_excerpts, evidence_ids, cutoff, schema_name, prompt_version)
+        prompt = self._build_prompt(
+            task_name, evidence_excerpts, evidence_ids, cutoff, schema_name, prompt_version,
+            request_id=request_id, company_entity_id=company_entity_id,
+        )
         request = LlmRequest(
             call_id=new_uuid(),
             task_id=task_id,
@@ -151,11 +156,15 @@ class EquityLlmTasks:
         cutoff: str,
         schema_name: str,
         prompt_version: str,
+        request_id: str = "",
+        company_entity_id: str = "",
     ) -> str:
         """Prompt 只含最小必要摘录 + ID + 截止时间 + Schema + 禁止项。"""
         lines = [
             f"任务: {task_name}（输出 Schema: {schema_name}，Prompt 版本 {prompt_version}）",
             f"信息截止时间: {cutoff}",
+            f"request_id: {request_id or task_name}",
+            f"company_entity_id: {company_entity_id or 'UNKNOWN'}",
             "输入证据摘录（最小必要）：",
         ]
         for i, ex in enumerate(excerpts[:5]):

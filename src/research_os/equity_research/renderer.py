@@ -70,6 +70,14 @@ class RenderInput:
     peers: Optional[Dict[str, Any]] = None
     valuation: Optional[Dict[str, Any]] = None
     scenarios: List[Dict[str, Any]] = field(default_factory=list)
+    competitive_factors: List[Dict[str, Any]] = field(default_factory=list)
+    evidences: List[Dict[str, Any]] = field(default_factory=list)
+    market_debate: Dict[str, Any] = field(default_factory=dict)
+    professional_review: Dict[str, Any] = field(default_factory=dict)
+    business_analysis: Dict[str, Any] = field(default_factory=dict)
+    competitive_landscape: Dict[str, Any] = field(default_factory=dict)
+    counter_evidence: Dict[str, Any] = field(default_factory=dict)
+    research_questions_artifact: Dict[str, Any] = field(default_factory=dict)
     model_route: Dict[str, Any] = field(default_factory=dict)
     unknowns: List[str] = field(default_factory=list)
     data_gaps: List[str] = field(default_factory=list)
@@ -158,10 +166,16 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
                       "degraded": "降级完成", "insufficient_data": "数据不足",
                       "source_conflict": "来源冲突", "validation_failed": "校验失败",
                       "failed": "失败"}
+        review = ri.professional_review
+        review_line = (
+            f"专业评审：{review.get('total_score')}/{len(review.get('items', [])) * 5}"
+            if review.get("items") else "专业评审：数据不足，未形成评分。"
+        )
         return SectionContent(idx, SECTIONS[idx - 1], [
             f"本报告研究状态为 **{status_map.get(ri.research_status, ri.research_status)}**。",
             f"关键发现 {len(ri.findings)} 条；财务指标 {len(ri.metrics)} 条；"
             f"催化剂 {len(ri.catalysts)} 条；风险 {len(ri.risks)} 条。",
+            review_line,
         ])
     if idx == 5:
         facts = [f"- {f['title']}：{f['statement']}" for f in ri.findings if f.get("claim_type") == "FACT"]
@@ -174,7 +188,13 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
         return SectionContent(idx, SECTIONS[idx - 1], lines)
     if idx == 8:
         seg_lines = [f"- {s['canonical_name']}（{s.get('segment_type', 'other')}）" for s in ri.segments]
-        return SectionContent(idx, SECTIONS[idx - 1], seg_lines or ["分部数据未导入。"])
+        business = ri.business_analysis
+        semantic_lines = [
+            f"- 核心产品或服务：{', '.join(business.get('core_products_or_services', []))}",
+            f"- 主要客户或应用场景：{', '.join(business.get('customers_or_applications', []))}",
+            f"- 上下游关系：{', '.join(business.get('upstream_downstream', []))}",
+        ] if business.get("status") == "covered" else []
+        return SectionContent(idx, SECTIONS[idx - 1], seg_lines + semantic_lines or ["分部与业务语义数据未导入。"])
     if idx == 9:
         return SectionContent(idx, SECTIONS[idx - 1], [
             f"财务报告/事实数量：{len(ri.metrics)} 条指标；覆盖状态见数据缺口章节。"])
@@ -195,13 +215,35 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
     if idx == 17:
         seg_lines = [f"- {s['canonical_name']}：收入 {_fmt_number(s.get('revenue'))}" for s in ri.segments]
         return SectionContent(idx, SECTIONS[idx - 1], seg_lines or ["分部数据未导入。"])
-    if idx in (18, 19):
+    if idx == 18:
+        landscape = ri.competitive_landscape
+        if landscape.get("status") == "covered":
+            return SectionContent(idx, SECTIONS[idx - 1], [
+                f"- 所属行业：{landscape.get('industry') or 'UNKNOWN'}",
+                f"- 细分赛道：{landscape.get('sub_industry') or 'UNKNOWN'}",
+                f"- 竞争维度：{', '.join(landscape.get('competition_dimensions', [])) or 'UNKNOWN'}",
+                f"- 主要竞争者：{', '.join(landscape.get('major_competitors', [])) or 'UNKNOWN'}",
+            ])
         return SectionContent(idx, SECTIONS[idx - 1], ["行业与竞争数据未导入（可经 LLM 语义模块或人工补充）。"],
                               status="missing_data")
+    if idx == 19:
+        lines = [
+            f"- {factor.get('statement')}（方向：{factor.get('direction')}；状态：{factor.get('status')}；"
+            f"Evidence：{', '.join(factor.get('evidence_ids', [])) or '无'}）"
+            for factor in ri.competitive_factors
+        ]
+        return SectionContent(idx, SECTIONS[idx - 1], lines or ["竞争格局数据未导入。"],
+                              status="covered" if lines else "missing_data")
     if idx == 20:
-        factors = [f"- {f['statement']}（{f.get('status', 'unknown')}）" for f in ri.findings
-                   if f.get("finding_type") == "business_analysis"]
-        return SectionContent(idx, SECTIONS[idx - 1], factors or ["竞争优势数据未导入。"])
+        factors = [
+            f"- {factor.get('statement')}（方向：{factor.get('direction')}；"
+            f"反证：{', '.join(factor.get('counter_evidence_ids', [])) or '未提供'}）"
+            for factor in ri.competitive_factors
+        ]
+        counter = [f"- 反方线索：{item.get('statement')}（Evidence："
+                   f"{', '.join(item.get('evidence_ids', [])) or '无'}）"
+                   for item in ri.market_debate.get("bear_claims", [])]
+        return SectionContent(idx, SECTIONS[idx - 1], factors + counter or ["竞争优势及反证数据未导入。"])
     if idx == 21:
         if ri.peers:
             return SectionContent(idx, SECTIONS[idx - 1], [
@@ -253,17 +295,29 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
                               ri.data_gaps or ri.result.unknowns or ["暂无已识别数据缺口。"])
     if idx == 34:
         questions = [f"- {f['statement']}" for f in ri.findings if f.get("finding_type") == "research_question"]
+        structured = ri.research_questions_artifact
+        if structured.get("status") == "covered" and structured.get("question"):
+            questions.append(
+                f"- 验证路径：{structured.get('verification_method') or 'UNKNOWN'}；"
+                f"所需数据：{', '.join(structured.get('required_data', [])) or 'UNKNOWN'}"
+            )
         return SectionContent(idx, SECTIONS[idx - 1], questions or ["暂无待验证问题。"])
     if idx == 35:
-        return SectionContent(idx, SECTIONS[idx - 1], [
-            f"- Claim 数量：{len(ri.result.claim_ids)}；Evidence 数量：{len(ri.result.evidence_ids)}",
-        ])
+        lines = [f"- Claim 数量：{len(ri.result.claim_ids)}；Evidence 数量：{len(ri.result.evidence_ids)}"]
+        lines.extend(
+            f"- Evidence ID: `{e.get('evidence_id')}` | 来源: {e.get('publisher')} ({e.get('source_id')}) "
+            f"| 发布时间: {e.get('published_at')} | URL: {e.get('url')}"
+            for e in ri.evidences
+        )
+        return SectionContent(idx, SECTIONS[idx - 1], lines)
     if idx == 36:
         mode = ri.model_route.get("mode", "deterministic_fallback")
         called = ri.model_route.get("llm_called", False)
         return SectionContent(idx, SECTIONS[idx - 1], [
             f"- 模式：`{mode}`；llm_called=`{called}`",
-            f"- 限制：`{ri.model_route.get('limitation', 'semantic_llm_modules_not_connected')}`",
+            f"- 语义任务接入：{ri.model_route.get('semantic_tasks_integrated', 0)}/"
+            f"{ri.model_route.get('semantic_tasks_total', 0)}",
+            f"- 限制：`{ri.model_route.get('limitation') or 'none'}`",
         ])
     if idx == 37:
         return SectionContent(idx, SECTIONS[idx - 1], [

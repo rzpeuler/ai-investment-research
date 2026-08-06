@@ -199,3 +199,28 @@ def test_run_plan_contains_scenario(project_root):
     runs = list((project_root / "reports" / "runs").iterdir())
     plan = json.loads((runs[0] / "plan.json").read_text(encoding="utf-8"))
     assert plan["scenario"] == "abnormal_move_analysis"
+
+
+def test_three_core_cli_commands_enter_orchestrator(project_root, monkeypatch):
+    from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
+
+    seen = []
+
+    def fake_execute(self, scenario, request):
+        seen.append(scenario)
+        return ScenarioExecutionResult(
+            status="planned", exit_code=0, task_id="task-test",
+            validation_status="not_run", message="dry-run",
+        )
+
+    monkeypatch.setattr("research_os.cli.main.Orchestrator.execute", fake_execute)
+    runner = CliRunner()
+    commands = [
+        ["run", "morning-brief", "--dry-run"],
+        ["run", "abnormal-move", "--entity", "600519.SH", "--dry-run"],
+        ["run", "equity-research", "--entity", "600519.SH", "--dry-run"],
+    ]
+    for command in commands:
+        result = runner.invoke(cli, command)
+        assert result.exit_code == 0, result.output
+    assert seen == ["morning_brief", "abnormal_move_analysis", "stock_research_report"]

@@ -1,26 +1,30 @@
-"""Orchestrator（工程指南 7 节逻辑架构中的研究计划器与执行控制）。
+"""Orchestrator（统一研究计划器与执行控制面）。
 
-Phase 0/0.1：空 Orchestrator。负责：
+负责：
 - 任务创建（Task 必须通过 Schema 校验）
-- 计划生成（Plan 占位）
+- 三个核心场景注册与非空 Plan
+- 统一场景执行、预算、模型/降级策略和结果
 - 运行目录创建（指南 50 节，全部原子写入）
 - SQLite 持久化（幂等 upsert）
 - 相同 task_id 幂等（补跑机制基础，指南 56 节）
 - 失败状态持久化：task.json/validation.json/数据库 同步 failed + finished_at
 - 结构化错误记录（JSONL，含异常类型/时间/组件，敏感字段过滤）
 
-不执行任何模块，不采集任何数据。Phase 1+ 在此扩展。
+具体研究算法仍由既有 Pipeline 承担，Orchestrator 只做控制面治理。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from research_os.models import Task
 from research_os.orchestrator.run_directory import RunDirectory
+from research_os.orchestrator.scenario_registry import ScenarioRegistry
+from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
 from research_os.storage import Database
 from research_os.utils.id import new_uuid
 from research_os.utils.logging import ErrorLog
@@ -34,10 +38,18 @@ class Plan(BaseModel):
     plan_id: str
     task_id: str
     scenario: str
+    version: str = "1.0.0"
     depth: str
     created_at: str
+    requested_at: str
+    as_of: str
     steps: List[Dict[str, Any]] = Field(default_factory=list)
     data_requirements: List[str] = Field(default_factory=list)
+    runtime_budget: Dict[str, Any] = Field(default_factory=dict)
+    model_policy: str = "flash_default"
+    fallback_policy: List[str] = Field(default_factory=list)
+    output_paths: List[str] = Field(default_factory=list)
+    # 兼容旧产物字段。
     retrieval_budget: Dict[str, Any] = Field(default_factory=dict)
     model_route: str = "flash_default"
     notes: List[str] = Field(default_factory=list)
@@ -60,13 +72,32 @@ class RunOutcome:
 
 
 class Orchestrator:
-    """空任务编排器。"""
+    """统一控制面；具体业务由注册的 ScenarioRunner 执行。"""
 
-    def __init__(self, project_root: str | Path, db: Optional[Database] = None):
+    def __init__(self, project_root: str | Path, db: Optional[Database] = None,
+                 registry: Optional[ScenarioRegistry] = None):
         self.project_root = Path(project_root)
         self.runs_root = self.project_root / "reports" / "runs"
-        self.db = db or Database(self.project_root / "data" / "sqlite" / "research.db")
-        self.db.initialize()  # 确保迁移已应用（幂等）
+        self._db = db
+        if self._db is not None:
+            self._db.initialize()
+        self.registry = registry or ScenarioRegistry()
+        if registry is None:
+            from research_os.orchestrator.runners import (
+                AbnormalMoveScenarioRunner, EquityResearchScenarioRunner,
+                MorningBriefScenarioRunner,
+            )
+            for runner in (MorningBriefScenarioRunner(), AbnormalMoveScenarioRunner(),
+                           EquityResearchScenarioRunner()):
+                self.registry.register(runner)
+
+    @property
+    def db(self) -> Database:
+        """仅真实执行时初始化数据库，保证 dry-run 不因控制面产生副作用。"""
+        if self._db is None:
+            self._db = Database(self.project_root / "data" / "sqlite" / "research.db")
+            self._db.initialize()
+        return self._db
 
     # ---------- 失败状态持久化 ----------
 
@@ -141,21 +172,86 @@ class Orchestrator:
 
     # ---------- 计划生成 ----------
 
-    def create_plan(self, task: Task) -> Plan:
-        """生成最小计划。Phase 0 不注册任何功能模块。"""
+    def create_plan(self, task: Task, request: Optional[Dict[str, Any]] = None) -> Plan:
+        """由注册 Runner 生成含真实步骤、数据需求与策略的 Plan。"""
+        runner = self.registry.get(task.scenario)
         budgets = {"fast": 480, "standard": 1200, "deep": 1800}
+        runtime = budgets.get(task.depth, 1200)
+        spec = runner.build_plan(request or {}, {
+            "project_root": self.project_root, "task": task,
+        })
+        raw_steps = spec.get("steps") or []
+        steps = [s if isinstance(s, dict) else {"step": s, "status": "planned"}
+                 for s in raw_steps]
+        data_requirements = list(spec.get("data_requirements") or [])
+        if not steps or not data_requirements:
+            raise ValueError(f"场景 {task.scenario} 返回空 Plan")
         return Plan(
             plan_id=new_uuid(),
             task_id=task.task_id,
             scenario=task.scenario,
+            version=runner.version,
             depth=task.depth,
             created_at=now_iso(),
-            steps=[],  # TODO Phase 1+: 按场景注册模块调用图
-            data_requirements=[],  # TODO Phase 1+: 按场景声明数据需求
-            retrieval_budget={"max_runtime_seconds": budgets.get(task.depth, 1200)},
-            model_route="flash_default",
-            notes=["Phase 0 空计划：模块注册与调用图在 Phase 1+ 实现"],
+            requested_at=task.requested_at,
+            as_of=task.as_of,
+            steps=steps,
+            data_requirements=data_requirements,
+            runtime_budget={"depth": task.depth, "max_runtime_seconds": runtime},
+            model_policy=spec.get("model_policy", "flash_default"),
+            fallback_policy=list(spec.get("fallback_policy") or []),
+            output_paths=list(spec.get("output_paths") or []),
+            retrieval_budget={"max_runtime_seconds": runtime},
+            model_route=spec.get("model_policy", "flash_default"),
+            notes=["由 ScenarioRunner 注册表生成"],
         )
+
+    def execute(self, scenario: str, request: Dict[str, Any]) -> ScenarioExecutionResult:
+        """统一执行入口；未注册场景、请求错误和 Runner 异常均转为结构化失败。"""
+        started = perf_counter()
+        task_id = str(request.get("task_id") or new_uuid())
+        task: Optional[Task] = None
+        try:
+            runner = self.registry.get(scenario)
+            normalized = runner.validate_request(dict(request))
+            task = self.create_task(
+                scenario=scenario,
+                entities=list(normalized.get("entities") or []),
+                depth=normalized.get("depth", "standard"),
+                as_of=normalized.get("as_of"),
+                task_id=task_id,
+            )
+            plan = self.create_plan(task, normalized)
+            context: Dict[str, Any] = {
+                "project_root": self.project_root, "task": task, "plan": plan,
+            }
+            if not normalized.get("dry_run"):
+                context["db"] = self.db
+        except ValueError as exc:
+            result = ScenarioExecutionResult(
+                status="failed", exit_code=2, task_id=task_id,
+                validation_status="not_run", message=str(exc),
+            )
+        else:
+            try:
+                result = runner.execute(normalized, context)
+            except Exception as exc:  # noqa: BLE001
+                run_dir = RunDirectory(self.runs_root, task_id)
+                if task is not None and run_dir.exists():
+                    self._mark_failed(task, run_dir, exc)
+                result = ScenarioExecutionResult(
+                    status="failed", exit_code=5, task_id=task_id,
+                    run_dir=str(run_dir.root) if run_dir.exists() else None,
+                    validation_status="fail", message=f"场景执行失败: {type(exc).__name__}: {exc}",
+                )
+        result.runtime_seconds = round(perf_counter() - started, 6)
+        return result
+
+    def close(self) -> None:
+        """关闭由控制面持有的数据库连接。"""
+        if self._db is not None:
+            self._db.close()
+            self._db = None
 
     # ---------- 执行 ----------
 
@@ -168,7 +264,7 @@ class Orchestrator:
         as_of: Optional[str] = None,
         force: bool = False,
     ) -> RunOutcome:
-        """执行空任务。
+        """兼容旧的计划任务入口（不执行研究 Pipeline）。
 
         幂等规则：
         - 运行目录存在且状态 completed -> 幂等跳过（不重复生成）；
@@ -197,7 +293,7 @@ class Orchestrator:
                     errors=["此前执行失败"],
                 )
 
-        plan = self.create_plan(task)
+        plan = self.create_plan(task, {"entities": entities or [], "depth": depth, "as_of": as_of})
 
         try:
             # 1. 创建运行目录
@@ -215,7 +311,7 @@ class Orchestrator:
             )
             run_dir.write_validation(
                 {"status": "pending", "task_id": task.task_id,
-                 "checks": [], "message": "Phase 0 空任务：无报告产物需校验"}
+                 "checks": [], "message": "控制面计划任务：未执行研究 Pipeline"}
             )
             # 4. SQLite 持久化（幂等 upsert）
             task.status = "completed"
@@ -228,7 +324,7 @@ class Orchestrator:
                 task=task,
                 plan=plan,
                 run_dir=run_dir.root,
-                message=f"空任务完成：{task.task_id}",
+                message=f"控制面计划任务完成：{task.task_id}",
             )
         except Exception as exc:  # noqa: BLE001 —— 失败必须显式记录
             self._mark_failed(task, run_dir, exc)

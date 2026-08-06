@@ -1,6 +1,18 @@
 # 来源注册表变更日志（Phase 1 任务 4.4 节）
 # 每次新增/降级/恢复/废弃来源必须记录：日期、source_id、原状态、新状态、原因、验证证据、执行人。
 
+- date: 2026-08-07
+  source_id: "(governance_control_evidence_phase4)"
+  change: governance_repair
+  reason: 工程指南升级 V1.1；统一文档权威顺序、三场景 Orchestrator 注册与非空 Plan、
+    晨报真实 Evidence 链、Phase 4 原始证据继承与人工财务定位、正式语义任务入口、
+    集中研究状态和确定性专业评审。状态统一为 Phase 4 工程基础 PASS、完整研究能力
+    PARTIAL_SUCCESS、Phase 5 BLOCKED。
+  evidence: docs/engineering-guide.md；docs/project-state/DECISIONS.md；
+    docs/project-state/CURRENT_STATE.md；src/research_os/orchestrator/；
+    src/research_os/morning/；src/research_os/equity_research/
+  agent: Codex
+
 - date: 2026-08-05
   source_id: "(全部)"
   change: added

@@ -97,6 +97,12 @@ class TestScenarioBuild:
         assert len(s.assumptions) == 1
         assert s.assumptions[0].claim_type == "MODEL_INFERENCE"
 
+    def test_deterministic_extrapolation_is_hypothesis(self):
+        s = build_scenario(_scenario(assumptions=[
+            _assumption(source_type="deterministic_extrapolation"),
+        ]))
+        assert s.assumptions[0].claim_type == "HYPOTHESIS"
+
     def test_invalidation_conditions_preserved(self):
         s = build_scenario(_scenario())
         assert s.assumptions[0].invalidates_when == "增速低于 0"

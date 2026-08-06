@@ -51,5 +51,6 @@ class LlmResponse(StrictModel):
     output: Optional[Dict[str, Any]] = None
     validation_errors: List[str] = Field(default_factory=list)
     usage_metadata: Dict[str, Any] = Field(default_factory=dict)
+    latency_seconds: float = Field(0.0, ge=0.0)
     warnings: List[str] = Field(default_factory=list)
     recorded_at: str = Field(default_factory=now_iso)

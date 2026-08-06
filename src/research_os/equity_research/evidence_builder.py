@@ -6,16 +6,16 @@
 - Claim：主体/谓词/宾语/证据/支持级别/置信度/审核状态，通过 claim.schema.json 校验；
 - ResearchFinding.evidence_ids 指向真实 Evidence ID（不再用 metric_id 冒充）。
 
-Evidence 来源类型（evidence_type）：
-- manual_input：用户财务导入（fact 行）；published_at=报告真实披露时间
-- official_disclosure：Phase 3 归因/晨报事件（已披露公告）
+Evidence 来源类型：manual_input；Phase 2 事件必须复用其原始 Evidence，不在此重造。
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from typing import Any, Dict, List, Optional
 
-from research_os.models.core import Claim, Evidence, ReviewStatus, SupportLevel
+from research_os.models.core import Claim, Evidence, RawItem
 from research_os.utils.time import now_iso
 
 
@@ -25,6 +25,8 @@ def build_evidence_from_fact(
     published_at: str,
     retrieved_at: str,
     file_name: str = "用户财务导入",
+    raw_item_id: Optional[str] = None,
+    provenance: Optional[Dict[str, Any]] = None,
 ) -> Evidence:
     """从财务事实构造真实 Evidence。
 
@@ -35,16 +37,19 @@ def build_evidence_from_fact(
     value = fact.get("raw_value") or fact.get("normalized_value") or ""
     unit = fact.get("normalized_unit") or fact.get("currency") or ""
     fact_id = fact.get("fact_id") or str(uuid.uuid4())
+    provenance = provenance or {}
+    locator = provenance.get("locator") or f"field:{fact.get('taxonomy_code', 'unknown')}"
     return Evidence(
         evidence_id=str(uuid.uuid4()),
         source_id="manual_financial_import",
-        raw_item_id=fact_id,
+        raw_item_id=raw_item_id or fact_id,
         title=f"{label}（{period_end}）",
         publisher=file_name,
         published_at=published_at,
         retrieved_at=retrieved_at,
-        url=f"manual://financial_import/{fact_id}",
-        excerpt=f"{label}={value}（单位:{unit}，报告期 {period_end}）",
+        url=provenance.get("url") or f"manual://financial_import/{fact_id}",
+        excerpt=(f"{label}={value}（单位:{unit}，报告期 {period_end}；定位:{locator}；"
+                 f"checksum:{provenance.get('checksum', 'unknown')}）"),
         evidence_type="manual_input",
         independence_group=f"fact:{fact_id}",
         source_tier="C",
@@ -52,31 +57,33 @@ def build_evidence_from_fact(
     )
 
 
-def build_evidence_from_event(
-    event: Dict[str, Any],
-    *,
-    retrieved_at: str,
-) -> Optional[Evidence]:
-    """从晨报事件构造 Evidence（official_disclosure）。"""
-    event_id = event.get("event_id")
-    title = event.get("title") or "事件"
-    published_at = event.get("published_at") or event.get("event_time") or event.get("created_at")
-    if not published_at or not event_id:
-        return None
-    return Evidence(
-        evidence_id=str(uuid.uuid4()),
-        source_id="morning_brief_events",
-        raw_item_id=event_id,
-        title=title,
-        publisher=event.get("source_name") or "晨报事件",
-        published_at=published_at,
-        retrieved_at=retrieved_at,
-        url=event.get("url") or f"manual://morning_events/{event_id}",
-        excerpt=title[:200],
-        evidence_type="official_disclosure",
-        independence_group=f"event:{event_id}",
-        source_tier="B",
-        access_status="ok",
+def build_raw_item_from_fact(
+    fact: Dict[str, Any], *, published_at: str, retrieved_at: str,
+    file_name: str, manifest_id: str, checksum: str, locator: str,
+    source_kind: str = "manual_import", parser_version: str = "unknown",
+    imported_at: str = "", is_statutory_original: bool = False,
+) -> RawItem:
+    """为人工财务行建立可持久化 RawItem，Evidence 不再直接指向 FinancialFact。"""
+    fact_id = fact.get("fact_id") or str(uuid.uuid4())
+    label = fact.get("label_raw") or fact.get("taxonomy_code") or "财务科目"
+    excerpt = (f"{label}={fact.get('raw_value') or fact.get('normalized_value')}；"
+               f"manifest={manifest_id}；checksum={checksum}；locator={locator}；"
+               f"source_kind={source_kind}；parser_version={parser_version}；"
+               f"imported_at={imported_at or retrieved_at}；"
+               f"is_statutory_original={str(is_statutory_original).lower()}")
+    content_hash = hashlib.sha256(
+        json.dumps(fact, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return RawItem(
+        raw_item_id=str(uuid.uuid4()), source_id="manual_financial_import",
+        external_id=fact_id,
+        url=f"manual://financial_import/{manifest_id}/{fact_id}",
+        title=f"{file_name}：{label}", publisher=file_name, author=None,
+        published_at=published_at, retrieved_at=retrieved_at,
+        content_hash=content_hash, content_excerpt=excerpt[:500],
+        content_storage="metadata_and_excerpt", language="zh-CN",
+        access_status="ok", entities=[fact.get("company_entity_id", "")],
+        raw_category="financial_fact_import",
     )
 
 
@@ -106,14 +113,6 @@ def build_claim_from_finding(
 def build_evidence_index(evidences: List[Evidence]) -> Dict[str, Any]:
     """evidence_index：ID → 来源摘要（供引用完整性快速核验）。"""
     return {
-        e.evidence_id: {
-            "source_id": e.source_id,
-            "raw_item_id": e.raw_item_id,
-            "title": e.title,
-            "published_at": e.published_at,
-            "evidence_type": e.evidence_type,
-            "independence_group": e.independence_group,
-            "source_tier": e.source_tier,
-        }
+        e.evidence_id: e.model_dump()
         for e in evidences
     }

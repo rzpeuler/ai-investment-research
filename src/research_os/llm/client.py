@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from research_os.llm.models import LlmRequest, LlmResponse
@@ -64,12 +65,14 @@ class LlmClient:
             return resp
 
         schema_name = request.output_schema_name
+        call_started = perf_counter()
         flash_schema_failures = 0
         errors: List[str] = []
         provider_fallback_used = False
         provider_fallback_reason: Optional[str] = None
         selected_model: Optional[str] = None
         total_attempts = 0
+        provider_name = request.provider or type(self.provider).__name__
 
         while total_attempts < MAX_FLASH_FIX_ATTEMPTS + MAX_PRO_CALLS:
             is_pro = flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS
@@ -101,7 +104,7 @@ class LlmClient:
             selected_model = result.get("model_id") or ("pro" if is_pro else "flash")
             if valid and parsed is not None:
                 resp = LlmResponse(
-                    call_id=request.call_id, provider=result.get("provider", ""),
+                    call_id=request.call_id, provider=result.get("provider") or provider_name,
                     model_id=selected_model, called=True, status="success",
                     schema_valid=True, attempt_count=total_attempts,
                     provider_fallback_used=provider_fallback_used,
@@ -109,6 +112,7 @@ class LlmClient:
                     business_escalation_used=is_pro,
                     business_escalation_reason=(
                         "Flash 两次结构修复失败，升级 Pro" if is_pro else None),
+                    latency_seconds=round(perf_counter() - call_started, 6),
                     output=parsed,
                 )
                 self._record(request, resp)
@@ -119,8 +123,9 @@ class LlmClient:
 
         # 全部尝试失败 -> deterministic fallback（如实记录 failure_stage）
         resp = LlmResponse(
-            call_id=request.call_id, provider=request.provider,
-            model_id=selected_model, called=True, status="fallback",
+            call_id=request.call_id, provider=provider_name,
+            model_id=selected_model or ("pro" if flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS else "flash"),
+            called=True, status="fallback",
             schema_valid=False, attempt_count=total_attempts,
             provider_fallback_used=provider_fallback_used,
             provider_fallback_reason=provider_fallback_reason,
@@ -129,6 +134,7 @@ class LlmClient:
                 "Flash 两次结构修复失败，升级 Pro"
                 if flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS else None),
             validation_errors=errors[:20],
+            latency_seconds=round(perf_counter() - call_started, 6),
             warnings=["LLM 输出未通过校验，确定性回退"],
         )
         self._record(request, resp)

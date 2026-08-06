@@ -25,9 +25,9 @@ Orchestrator、CLI、运行目录与日志、Front Matter 校验器、单元与�
 **Phase 1.1（行情契约修正）**：**PASS**。实时快照与历史日线严格分离
 （sina_quote 仅实时快照；日线 primary 空 + manual_import fallback）。
 
-**Phase 2（信息筛选系统与每日晨报）**：**PASS**。候选筛选流水线（窗口过滤→去重→
+**Phase 2（信息筛选系统与每日晨报）**：**PASS（Evidence BLOCKER 已关闭）**。候选筛选流水线（窗口过滤→RawItem/Evidence→去重→
 事件聚类（确定性第一版：实体+日期预分桶+标题相似度，语义模型未接入）→
-分类→硬性否决→评分→Claim→选择→渲染→校验）、四个监测方向覆盖说明、
+分类→硬性否决→评分→Claim→选择→渲染→证据校验）、四个监测方向覆盖说明、
 `research run morning-brief`（幂等/延迟补跑/force/dry-run）、报告验证器升级、
 Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/）、
 黄金测试集（tests/golden/morning_brief）。模型路由诚实记录
@@ -40,15 +40,18 @@ Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/�
 （UNEXPLAINED_MOVE 合法输出）、18 章节报告 + 33 条 Validator、
 `research run abnormal-move`、Hermes Skill、14 黄金案例。Schema 19→30，迁移 user_version=4。
 
-**Phase 4（个股研报）**：**实施完成，待独立验收**（正式任务书见
+**Phase 4（个股研报）**：**工程基础 PASS；完整研究能力 PARTIAL_SUCCESS**（正式任务书见
 [`docs/tasks/phase4-equity-research.md`](docs/tasks/phase4-equity-research.md)）。
 离线优先、数据优先、证据可定位、财务可复算、结论可审计的 A 股个股研究档案与
 Markdown 报告流水线：CSV/JSON/XLSX 财务导入（Manifest/行级校验/dry-run/幂等）、
 财务标准化与 24 个确定性指标、三表勾稽与质量告警、业务分部、同行选择（防事后选择）、
 估值观察（结构性禁止目标价）、情景预测（默认关闭）、38 章节研报、ERV-001—070
-Validator、`research run equity-research`、Hermes Skill、25 类黄金案例。
+Validator、统一 Orchestrator 场景注册、共享预算的最低四项语义任务、真实
+RawItem/Evidence 血缘、集中状态判定和确定性专业评审。未配置真实 Provider、自动财务源、
+完整业务/竞争/风险/催化剂/反证覆盖时，报告必须降级，不得标完整 success。
 Schema 30→50，迁移 user_version=5。
-**尚未开始**：晚报/复盘、主题挖掘、首次覆盖、自动产业图谱入库（Phase 5+）。
+**Phase 5：BLOCKED**。完整 Phase 4 语义最低覆盖与全部准入条件满足前不得开始；
+晚报/复盘、主题挖掘、首次覆盖和自动产业图谱入库均尚未开始。
 
 ## 快速开始
 
