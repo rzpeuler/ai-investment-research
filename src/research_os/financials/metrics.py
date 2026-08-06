@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 from research_os.financials.formulas import (
     FINANCIAL_NA,
@@ -30,6 +31,68 @@ def _value_by_key(facts: List[dict], taxonomy_code: str, period_basis: str = "re
 
 def _fact_ids_by_key(facts: List[dict], taxonomy_code: str) -> List[str]:
     return [f["fact_id"] for f in facts if f.get("taxonomy_code") == taxonomy_code and f.get("fact_id")]
+
+
+@dataclass(frozen=True)
+class MetricRecomputeSpec:
+    """指标的可审计复算契约；参数名而非 UUID 顺序定义公式语义。"""
+    metric_code: str
+    parameter_taxonomy: Tuple[Tuple[str, str], ...]
+    unit: str
+    precision: int = 8
+
+
+def _spec(code: str, unit: str, **parameters: str) -> MetricRecomputeSpec:
+    return MetricRecomputeSpec(code, tuple(parameters.items()), unit)
+
+
+# 所有已支持公式都登记；缺失参数、零分母和 N/A 仍由同一公式函数返回确定状态。
+METRIC_RECOMPUTE_REGISTRY: Dict[str, MetricRecomputeSpec] = {
+    "revenue_growth": _spec("revenue_growth", "ratio", current="revenue", comparable="revenue"),
+    "net_profit_growth": _spec("net_profit_growth", "ratio", current="net_profit_attr", comparable="net_profit_attr"),
+    "deducted_net_profit_growth": _spec("deducted_net_profit_growth", "ratio", current="deducted_net_profit", comparable="deducted_net_profit"),
+    "gross_margin": _spec("gross_margin", "ratio", revenue="revenue", cogs="cost_of_sales"),
+    "operating_margin": _spec("operating_margin", "ratio", operating_profit="operating_profit", revenue="revenue"),
+    "net_margin": _spec("net_margin", "ratio", attributable_net_profit="net_profit_attr", revenue="revenue"),
+    "roe": _spec("roe", "ratio", net_profit_attr="net_profit_attr", equity_start="equity_attr", equity_end="equity_attr"),
+    "roa": _spec("roa", "ratio", net_profit="net_profit", assets_start="total_assets", assets_end="total_assets"),
+    "roic": _spec("roic", "ratio", ebit="ebit", tax="income_tax_rate", interest_debt="interest_bearing_debt", equity="equity_attr", eligible_cash="cash_and_equivalents"),
+    "debt_to_assets": _spec("debt_to_assets", "ratio", total_liabilities="total_liabilities", total_assets="total_assets"),
+    "net_debt": _spec("net_debt", "yuan", interest_debt="interest_bearing_debt", eligible_cash="cash_and_equivalents"),
+    "current_ratio": _spec("current_ratio", "ratio", current_assets="current_assets", current_liabilities="current_liabilities"),
+    "quick_ratio": _spec("quick_ratio", "ratio", current_assets="current_assets", inventory="inventory", other_illiquid="other_illiquid_assets", current_liabilities="current_liabilities"),
+    "receivable_turnover": _spec("receivable_turnover", "times", revenue="revenue", receivables_start="accounts_receivable", receivables_end="accounts_receivable"),
+    "inventory_turnover": _spec("inventory_turnover", "times", cogs="cost_of_sales", inventory_start="inventory", inventory_end="inventory"),
+    "cfo_to_net_profit": _spec("cfo_to_net_profit", "ratio", cfo="operating_cash_flow", net_profit="net_profit_attr"),
+    "free_cash_flow": _spec("free_cash_flow", "yuan", cfo="operating_cash_flow", capex="capex_paid"),
+    "rd_expense_ratio": _spec("rd_expense_ratio", "ratio", rd="rd_expense", revenue="revenue"),
+    "selling_expense_ratio": _spec("selling_expense_ratio", "ratio", expense="selling_expense", revenue="revenue"),
+    "admin_expense_ratio": _spec("admin_expense_ratio", "ratio", expense="admin_expense", revenue="revenue"),
+    "eps": _spec("eps", "yuan", net_profit_attr="net_profit_attr", weighted_shares="weighted_avg_shares"),
+    "bvps": _spec("bvps", "yuan", equity_attr="equity_attr", period_end_shares="period_end_shares"),
+    "cfo_per_share": _spec("cfo_per_share", "yuan", cfo="operating_cash_flow", weighted_shares="weighted_avg_shares"),
+    "share_change": _spec("share_change", "ratio", end_shares="period_end_shares", start_shares="period_end_shares"),
+}
+
+
+def recompute_from_lineage(metric: dict, facts: List[dict]) -> Optional[MetricResult]:
+    """依据 input_fact_ids 和命名 taxonomy 参数复算，不依赖输入 UUID 的排列顺序。"""
+    spec = METRIC_RECOMPUTE_REGISTRY.get(metric.get("metric_code"))
+    formula = METRIC_FUNCTIONS.get(metric.get("metric_code"))
+    if spec is None or formula is None:
+        return None
+    # 同一 taxonomy 在公式中承担期初/期末或本期/同比期等不同角色时，当前持久化
+    # 血缘只保存 ID 列表，尚未保存 parameter→fact 映射，不能靠 UUID 次序猜测。
+    # 返回 None 让 Validator 显式警告而非伪造一次“复算”。
+    taxonomies = [taxonomy for _, taxonomy in spec.parameter_taxonomy]
+    if len(taxonomies) != len(set(taxonomies)):
+        return None
+    selected = {f.get("fact_id") for f in facts if f.get("fact_id") in set(metric.get("input_fact_ids") or [])}
+    values: Dict[str, Optional[str]] = {}
+    for parameter, taxonomy in spec.parameter_taxonomy:
+        candidates = [f for f in facts if f.get("fact_id") in selected and f.get("taxonomy_code") == taxonomy]
+        values[parameter] = _value_by_key(candidates, taxonomy)
+    return formula(**values)  # type: ignore[operator]
 
 
 def compute_metric(
@@ -75,8 +138,10 @@ def compute_metric(
 
     result: MetricResult = fn(**inputs)
     input_fact_ids: List[str] = []
-    for code in inputs:
-        input_fact_ids.extend(_fact_ids_by_key(facts, code))
+    # 参数名（如 cogs）不等于 taxonomy（cost_of_sales）；血缘必须按注册表恢复。
+    spec = METRIC_RECOMPUTE_REGISTRY[metric_code]
+    for _, taxonomy_code in spec.parameter_taxonomy:
+        input_fact_ids.extend(_fact_ids_by_key(facts, taxonomy_code))
     input_fact_ids = sorted(set(input_fact_ids))
     unit = "ratio" if not metric_code.endswith(("turnover", "eps", "bvps", "cfo_per_share", "net_debt")) else (
         "times" if metric_code.endswith("turnover") else (

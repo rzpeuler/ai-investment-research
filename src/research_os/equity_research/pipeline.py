@@ -930,6 +930,11 @@ class EquityResearchPipeline:
             artifact_paths=[],
             known_ids=set(evidence_ids),
             runs=historical_runs + [run.model_dump()],
+            request=request.model_dump(),
+            run=run.model_dump(),
+            documents=document_records,
+            catalysts=catalysts,
+            risks=risks,
         )
         if outcome.status == "fail":
             run.status = "validation_failed"

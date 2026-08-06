@@ -35,7 +35,12 @@ from research_os.financials.formulas import (
     selling_expense_ratio,
     share_change,
 )
-from research_os.financials.metrics import compute_metric, compute_period_metrics
+from research_os.financials.metrics import (
+    METRIC_RECOMPUTE_REGISTRY,
+    compute_metric,
+    compute_period_metrics,
+    recompute_from_lineage,
+)
 
 
 class TestGrowth:
@@ -264,3 +269,20 @@ class TestMetricsService:
         # 内部比率保留完整 Decimal（至少 8 位小数精度），不因渲染截断
         d = Decimal(m.value)
         assert d.as_tuple().exponent <= -8  # 至少 8 位小数
+
+
+class TestRecomputeRegistry:
+    def test_registry_covers_all_supported_formulas(self):
+        from research_os.financials.formulas import METRIC_FUNCTIONS
+
+        assert set(METRIC_RECOMPUTE_REGISTRY) == set(METRIC_FUNCTIONS)
+
+    def test_lineage_order_does_not_change_gross_margin(self):
+        facts = [
+            {"fact_id": "revenue-id", "taxonomy_code": "revenue", "normalized_value": "100"},
+            {"fact_id": "cogs-id", "taxonomy_code": "cost_of_sales", "normalized_value": "60"},
+        ]
+        metric = {"metric_code": "gross_margin", "input_fact_ids": ["cogs-id", "revenue-id"]}
+        result = recompute_from_lineage(metric, facts)
+        assert result is not None
+        assert result.value == "0.4" and result.status == "valid"

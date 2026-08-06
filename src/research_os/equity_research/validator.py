@@ -358,54 +358,39 @@ def check_temporal_order(issues: List[ValidationIssue], obj: Dict[str, Any], rul
 
 def check_metric_recompute(issues: List[ValidationIssue], metrics: List[Dict[str, Any]],
                            facts: List[Dict[str, Any]]) -> None:
-    """ERV-018—022：指标按 input_fact_ids 与公式重算，结果必须一致。
-
-    规则：gross_margin = (revenue - cogs) / revenue；net_margin = np / revenue；
-    debt_ratio = total_liabilities / total_assets。仅当输入事实存在且 status=valid。
-    """
-    fact_by_id = {f.get("fact_id"): f for f in facts if f.get("fact_id")}
-
-    def _num(v):
-        return Decimal(v) if v is not None else None
-
-    def _recompute(inputs: List[str], formula) -> Optional[Decimal]:
-        vals = [_num(fact_by_id.get(i, {}).get("normalized_value")) for i in inputs]
-        if len(vals) < 2 or any(v is None for v in vals):
-            return None
-        try:
-            return formula(*vals)  # type: ignore[operator]
-        except (InvalidOperation, ZeroDivisionError, ValueError, TypeError):
-            return None
-
+    """ERV-018—022：全部支持指标依命名参数、血缘、公式版本确定性复算。"""
+    from research_os.financials.formulas import FORMULA_VERSION
+    from research_os.financials.metrics import METRIC_RECOMPUTE_REGISTRY, recompute_from_lineage
     for m in metrics:
-        if m.get("status") != "valid" or not m.get("input_fact_ids"):
+        if m.get("metric_code") not in METRIC_RECOMPUTE_REGISTRY:
+            issues.append(ValidationIssue("ERV-019", "warning", f"未登记的指标复算规则: {m.get('metric_code')}", m.get("metric_id")))
             continue
-        inputs = m.get("input_fact_ids", [])
-        code = m.get("metric_code")
-        expected = None
-        if code == "gross_margin":
-            expected = _recompute(inputs[:2], lambda r, c: (r - c) / r if r else None)
-        elif code == "net_margin":
-            expected = _recompute(inputs[:2], lambda np_, r: np_ / r if r else None)
-        elif code == "debt_ratio":
-            expected = _recompute(inputs[:2], lambda l, a: l / a if a else None)
+        if m.get("formula_version") != FORMULA_VERSION or not m.get("formula_id"):
+            issues.append(ValidationIssue("ERV-019", "error", "指标 formula_id/formula_version 缺失或不匹配", m.get("metric_id")))
+            continue
+        expected = recompute_from_lineage(m, facts)
         if expected is None:
+            issues.append(ValidationIssue("ERV-019", "warning", "指标无法按注册表复算", m.get("metric_id")))
             continue
-        actual = _num(m.get("value"))
-        if actual is None or abs(actual - expected) > Decimal("0.00000001"):
+        if m.get("status") != expected.status or m.get("value") != expected.value:
             issues.append(ValidationIssue("ERV-019", "error",
-                                          f"指标不可复算: {code}（期望 {expected}，实际 {actual}）", m.get("metric_id")))
+                                          f"指标不可复算: {m.get('metric_code')}（期望 {expected.value}/{expected.status}，实际 {m.get('value')}/{m.get('status')}）", m.get("metric_id")))
 
 
 def check_peer_requalify(issues: List[ValidationIssue], peer: Dict[str, Any]) -> None:
-    """ERV-032：同行资格可按输入重算（industry+model+revenue 核心维度）。"""
-    if not peer.get("eligible"):
+    """ERV-032：复用 selector 的加权公式，检测 score 或 eligible 被篡改。"""
+    from research_os.equity_research.peer_selector import PeerInput, evaluate_peer_eligibility
+    try:
+        values = {name: peer.get(name) for name in PeerInput.__dataclass_fields__}
+        pi = PeerInput(**values)
+        expected_total, expected_core, reasons = evaluate_peer_eligibility(pi)
+    except (TypeError, ValueError):
+        issues.append(ValidationIssue("ERV-032", "error", "同行资格输入不完整", peer.get("peer_candidate_id")))
         return
-    core = sum(
-        peer.get(k) or 0 for k in ("industry_score", "business_model_score", "revenue_mix_score")
-    )
-    if core < 35:
-        issues.append(ValidationIssue("ERV-032", "error", "同行资格核心维度不足", peer.get("peer_candidate_id")))
+    if peer.get("total_score") != expected_total or peer.get("core_subtotal") != expected_core:
+        issues.append(ValidationIssue("ERV-032", "error", "同行加权评分被篡改", peer.get("peer_candidate_id")))
+    if bool(peer.get("eligible")) != (not reasons):
+        issues.append(ValidationIssue("ERV-032", "error", "同行 eligible 与资格规则不一致", peer.get("peer_candidate_id")))
 
 
 def check_market_consistency(issues: List[ValidationIssue], valuation: Optional[Dict[str, Any]],
@@ -611,6 +596,11 @@ def validate_equity_research(
     artifact_paths: Optional[List[str]] = None,
     known_ids: Optional[set] = None,
     runs: Optional[List[Dict[str, Any]]] = None,
+    request: Optional[Dict[str, Any]] = None,
+    run: Optional[Dict[str, Any]] = None,
+    documents: Optional[List[Dict[str, Any]]] = None,
+    catalysts: Optional[List[Dict[str, Any]]] = None,
+    risks: Optional[List[Dict[str, Any]]] = None,
 ) -> ValidationOutcome:
     """运行 ERV 规则全集。返回 pass / pass_with_warnings / fail。
 
@@ -629,6 +619,9 @@ def validate_equity_research(
     evidences = evidences or []
     claims = claims or []
     events = events or []
+    documents = documents or []
+    catalysts = catalysts or []
+    risks = risks or []
 
     # ERV-001/002：对象 Schema 校验（全部对象类型；无对应 Schema 映射则跳过并警告）
     schema_groups: List[tuple] = [
@@ -636,6 +629,7 @@ def validate_equity_research(
         (peers, "peer_candidate"), (scenarios, "forecast_scenario"), (blocks, "document_block"),
         (evidences, "evidence"), (claims, "claim"),
         (factors or [], "competitive_factor"),
+        (documents, "document_record"), (catalysts, "catalyst"), (risks, "risk_factor"),
     ]
     if peer_selection:
         schema_groups.append(([peer_selection], "peer_selection"))
@@ -646,6 +640,10 @@ def validate_equity_research(
             check_schema(issues, obj, schema_name)
     if result:
         check_schema(issues, result, "equity_research_result")
+    if request:
+        check_schema(issues, request, "equity_research_request")
+    if run:
+        check_schema(issues, run, "equity_research_run")
 
     # ERV-004—008：对象完整性/枚举/时间顺序
     for f in facts:
