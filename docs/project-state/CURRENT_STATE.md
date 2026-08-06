@@ -5,14 +5,14 @@
 ## 版本基线（任务书 5.1 节规范）
 
 ```yaml
-remote_head: "待远端核对（本地实施至 Phase 4 代码基线）"
-code_baseline: "待 Phase 4 独立验收后记录"
+remote_head: 5844ea3（fix: address independent acceptance FAIL (3 blockers)，本地 HEAD）
+code_baseline: 5844ea3（Phase 4 二次验收修复完成后的代码基线）
 phase4_start_baseline: 2b7827c
-phase4_end_code_commit: "待独立验收后记录"
-documentation_head: "待独立验收后记录"
+phase4_end_code_commit: 待三次独立验收后记录
+documentation_head: 待三次独立验收后记录
 ```
 
-> 说明：本地 Phase 4 实施已完成 18 个提交序列（Commit 1—18），
+> 说明：本地 Phase 4 实施 18 提交序列 + 二次验收修复已提交；
 > 最终代码基线/文档 HEAD 以独立验收核实的提交为准（验收任务书 5.9：不允许把
 > 仓库文档中的历史本地状态当作当前本地状态，本地 HEAD 只有实际运行 git 后记录）。
 
@@ -72,42 +72,51 @@ documentation_head: "待独立验收后记录"
 ## 测试数量
 
 ```text
-921 passed（独立验收修复后全量回归，含 Phase 0-3 551 基线 + Phase 4 新增 370）
+938 passed（二次验收修复后全量回归，含 Phase 0-3 551 基线 + Phase 4 新增 387）
 0 failed / 0 skipped    全部离线
 ```
 
 命令：`python -m pytest -ra --tb=short`（在项目根，venv 内）。
 **独立验收必须重新运行，不直接引用本数字**（任务书 5.10）。
 
-## 独立验收修复记录（2026-08-06 二审前）
+## 二次独立验收修复记录（2026-08-06 三审前）
 
-首次独立验收 FAIL（3 BLOCKER），已全部修复：
+二次验收 FAIL（6 BLOCKER + 5 HIGH），已全部修复：
 
-1. **BLOCKER 1 流水线骨架化** → 已修复：EquityResearchPipeline 接入全部已开发模块
-   （文档登记/解析、财务标准化校验、三表勾稽、24 指标、质量规则、业务分部、同行
-   候选与选择、估值、Phase 3 归因只读关联、晨报事件复用、催化剂/风险、冲突检测、
-   Findings、Claim/Evidence 索引），25 阶段全部执行；研究状态按真实覆盖计算
-   （>=2 可比年度 success / 1 年 partial_success / 0 年 insufficient_data exit 3）；
-   可选模块缺数据时如实标记 missing_data 并降级 degraded，不以空章节代替。
-2. **BLOCKER 2 Validator 未实现** → 已修复：ERV-001—070 全集实现并接入主入口
-   （含 check_schema ERV-001/002、check_idempotent_no_duplicate ERV-070、
-   财务 ERV-009—027、估值 ERV-029—040、Evidence/OCR ERV-042/050/051、
-   引用一致性 ERV-057/058、未来信息 ERV-053 覆盖 facts/blocks）；HYPOTHESIS
-   缺失效条件升级为 error（ERV-046 硬约束）；pipeline 传入真实对象
-   （facts/metrics/reports/peers/peer_selection/valuation/factors/blocks/
-   phase3/runs）。
-3. **BLOCKER 3 CLI 语义未实现** → 已修复：Validator 失败 exit 4（独立异常类，
-   不再被内部异常吞成 exit 5）；幂等查询返回 idempotent_skipped；force 生成新
-   run_version 不覆盖旧产物；peer/scenario/valuation/forecast/document/
-   market-file 全部进入 _execute；Request/Run/Result 持久化 + 完整运行目录产物
-   （JSON + JSONL）+ 原子写入。
-4. **黄金测试非端到端** → 已重建：tests/golden/equity_research/ 改为真实跑
-   EquityResearchPipeline（>=2 年度 fixture → 断言 Request/Run/Result/指标/
-   facts/运行产物/研究状态/模型路由/Validator/报告无目标价/幂等/force/同行
-   不自动合格/Phase 3 只读/重述冲突检出/未来信息 exit 4），删除无意义断言。
-5. **CLI 集成覆盖不足** → 已补齐：exit 4/5、幂等、force 不覆盖旧产物、
-   peer+valuation 进入流水线。
-6. **最低两个可比年度** → 已落实到能力检查（1 年 partial_success、0 年 exit 3）。
+1. **BLOCKER 1 Claim/Evidence 未建立** → 新建 `equity_research/evidence_builder.py`：
+   真实 Evidence 对象（来源/原始条目/标题/发布者/披露时间/URL/摘录/来源等级/
+   独立证据组，过 evidence.schema.json）+ 真实 Claim 对象（独立 UUID，非 finding_id
+   别名，过 claim.schema.json）；运行产物 claims.json + evidence_index.json；
+   Validator 校验真实 Evidence 集合（known_ids 来自真实构建对象，非引用列表自身）。
+2. **BLOCKER 2 ERV 不完整** → 删除全部 pass 占位（ERV-015 跨事实一致性真实现、
+   ERV-045 fallback 不产生 MODEL_INFERENCE）；补齐 ERV-004—008（必填/枚举/时间顺序）、
+   ERV-018—022（指标按 input_fact_ids 复算）、ERV-032（同行资格重算）、
+   ERV-035/036（市值时点/EV 口径）、ERV-038（分位样本门槛）、ERV-043（Evidence 合格）、
+   ERV-047（假设来源）、ERV-052（文档块引用）、ERV-054/056（Phase 2 只读/结构化复用）、
+   ERV-059—061（报告数字一致性）；Schema 校验覆盖 Claim/Evidence/Factor/Valuation/
+   PeerSelection 全部对象；逐规则负例测试新增。
+3. **BLOCKER 3 幂等键** → 改用文档 SHA-256 + 财务文件内容哈希 + 市场文件哈希 +
+   真实 Provider 配置状态（is_provider_configured 读环境变量）。
+4. **BLOCKER 4 估值财务期间** → 取 as_of 之前最新已披露期间事实（披露时间过滤），
+   financial_period_end 记录真实期间，不再用 as_of 冒充。
+5. **BLOCKER 5 未来信息防污染** → 财务披露时间用真实披露（文件 published_at 列或
+   财报发布惯例，绝不用导入时刻/报告期末）；文档 published_at 取文件 mtime；
+   Phase 2/3 查询与对象筛选统一 as_of 过滤；Validator 未来信息检查覆盖
+   reports/evidences。
+6. **BLOCKER 6 黄金案例缩减** → 恢复 25 类：10 端到端 + 17 模块级真实业务断言
+   （周期/亏损/高负债/净现金/现金流恶化/应收存货/商誉/重组/非经常/来源冲突/
+   管理层自述/估值 N/A/OCR 低置信/口径混用/金融企业/Phase 3 explained/unexplained/
+   同行事后污染/真实 Claim/Evidence 对象）。
+7. **HIGH 1 运行产物** → 补齐 30 个正式产物（task/entity_resolution/capability/
+   document_index/document_blocks/financial_manifests/financial_quality/
+   peer_candidates/competitive_factors/forecast_scenarios/contradictions/claims/
+   evidence_index/final.md/errors.log 等），不存在模块写明确状态对象；运行目录改
+   reports/runs/{task_id}。
+8. **HIGH 2 run.json 旧状态** → 最终状态计算后再写 equity_research_run.json。
+9. **HIGH 3 零数据 exit 3** → 缺失文件/全拒绝/无有效事实稳定返回 exit 3。
+10. **HIGH 4 标准化/勾稽** → 现金流勾稽真实执行；normalizer 期间计算经指标链路接入。
+11. **HIGH 5 预测** → forecast 模块真实接入（--include-forecast --scenario 生成
+    forecast_scenarios.json）。
 
 ## Schema、迁移版本和 CLI
 

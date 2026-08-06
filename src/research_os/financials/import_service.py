@@ -131,6 +131,35 @@ def _parse_date(value: Any, field_name: str) -> Optional[str]:
     return s
 
 
+def _default_disclosure_time(period_end: str) -> str:
+    """财报披露惯例时间（保守估计，非导入时刻）：
+    年报次年 4-30；中报当年 8-31；一季报当年 4-30；三季报当年 10-31。"""
+    y = int(period_end[:4])
+    if period_end.endswith("12-31"):
+        return f"{y + 1}-04-30T00:00:00"
+    if period_end.endswith("06-30"):
+        return f"{y}-08-31T00:00:00"
+    if period_end.endswith("03-31"):
+        return f"{y}-04-30T00:00:00"
+    if period_end.endswith("09-30"):
+        return f"{y}-10-31T00:00:00"
+    return f"{y}-12-31T00:00:00"
+
+
+def _parse_disclosure(value: Any) -> Optional[str]:
+    """解析真实披露时间（可选列，YYYY-MM-DD 或 ISO-8601）。"""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if s == "":
+        return None
+    if DATE_RE.match(s):
+        return f"{s}T00:00:00"
+    if re.match(r"^\d{4}-\d{2}-\d{2}T", s):
+        return s
+    return None
+
+
 def _row_to_dict(row: Dict[str, Any], col_map: Dict[str, str]) -> Dict[str, Any]:
     """按列映射（支持中文表头）提取标准键。"""
     out: Dict[str, Any] = {}
@@ -193,7 +222,7 @@ def _validate_row(data: Dict[str, Any], row_index: int, default_scope: str) -> R
     if issues:
         return rr
 
-    # 构造 FinancialFact（值一律十进制字符串）
+    # 构造 FinancialFact（值一律十进制字符串；valid_from=报告期末，保证 <= as_of）
     fact = FinancialFact(
         fact_id=str(uuid.uuid4()),
         fact_key=f"{taxonomy_code}|{period_end}|{REPORT_TYPES[report_type]}|{scope}",
@@ -227,6 +256,8 @@ def _validate_row(data: Dict[str, Any], row_index: int, default_scope: str) -> R
         warnings=[],
         created_at=now_iso(),
     )
+    # 真实披露时间（可选列，供 Evidence/未来信息检查使用；非模型字段）
+    fact._published_at = _parse_disclosure(data.get("published_at"))
     rr.fact = fact
     rr.accepted = True
     return rr
@@ -340,8 +371,11 @@ def import_financial_file(
     result = ImportResult(manifest=manifest, rows=results)
 
     # 构造 FinancialReport 对象（按期间聚合；dry-run 同样构造但不落库）
+    # 真实披露时间：文件提供 published_at 列则用之；否则默认财报发布惯例
+    # （年报次年 4 月底前、中报当年 8 月底前）；绝不以导入时刻冒充披露时间。
     period_keys: Dict[tuple, FinancialReport] = {}
     period_fact_map: Dict[tuple, List[FinancialFact]] = {}
+    period_published: Dict[tuple, str] = {}
     for rr in results:
         if not rr.accepted or rr.fact is None:
             continue
@@ -350,6 +384,7 @@ def import_financial_file(
         period_fact_map.setdefault(key, []).append(f)
         if key in period_keys:
             continue
+        period_published[key] = f._published_at or _default_disclosure_time(f.period_end)
         period_keys[key] = FinancialReport(
                 financial_report_id=str(uuid.uuid4()),
                 company_entity_id=company_entity_id,
@@ -385,7 +420,7 @@ def import_financial_file(
                 evidence_ids=[],
                 data_status="complete",
                 version=1,
-                published_at=imported_at,
+                published_at=period_published[key],
                 created_at=imported_at,
             )
         result.reports.append(period_keys[key])

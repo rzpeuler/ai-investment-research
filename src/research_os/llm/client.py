@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from typing import Any, Dict, List, Optional
 
 from research_os.llm.models import LlmRequest, LlmResponse
@@ -21,6 +22,14 @@ from research_os.utils.id import new_uuid
 
 MAX_FLASH_FIX_ATTEMPTS = 2   # Flash 最多两次结构修复（12.4）
 MAX_PRO_CALLS = 1            # 每个任务最多一次 Pro（12.3）
+
+# Provider 配置状态由环境变量决定（与 config/model_routing.yaml 接入方式一致）
+_PROVIDER_ENV_VARS = ("LLM_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def is_provider_configured() -> bool:
+    """真实 Provider 是否已配置（幂等键/模型路由状态依据）。"""
+    return any(bool(os.environ.get(k)) for k in _PROVIDER_ENV_VARS)
 
 
 class LlmClient:

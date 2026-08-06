@@ -151,3 +151,22 @@
     tests/golden/equity_research/；tests/integration/test_equity_research_cli.py
   agent: Hermes Agent
   notes: 状态=修复完成待复审；Phase 5 继续阻塞
+
+- date: 2026-08-06
+  source_id: "(phase4_acceptance_fix2)"
+  change: rework_fix
+  reason: 二次独立验收 FAIL（6 BLOCKER + 5 HIGH）修复：
+    1) 真实 Claim/Evidence 对象（evidence_builder.py，过 schema；claims.json +
+    evidence_index.json；Validator 验真实证据集合）；2) ERV 补齐（删除 pass 占位，
+    实现 ERV-004—008/015/018—022/032/035/036/038/043/045/047/052/054/056/059—061，
+    Schema 覆盖全部对象）；3) 幂等键改内容哈希（文档 SHA-256/财务/市场）+ 真实
+    Provider 状态；4) 估值取 as_of 前最新已披露期间（真实 financial_period_end）；
+    5) 未来信息防污染（真实披露时间/文档 mtime/Phase 2+3 as_of 过滤/覆盖 reports+
+    evidences）；6) 恢复 25 类黄金案例（10 端到端 + 17 模块级真实断言）；
+    7) 30 个运行产物 + reports/runs/{task_id}；8) run.json 最终状态后写；
+    9) 零有效财务数据稳定 exit 3；10) 现金流勾稽真实接入；
+    11) forecast 模块真实接入（--include-forecast --scenario）。全量回归 938 passed。
+  evidence: src/research_os/equity_research/evidence_builder.py；pipeline.py；
+    validator.py；financials/import_service.py；tests/golden/equity_research/
+  agent: Hermes Agent
+  notes: 状态=修复完成待三审；Phase 5 继续阻塞

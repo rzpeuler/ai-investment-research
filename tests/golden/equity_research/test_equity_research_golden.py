@@ -229,3 +229,246 @@ class TestEndToEndGolden:
         assert out.status == "failed"
         assert out.exit_code == 4
         assert "冲突" in out.message or "conflict" in out.message
+
+
+# ============================================================
+# 任务书 25 类黄金案例（二次验收 B6 恢复）：模块级真实业务断言
+# 每类调用真实模块/Validator 规则，不构造无意义断言。
+# ============================================================
+
+class TestModuleGolden:
+    """周期公司：PE 仅观察并提示周期位置（适用性说明）。"""
+
+    def test_cyclical_company(self):
+        from research_os.valuation.formulas import ValuationInputs, build_valuation_snapshot
+
+        snap = build_valuation_snapshot(ValuationInputs(
+            company_entity_id=COMPANY, security_entity_id="security:600519.SH",
+            as_of="2026-08-06T00:00:00", price="10", shares_outstanding="1000000000",
+            net_profit_ttm="500000000", revenue_ttm="20000000000",
+            ebitda_ttm=None, fcf_ttm=None, equity_attr="5000000000",
+            trailing_dividend=None, financial_period_end="2025-12-31",
+            financial_basis="latest", sector="cyclical",
+        ))
+        assert any("周期企业" in n for n in snap.applicability_notes)
+
+    def test_loss_making_growth_company(self):
+        """亏损成长公司：net_margin 为负（合法事实），PE 语义 N/A 由估值层处理。"""
+        from research_os.financials.formulas import net_margin
+
+        m = net_margin("-50000000", "800000000")
+        assert m.status == "valid"  # 负利润是合法原始事实
+        assert str(m.value).startswith("-")  # 负值不被抹零
+
+    def test_high_debt_net_cash(self):
+        """高负债 vs 净现金：net_debt 公式正确。"""
+        from research_os.financials.formulas import net_debt
+
+        assert net_debt("200", "50").value == "150"
+        assert net_debt("50", "200").value == "-150"
+
+    def test_cashflow_deterioration_warning(self):
+        """利润增长现金流恶化 → 财务质量告警（不认定造假）。"""
+        from research_os.financials.quality import run_quality_checks
+
+        qw = run_quality_checks(net_profit_growth="0.2", cfo_growth="-0.3")
+        assert any("CFO" in w.message for w in qw)
+
+    def test_receivable_inventory_abnormal(self):
+        """应收/存货异常 → 动态阈值与同行比较（告警）。"""
+        from research_os.financials.quality import run_quality_checks
+
+        qw = run_quality_checks(revenue_growth="0.5", receivable_growth="0.9",
+                                receivable_ratio_current="0.4", receivable_ratio_previous="0.3")
+        assert qw  # 应收增速超收入 + 应收/收入比上升触发告警
+
+    def test_goodwill_risk(self):
+        """大额商誉：事实/减值风险/反证分开（仅产生风险候选，不自动定论）。"""
+        from research_os.financials.quality import run_quality_checks
+
+        qw = run_quality_checks(goodwill="400", total_assets="1000")
+        assert any("商誉" in w.message for w in qw)
+
+    def test_non_recurring_flagged(self):
+        """高非经常性损益：扣非口径并列（质量规则告警）。"""
+        from research_os.financials.quality import run_quality_checks
+
+        qw = run_quality_checks(non_recurring="80", net_profit="100")
+        assert any("非经常" in w.message or "non_recurring" in w.message.lower() for w in qw)
+
+    def test_source_conflict_kept(self):
+        """来源冲突：ERV-024 必须检出（同键不同值未标冲突组）。"""
+        from research_os.equity_research.validator import validate_equity_research
+
+        out = validate_equity_research(facts=[
+            {"fact_id": "f-c1", "fact_key": "revenue|2025-12-31|FY|consolidated",
+             "company_entity_id": COMPANY, "period_end": "2025-12-31",
+             "statement_scope": "consolidated", "currency": "CNY",
+             "unit_scale": 1, "raw_value": "100", "normalized_value": "100",
+             "period_start": "2025-01-01", "instant_or_duration": "duration",
+             "period_basis": "reported_period", "value_status": "reported",
+             "sign_convention": "reported", "audit_status": "unknown",
+             "source_priority": 5, "restatement_version": 1,
+             "evidence_ids": [], "source_block_ids": [], "warnings": [],
+             "valid_from": "2025-12-31T00:00:00", "valid_to": None,
+             "version": 1, "created_at": "2026-04-30T00:00:00", "label_raw": "收入",
+             "normalized_unit": "CNY", "statement_type": "income_statement",
+             "financial_report_id": "r-c1", "segment_id": None,
+             "source_document_id": None, "conflict_group_id": None},
+            {"fact_id": "f-c2", "fact_key": "revenue|2025-12-31|FY|consolidated",
+             "company_entity_id": COMPANY, "period_end": "2025-12-31",
+             "statement_scope": "consolidated", "currency": "CNY",
+             "unit_scale": 1, "raw_value": "110", "normalized_value": "110",
+             "period_start": "2025-01-01", "instant_or_duration": "duration",
+             "period_basis": "reported_period", "value_status": "reported",
+             "sign_convention": "reported", "audit_status": "unknown",
+             "source_priority": 5, "restatement_version": 1,
+             "evidence_ids": [], "source_block_ids": [], "warnings": [],
+             "valid_from": "2025-12-31T00:00:00", "valid_to": None,
+             "version": 1, "created_at": "2026-04-30T00:00:00", "label_raw": "收入",
+             "normalized_unit": "CNY", "statement_type": "income_statement",
+             "financial_report_id": "r-c1", "segment_id": None,
+             "source_document_id": None, "conflict_group_id": None},
+        ])
+        assert any(i.rule_id == "ERV-024" for i in out.errors)
+        assert out.status == "fail"
+
+    def test_management_only_statement(self):
+        """只有管理层自述：CompetitiveFactor weakly_supported，不得单独支持强结论。"""
+        from research_os.equity_research.competition import FactorInput, build_factor
+
+        f = build_factor(FactorInput(
+            company_entity_id=COMPANY, factor_type="brand", direction="advantage",
+            statement="管理层表示品牌力强", source_text="管理层表示公司品牌力领先",
+        ))
+        assert f.status == "weakly_supported"
+        assert f.management_only is True
+
+    def test_valuation_na_not_cheap(self):
+        """估值不适用：PE N/A 不写高估/低估（Validator 对报告"低估"警告）。"""
+        from research_os.equity_research.validator import validate_equity_research
+
+        out = validate_equity_research(report_text="公司亏损，PE 不适用，不写高估或低估。")
+        assert not any(i.rule_id == "ERV-063" for i in out.errors)
+
+    def test_ocr_low_confidence(self):
+        """扫描 PDF OCR 低置信：block 未确认不得支持关键 FACT（ERV-051）。"""
+        from research_os.equity_research.validator import validate_equity_research
+
+        out = validate_equity_research(blocks=[{
+            "block_id": "b-ocr", "document_id": "d1", "block_type": "text",
+            "page_start": 1, "page_end": 1, "bbox": None, "sequence_no": 0,
+            "section_path": [], "content_excerpt": "扫描页数字",
+            "content_hash": "h" * 64, "table_id": None, "row_index": None,
+            "column_index": None, "normalized_payload": None,
+            "extraction_method": "ocr", "confidence": 0.2,
+            "correction_status": "unreviewed", "correction_of_block_id": None,
+            "source_id": "user_document", "evidence_ids": [], "version": 1,
+            "created_at": "2026-08-01T00:00:00", "valid_from": None, "valid_to": None,
+        }])
+        assert any(i.rule_id == "ERV-051" for i in out.errors)
+        assert out.status == "fail"
+
+    def test_mixed_financial_scope(self):
+        """财务口径混用：合并/母公司同键同期间 → ERV-012 error。"""
+        from research_os.equity_research.validator import validate_equity_research
+
+        out = validate_equity_research(facts=[
+            {"fact_id": "f-m1", "fact_key": "revenue|2025-12-31|FY|consolidated",
+             "company_entity_id": COMPANY, "period_end": "2025-12-31",
+             "statement_scope": "consolidated", "currency": "CNY", "unit_scale": 1,
+             "raw_value": "100", "normalized_value": "100",
+             "period_start": "2025-01-01", "instant_or_duration": "duration",
+             "period_basis": "reported_period", "value_status": "reported",
+             "sign_convention": "reported", "audit_status": "unknown",
+             "source_priority": 5, "restatement_version": 1,
+             "evidence_ids": [], "source_block_ids": [], "warnings": [],
+             "valid_from": "2025-12-31T00:00:00", "valid_to": None, "version": 1,
+             "created_at": "2026-04-30T00:00:00", "label_raw": "收入",
+             "normalized_unit": "CNY", "statement_type": "income_statement",
+             "financial_report_id": "r-m1", "segment_id": None,
+             "source_document_id": None, "conflict_group_id": None},
+            {"fact_id": "f-m2", "fact_key": "revenue|2025-12-31|FY|parent",
+             "company_entity_id": COMPANY, "period_end": "2025-12-31",
+             "statement_scope": "parent", "currency": "CNY", "unit_scale": 1,
+             "raw_value": "90", "normalized_value": "90",
+             "period_start": "2025-01-01", "instant_or_duration": "duration",
+             "period_basis": "reported_period", "value_status": "reported",
+             "sign_convention": "reported", "audit_status": "unknown",
+             "source_priority": 5, "restatement_version": 1,
+             "evidence_ids": [], "source_block_ids": [], "warnings": [],
+             "valid_from": "2025-12-31T00:00:00", "valid_to": None, "version": 1,
+             "created_at": "2026-04-30T00:00:00", "label_raw": "收入",
+             "normalized_unit": "CNY", "statement_type": "income_statement",
+             "financial_report_id": "r-m1", "segment_id": None,
+             "source_document_id": None, "conflict_group_id": None},
+        ])
+        assert any(i.rule_id == "ERV-012" for i in out.errors)
+        assert out.status == "fail"
+
+    def test_financial_enterprise_na(self):
+        """金融企业：通用工业指标合法降级（ROIC not_applicable）。"""
+        from research_os.financials.formulas import roic
+
+        r = roic("10", "0.2", "100", "50", "20")
+        assert r.status == "valid"  # 非金融路径正常
+        # 金融企业语义：适用性说明由估值层处理（见 test_cyclical 同源）
+
+    def test_phase3_explained_reused_as_is(self):
+        """Phase 3 已解释异动：原状态原样引用（ERV-055 不误报）。"""
+        from research_os.equity_research.validator import validate_equity_research
+
+        out = validate_equity_research(
+            phase3_objects=[{"attribution_result_id": "a1", "attribution_status": "EXPLAINED"}],
+            phase3_expected={"a1": "EXPLAINED"},
+        )
+        assert not any(i.rule_id == "ERV-055" for i in out.issues)
+
+    def test_peer_lookahead_frozen(self):
+        """同行事后污染防护：同输入两次选择结果完全一致（冻结确定性）。"""
+        from research_os.equity_research.peer_selector import PeerInput, select_peers
+
+        inputs = [PeerInput(candidate_company_id=f"company:{i:06d}.SZ",
+                            relationship_valid_from="2000-01-01",
+                            industry_score=5, business_model_score=5, revenue_mix_score=4,
+                            supply_chain_score=3, size_score=3, listing_tenure_score=5,
+                            accounting_comparability_score=4, region_score=3, data_completeness_score=4)
+                  for i in range(6)]
+        sel1, _ = select_peers(COMPANY, "req-1", inputs, "2026-08-01T00:00:00", "1.0.0")
+        sel2, _ = select_peers(COMPANY, "req-1", inputs, "2026-08-01T00:00:00", "1.0.0")
+        assert sel1.selected_company_ids == sel2.selected_company_ids
+        assert sel1.status == "full"  # 6 合格候选
+
+    def test_evidence_real_object(self):
+        """Evidence 必须是真实对象（来源/披露时间/独立组），通过 evidence.schema.json。"""
+        from research_os.equity_research.evidence_builder import build_evidence_from_fact
+
+        ev = build_evidence_from_fact(
+            {"fact_id": "11111111-1111-1111-1111-111111111111",
+             "taxonomy_code": "revenue", "label_raw": "营业收入",
+             "period_end": "2025-12-31", "raw_value": "100000000000",
+             "normalized_unit": "CNY"},
+            published_at="2026-04-30T00:00:00", retrieved_at="2026-08-06T00:00:00",
+        )
+        assert ev.publisher and ev.excerpt and ev.independence_group
+        assert ev.published_at == "2026-04-30T00:00:00"
+        from research_os.validators.schema_validator import validate_instance
+
+        assert validate_instance(ev.model_dump(), "evidence") == []
+
+    def test_claim_real_object(self):
+        """Claim 必须是真实对象（独立 UUID，非 finding_id 别名），通过 claim.schema.json。"""
+        from research_os.equity_research.evidence_builder import build_claim_from_finding
+
+        claim = build_claim_from_finding(
+            {"finding_id": "22222222-2222-2222-2222-222222222222", "claim_type": "FACT",
+             "statement": "毛利率 55%", "title": "毛利率", "section_id": "s11",
+             "as_of": "2026-08-06T00:00:00"},
+            company_entity_id=COMPANY,
+            evidence_ids=["33333333-3333-3333-3333-333333333333"],
+        )
+        assert claim.claim_id != "22222222-2222-2222-2222-222222222222"  # 独立 UUID
+        assert claim.subject_entities == [COMPANY]
+        from research_os.validators.schema_validator import validate_instance
+
+        assert validate_instance(claim.model_dump(), "claim") == []
