@@ -29,13 +29,6 @@ subjects:
       - 营业总收入
       - 主营业务收入
       - 营业收入合计
-    statement: income_statement
-    instant_or_duration: duration
-
-  revenue_gross:
-    canonical: 营业总收入
-    synonyms:
-      - 营业总收入
       - 营业收入
     statement: income_statement
     instant_or_duration: duration
