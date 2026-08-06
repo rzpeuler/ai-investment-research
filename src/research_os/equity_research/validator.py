@@ -359,22 +359,43 @@ def check_temporal_order(issues: List[ValidationIssue], obj: Dict[str, Any], rul
 def check_metric_recompute(issues: List[ValidationIssue], metrics: List[Dict[str, Any]],
                            facts: List[Dict[str, Any]]) -> None:
     """ERV-018—022：全部支持指标依命名参数、血缘、公式版本确定性复算。"""
-    from research_os.financials.formulas import FORMULA_VERSION
-    from research_os.financials.metrics import METRIC_RECOMPUTE_REGISTRY, recompute_from_lineage
+    from research_os.financials.metrics import METRIC_FORMULA_REGISTRY, recompute_from_lineage
     for m in metrics:
-        if m.get("metric_code") not in METRIC_RECOMPUTE_REGISTRY:
-            issues.append(ValidationIssue("ERV-019", "warning", f"未登记的指标复算规则: {m.get('metric_code')}", m.get("metric_id")))
+        spec = METRIC_FORMULA_REGISTRY.get(m.get("metric_code"))
+        if spec is None:
+            severity = "error" if m.get("status") == "valid" else "warning"
+            issues.append(ValidationIssue("ERV-019", severity, f"未登记的指标复算规则: {m.get('metric_code')}", m.get("metric_id")))
             continue
-        if m.get("formula_version") != FORMULA_VERSION or not m.get("formula_id"):
+        if m.get("formula_id") != spec.formula_id or m.get("formula_version") != spec.formula_version:
             issues.append(ValidationIssue("ERV-019", "error", "指标 formula_id/formula_version 缺失或不匹配", m.get("metric_id")))
             continue
-        expected = recompute_from_lineage(m, facts)
-        if expected is None:
-            issues.append(ValidationIssue("ERV-019", "warning", "指标无法按注册表复算", m.get("metric_id")))
+        if m.get("unit") != spec.unit or m.get("precision") != spec.precision:
+            issues.append(ValidationIssue("ERV-019", "error", "指标单位或精度与公式注册表不匹配", m.get("metric_id")))
+        expected, binding_errors = recompute_from_lineage(m, facts)
+        if binding_errors:
+            severity = "error" if m.get("status") == "valid" else "warning"
+            for message in binding_errors:
+                issues.append(ValidationIssue("ERV-019", severity, message, m.get("metric_id")))
             continue
-        if m.get("status") != expected.status or m.get("value") != expected.value:
+        if expected is None:
+            if m.get("status") == "valid":
+                issues.append(ValidationIssue("ERV-019", "error", "valid 指标无法复算", m.get("metric_id")))
+            continue
+        if m.get("status") != expected.status:
             issues.append(ValidationIssue("ERV-019", "error",
-                                          f"指标不可复算: {m.get('metric_code')}（期望 {expected.value}/{expected.status}，实际 {m.get('value')}/{m.get('status')}）", m.get("metric_id")))
+                                          f"指标状态与复算不一致: {m.get('metric_code')}（期望 {expected.status}，实际 {m.get('status')}）", m.get("metric_id")))
+            continue
+        if m.get("status") == "valid":
+            try:
+                actual_value = Decimal(str(m.get("value")))
+                expected_value = Decimal(str(expected.value))
+                tolerance = Decimal(1).scaleb(-spec.precision)
+            except (InvalidOperation, TypeError, ValueError):
+                issues.append(ValidationIssue("ERV-019", "error", "valid 指标数值不可解析", m.get("metric_id")))
+                continue
+            if abs(actual_value - expected_value) > tolerance:
+                issues.append(ValidationIssue("ERV-019", "error",
+                                              f"指标复算值不一致: {m.get('metric_code')}（期望 {expected.value}，实际 {m.get('value')}）", m.get("metric_id")))
 
 
 def check_peer_requalify(issues: List[ValidationIssue], peer: Dict[str, Any]) -> None:
@@ -468,24 +489,58 @@ def check_morning_reuse_structured(issues: List[ValidationIssue], event: Dict[st
 
 
 def check_report_number_consistency(issues: List[ValidationIssue], report_text: str,
-                                    metrics: List[Dict[str, Any]]) -> None:
-    """ERV-059—061：Markdown 中引用的财务数字与结构化指标一致（渲染只读，不回写）。"""
-    for m in metrics:
-        if m.get("value") is None:
-            continue
-        code = m.get("metric_code") or ""
-        val = str(m.get("value"))
-        # 报告含该指标数值则必须一致（防止 LLM/模板改写数字）
-        for line in report_text.splitlines():
-            if code in line and val in line and "**" in line:
-                # 出现不一致数字（同指标行含不同数值）
-                import re as _re
+                                    metrics: List[Dict[str, Any]],
+                                    valuation: Optional[Dict[str, Any]]) -> None:
+    """ERV-059—061：核对可见 token、稳定标识、中文标签、单位与章节。"""
+    from research_os.equity_research.metric_display import (
+        FINANCIAL_METRIC_DISPLAY,
+        VALUATION_METRIC_DISPLAY,
+        latest_financial_metrics,
+        render_metric_line,
+        valuation_metric_id,
+    )
 
-                numbers = _re.findall(r"-?\d+(?:\.\d+)?", line.replace(val, ""))
-                if numbers:
-                    issues.append(ValidationIssue("ERV-059", "warning",
-                                                  f"报告数字与指标不一致: {code}", m.get("metric_id")))
-                break
+    expected: Dict[str, tuple] = {}
+    for metric in latest_financial_metrics(metrics):
+        spec = FINANCIAL_METRIC_DISPLAY[metric["metric_code"]]
+        expected[metric["metric_id"]] = (metric, spec)
+    if valuation:
+        snapshot_id = valuation.get("valuation_snapshot_id", "unknown")
+        for metric in valuation.get("metrics", []):
+            spec = VALUATION_METRIC_DISPLAY.get(metric.get("metric_code"))
+            if spec:
+                expected[valuation_metric_id(snapshot_id, metric["metric_code"])] = (metric, spec)
+
+    marker_re = re.compile(r"<!--\s*metric-id:(\S+)\s+metric-code:(\S+)\s*-->")
+    seen: Dict[str, int] = {}
+    current_section: Optional[int] = None
+    for line in report_text.splitlines():
+        heading = re.match(r"^##\s+(\d+)\.", line)
+        if heading:
+            current_section = int(heading.group(1))
+        markers = marker_re.findall(line)
+        for metric_id, metric_code in markers:
+            seen[metric_id] = seen.get(metric_id, 0) + 1
+            pair = expected.get(metric_id)
+            if pair is None:
+                issues.append(ValidationIssue("ERV-060", "error", "报告引用不存在的 metric", metric_id))
+                continue
+            metric, spec = pair
+            if metric_code != metric.get("metric_code"):
+                issues.append(ValidationIssue("ERV-060", "error", "metric-id 与 metric-code 不匹配", metric_id))
+            if current_section != spec.section_id:
+                issues.append(ValidationIssue("ERV-061", "error", "指标位于错误章节", metric_id))
+            expected_line = render_metric_line(metric, spec, metric_id)
+            if line.strip() != expected_line:
+                issues.append(ValidationIssue("ERV-059", "error",
+                                              f"指标可见数字、名称、单位或精度不一致: {metric_code}", metric_id))
+
+    for metric_id in expected:
+        count = seen.get(metric_id, 0)
+        if count == 0:
+            issues.append(ValidationIssue("ERV-060", "error", "应展示的 metric 标识缺失", metric_id))
+        elif count > 1:
+            issues.append(ValidationIssue("ERV-060", "error", "metric 标识重复", metric_id))
 
 
 def check_hypothesis_has_failure_condition(issues: List[ValidationIssue], finding: Dict[str, Any]) -> None:
@@ -729,7 +784,7 @@ def validate_equity_research(
     finding_ids = {f.get("finding_id") for f in findings if f.get("finding_id")}
     metric_ids = {m.get("metric_id") for m in metrics if m.get("metric_id")}
     check_report_object_consistency(issues, result, finding_ids, metric_ids)
-    check_report_number_consistency(issues, report_text, metrics)  # ERV-059—061
+    check_report_number_consistency(issues, report_text, metrics, valuation)  # ERV-059—061
     for s in scenarios:
         check_scenario_not_fact(issues, s)
     check_dry_run_no_side_effects(issues, dry_run, artifact_paths or [])

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 import pytest
 
 from research_os.equity_research.pipeline import EquityResearchPipeline
+from research_os.equity_research.validator import validate_equity_research
 from research_os.storage.db import Database
 from research_os.utils.time import now_iso
 
@@ -29,18 +31,27 @@ CSV_ROWS = [
     f"{COMPANY},2023-01-01,2023-12-31,2023,annual,consolidated,balance_sheet,total_assets,资产总计,200000000000,10000,CNY",
     f"{COMPANY},2023-01-01,2023-12-31,2023,annual,consolidated,balance_sheet,total_liabilities,负债合计,50000000000,10000,CNY",
     f"{COMPANY},2023-01-01,2023-12-31,2023,annual,consolidated,balance_sheet,equity_attr,归母所有者权益,150000000000,10000,CNY",
+    f"{COMPANY},2023-01-01,2023-12-31,2023,annual,consolidated,income_statement,net_profit_attr,归母净利润,18000000000,10000,CNY",
+    f"{COMPANY},2023-01-01,2023-12-31,2023,annual,consolidated,cash_flow,operating_cash_flow,经营现金流,22000000000,10000,CNY",
+    f"{COMPANY},2023-01-01,2023-12-31,2023,annual,consolidated,cash_flow,capex_paid,资本开支,5000000000,10000,CNY",
     # FY2024
     f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,income_statement,revenue,营业收入,85000000000,10000,CNY",
     f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,income_statement,cost_of_sales,营业成本,40000000000,10000,CNY",
     f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,balance_sheet,total_assets,资产总计,230000000000,10000,CNY",
     f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,balance_sheet,total_liabilities,负债合计,60000000000,10000,CNY",
     f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,balance_sheet,equity_attr,归母所有者权益,170000000000,10000,CNY",
+    f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,income_statement,net_profit_attr,归母净利润,22000000000,10000,CNY",
+    f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,cash_flow,operating_cash_flow,经营现金流,26000000000,10000,CNY",
+    f"{COMPANY},2024-01-01,2024-12-31,2024,annual,consolidated,cash_flow,capex_paid,资本开支,6000000000,10000,CNY",
     # FY2025
     f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,income_statement,revenue,营业收入,100000000000,10000,CNY",
     f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,income_statement,cost_of_sales,营业成本,45000000000,10000,CNY",
     f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,balance_sheet,total_assets,资产总计,260000000000,10000,CNY",
     f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,balance_sheet,total_liabilities,负债合计,70000000000,10000,CNY",
     f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,balance_sheet,equity_attr,归母所有者权益,190000000000,10000,CNY",
+    f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,income_statement,net_profit_attr,归母净利润,26000000000,10000,CNY",
+    f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,cash_flow,operating_cash_flow,经营现金流,31000000000,10000,CNY",
+    f"{COMPANY},2025-01-01,2025-12-31,2025,annual,consolidated,cash_flow,capex_paid,资本开支,7000000000,10000,CNY",
 ]
 
 MARKET_FILE = {"price": "1500", "shares_outstanding": "100000000"}
@@ -81,6 +92,27 @@ def _read_artifacts(run_dir):
     return artifacts
 
 
+def _validate_rendered_artifacts(artifacts, report_text):
+    return validate_equity_research(
+        report_text=report_text,
+        metrics=artifacts["financial_metrics.json"],
+        facts=artifacts["financial_facts.jsonl"],
+        valuation=artifacts["valuation_snapshot.json"],
+        as_of=artifacts["equity_research_result.json"]["as_of"],
+    )
+
+
+def _metric_line(report_text, metric_code):
+    return next(line for line in report_text.splitlines() if f"metric-code:{metric_code} " in line)
+
+
+def _replace_visible_token(report_text, metric_code, replacement):
+    line = _metric_line(report_text, metric_code)
+    label = line.split("：", 1)[0]
+    comment = line[line.index("<!--"):]
+    return report_text.replace(line, f"{label}：{replacement} {comment}", 1)
+
+
 class TestEndToEndGolden:
     def test_full_flow_success(self, env):
         """≥2 个可比年度 → success/degraded（同行等可选模块缺数据时合法降级）；
@@ -116,6 +148,57 @@ class TestEndToEndGolden:
         body = text[:disclaimer_idx] if disclaimer_idx >= 0 else text
         for forbidden in ("目标价", "买入评级", "建议买入", "上涨空间", "仓位建议"):
             assert forbidden not in body
+
+    def test_untampered_metric_report_contract_passes(self, env):
+        _, out = _run(env)
+        artifacts = _read_artifacts(out.run_dir)
+        report = pathlib.Path(out.report_path).read_text(encoding="utf-8")
+        validation = _validate_rendered_artifacts(artifacts, report)
+        assert not any(i.rule_id in {"ERV-059", "ERV-060", "ERV-061"} for i in validation.errors)
+
+    @pytest.mark.parametrize(("metric_code", "replacement"), [
+        ("gross_margin", "12.34%"),
+        ("debt_to_assets", "88.88%"),
+        ("free_cash_flow", "1.00 元"),
+        ("roe", "99.99%"),
+        ("PE_TTM", "99.00 倍"),
+        ("gross_margin", "0.55"),          # 百分比改普通小数
+        ("free_cash_flow", "1.00 万元"),   # 金额单位篡改
+        ("gross_margin", "55.0%"),         # 小数位篡改
+    ])
+    def test_visible_metric_tamper_fails(self, env, metric_code, replacement):
+        _, out = _run(env)
+        artifacts = _read_artifacts(out.run_dir)
+        report = pathlib.Path(out.report_path).read_text(encoding="utf-8")
+        tampered = _replace_visible_token(report, metric_code, replacement)
+        validation = _validate_rendered_artifacts(artifacts, tampered)
+        assert validation.status == "fail"
+        assert any(i.rule_id == "ERV-059" and i.severity == "error" for i in validation.errors)
+
+    @pytest.mark.parametrize("mutation", ["delete", "duplicate", "move", "conflicting_duplicate", "unknown"])
+    def test_metric_marker_tamper_fails(self, env, mutation):
+        _, out = _run(env)
+        artifacts = _read_artifacts(out.run_dir)
+        report = pathlib.Path(out.report_path).read_text(encoding="utf-8")
+        gross_line = _metric_line(report, "gross_margin")
+        if mutation == "delete":
+            tampered = report.replace(re.search(r"\s*<!-- metric-id:[^>]+-->", gross_line).group(0), "", 1)
+        elif mutation == "duplicate":
+            tampered = report.replace(gross_line, gross_line + "\n" + gross_line, 1)
+        elif mutation == "move":
+            debt_line = _metric_line(report, "debt_to_assets")
+            gross_marker = re.search(r"<!-- metric-id:[^>]+-->", gross_line).group(0)
+            debt_marker = re.search(r"<!-- metric-id:[^>]+-->", debt_line).group(0)
+            tampered = report.replace(debt_line, debt_line.replace(debt_marker, gross_marker), 1)
+        elif mutation == "conflicting_duplicate":
+            conflicting = gross_line.replace("55.00%", "1.00%")
+            tampered = report.replace(gross_line, gross_line + "\n" + conflicting, 1)
+        else:
+            tampered = report + "\n- 伪造指标：1.00 <!-- metric-id:not-found metric-code:fake_metric -->\n"
+        validation = _validate_rendered_artifacts(artifacts, tampered)
+        assert validation.status == "fail"
+        assert any(i.rule_id in {"ERV-059", "ERV-060", "ERV-061"} and i.severity == "error"
+                   for i in validation.errors)
 
     def test_forecast_success_is_persisted_rendered_and_validated(self, env):
         """Forecast 正式链路：输出不丢失、报告第 26 节展示情景、Schema/Validator 通过。"""

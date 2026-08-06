@@ -169,8 +169,11 @@ def _financial_metric():
         metric_id=UUID1, company_entity_id=COMPANY, metric_code="gross_margin",
         period_end="2025-12-31", period_basis="annual", value="0.65",
         unit="ratio", status="valid", formula_id="gross_margin_v1",
-        formula_version="1.0.0", input_fact_ids=[UUID2], input_metric_ids=[],
-        precision=4, sector_applicability="general", quality_warnings=[],
+        formula_version="1.0.0", input_fact_ids=[UUID2],
+        input_bindings=[{"parameter": "revenue", "fact_id": UUID2,
+                         "taxonomy_code": "revenue", "period_end": "2025-12-31",
+                         "period_role": "current"}],
+        input_metric_ids=[], precision=8, sector_applicability="general", quality_warnings=[],
         evidence_ids=[], calculated_at=TS,
     )
 

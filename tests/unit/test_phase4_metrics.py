@@ -215,7 +215,9 @@ class TestCyclical:
         m = compute_metric(
             "company:600019.SH", "gross_margin",
             {"revenue": "100", "cogs": "80"},
-            [], "2025-12-31", sector="cyclical",
+            [{"fact_id": "rev", "taxonomy_code": "revenue", "normalized_value": "100", "period_end": "2025-12-31"},
+             {"fact_id": "cogs", "taxonomy_code": "cost_of_sales", "normalized_value": "80", "period_end": "2025-12-31"}],
+            "2025-12-31", sector="cyclical",
         )
         assert m.status == "valid"
         assert m.value == "0.2"
@@ -261,9 +263,12 @@ class TestMetricsService:
         assert validate_model(m) == []
 
     def test_precision_8_digits(self):
+        facts = [
+            {"fact_id": "np", "taxonomy_code": "net_profit_attr", "normalized_value": "1", "period_end": "2025-12-31"},
+            {"fact_id": "rev", "taxonomy_code": "revenue", "normalized_value": "3", "period_end": "2025-12-31"},
+        ]
         m = compute_metric(
-            "company:600519.SH", "net_margin",
-            {"attributable_net_profit": "1", "revenue": "3"}, [], "2025-12-31",
+            "company:600519.SH", "net_margin", {}, facts, "2025-12-31",
         )
         assert m.precision == 8
         # 内部比率保留完整 Decimal（至少 8 位小数精度），不因渲染截断
@@ -279,10 +284,12 @@ class TestRecomputeRegistry:
 
     def test_lineage_order_does_not_change_gross_margin(self):
         facts = [
-            {"fact_id": "revenue-id", "taxonomy_code": "revenue", "normalized_value": "100"},
-            {"fact_id": "cogs-id", "taxonomy_code": "cost_of_sales", "normalized_value": "60"},
+            {"fact_id": "revenue-id", "taxonomy_code": "revenue", "normalized_value": "100", "period_end": "2025-12-31"},
+            {"fact_id": "cogs-id", "taxonomy_code": "cost_of_sales", "normalized_value": "60", "period_end": "2025-12-31"},
         ]
-        metric = {"metric_code": "gross_margin", "input_fact_ids": ["cogs-id", "revenue-id"]}
-        result = recompute_from_lineage(metric, facts)
+        metric = compute_metric("company:600519.SH", "gross_margin", {}, facts, "2025-12-31").model_dump()
+        metric["input_fact_ids"] = list(reversed(metric["input_fact_ids"]))
+        result, errors = recompute_from_lineage(metric, facts)
         assert result is not None
+        assert errors == []
         assert result.value == "0.4" and result.status == "valid"

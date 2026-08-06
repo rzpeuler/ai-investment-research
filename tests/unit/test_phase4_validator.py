@@ -6,10 +6,15 @@ Phase 3 改写；dry-run 副作用；幂等重复；error vs warning 分级。
 """
 from __future__ import annotations
 
+from copy import deepcopy
+
+import pytest
+
 from research_os.equity_research.validator import (
     ValidationOutcome,
     validate_equity_research,
 )
+from research_os.financials.metrics import compute_period_metrics
 
 
 def _finding(**overrides):
@@ -21,6 +26,36 @@ def _finding(**overrides):
     )
     base.update(overrides)
     return base
+
+
+def _formula_facts():
+    values = {
+        "revenue": ("80", "100"), "net_profit_attr": ("15", "20"),
+        "deducted_net_profit": ("12", "18"), "cost_of_sales": ("50", "60"),
+        "operating_profit": ("20", "25"), "net_profit": ("16", "22"),
+        "equity_attr": ("80", "100"), "total_assets": ("180", "200"),
+        "ebit": ("24", "30"), "income_tax_rate": ("0.25", "0.25"),
+        "interest_bearing_debt": ("45", "50"), "cash_and_equivalents": ("18", "20"),
+        "total_liabilities": ("70", "80"), "current_assets": ("90", "100"),
+        "current_liabilities": ("45", "50"), "inventory": ("16", "20"),
+        "other_illiquid_assets": ("4", "5"), "accounts_receivable": ("10", "20"),
+        "operating_cash_flow": ("20", "25"), "capex_paid": ("4", "5"),
+        "rd_expense": ("2", "3"), "selling_expense": ("3", "4"),
+        "admin_expense": ("4", "5"), "weighted_avg_shares": ("9", "10"),
+        "period_end_shares": ("9", "10"),
+    }
+    facts = []
+    for taxonomy, (prior, current) in values.items():
+        for year, value in ((2024, prior), (2025, current)):
+            facts.append({"fact_id": f"{taxonomy}-{year}", "taxonomy_code": taxonomy,
+                          "normalized_value": value, "raw_value": value,
+                          "period_end": f"{year}-12-31"})
+    return facts
+
+
+def _valid_metrics():
+    return [m.model_dump() for m in compute_period_metrics(
+        "company:600519.SH", _formula_facts(), "2025-12-31") if m.status == "valid"]
 
 
 class TestForbiddenOutput:
@@ -91,6 +126,66 @@ class TestFinancialRules:
             {"fact_id": "fa-2", "value_status": "reported", "period_basis": "single_quarter"},
         ])
         assert any(i.rule_id == "ERV-016" for i in out.errors)
+
+
+class TestDeterministicMetricRecompute:
+    def test_roe_normal_recompute(self):
+        roe = next(m for m in _valid_metrics() if m["metric_code"] == "roe")
+        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        assert not any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_roe_value_tamper_fails(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        roe["value"] = "999"
+        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_roe_start_end_swap_fails(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        start = next(b for b in roe["input_bindings"] if b["parameter"] == "equity_start")
+        end = next(b for b in roe["input_bindings"] if b["parameter"] == "equity_end")
+        start["fact_id"], end["fact_id"] = end["fact_id"], start["fact_id"]
+        start["period_end"], end["period_end"] = end["period_end"], start["period_end"]
+        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    @pytest.mark.parametrize("mutation", ["delete", "missing_fact", "taxonomy", "formula_version"])
+    def test_roe_binding_and_formula_tamper_fails(self, mutation):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        if mutation == "delete":
+            roe["input_bindings"] = [b for b in roe["input_bindings"] if b["parameter"] != "equity_start"]
+            roe["input_fact_ids"] = [b["fact_id"] for b in roe["input_bindings"]]
+        elif mutation == "missing_fact":
+            roe["input_bindings"][0]["fact_id"] = "does-not-exist"
+            roe["input_fact_ids"] = [b["fact_id"] for b in roe["input_bindings"]]
+        elif mutation == "taxonomy":
+            roe["input_bindings"][0]["taxonomy_code"] = "revenue"
+        else:
+            roe["formula_version"] = "999.0.0"
+        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    @pytest.mark.parametrize("metric", _valid_metrics(), ids=lambda m: m["metric_code"])
+    def test_every_valid_supported_metric_value_tamper_fails(self, metric):
+        tampered = deepcopy(metric)
+        tampered["value"] = "999"
+        out = validate_equity_research(metrics=[tampered], facts=_formula_facts())
+        assert any(i.rule_id == "ERV-019" for i in out.errors), metric["metric_code"]
+
+    @pytest.mark.parametrize("code", [
+        "roa", "gross_margin", "debt_to_assets", "receivable_turnover",
+        "inventory_turnover", "roic", "eps", "bvps", "cfo_per_share",
+    ])
+    def test_required_formula_families_are_valid_and_recomputable(self, code):
+        metric = next(m for m in _valid_metrics() if m["metric_code"] == code)
+        out = validate_equity_research(metrics=[metric], facts=_formula_facts())
+        assert not any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_input_fact_id_order_does_not_affect_recompute(self):
+        metric = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "gross_margin"))
+        metric["input_fact_ids"].reverse()
+        out = validate_equity_research(metrics=[metric], facts=_formula_facts())
+        assert not any(i.rule_id == "ERV-019" for i in out.errors)
 
 
 class TestPeerAndValuation:

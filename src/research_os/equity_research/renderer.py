@@ -10,6 +10,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from research_os.models.equity_research import EquityResearchResult
+from research_os.equity_research.metric_display import (
+    FINANCIAL_METRIC_DISPLAY,
+    VALUATION_METRIC_DISPLAY,
+    latest_financial_metrics,
+    render_metric_line,
+    valuation_metric_id,
+)
 
 # 38 章节（任务书 3.21）
 SECTIONS = [
@@ -79,6 +86,15 @@ def _fmt_number(value: Any) -> str:
     if abs(d) < 1:
         return f"{d:.2%}" if abs(d) < 1 else f"{d:.2f}"
     return f"{d:.2f}"
+
+
+def _financial_metric_lines(ri: RenderInput, section_id: int) -> List[str]:
+    lines: List[str] = []
+    for metric in latest_financial_metrics(ri.metrics):
+        spec = FINANCIAL_METRIC_DISPLAY[metric["metric_code"]]
+        if spec.section_id == section_id:
+            lines.append(render_metric_line(metric, spec, metric["metric_id"]))
+    return lines
 
 
 def render_markdown(ri: RenderInput) -> str:
@@ -153,7 +169,9 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
     if idx == 6:
         return SectionContent(idx, SECTIONS[idx - 1], [f"- 公司主体：`{ri.company_name or '未登记 CompanyProfile'}`"])
     if idx == 7:
-        return SectionContent(idx, SECTIONS[idx - 1], [f"- 证券：`{ri.security_symbol or '未登记 SecurityProfile'}`"])
+        lines = [f"- 证券：`{ri.security_symbol or '未登记 SecurityProfile'}`"]
+        lines.extend(_financial_metric_lines(ri, idx))
+        return SectionContent(idx, SECTIONS[idx - 1], lines)
     if idx == 8:
         seg_lines = [f"- {s['canonical_name']}（{s.get('segment_type', 'other')}）" for s in ri.segments]
         return SectionContent(idx, SECTIONS[idx - 1], seg_lines or ["分部数据未导入。"])
@@ -161,33 +179,19 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
         return SectionContent(idx, SECTIONS[idx - 1], [
             f"财务报告/事实数量：{len(ri.metrics)} 条指标；覆盖状态见数据缺口章节。"])
     if idx == 10:
-        rev = [m for m in ri.metrics if m.get("metric_code") == "revenue_growth"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- 收入增长：{_fmt_number(rev[0].get('value'))}" if rev else "收入趋势数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["收入趋势数据缺失。"])
     if idx == 11:
-        gm = [m for m in ri.metrics if m.get("metric_code") == "gross_margin"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- 毛利率：{_fmt_number(gm[0].get('value'))}" if gm else "利润率数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["利润率数据缺失。"])
     if idx == 12:
-        cfo = [m for m in ri.metrics if m.get("metric_code") == "cfo_to_net_profit"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- CFO/净利润：{_fmt_number(cfo[0].get('value'))}" if cfo else "现金流质量数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["现金流质量数据缺失。"])
     if idx == 13:
-        da = [m for m in ri.metrics if m.get("metric_code") == "debt_to_assets"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- 资产负债率：{_fmt_number(da[0].get('value'))}" if da else "资产负债数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["资产负债数据缺失。"])
     if idx == 14:
-        rt = [m for m in ri.metrics if m.get("metric_code") == "receivable_turnover"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- 应收周转：{_fmt_number(rt[0].get('value'))} 次" if rt else "周转数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["周转数据缺失。"])
     if idx == 15:
-        fcf = [m for m in ri.metrics if m.get("metric_code") == "free_cash_flow"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- 自由现金流：{_fmt_number(fcf[0].get('value'))}" if fcf else "资本开支数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["资本开支数据缺失。"])
     if idx == 16:
-        rd = [m for m in ri.metrics if m.get("metric_code") == "rd_expense_ratio"]
-        return SectionContent(idx, SECTIONS[idx - 1],
-                              [f"- 研发费用率：{_fmt_number(rd[0].get('value'))}" if rd else "研发投入数据缺失。"])
+        return SectionContent(idx, SECTIONS[idx - 1], _financial_metric_lines(ri, idx) or ["研发投入数据缺失。"])
     if idx == 17:
         seg_lines = [f"- {s['canonical_name']}：收入 {_fmt_number(s.get('revenue'))}" for s in ri.segments]
         return SectionContent(idx, SECTIONS[idx - 1], seg_lines or ["分部数据未导入。"])
@@ -214,8 +218,10 @@ def _render_section(ri: RenderInput, idx: int) -> SectionContent:
         return SectionContent(idx, SECTIONS[idx - 1], ["估值未计算。"], status="missing_data")
     if idx == 24:
         if ri.valuation:
-            hist = [f"- {m['metric_code']}：{_fmt_number(m.get('value'))}（状态 {m.get('status')}）"
-                    for m in ri.valuation.get("metrics", [])]
+            snapshot_id = ri.valuation.get("valuation_snapshot_id", "unknown")
+            hist = [render_metric_line(m, VALUATION_METRIC_DISPLAY[m["metric_code"]],
+                                       valuation_metric_id(snapshot_id, m["metric_code"]))
+                    for m in ri.valuation.get("metrics", []) if m.get("metric_code") in VALUATION_METRIC_DISPLAY]
             return SectionContent(idx, SECTIONS[idx - 1], hist or ["历史估值观察数据缺失。"])
         return SectionContent(idx, SECTIONS[idx - 1], ["估值未计算。"], status="missing_data")
     if idx == 25:

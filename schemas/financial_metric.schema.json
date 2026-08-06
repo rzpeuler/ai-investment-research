@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": [
     "metric_id", "company_entity_id", "metric_code", "period_end", "period_basis",
-    "value", "unit", "status", "formula_id", "formula_version", "input_fact_ids",
+    "value", "unit", "status", "formula_id", "formula_version", "input_fact_ids", "input_bindings",
     "input_metric_ids", "precision", "sector_applicability", "quality_warnings",
     "evidence_ids", "calculated_at", "version"
   ],
@@ -23,6 +23,21 @@
     "formula_id": { "type": "string", "minLength": 1 },
     "formula_version": { "type": "string", "minLength": 1 },
     "input_fact_ids": { "type": "array", "items": { "type": "string" } },
+    "input_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["parameter", "fact_id", "taxonomy_code", "period_end", "period_role"],
+        "properties": {
+          "parameter": { "type": "string", "minLength": 1 },
+          "fact_id": { "type": "string", "minLength": 1 },
+          "taxonomy_code": { "type": "string", "minLength": 1 },
+          "period_end": { "type": "string", "format": "date" },
+          "period_role": { "type": "string", "enum": ["current", "start", "end", "comparable"] }
+        }
+      }
+    },
     "input_metric_ids": { "type": "array", "items": { "type": "string" } },
     "precision": { "type": "integer", "minimum": 0 },
     "sector_applicability": { "type": "string", "enum": ["general", "non_financial", "financial", "cyclical"] },

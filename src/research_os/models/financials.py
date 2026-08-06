@@ -36,6 +36,7 @@ SignConvention = Literal["reported", "debit_positive", "credit_positive"]
 MetricPeriodBasis = Literal["annual", "interim", "single_quarter", "ttm", "point_in_time"]
 MetricStatus = Literal["valid", "missing", "not_applicable", "zero_denominator", "conflict", "insufficient_sample"]
 SectorApplicability = Literal["general", "non_financial", "financial", "cyclical"]
+MetricInputPeriodRole = Literal["current", "start", "end", "comparable"]
 
 
 def _check_time(value: Any, field: str) -> Any:
@@ -229,6 +230,21 @@ class FinancialFact(StrictModel):
         return value
 
 
+class FinancialMetricInputBinding(StrictModel):
+    """公式命名参数到原始事实的不可歧义绑定。"""
+
+    parameter: str
+    fact_id: str
+    taxonomy_code: str
+    period_end: str
+    period_role: MetricInputPeriodRole
+
+    @field_validator("period_end")
+    @classmethod
+    def _v_period_end(cls, value: str) -> str:
+        return _check_date(value, "input_binding.period_end")
+
+
 class FinancialMetric(StrictModel):
     """确定性派生财务指标（公式可复算，输入血缘完整）。"""
 
@@ -243,6 +259,7 @@ class FinancialMetric(StrictModel):
     formula_id: str
     formula_version: str
     input_fact_ids: List[str] = Field(default_factory=list)
+    input_bindings: List[FinancialMetricInputBinding] = Field(default_factory=list)
     input_metric_ids: List[str] = Field(default_factory=list)
     precision: int = Field(4, ge=0)
     sector_applicability: SectorApplicability = "general"
