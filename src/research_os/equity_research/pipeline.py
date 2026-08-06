@@ -439,7 +439,9 @@ class EquityResearchPipeline:
         all_metrics: List[dict] = []
         for report in all_reports:
             scope_facts = [f for f in all_facts if f.get("statement_scope") == report["statement_scope"]]
-            metrics = compute_period_metrics(request.company_entity_id, scope_facts, report["period_end"])
+            metrics = compute_period_metrics(
+                request.company_entity_id, scope_facts, report["period_end"], reports=all_reports,
+            )
             for m in metrics:
                 self.db.upsert(m)
                 all_metrics.append(m.model_dump())

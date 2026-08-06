@@ -97,6 +97,7 @@ def _validate_rendered_artifacts(artifacts, report_text):
         report_text=report_text,
         metrics=artifacts["financial_metrics.json"],
         facts=artifacts["financial_facts.jsonl"],
+        reports=artifacts["financial_reports.json"],
         valuation=artifacts["valuation_snapshot.json"],
         as_of=artifacts["equity_research_result.json"]["as_of"],
     )
@@ -174,6 +175,26 @@ class TestEndToEndGolden:
         validation = _validate_rendered_artifacts(artifacts, tampered)
         assert validation.status == "fail"
         assert any(i.rule_id == "ERV-059" and i.severity == "error" for i in validation.errors)
+
+    def test_unmarked_metric_assertion_injection_fails(self, env):
+        _, out = _run(env)
+        artifacts = _read_artifacts(out.run_dir)
+        report = pathlib.Path(out.report_path).read_text(encoding="utf-8")
+        gross_line = _metric_line(report, "gross_margin")
+        injections = [
+            "- 毛利率：99.99%",
+            "- 毛利率为 99.99%",
+            "- 综合毛利率：99.99%",
+            "- 资产负债率：1.00%",
+            "- 自由现金流：999 亿元",
+            "- ROE：88.88%",
+        ]
+        for injected in injections:
+            tampered = report.replace(gross_line, gross_line + "\n" + injected, 1)
+            validation = _validate_rendered_artifacts(artifacts, tampered)
+            assert validation.status == "fail", injected
+            assert any(i.rule_id in {"ERV-059", "ERV-060", "ERV-061"}
+                       and i.severity == "error" for i in validation.errors), injected
 
     @pytest.mark.parametrize("mutation", ["delete", "duplicate", "move", "conflicting_duplicate", "unknown"])
     def test_metric_marker_tamper_fails(self, env, mutation):

@@ -357,9 +357,11 @@ def check_temporal_order(issues: List[ValidationIssue], obj: Dict[str, Any], rul
 
 
 def check_metric_recompute(issues: List[ValidationIssue], metrics: List[Dict[str, Any]],
-                           facts: List[Dict[str, Any]]) -> None:
+                           facts: List[Dict[str, Any]], reports: List[Dict[str, Any]]) -> None:
     """ERV-018—022：全部支持指标依命名参数、血缘、公式版本确定性复算。"""
-    from research_os.financials.metrics import METRIC_FORMULA_REGISTRY, recompute_from_lineage
+    from research_os.financials.metrics import (
+        METRIC_FORMULA_REGISTRY, normalize_metric_decimal, recompute_from_lineage,
+    )
     for m in metrics:
         spec = METRIC_FORMULA_REGISTRY.get(m.get("metric_code"))
         if spec is None:
@@ -371,7 +373,7 @@ def check_metric_recompute(issues: List[ValidationIssue], metrics: List[Dict[str
             continue
         if m.get("unit") != spec.unit or m.get("precision") != spec.precision:
             issues.append(ValidationIssue("ERV-019", "error", "指标单位或精度与公式注册表不匹配", m.get("metric_id")))
-        expected, binding_errors = recompute_from_lineage(m, facts)
+        expected, binding_errors = recompute_from_lineage(m, facts, reports)
         if binding_errors:
             severity = "error" if m.get("status") == "valid" else "warning"
             for message in binding_errors:
@@ -387,13 +389,12 @@ def check_metric_recompute(issues: List[ValidationIssue], metrics: List[Dict[str
             continue
         if m.get("status") == "valid":
             try:
-                actual_value = Decimal(str(m.get("value")))
-                expected_value = Decimal(str(expected.value))
-                tolerance = Decimal(1).scaleb(-spec.precision)
-            except (InvalidOperation, TypeError, ValueError):
+                actual_value = normalize_metric_decimal(m.get("value"), spec.precision, spec.rounding_mode)
+                expected_value = normalize_metric_decimal(expected.value, spec.precision, spec.rounding_mode)
+            except ValueError:
                 issues.append(ValidationIssue("ERV-019", "error", "valid 指标数值不可解析", m.get("metric_id")))
                 continue
-            if abs(actual_value - expected_value) > tolerance:
+            if actual_value != expected_value:
                 issues.append(ValidationIssue("ERV-019", "error",
                                               f"指标复算值不一致: {m.get('metric_code')}（期望 {expected.value}，实际 {m.get('value')}）", m.get("metric_id")))
 
@@ -497,6 +498,8 @@ def check_report_number_consistency(issues: List[ValidationIssue], report_text: 
         VALUATION_METRIC_DISPLAY,
         latest_financial_metrics,
         render_metric_line,
+        controlled_metric_sections,
+        unmarked_metric_assertion,
         valuation_metric_id,
     )
 
@@ -514,11 +517,14 @@ def check_report_number_consistency(issues: List[ValidationIssue], report_text: 
     marker_re = re.compile(r"<!--\s*metric-id:(\S+)\s+metric-code:(\S+)\s*-->")
     seen: Dict[str, int] = {}
     current_section: Optional[int] = None
+    controlled_sections = controlled_metric_sections()
     for line in report_text.splitlines():
         heading = re.match(r"^##\s+(\d+)\.", line)
         if heading:
             current_section = int(heading.group(1))
         markers = marker_re.findall(line)
+        if current_section in controlled_sections and not markers and unmarked_metric_assertion(line):
+            issues.append(ValidationIssue("ERV-060", "error", "受控指标章节存在未标记的指标断言"))
         for metric_id, metric_code in markers:
             seen[metric_id] = seen.get(metric_id, 0) + 1
             pair = expected.get(metric_id)
@@ -726,7 +732,7 @@ def validate_equity_research(
         check_derived_not_reported(issues, fact)
         check_llm_not_edit_financials(issues, fact)
     check_ratio_decimal(issues, metrics)
-    check_metric_recompute(issues, metrics, facts)  # ERV-018—022
+    check_metric_recompute(issues, metrics, facts, reports)  # ERV-018—022
     check_restatement_kept(issues, reports)
     check_conflict_not_silenced(issues, facts)
 

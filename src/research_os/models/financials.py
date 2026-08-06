@@ -235,14 +235,35 @@ class FinancialMetricInputBinding(StrictModel):
 
     parameter: str
     fact_id: str
+    company_entity_id: str
+    financial_report_id: str
     taxonomy_code: str
+    statement_scope: StatementScope
+    statement_type: StatementType
+    period_start: Optional[str] = None
     period_end: str
     period_role: MetricInputPeriodRole
+    currency: str
+    unit_scale: int
 
-    @field_validator("period_end")
+    @field_validator("period_start", "period_end")
     @classmethod
-    def _v_period_end(cls, value: str) -> str:
-        return _check_date(value, "input_binding.period_end")
+    def _v_period(cls, value: Optional[str]) -> Optional[str]:
+        return _check_date(value, "input_binding.period")
+
+    @field_validator("company_entity_id")
+    @classmethod
+    def _v_binding_company(cls, value: str) -> str:
+        if not value.startswith("company:"):
+            raise ValueError(f"input_binding.company_entity_id 非法: {value!r}")
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def _v_binding_currency(cls, value: str) -> str:
+        if len(value) != 3 or not value.isalpha() or not value.isupper():
+            raise ValueError(f"input_binding.currency 非法: {value!r}")
+        return value
 
 
 class FinancialMetric(StrictModel):

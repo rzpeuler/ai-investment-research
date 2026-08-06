@@ -15,6 +15,7 @@ from research_os.equity_research.validator import (
     validate_equity_research,
 )
 from research_os.financials.metrics import compute_period_metrics
+from research_os.financials.metrics import normalize_metric_decimal
 
 
 def _finding(**overrides):
@@ -45,12 +46,54 @@ def _formula_facts():
         "period_end_shares": ("9", "10"),
     }
     facts = []
+    balance_codes = {
+        "equity_attr", "total_assets", "interest_bearing_debt", "cash_and_equivalents",
+        "total_liabilities", "current_assets", "current_liabilities", "inventory",
+        "other_illiquid_assets", "accounts_receivable", "period_end_shares",
+    }
+    cash_codes = {"operating_cash_flow", "capex_paid"}
     for taxonomy, (prior, current) in values.items():
         for year, value in ((2024, prior), (2025, current)):
-            facts.append({"fact_id": f"{taxonomy}-{year}", "taxonomy_code": taxonomy,
-                          "normalized_value": value, "raw_value": value,
-                          "period_end": f"{year}-12-31"})
+            statement_type = ("balance_sheet" if taxonomy in balance_codes else
+                              "cash_flow" if taxonomy in cash_codes else "income_statement")
+            facts.append({
+                "fact_id": f"{taxonomy}-{year}", "fact_key": f"{taxonomy}|{year}|FY|consolidated",
+                "financial_report_id": f"report-{year}", "company_entity_id": "company:600519.SH",
+                "statement_type": statement_type, "taxonomy_code": taxonomy, "label_raw": taxonomy,
+                "period_start": f"{year}-01-01", "period_end": f"{year}-12-31",
+                "instant_or_duration": "instant" if statement_type == "balance_sheet" else "duration",
+                "period_basis": "reported_period", "statement_scope": "consolidated",
+                "currency": "CNY", "unit_scale": 1, "raw_value": value,
+                "normalized_value": value, "normalized_unit": "yuan", "value_status": "reported",
+                "sign_convention": "reported", "audit_status": "audited", "segment_id": None,
+                "source_document_id": None, "source_block_ids": [], "evidence_ids": [],
+                "source_priority": 1, "restatement_version": 1,
+                "valid_from": f"{year + 1}-04-01T00:00:00", "valid_to": None,
+                "conflict_group_id": None, "warnings": [], "version": 1,
+                "created_at": f"{year + 1}-04-01T00:00:00",
+            })
     return facts
+
+
+def _formula_reports():
+    return [{
+        "financial_report_id": f"report-{year}", "company_entity_id": "company:600519.SH",
+        "document_id": None, "manifest_id": None, "report_type": "annual",
+        "period_start": f"{year}-01-01", "period_end": f"{year}-12-31",
+        "fiscal_year": year, "fiscal_period": "FY", "duration_months": 12,
+        "statement_scope": "consolidated", "accounting_standard": "CAS",
+        "currency": "CNY", "unit_scale": 1, "audit_status": "audited",
+        "audit_opinion": "unmodified", "restatement_status": "original",
+        "supersedes_report_id": None, "filing_version": "v1", "source_ids": [],
+        "evidence_ids": [], "data_status": "complete", "version": 1,
+        "published_at": f"{year + 1}-04-01T00:00:00", "created_at": f"{year + 1}-04-01T00:00:00",
+    } for year in (2024, 2025)]
+
+
+def _validate_metric(metric, facts=None, reports=None):
+    return validate_equity_research(
+        metrics=[metric], facts=facts or _formula_facts(), reports=reports or _formula_reports(),
+    )
 
 
 def _valid_metrics():
@@ -131,14 +174,154 @@ class TestFinancialRules:
 class TestDeterministicMetricRecompute:
     def test_roe_normal_recompute(self):
         roe = next(m for m in _valid_metrics() if m["metric_code"] == "roe")
-        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        out = _validate_metric(roe)
         assert not any(i.rule_id == "ERV-019" for i in out.errors)
 
     def test_roe_value_tamper_fails(self):
         roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
         roe["value"] = "999"
-        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        out = _validate_metric(roe)
         assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_gross_margin_plus_1e_minus_9_fails(self):
+        metric = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "gross_margin"))
+        from decimal import Decimal
+        metric["value"] = str(Decimal(metric["value"]) + Decimal("1E-9"))
+        out = _validate_metric(metric)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    @pytest.mark.parametrize("delta", ["0.000000001", "-0.000000001", "0.00000001"])
+    def test_roe_sub_precision_tamper_fails(self, delta):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        from decimal import Decimal
+        roe["value"] = str(Decimal(roe["value"]) + Decimal(delta))
+        out = _validate_metric(roe)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_decimal_canonical_equivalences(self):
+        assert normalize_metric_decimal("1.2300", 8, None) == "1.23"
+        assert normalize_metric_decimal("1.23E+0", 8, None) == "1.23"
+        assert normalize_metric_decimal("-0.000", 8, None) == "0"
+
+    def test_trailing_zeros_are_validator_equivalent(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        roe["value"] += "000"
+        assert not any(i.rule_id == "ERV-019" for i in _validate_metric(roe).errors)
+
+    def test_negative_zero_is_validator_equivalent_to_zero(self):
+        facts = deepcopy(_formula_facts())
+        cogs = next(f for f in facts if f["fact_id"] == "cost_of_sales-2025")
+        cogs["raw_value"] = cogs["normalized_value"] = "100"
+        metric = next(m.model_dump() for m in compute_period_metrics(
+            "company:600519.SH", facts, "2025-12-31") if m.metric_code == "gross_margin")
+        metric["value"] = "-0"
+        assert not any(i.rule_id == "ERV-019" for i in _validate_metric(metric, facts=facts).errors)
+
+    @pytest.mark.parametrize("field,value", [
+        ("company_entity_id", "company:000001.SZ"),
+        ("statement_scope", "parent"),
+        ("financial_report_id", "report-2024"),
+        ("currency", "USD"),
+        ("unit_scale", 10000),
+        ("statement_type", "cash_flow"),
+        ("period_start", "2025-02-01"),
+    ])
+    def test_binding_identity_tamper_fails(self, field, value):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        roe["input_bindings"][0][field] = value
+        out = _validate_metric(roe)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_fact_company_substitution_fails(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        facts = deepcopy(_formula_facts())
+        fact_id = roe["input_bindings"][0]["fact_id"]
+        fact = next(f for f in facts if f["fact_id"] == fact_id)
+        fact["company_entity_id"] = "company:000001.SZ"
+        roe["input_bindings"][0]["company_entity_id"] = "company:000001.SZ"
+        out = _validate_metric(roe, facts=facts)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_report_identity_substitution_fails(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        reports = deepcopy(_formula_reports())
+        reports[-1]["statement_scope"] = "parent"
+        out = _validate_metric(roe, reports=reports)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_bound_report_missing_fails(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        out = _validate_metric(roe, reports=[r for r in _formula_reports()
+                                             if r["financial_report_id"] != "report-2025"])
+        assert any(i.rule_id == "ERV-019" and "报告不存在" in i.message for i in out.errors)
+
+    def test_start_end_scope_mismatch_fails(self):
+        roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
+        facts = deepcopy(_formula_facts())
+        start_fact = next(f for f in facts if f["fact_id"] == "equity_attr-2024")
+        start_fact["statement_scope"] = "parent"
+        start_binding = next(b for b in roe["input_bindings"] if b["parameter"] == "equity_start")
+        start_binding["statement_scope"] = "parent"
+        reports = deepcopy(_formula_reports())
+        reports[0]["statement_scope"] = "parent"
+        out = _validate_metric(roe, facts=facts, reports=reports)
+        assert any(i.rule_id == "ERV-019" and "statement_scope" in i.message for i in out.errors)
+
+    def test_consolidated_revenue_replaced_by_parent_fails_even_when_value_synced(self):
+        metric = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "gross_margin"))
+        facts = deepcopy(_formula_facts())
+        parent = deepcopy(next(f for f in facts if f["fact_id"] == "revenue-2025"))
+        parent.update(fact_id="parent-revenue-2025", financial_report_id="report-parent-2025",
+                      statement_scope="parent", raw_value="50", normalized_value="50")
+        facts.append(parent)
+        reports = deepcopy(_formula_reports())
+        parent_report = deepcopy(reports[-1])
+        parent_report.update(financial_report_id="report-parent-2025", statement_scope="parent")
+        reports.append(parent_report)
+        binding = next(b for b in metric["input_bindings"] if b["parameter"] == "revenue")
+        for field in ("fact_id", "company_entity_id", "financial_report_id", "taxonomy_code",
+                      "statement_scope", "statement_type", "period_start", "period_end",
+                      "currency", "unit_scale"):
+            binding[field] = parent[field]
+        metric["input_fact_ids"] = [b["fact_id"] for b in metric["input_bindings"]]
+        metric["value"] = "-0.2"
+        out = _validate_metric(metric, facts=facts, reports=reports)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" for i in out.errors)
+
+    def test_legal_restatement_priority_passes_and_old_version_swap_fails(self):
+        facts = deepcopy(_formula_facts())
+        original = next(f for f in facts if f["fact_id"] == "net_profit_attr-2025")
+        restated = deepcopy(original)
+        restated.update(fact_id="net_profit_attr-2025-r2", financial_report_id="report-2025-r2",
+                        raw_value="30", normalized_value="30", restatement_version=2)
+        facts.append(restated)
+        reports = deepcopy(_formula_reports())
+        restated_report = deepcopy(reports[-1])
+        restated_report.update(financial_report_id="report-2025-r2", restatement_status="restated",
+                               supersedes_report_id="report-2025", filing_version="v2")
+        reports.append(restated_report)
+        roe = next(m.model_dump() for m in compute_period_metrics(
+            "company:600519.SH", facts, "2025-12-31", reports=reports) if m.metric_code == "roe")
+        valid = _validate_metric(roe, facts=facts, reports=reports)
+        assert not any(i.rule_id == "ERV-019" for i in valid.errors)
+
+        old = deepcopy(roe)
+        binding = next(b for b in old["input_bindings"] if b["parameter"] == "net_profit_attr")
+        for field in ("fact_id", "company_entity_id", "financial_report_id", "taxonomy_code",
+                      "statement_scope", "statement_type", "period_start", "period_end",
+                      "currency", "unit_scale"):
+            binding[field] = original[field]
+        old["input_fact_ids"] = [b["fact_id"] for b in old["input_bindings"]]
+        old["value"] = "0.2222222222222222222222222222"
+        out = _validate_metric(old, facts=facts, reports=reports)
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-019" and "优先事实版本" in i.message for i in out.errors)
 
     def test_roe_start_end_swap_fails(self):
         roe = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "roe"))
@@ -146,7 +329,7 @@ class TestDeterministicMetricRecompute:
         end = next(b for b in roe["input_bindings"] if b["parameter"] == "equity_end")
         start["fact_id"], end["fact_id"] = end["fact_id"], start["fact_id"]
         start["period_end"], end["period_end"] = end["period_end"], start["period_end"]
-        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        out = _validate_metric(roe)
         assert any(i.rule_id == "ERV-019" for i in out.errors)
 
     @pytest.mark.parametrize("mutation", ["delete", "missing_fact", "taxonomy", "formula_version"])
@@ -162,14 +345,15 @@ class TestDeterministicMetricRecompute:
             roe["input_bindings"][0]["taxonomy_code"] = "revenue"
         else:
             roe["formula_version"] = "999.0.0"
-        out = validate_equity_research(metrics=[roe], facts=_formula_facts())
+        out = _validate_metric(roe)
         assert any(i.rule_id == "ERV-019" for i in out.errors)
 
     @pytest.mark.parametrize("metric", _valid_metrics(), ids=lambda m: m["metric_code"])
     def test_every_valid_supported_metric_value_tamper_fails(self, metric):
         tampered = deepcopy(metric)
-        tampered["value"] = "999"
-        out = validate_equity_research(metrics=[tampered], facts=_formula_facts())
+        from decimal import Decimal
+        tampered["value"] = str(Decimal(tampered["value"]) + Decimal("0.000000001"))
+        out = _validate_metric(tampered)
         assert any(i.rule_id == "ERV-019" for i in out.errors), metric["metric_code"]
 
     @pytest.mark.parametrize("code", [
@@ -178,13 +362,13 @@ class TestDeterministicMetricRecompute:
     ])
     def test_required_formula_families_are_valid_and_recomputable(self, code):
         metric = next(m for m in _valid_metrics() if m["metric_code"] == code)
-        out = validate_equity_research(metrics=[metric], facts=_formula_facts())
+        out = _validate_metric(metric)
         assert not any(i.rule_id == "ERV-019" for i in out.errors)
 
     def test_input_fact_id_order_does_not_affect_recompute(self):
         metric = deepcopy(next(m for m in _valid_metrics() if m["metric_code"] == "gross_margin"))
         metric["input_fact_ids"].reverse()
-        out = validate_equity_research(metrics=[metric], facts=_formula_facts())
+        out = _validate_metric(metric)
         assert not any(i.rule_id == "ERV-019" for i in out.errors)
 
 
@@ -195,6 +379,23 @@ class TestPeerAndValuation:
             as_of="2026-08-01T00:00:00",
         )
         assert any(i.rule_id == "ERV-028" for i in out.errors)
+
+
+class TestMarkdownMetricGrammar:
+    def test_ordinary_numbers_headings_and_disclaimer_do_not_false_positive(self):
+        report = """## 11. 盈利能力
+- 报告期为 2025-12-31，样本年份 2024 年。
+- 数据不足，暂不形成正式指标。
+## 38. 免责声明
+- 本报告仅供研究参考，不构成投资建议。
+"""
+        out = validate_equity_research(report_text=report)
+        assert not any(i.rule_id in {"ERV-059", "ERV-060", "ERV-061"} for i in out.errors)
+
+    def test_unmarked_formal_alias_fails(self):
+        out = validate_equity_research(report_text="## 11. 盈利能力\n- 综合毛利率：99.99%\n")
+        assert out.status == "fail"
+        assert any(i.rule_id == "ERV-060" for i in out.errors)
 
 
 class TestManagementBoundary:

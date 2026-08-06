@@ -43,6 +43,35 @@ from research_os.financials.metrics import (
 )
 
 
+def _complete_fact(fact, company="company:600519.SH"):
+    item = dict(fact)
+    period_end = item.setdefault("period_end", "2025-12-31")
+    year = period_end[:4]
+    taxonomy = item["taxonomy_code"]
+    balance = taxonomy in {
+        "equity_attr", "total_assets", "total_liabilities", "current_assets",
+        "current_liabilities", "inventory", "other_illiquid_assets",
+        "accounts_receivable", "interest_bearing_debt", "cash_and_equivalents",
+        "period_end_shares",
+    }
+    item.setdefault("company_entity_id", company)
+    item.setdefault("financial_report_id", f"report-{year}")
+    item.setdefault("statement_scope", "consolidated")
+    item.setdefault("statement_type", "balance_sheet" if balance else "income_statement")
+    item.setdefault("period_start", f"{year}-01-01")
+    item.setdefault("currency", "CNY")
+    item.setdefault("unit_scale", 1)
+    item.setdefault("source_priority", 1)
+    item.setdefault("restatement_version", 1)
+    return item
+
+
+def _report(year=2025):
+    return {"financial_report_id": f"report-{year}", "company_entity_id": "company:600519.SH",
+            "statement_scope": "consolidated", "currency": "CNY", "unit_scale": 1,
+            "period_start": f"{year}-01-01", "period_end": f"{year}-12-31"}
+
+
 class TestGrowth:
     def test_revenue_growth_normal(self):
         r = revenue_growth("110", "100")
@@ -215,8 +244,8 @@ class TestCyclical:
         m = compute_metric(
             "company:600019.SH", "gross_margin",
             {"revenue": "100", "cogs": "80"},
-            [{"fact_id": "rev", "taxonomy_code": "revenue", "normalized_value": "100", "period_end": "2025-12-31"},
-             {"fact_id": "cogs", "taxonomy_code": "cost_of_sales", "normalized_value": "80", "period_end": "2025-12-31"}],
+            [_complete_fact({"fact_id": "rev", "taxonomy_code": "revenue", "normalized_value": "100"}, "company:600019.SH"),
+             _complete_fact({"fact_id": "cogs", "taxonomy_code": "cost_of_sales", "normalized_value": "80"}, "company:600019.SH")],
             "2025-12-31", sector="cyclical",
         )
         assert m.status == "valid"
@@ -226,14 +255,14 @@ class TestCyclical:
 
 class TestMetricsService:
     def _facts(self):
-        return [
+        return [_complete_fact(f) for f in [
             {"fact_id": "f1", "taxonomy_code": "revenue", "normalized_value": "100"},
             {"fact_id": "f2", "taxonomy_code": "cost_of_sales", "normalized_value": "60"},
             {"fact_id": "f3", "taxonomy_code": "net_profit_attr", "normalized_value": "25"},
             {"fact_id": "f4", "taxonomy_code": "equity_attr", "normalized_value": "110"},
             {"fact_id": "f5", "taxonomy_code": "total_assets", "normalized_value": "220"},
             {"fact_id": "f6", "taxonomy_code": "total_liabilities", "normalized_value": "60"},
-        ]
+        ]]
 
     def test_period_metrics_all_return_status(self):
         metrics = compute_period_metrics("company:600519.SH", self._facts(), "2025-12-31")
@@ -263,10 +292,10 @@ class TestMetricsService:
         assert validate_model(m) == []
 
     def test_precision_8_digits(self):
-        facts = [
+        facts = [_complete_fact(f) for f in [
             {"fact_id": "np", "taxonomy_code": "net_profit_attr", "normalized_value": "1", "period_end": "2025-12-31"},
             {"fact_id": "rev", "taxonomy_code": "revenue", "normalized_value": "3", "period_end": "2025-12-31"},
-        ]
+        ]]
         m = compute_metric(
             "company:600519.SH", "net_margin", {}, facts, "2025-12-31",
         )
@@ -283,13 +312,13 @@ class TestRecomputeRegistry:
         assert set(METRIC_RECOMPUTE_REGISTRY) == set(METRIC_FUNCTIONS)
 
     def test_lineage_order_does_not_change_gross_margin(self):
-        facts = [
+        facts = [_complete_fact(f) for f in [
             {"fact_id": "revenue-id", "taxonomy_code": "revenue", "normalized_value": "100", "period_end": "2025-12-31"},
             {"fact_id": "cogs-id", "taxonomy_code": "cost_of_sales", "normalized_value": "60", "period_end": "2025-12-31"},
-        ]
+        ]]
         metric = compute_metric("company:600519.SH", "gross_margin", {}, facts, "2025-12-31").model_dump()
         metric["input_fact_ids"] = list(reversed(metric["input_fact_ids"]))
-        result, errors = recompute_from_lineage(metric, facts)
+        result, errors = recompute_from_lineage(metric, facts, [_report()])
         assert result is not None
         assert errors == []
         assert result.value == "0.4" and result.status == "valid"

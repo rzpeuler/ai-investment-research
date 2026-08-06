@@ -28,13 +28,24 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["parameter", "fact_id", "taxonomy_code", "period_end", "period_role"],
+        "required": [
+          "parameter", "fact_id", "company_entity_id", "financial_report_id",
+          "taxonomy_code", "statement_scope", "statement_type", "period_start",
+          "period_end", "period_role", "currency", "unit_scale"
+        ],
         "properties": {
           "parameter": { "type": "string", "minLength": 1 },
           "fact_id": { "type": "string", "minLength": 1 },
+          "company_entity_id": { "type": "string", "pattern": "^company:" },
+          "financial_report_id": { "type": "string", "minLength": 1 },
           "taxonomy_code": { "type": "string", "minLength": 1 },
+          "statement_scope": { "type": "string", "enum": ["consolidated", "parent"] },
+          "statement_type": { "type": "string", "enum": ["income_statement", "balance_sheet", "cash_flow", "equity_statement", "note", "operating_data"] },
+          "period_start": { "anyOf": [ { "type": "string", "format": "date" }, { "type": "null" } ] },
           "period_end": { "type": "string", "format": "date" },
-          "period_role": { "type": "string", "enum": ["current", "start", "end", "comparable"] }
+          "period_role": { "type": "string", "enum": ["current", "start", "end", "comparable"] },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "unit_scale": { "type": "integer" }
         }
       }
     },

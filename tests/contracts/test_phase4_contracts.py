@@ -171,8 +171,11 @@ def _financial_metric():
         unit="ratio", status="valid", formula_id="gross_margin_v1",
         formula_version="1.0.0", input_fact_ids=[UUID2],
         input_bindings=[{"parameter": "revenue", "fact_id": UUID2,
-                         "taxonomy_code": "revenue", "period_end": "2025-12-31",
-                         "period_role": "current"}],
+                         "company_entity_id": COMPANY, "financial_report_id": UUID3,
+                         "taxonomy_code": "revenue", "statement_scope": "consolidated",
+                         "statement_type": "income_statement", "period_start": "2025-01-01",
+                         "period_end": "2025-12-31", "period_role": "current",
+                         "currency": "CNY", "unit_scale": 10000}],
         input_metric_ids=[], precision=8, sector_applicability="general", quality_warnings=[],
         evidence_ids=[], calculated_at=TS,
     )

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Any, Dict, Iterable, List
+import re
+from typing import Any, Dict, Iterable, List, Tuple
 
 
 @dataclass(frozen=True)
@@ -12,17 +13,19 @@ class MetricDisplaySpec:
     label: str
     section_id: int
     format_kind: str
+    aliases: Tuple[str, ...] = ()
 
 
-def _display(code: str, label: str, section: int, kind: str) -> MetricDisplaySpec:
-    return MetricDisplaySpec(code, label, section, kind)
+def _display(code: str, label: str, section: int, kind: str,
+             aliases: Tuple[str, ...] = ()) -> MetricDisplaySpec:
+    return MetricDisplaySpec(code, label, section, kind, aliases)
 
 
 FINANCIAL_METRIC_DISPLAY: Dict[str, MetricDisplaySpec] = {
     "revenue_growth": _display("revenue_growth", "收入增长", 10, "percent"),
     "net_profit_growth": _display("net_profit_growth", "归母净利润增长", 11, "percent"),
     "deducted_net_profit_growth": _display("deducted_net_profit_growth", "扣非净利润增长", 11, "percent"),
-    "gross_margin": _display("gross_margin", "毛利率", 11, "percent"),
+    "gross_margin": _display("gross_margin", "毛利率", 11, "percent", ("综合毛利率",)),
     "operating_margin": _display("operating_margin", "营业利润率", 11, "percent"),
     "net_margin": _display("net_margin", "净利率", 11, "percent"),
     "roe": _display("roe", "ROE", 11, "percent"),
@@ -77,6 +80,25 @@ def format_metric_value(value: Any, format_kind: str) -> str:
 def render_metric_line(metric: Dict[str, Any], spec: MetricDisplaySpec, metric_id: str) -> str:
     token = format_metric_value(metric.get("value"), spec.format_kind)
     return f"- {spec.label}：{token} <!-- metric-id:{metric_id} metric-code:{spec.metric_code} -->"
+
+
+def display_terms(spec: MetricDisplaySpec) -> Tuple[str, ...]:
+    """Labels that make a list item a formal metric assertion."""
+    return (spec.label,) + spec.aliases
+
+
+def controlled_metric_sections() -> set[int]:
+    return {spec.section_id for spec in (*FINANCIAL_METRIC_DISPLAY.values(), *VALUATION_METRIC_DISPLAY.values())}
+
+
+def unmarked_metric_assertion(line: str) -> bool:
+    """Detect a visible formal metric assertion that must carry the stable marker."""
+    if not re.match(r"^\s*-\s+", line):
+        return False
+    specs = (*FINANCIAL_METRIC_DISPLAY.values(), *VALUATION_METRIC_DISPLAY.values())
+    if any(term in line for spec in specs for term in display_terms(spec)):
+        return True
+    return bool(re.search(r"\d(?:[\d,.]*)(?:%|\s*(?:倍|元(?:/股)?|万元|亿元))", line))
 
 
 def latest_financial_metrics(metrics: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
