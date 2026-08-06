@@ -41,6 +41,27 @@ TABLES = {
     "CauseEvidenceLink": "cause_evidence_links",
     "AttributionResult": "attribution_results",
     "AbnormalMoveRun": "abnormal_move_runs",
+    # Phase 4：个股研报
+    "CompanyProfile": "company_profiles",
+    "SecurityProfile": "security_profiles",
+    "DocumentRecord": "document_records",
+    "DocumentBlock": "document_blocks",
+    "FinancialDataManifest": "financial_data_manifests",
+    "FinancialReport": "financial_reports",
+    "FinancialFact": "financial_facts",
+    "FinancialMetric": "financial_metrics",
+    "BusinessSegment": "business_segments",
+    "PeerCandidate": "peer_candidates",
+    "PeerSelection": "peer_selections",
+    "ValuationSnapshot": "valuation_snapshots",
+    "ForecastScenario": "forecast_scenarios",
+    "CompetitiveFactor": "competitive_factors",
+    "Catalyst": "catalysts",
+    "RiskFactor": "risk_factors",
+    "ResearchFinding": "research_findings",
+    "EquityResearchRequest": "equity_research_requests",
+    "EquityResearchRun": "equity_research_runs",
+    "EquityResearchResult": "equity_research_results",
 }
 
 # 各表主键列名（与 001_initial.sql 保持一致）
@@ -68,6 +89,27 @@ PK_COLUMNS = {
     "attribution_results": "attribution_result_id",
     "abnormal_move_runs": "run_id",
     "llm_call_records": "call_id",
+    # Phase 4
+    "company_profiles": "company_profile_id",
+    "security_profiles": "security_profile_id",
+    "document_records": "document_id",
+    "document_blocks": "block_id",
+    "financial_data_manifests": "manifest_id",
+    "financial_reports": "financial_report_id",
+    "financial_facts": "fact_id",
+    "financial_metrics": "metric_id",
+    "business_segments": "segment_id",
+    "peer_candidates": "peer_candidate_id",
+    "peer_selections": "peer_selection_id",
+    "valuation_snapshots": "valuation_snapshot_id",
+    "forecast_scenarios": "scenario_id",
+    "competitive_factors": "factor_id",
+    "catalysts": "catalyst_id",
+    "risk_factors": "risk_id",
+    "research_findings": "finding_id",
+    "equity_research_requests": "request_id",
+    "equity_research_runs": "run_id",
+    "equity_research_results": "result_id",
 }
 
 
@@ -197,6 +239,109 @@ class Database:
             return {"task_id": d["task_id"], "request_id": d["request_id"],
                     "idempotency_key": d["idempotency_key"], "run_version": d["run_version"],
                     "status": d["status"], "validation_status": d["validation_status"]}
+        # ---------- Phase 4：个股研报 ----------
+        if name == "CompanyProfile":
+            return {"entity_id": d["entity_id"], "valid_from": d["valid_from"],
+                    "valid_to": d["valid_to"], "status": d["status"], "version": d["version"]}
+        if name == "SecurityProfile":
+            return {"security_entity_id": d["security_entity_id"],
+                    "company_entity_id": d["company_entity_id"], "symbol": d["symbol"],
+                    "exchange": d["exchange"], "status": d["status"], "version": d["version"]}
+        if name == "DocumentRecord":
+            return {"company_entity_id": d["company_entity_id"],
+                    "document_type": d["document_type"], "published_at": d["published_at"],
+                    "sha256": d["sha256"], "parse_status": d["parse_status"],
+                    "version": d["version"]}
+        if name == "DocumentBlock":
+            return {"document_id": d["document_id"], "page_start": d["page_start"],
+                    "sequence_no": d["sequence_no"], "block_type": d["block_type"],
+                    "content_hash": d["content_hash"], "version": d["version"]}
+        if name == "FinancialDataManifest":
+            return {"source_kind": d["source_kind"], "source_id": d["source_id"],
+                    "file_name": d["file_name"], "file_checksum": d["file_checksum"],
+                    "data_version": d["data_version"],
+                    "validation_status": d["validation_status"],
+                    "row_count": d["row_count"], "accepted_count": d["accepted_count"],
+                    "rejected_count": d["rejected_count"], "imported_at": d["imported_at"]}
+        if name == "FinancialReport":
+            return {"company_entity_id": d["company_entity_id"],
+                    "document_id": d["document_id"], "manifest_id": d["manifest_id"],
+                    "report_type": d["report_type"], "period_end": d["period_end"],
+                    "statement_scope": d["statement_scope"], "fiscal_year": d["fiscal_year"],
+                    "filing_version": d["filing_version"], "data_status": d["data_status"],
+                    "version": d["version"]}
+        if name == "FinancialFact":
+            return {"fact_key": d["fact_key"], "financial_report_id": d["financial_report_id"],
+                    "company_entity_id": d["company_entity_id"],
+                    "statement_type": d["statement_type"], "taxonomy_code": d["taxonomy_code"],
+                    "period_end": d["period_end"], "value_status": d["value_status"],
+                    "source_document_id": d["source_document_id"],
+                    "conflict_group_id": d["conflict_group_id"],
+                    "restatement_version": d["restatement_version"], "version": d["version"]}
+        if name == "FinancialMetric":
+            return {"company_entity_id": d["company_entity_id"], "metric_code": d["metric_code"],
+                    "period_end": d["period_end"], "status": d["status"],
+                    "value": d["value"], "formula_version": d["formula_version"],
+                    "version": d["version"]}
+        if name == "BusinessSegment":
+            return {"company_entity_id": d["company_entity_id"],
+                    "financial_report_id": d["financial_report_id"],
+                    "segment_type": d["segment_type"], "raw_name": d["raw_name"],
+                    "canonical_name": d["canonical_name"], "valid_from": d["valid_from"],
+                    "status": d["status"], "version": d["version"]}
+        if name == "PeerCandidate":
+            return {"subject_company_id": d["subject_company_id"],
+                    "candidate_company_id": d["candidate_company_id"],
+                    "information_cutoff": d["information_cutoff"],
+                    "universe_version": d["universe_version"],
+                    "eligible": 1 if d["eligible"] else 0,
+                    "total_score": d["total_score"], "version": d["version"]}
+        if name == "PeerSelection":
+            return {"request_id": d["request_id"], "subject_company_id": d["subject_company_id"],
+                    "universe_version": d["universe_version"],
+                    "scoring_version": d["scoring_version"], "status": d["status"],
+                    "sample_size": d["sample_size"], "version": d["version"]}
+        if name == "ValuationSnapshot":
+            return {"company_entity_id": d["company_entity_id"],
+                    "security_entity_id": d["security_entity_id"], "as_of": d["as_of"],
+                    "status": d["status"], "version": d["version"]}
+        if name == "ForecastScenario":
+            return {"request_id": d["request_id"], "company_entity_id": d["company_entity_id"],
+                    "scenario_type": d["scenario_type"],
+                    "enabled": 1 if d["enabled"] else 0, "status": d["status"],
+                    "version": d["version"]}
+        if name == "CompetitiveFactor":
+            return {"company_entity_id": d["company_entity_id"],
+                    "factor_type": d["factor_type"], "direction": d["direction"],
+                    "status": d["status"], "management_only": 1 if d["management_only"] else 0,
+                    "version": d["version"]}
+        if name == "Catalyst":
+            return {"company_entity_id": d["company_entity_id"],
+                    "catalyst_type": d["catalyst_type"], "status": d["status"],
+                    "time_window_start": d["time_window_start"],
+                    "source_phase": d["source_phase"], "version": d["version"]}
+        if name == "RiskFactor":
+            return {"company_entity_id": d["company_entity_id"], "risk_type": d["risk_type"],
+                    "status": d["status"], "source_phase": d["source_phase"],
+                    "version": d["version"]}
+        if name == "ResearchFinding":
+            return {"request_id": d["request_id"], "company_entity_id": d["company_entity_id"],
+                    "finding_type": d["finding_type"], "materiality": d["materiality"],
+                    "status": d["status"], "version": d["version"]}
+        if name == "EquityResearchRequest":
+            return {"task_id": d["task_id"], "company_entity_id": d["company_entity_id"],
+                    "security_entity_id": d["security_entity_id"],
+                    "report_date": d["report_date"], "depth": d["depth"],
+                    "status": d["status"], "version": d["version"]}
+        if name == "EquityResearchRun":
+            return {"request_id": d["request_id"], "task_id": d["task_id"],
+                    "idempotency_key": d["idempotency_key"], "run_version": d["run_version"],
+                    "status": d["status"], "validation_status": d["validation_status"],
+                    "started_at": d["started_at"]}
+        if name == "EquityResearchResult":
+            return {"run_id": d["run_id"], "request_id": d["request_id"],
+                    "company_entity_id": d["company_entity_id"],
+                    "research_status": d["research_status"], "version": d["version"]}
         raise ValueError(f"未知对象类型: {name}")
 
     def upsert(self, obj: Any, task_id: Optional[str] = None) -> None:
