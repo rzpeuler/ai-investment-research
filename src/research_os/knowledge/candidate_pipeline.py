@@ -2,15 +2,15 @@
 
 流水线：
 1. knowledge_ingest_decider：确定性预检（源类型、对象存在、Schema、Evidence）
-2. source load → eligibility → LLM proposal → validate → builder → persist → render
-3. Flash 优先，Pro 升级条件：
-   - supply_chain_hops > 3
-   - high-grade conflict
-   - cross-industry
-   - ontology implication
-   - Flash validation >= 2 fails
-4. 每个 candidate task 最多 1 次 Pro
-5. requested_model_class 支持
+2. source load → derive evidence → eligibility → LLM proposal → validate proposal gates →
+   builder → persist → render
+3. Flash 优先，Pro 升级条件（确定性 graph conflicts，非 LLM）：
+   - CURRENT_NODE_ALREADY_EXISTS
+   - 高优先级冲突
+4. 每个 CandidatePipeline.run() 最多 1 次 Pro
+5. Pro 失败 → PRO_ESCALATION_FAILED（非假成功）
+6. 提案子集硬性门禁：source_object_ids ⊆ actual_source_tokens, new_evidence_ids ⊆ allowed_evidence_ids
+7. LlmRequest.input_evidence_ids = actual allowed evidence IDs
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from research_os.knowledge.candidate_sources import (
     SourceAdapter,
     EvidenceContext,
+    derive_evidence_from_sources,
     load_evidence_context,
     is_allowed_source_type,
 )
@@ -43,6 +44,7 @@ from research_os.utils.id import new_uuid
 from research_os.utils.time import now_iso
 
 # ---- 确定性预检 ----
+
 
 class IngestDecision:
     """knowledge_ingest_decider 输出。"""
@@ -86,7 +88,7 @@ def knowledge_ingest_decider(
             source_id=source_id,
         )
 
-    # 2. 对象存在性检查
+    # 2. 对象存在性检查（含 Schema 校验）
     adapter = SourceAdapter(db)
     try:
         source_obj = adapter.load(source_type, source_id)
@@ -125,29 +127,31 @@ def knowledge_ingest_decider(
 
 # ---- 决策辅助 ----
 
-def _should_escalate_to_pro(proposal: GraphChangeProposal) -> bool:
-    """检查是否需要 Pro 升级。"""
-    # M3 特定升级条件
-    conflicts = proposal.conflicts or []
-    impact = proposal.impact_scope or []
+def _should_escalate_to_pro(
+    deterministic_conflicts: List[str],
+) -> bool:
+    """检查是否需要 Pro 升级（基于确定性 conflicts，非 LLM proposal.conflicts）。
 
-    high_grade_conflict = any(
-        "S" in c or "A" in c or "high-grade" in c.lower()
-        for c in conflicts
-    )
-    cross_industry = any(
-        "cross-industry" in i.lower() or "跨行业" in i
-        for i in impact
-    )
-    ontology_implication = any(
-        "ontology" in c.lower() or "本体" in c or "Industry" in c
-        for c in conflicts
-    )
+    升级条件：
+    - CURRENT_NODE_ALREADY_EXISTS
+    - 任何高优先级冲突标记
+    """
+    for c in deterministic_conflicts:
+        cu = c.upper()
+        if "CURRENT_NODE_ALREADY_EXISTS" in cu:
+            return True
+        if "CONFLICT" in cu or "AMBIGUOUS" in cu:
+            return True
+    return False
 
-    return high_grade_conflict or cross_industry or ontology_implication
+
+def _build_actual_source_tokens(sources: List[Tuple[str, str]]) -> List[str]:
+    """构造 actual source tokens 集合（Type:ID 格式）。"""
+    return [f"{st}:{sid}" for st, sid in sources]
 
 
 # ---- 流水线入口 ----
+
 
 class CandidatePipeline:
     """M3 GraphChange Candidate Pipeline。"""
@@ -167,6 +171,7 @@ class CandidatePipeline:
         self._candidate_repo = GraphChangeCandidateRepository(db)
         self._live = live
         self._dry_run = dry_run
+        self._pro_used = False  # 每次 run() 最多 1 次 Pro
 
         configured = is_provider_configured() and provider is not None
         self._llm_client = LlmClient(
@@ -197,6 +202,7 @@ class CandidatePipeline:
         Returns:
             确定性 JSON 摘要。
         """
+        self._pro_used = False
         results: Dict[str, Any] = {
             "status": "ok",
             "dry_run": self._dry_run,
@@ -231,33 +237,47 @@ class CandidatePipeline:
             return results
 
         # ---- 2. Load source objects ----
+        actual_source_tokens = _build_actual_source_tokens(sources)
         source_objects = self._adapter.load_batch(sources)
         results["sources_processed"] = len(source_objects)
 
-        # ---- 3. Load evidence context ----
-        all_evidence_ids = evidence_ids or []
-        ev_contexts, ev_errors = load_evidence_context(
-            self._db, all_evidence_ids
+        # ---- 3. Derive evidence from sources ----
+        sup_ids, cnt_ids, ev_errors = derive_evidence_from_sources(
+            self._db, source_objects, evidence_ids
         )
         if ev_errors:
-            results["status"] = "evidence_error"
+            # Check if it's EVIDENCE_REQUIRED
+            if any("EVIDENCE_REQUIRED" in e for e in ev_errors):
+                results["status"] = "evidence_required"
+            else:
+                results["status"] = "evidence_error"
             results["errors"].extend(ev_errors)
             return results
 
-        # ---- 4. LLM Proposal ----
+        allowed_evidence_ids = sup_ids + cnt_ids
+
+        # ---- 4. Load evidence context ----
+        ev_contexts, ev_ctx_errors = load_evidence_context(
+            self._db, sup_ids, cnt_ids
+        )
+        if ev_ctx_errors:
+            results["status"] = "evidence_error"
+            results["errors"].extend(ev_ctx_errors)
+            return results
+
+        # ---- 5. LLM Proposal ----
         if not self._live or self._llm_client.provider is None:
-            # 非 live 或无 Provider：跳过 LLM，返回 preflight only
             results["status"] = "preflight_only"
             results["message"] = "非 live 模式或无 Provider，仅完成预检"
             return results
 
         proposal = self._call_llm_for_proposal(
-            source_objects, ev_contexts, requested_model_class, results
+            source_objects, ev_contexts, requested_model_class, allowed_evidence_ids, results
         )
         if proposal is None:
             return results  # LLM 失败，results 已含错误
 
-        # ---- 5. Validate proposal ----
+        # ---- 6. Validate proposal + gates ----
         try:
             validated_proposal = GraphChangeProposal(**proposal.output) if proposal.output else None
         except Exception as exc:
@@ -270,45 +290,91 @@ class CandidatePipeline:
             results["errors"].append("LLM 未返回有效 proposal")
             return results
 
-        # ---- 6. 冲突检测 ----
-        conflicts = self._builder.check_conflicts(validated_proposal)
-        if conflicts:
-            # 如果有冲突且未升级到 Pro，尝试 Pro
-            if requested_model_class != "pro" and _should_escalate_to_pro(validated_proposal):
+        # 提案子集硬性门禁
+        gate_errors = self._check_proposal_gates(
+            validated_proposal, actual_source_tokens, allowed_evidence_ids
+        )
+        if gate_errors:
+            results["status"] = "proposal_gate_failed"
+            results["errors"].extend(gate_errors)
+            return results
+
+        # ---- 7. Build + conflict detection ----
+        try:
+            graph_change = self._builder.build(
+                validated_proposal,
+                source_objects=source_objects,
+                supporting_evidence_ids=sup_ids,
+            )
+        except ValueError as exc:
+            msg = str(exc)
+
+            # Epistemic escalation?
+            if "EPISTEMIC_ESCALATION_REJECTED" in msg:
+                results["status"] = "epistemic_escalation_rejected"
+                results["errors"].append(msg)
+                return results
+
+            # Identity resolution?
+            if "IDENTITY_RESOLUTION_REQUIRED" in msg:
+                results["status"] = "identity_resolution_required"
+                results["errors"].append(msg)
+                return results
+
+            if "AMBIGUOUS_ENTITY_IDENTITY" in msg or "AMBIGUOUS_EDGE_IDENTITY" in msg:
+                results["status"] = "ambiguous_identity"
+                results["errors"].append(msg)
+                return results
+
+            results["status"] = "build_failed"
+            results["errors"].append(msg)
+            return results
+
+        # ---- 8. 冲突检测 → Pro escalation ----
+        deterministic_conflicts = graph_change.conflicts or []
+        if deterministic_conflicts and not self._pro_used and requested_model_class != "pro":
+            if _should_escalate_to_pro(deterministic_conflicts):
+                self._pro_used = True
                 results["model_used"] = "pro"
                 proposal2 = self._call_llm_for_proposal(
-                    source_objects, ev_contexts, "pro", results
+                    source_objects, ev_contexts, "pro", allowed_evidence_ids, results
                 )
                 if proposal2 is not None and proposal2.output:
                     try:
                         validated_proposal = GraphChangeProposal(**proposal2.output)
-                        conflicts = self._builder.check_conflicts(validated_proposal)
                     except Exception:
-                        pass
+                        results["status"] = "pro_escalation_failed"
+                        results["errors"].append("Pro escalation proposal 构造失败")
+                        return results
+                    try:
+                        graph_change = self._builder.build(
+                            validated_proposal,
+                            source_objects=source_objects,
+                            supporting_evidence_ids=sup_ids,
+                        )
+                    except ValueError as exc:
+                        results["status"] = "pro_escalation_failed"
+                        results["errors"].append(str(exc))
+                        return results
+                else:
+                    results["status"] = "pro_escalation_failed"
+                    results["errors"].append("Pro escalation: LLM 调用失败，无有效 proposal")
+                    return results
 
-        # ---- 7. Build GraphChange ----
-        try:
-            graph_change = self._builder.build(validated_proposal)
-        except ValueError as exc:
-            results["status"] = "build_failed"
-            results["errors"].append(str(exc))
-            return results
-
-        # ---- 8. Persist ----
+        # ---- 9. Persist ----
         if not self._dry_run:
             try:
                 op = self._candidate_repo.append_candidate(graph_change)
                 results["candidates_persisted"] = 1
             except ValueError as exc:
                 results["errors"].append(str(exc))
-                # idempotent_noop 不算失败
                 if "IDEMPOTENT" not in str(exc).upper():
                     results["status"] = "persist_failed"
                     return results
 
         results["candidates_generated"] = 1
 
-        # ---- 9. Render Markdown ----
+        # ---- 10. Render Markdown ----
         if knowledge_dir is not None and not self._dry_run:
             renderer = CandidateRenderer(knowledge_dir)
             try:
@@ -324,11 +390,55 @@ class CandidatePipeline:
 
         return results
 
+    # ---- Proposal gates ----
+
+    @staticmethod
+    def _check_proposal_gates(
+        proposal: GraphChangeProposal,
+        actual_source_tokens: List[str],
+        allowed_evidence_ids: List[str],
+    ) -> List[str]:
+        """提案子集硬性门禁。
+
+        - source_object_ids ⊆ actual_source_tokens
+        - new_evidence_ids ⊆ allowed_evidence_ids
+        - source_object_ids 不能是 source_ids 或 raw_item_ids 格式
+        """
+        errors: List[str] = []
+
+        # source_object_ids ⊆ actual_source_tokens
+        actual_set = set(actual_source_tokens)
+        for soi in proposal.source_object_ids:
+            if soi not in actual_set:
+                errors.append(
+                    f"提案引用不在实际源中的 source_object_id: {soi}"
+                )
+
+        # source_object_ids 不能是 source: / raw_item: 格式
+        for soi in proposal.source_object_ids:
+            if soi.startswith("source:") or soi.startswith("raw_item:"):
+                errors.append(
+                    f"拒绝 source_ids/raw_item_id 作为 source_object_id: {soi}"
+                )
+
+        # new_evidence_ids ⊆ allowed_evidence_ids
+        allowed_set = set(allowed_evidence_ids)
+        for eid in proposal.new_evidence_ids:
+            if eid not in allowed_set:
+                errors.append(
+                    f"提案引用不在允许证据列表中的 evidence_id: {eid}"
+                )
+
+        return errors
+
+    # ---- LLM ----
+
     def _call_llm_for_proposal(
         self,
         source_objects: Dict,
         ev_contexts: List,
         model_class: str,
+        allowed_evidence_ids: List[str],
         results: Dict,
     ) -> Optional[Any]:
         """调用 LLM 生成 GraphChangeProposal。"""
@@ -339,9 +449,10 @@ class CandidatePipeline:
             prompt=prompt,
             output_schema_name="graph_change_proposal",
             requested_model_class=model_class,
+            input_evidence_ids=allowed_evidence_ids,
         )
         response = self._llm_client.generate_json(
-            request, {},  # output_schema 由 validator 的 schema 校验处理
+            request, {},
         )
         results["model_used"] = response.model_id or model_class
 

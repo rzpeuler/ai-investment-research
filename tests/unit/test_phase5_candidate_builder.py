@@ -110,7 +110,7 @@ def _make_retire_node_proposal(**kw):
             "aliases": [],
             "description": "",
             "valid_from": None,
-            "valid_to": None,
+            "valid_to": T0,
         },
         "candidate_edge": None,
         "new_evidence_ids": ["ev:001"],
@@ -200,7 +200,7 @@ def test_build_retire_node(builder):
     assert gc.change_type == "retire_node"
     assert gc.node is not None
     assert gc.node.status == "retired"
-    assert gc.node.valid_to is not None  # 设为 now
+    assert gc.node.valid_to == T0  # 来自 Proposal，非 auto-now
 
 
 # ---- modify_attribute ----

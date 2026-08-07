@@ -806,12 +806,22 @@ def knowledge_candidates(sources, db_path, provider_id, live, dry_run) -> None:
             )
         parsed_sources.append((st, sid))
 
-    db = Database(db_full)
-    db.initialize()
+    # dry-run：使用 read_only 模式，零写入
+    if dry_run:
+        db = Database.open_read_only(db_full)
+        # 检查 DB 版本
+        version = db.current_version()
+        if version < 6:
+            raise click.ClickException(
+                f"数据库版本过低: {version}，要求 >=6。请先运行迁移。"
+            )
+    else:
+        db = Database(db_full)
+        db.initialize()
 
     try:
         provider = None
-        if live:
+        if live and not dry_run:
             from research_os.llm.provider_factory import create_provider as _create_prov
             provider = _create_prov(root, provider_id=provider_id, live=live)
         pipeline = CandidatePipeline(

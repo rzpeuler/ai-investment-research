@@ -12,13 +12,15 @@
   Evidence → evidence / Evidence
 
 Evidence context loader：
-- 读取 evidence_ids + counter_evidence_ids 并验证存在性
-- 最小证据信息供 LLM：evidence_id, title, publisher, published_at,
-  source_tier, evidence_type, excerpt, url, role
+- 从源对象自动推导 evidence_ids + counter_evidence_ids
+- Evidence 源对象自身即为证据
+- 拒绝 source_ids/raw_item_id 作为 Evidence
+- 硬性门禁：0 Evidence → EVIDENCE_REQUIRED
+- 每条 derived evidence 必须在 SQLite 中存在 + 通过 Pydantic+Schema 校验
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from research_os.models.core import (
     Claim,
@@ -34,6 +36,7 @@ from research_os.models.equity_research import (
 from research_os.models.companies import CompanyProfile
 from research_os.models.valuation import BusinessSegment
 from research_os.storage.db import Database
+from research_os.validators.schema_validator import validate_model
 
 # ---- 源类型 → 表名 & Pydantic 模型 ----
 
@@ -58,7 +61,7 @@ def is_allowed_source_type(source_type: str) -> bool:
 
 
 class SourceAdapter:
-    """从 SQLite 读取源对象并构造为 Pydantic 模型实例。"""
+    """从 SQLite 读取源对象并构造为 Pydantic 模型实例，含 Schema 校验。"""
 
     def __init__(self, db: Database):
         self._db = db
@@ -66,10 +69,14 @@ class SourceAdapter:
     def load(self, source_type: str, source_id: str) -> Any:
         """按类型和 ID 加载单个源对象。
 
+        1. 从 SQLite 读取 payload
+        2. Pydantic 构造
+        3. JSON Schema 校验
+
         Returns:
             Pydantic model 实例（如 Event、Claim 等）。
         Raises:
-            ValueError: source_type 不在允许名单、对象不存在、Pydantic 构造失败。
+            ValueError: source_type 不在允许名单、对象不存在、Pydantic 构造失败、Schema 校验失败。
         """
         if source_type not in _SOURCE_MAP:
             raise ValueError(
@@ -80,11 +87,18 @@ class SourceAdapter:
         if record is None:
             raise ValueError(f"{source_type} {source_id} 在表 {table} 中不存在")
         try:
-            return model_cls(**record)
+            obj = model_cls(**record)
         except Exception as exc:
             raise ValueError(
                 f"{source_type} {source_id} Pydantic 构造失败: {exc}"
             ) from exc
+        # Schema 校验
+        errors = validate_model(obj)
+        if errors:
+            raise ValueError(
+                f"{source_type} {source_id} Schema 校验失败: {'; '.join(errors)}"
+            )
+        return obj
 
     def load_batch(
         self, sources: List[Tuple[str, str]]
@@ -142,6 +156,147 @@ class EvidenceContext:
             "url": self.url,
             "role": self.role,
         }
+
+
+def _extract_evidence_ids_from_source(source_obj: Any) -> Tuple[List[str], List[str]]:
+    """从源对象中提取 evidence_ids 和 counter_evidence_ids。
+
+    支持字段名：
+    - evidence_ids (supporting)
+    - counter_evidence_ids (counter)
+    - 如果源对象本身就是 Evidence 实例，返回自身 evidence_id 作为 supporting。
+    """
+    supporting: List[str] = []
+    counter: List[str] = []
+
+    # Evidence 源对象：自身即为证据
+    if isinstance(source_obj, Evidence):
+        supporting.append(source_obj.evidence_id)
+        return supporting, counter
+
+    d = source_obj.model_dump() if hasattr(source_obj, "model_dump") else {}
+
+    # 标准 evidence_ids
+    ev_ids = d.get("evidence_ids")
+    if isinstance(ev_ids, list):
+        supporting.extend([eid for eid in ev_ids if isinstance(eid, str)])
+
+    # counter_evidence_ids
+    counter_ids = d.get("counter_evidence_ids")
+    if isinstance(counter_ids, list):
+        counter.extend([eid for eid in counter_ids if isinstance(eid, str)])
+
+    return supporting, counter
+
+
+def _check_evidence_existence(
+    db: Database,
+    evidence_ids: List[str],
+) -> Tuple[List[Evidence], List[str]]:
+    """验证 evidence_ids 是否存在且通过 Pydantic+Schema 校验。
+
+    Returns:
+        (valid_evidence_objects, errors): 每条错误描述缺失/失败的 ID。
+    """
+    valid: List[Evidence] = []
+    errors: List[str] = []
+    for eid in evidence_ids:
+        record = db.get("evidence", eid)
+        if record is None:
+            errors.append(f"Evidence {eid} 不存在")
+            continue
+        try:
+            ev = Evidence(**record)
+        except Exception as exc:
+            errors.append(f"Evidence {eid} Pydantic 构造失败: {exc}")
+            continue
+        # Schema 校验
+        schema_errors = validate_model(ev)
+        if schema_errors:
+            errors.append(f"Evidence {eid} Schema 校验失败: {'; '.join(schema_errors)}")
+            continue
+        valid.append(ev)
+    return valid, errors
+
+
+def derive_evidence_from_sources(
+    db: Database,
+    source_objects: Dict[Tuple[str, str], Any],
+    explicit_evidence_ids: Optional[List[str]] = None,
+) -> Tuple[List[str], List[str], List[str]]:
+    """从源对象自动推导 evidence。
+
+    1. 遍历每个源对象，提取 evidence_ids + counter_evidence_ids
+    2. 合并 explicit_evidence_ids
+    3. Evidence 源对象自身作为证据
+    4. 拒绝 source_ids / raw_item_id 格式（预防混淆）
+    5. 每条 evidence 在 SQLite 中验证存在 + Pydantic + Schema
+
+    Returns:
+        (supporting_ids, counter_ids, errors):
+        - supporting_ids: 去重后的支持证据 ID 列表
+        - counter_ids: 去重后的反证证据 ID 列表
+        - errors: 验证错误列表
+
+    Raises:
+        ValueError: 0 Evidence after derivation (EVIDENCE_REQUIRED)
+    """
+    all_supporting: List[str] = []
+    all_counter: List[str] = []
+
+    # 从每个源对象推导
+    for (st, sid), obj in source_objects.items():
+        sup, cnt = _extract_evidence_ids_from_source(obj)
+        all_supporting.extend(sup)
+        all_counter.extend(cnt)
+
+    # 合并显式证据 ID
+    if explicit_evidence_ids:
+        all_supporting.extend(explicit_evidence_ids)
+
+    # 去重（保持首次出现顺序）
+    seen: Set[str] = set()
+    supporting_ids: List[str] = []
+    for eid in all_supporting:
+        if eid and eid not in seen:
+            seen.add(eid)
+            supporting_ids.append(eid)
+
+    seen_c: Set[str] = set()
+    counter_ids: List[str] = []
+    for eid in all_counter:
+        if eid and eid not in seen_c and eid not in seen:
+            seen_c.add(eid)
+            counter_ids.append(eid)
+
+    # 拒绝 source_ids / raw_item_id 格式
+    all_for_validation = list(dict.fromkeys(supporting_ids + counter_ids))
+    errors: List[str] = []
+    for eid in all_for_validation:
+        if eid.startswith("source:") or eid.startswith("raw_item:"):
+            errors.append(f"拒绝 source_id/raw_item_id 作为 Evidence: {eid}")
+
+    if errors:
+        return [], [], errors
+
+    # 验证所有 evidence 存在并通过 Schema
+    valid_evs, ev_errors = _check_evidence_existence(db, all_for_validation)
+    if ev_errors:
+        return [], [], ev_errors
+
+    # 硬性门禁：0 Evidence
+    if len(valid_evs) == 0:
+        return [], [], ["EVIDENCE_REQUIRED: 0 条有效证据（须至少 1 条真实 Evidence）"]
+
+    # 过滤掉不存在的 ID
+    valid_ids = {ev.evidence_id for ev in valid_evs}
+    final_supporting = [eid for eid in supporting_ids if eid in valid_ids]
+    final_counter = [eid for eid in counter_ids if eid in valid_ids]
+
+    if len(final_supporting) + len(final_counter) == 0:
+        return [], [], ["EVIDENCE_REQUIRED: 推导出 0 条有效证据（所有候选 ID 验证失败）"]
+
+    return final_supporting, final_counter, []
 
 
 def load_evidence_context(

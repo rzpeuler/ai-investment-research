@@ -66,22 +66,32 @@ def runner():
 
 @pytest.fixture()
 def db_with_event(project_env):
-    """创建已迁移的 DB 并插入一个 Event。"""
+    """创建已迁移的 DB 并插入一个 Event（带证据）。"""
     db_path = project_env / "data" / "sqlite" / "research.db"
     db = Database(db_path)
     db.migrate()
 
     ev_id = new_uuid()
+    # 先插入证据
+    evidence = Evidence(
+        evidence_id=ev_id, source_id="source:test", raw_item_id=new_uuid(),
+        title="测试证据", publisher="测试发布者", published_at=T0, retrieved_at=T0,
+        url="https://example.com/ev", excerpt="测试摘录", evidence_type="official_disclosure",
+        independence_group="g1", source_tier="B", access_status="ok",
+    )
+    db.upsert(evidence)
+
+    event_id = new_uuid()
     event = Event(
-        event_id=ev_id, event_type="test", subject_entities=["company:test"],
+        event_id=event_id, event_type="test", subject_entities=["company:test"],
         object_entities=[], event_time=T0, announced_at=T0, effective_at=None,
         status="announced", summary="事件摘要", quantitative_fields={},
         industry_coordinates=[], novelty=0.5, impact_direction="neutral",
-        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+        impact_horizon="short", evidence_ids=[ev_id], confidence=0.5, conflicts=[],
     )
     db.upsert(event)
     db.close()
-    return str(db_path), ev_id
+    return str(db_path), event_id
 
 
 # ---- dry-run ----

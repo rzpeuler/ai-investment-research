@@ -4,6 +4,8 @@
 - INSERT ONLY，绝不 UPDATE
 - 同 graph_change_id + 同 payload → IDEMPOTENT_NOOP
 - 同 graph_change_id + 异 payload → IMMUTABLE_CANDIDATE_CONFLICT
+- append_candidate 硬性门禁：review_status=="candidate" AND reviewed_at is None
+- 拒绝 approved/deferred/rejected/reviewed_at 非 null 的 candidate
 - 拒绝 generic Database.upsert(GraphChange)
 - GraphChange 从 generic TABLES/PK_COLUMNS 中移除
 """
@@ -54,17 +56,32 @@ class GraphChangeCandidateRepository:
     ) -> str:
         """追加 GraphChange candidate（幂等回放 + 不可变冲突）。
 
+        硬性门禁：review_status 必须为 "candidate" 且 reviewed_at 必须为 None。
+        拒绝 approved/deferred/rejected 的 candidate。
+
         Args:
-            graph_change: 完整 GraphChange 实例。
+            graph_change: 完整 GraphChange 实例（必须 review_status=="candidate", reviewed_at is None）。
             conn: 可选外部连接（批量事务）。
 
         Returns:
             "inserted" / "idempotent_noop"
 
         Raises:
-            ValueError: Schema 校验失败 / 不可变冲突。
+            ValueError: Schema 校验失败 / 状态门禁失败 / 不可变冲突。
         """
         self._validate(graph_change)
+
+        # 硬性门禁：review_status 必须为 "candidate" 且 reviewed_at is None
+        if graph_change.review_status != "candidate":
+            raise ValueError(
+                f"append_candidate 拒绝 review_status={graph_change.review_status}，"
+                f"仅允许 candidate"
+            )
+        if graph_change.reviewed_at is not None:
+            raise ValueError(
+                "append_candidate 拒绝 reviewed_at 非 null 的 candidate"
+            )
+
         payload = self._dump_canonical_json(graph_change)
 
         def _do(conn: sqlite3.Connection) -> str:

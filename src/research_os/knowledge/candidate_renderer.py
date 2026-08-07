@@ -2,12 +2,16 @@
 
 生成 knowledge/candidates/{id}.md 候选审阅文件。
 固定分段结构，证据仅最小信息，幂等回放。
+
+确定性要求：
+- 不使用 datetime.now()，render_at 由调用方传入（固定时间戳或空字符串）
+- 字节确定性：相同输入 → 相同输出，跨时间不变
+- dry-run：__init__ 不创建目录；render_to_file dry_run=True 不写文件
+- 文件冲突预检：在 DB 写入前检查，相同 hash → 幂等，不同 hash → 拒绝
 """
 from __future__ import annotations
 
 import hashlib
-import os
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -68,20 +72,19 @@ def _render_edge_info(edge: Optional[dict]) -> str:
 def render_candidate_markdown(
     graph_change: GraphChange,
     evidence_contexts: List[EvidenceContext],
-    render_at: Optional[str] = None,
+    render_at: str = "",
 ) -> str:
-    """将 GraphChange candidate 渲染为 Markdown。
+    """将 GraphChange candidate 渲染为 Markdown（字节确定性）。
 
     Args:
         graph_change: 完整 GraphChange 对象。
         evidence_contexts: 证据上下文列表。
-        render_at: 渲染时间 ISO-8601。
+        render_at: 渲染时间标签（空字符串则不显示时间，由调用方传入固定值以保证确定性）。
 
     Returns:
         Markdown 字符串。
     """
     gc = graph_change.model_dump()
-    now = render_at or datetime.now().isoformat(timespec="seconds")
 
     sections = []
 
@@ -190,9 +193,12 @@ def render_candidate_markdown(
     sections.append("_（审核通过后在此填写 JSON Patch）_")
     sections.append("")
 
-    # Footer
+    # Footer（确定性：只在 render_at 非空时显示）
     sections.append("---")
-    sections.append(f"*渲染时间: {now}*")
+    if render_at:
+        sections.append(f"*渲染时间: {render_at}*")
+    else:
+        sections.append("*渲染时间: --*")
 
     return "\n".join(sections)
 
@@ -201,9 +207,12 @@ class CandidateRenderer:
     """Candidate Markdown 渲染器（幂等文件写入）。"""
 
     def __init__(self, knowledge_dir: Path):
-        """knowledge_dir 为项目 knowledge/ 目录。"""
+        """knowledge_dir 为项目 knowledge/ 目录。
+
+        注意：__init__ 不创建目录。仅在 render_to_file 时按需创建。
+        这确保 dry-run 调用链中无副作用。
+        """
         self._candidates_dir = knowledge_dir / "candidates"
-        self._candidates_dir.mkdir(parents=True, exist_ok=True)
 
     def render_to_file(
         self,
@@ -211,13 +220,15 @@ class CandidateRenderer:
         evidence_contexts: List[EvidenceContext],
         *,
         dry_run: bool = False,
+        render_at: str = "",
     ) -> str:
         """渲染 candidate 到 Markdown 文件。
 
         Args:
             graph_change: GraphChange 实例。
             evidence_contexts: 证据上下文。
-            dry_run: 为 True 时只返回内容，不写文件。
+            dry_run: 为 True 时只返回内容哈希，不写文件。
+            render_at: 渲染时间标签（确定性，由调用方传入）。
 
         Returns:
             文件路径或 "dry-run"。
@@ -225,14 +236,26 @@ class CandidateRenderer:
         Raises:
             ValueError: CANDIDATE_FILE_CONFLICT（同 id 不同内容）。
         """
-        content = render_candidate_markdown(graph_change, evidence_contexts)
+        content = render_candidate_markdown(
+            graph_change, evidence_contexts, render_at=render_at
+        )
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
         file_path = self._candidates_dir / f"{graph_change.graph_change_id}.md"
 
         if dry_run:
+            # dry-run：仅检查文件冲突（预检），不写文件
+            if file_path.exists():
+                existing_content = file_path.read_text(encoding="utf-8")
+                existing_hash = hashlib.sha256(existing_content.encode("utf-8")).hexdigest()
+                if existing_hash != content_hash:
+                    raise ValueError(
+                        f"CANDIDATE_FILE_CONFLICT: {file_path.name} "
+                        f"already exists with different content"
+                    )
             return "dry-run"
 
+        # 文件冲突预检
         if file_path.exists():
             existing_content = file_path.read_text(encoding="utf-8")
             existing_hash = hashlib.sha256(existing_content.encode("utf-8")).hexdigest()
@@ -243,5 +266,7 @@ class CandidateRenderer:
                 f"already exists with different content"
             )
 
+        # 按需创建目录
+        self._candidates_dir.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         return str(file_path)
