@@ -448,7 +448,7 @@ class GraphEdge(StrictModel):
 # ---------- GraphChange（M1-R1 typed node/edge） ----------
 
 class GraphChange(StrictModel):
-    """GraphChange with typed node/edge fields."""
+    """GraphChange with typed node/edge fields + candidate overlay."""
     graph_change_id: str
     change_type: GraphChangeType
     node: Optional["GraphNode"] = None
@@ -493,6 +493,40 @@ class GraphChange(StrictModel):
         elif ct == "modify_attribute":
             if (node is None and edge is None) or (node is not None and edge is not None):
                 raise ValueError("modify_attribute 要求恰好 node / edge 其中一个非 null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_candidate_overlay(self) -> "GraphChange":
+        if self.node is not None:
+            if self.node.origin_kind != "graph_change":
+                raise ValueError("GraphChange node 要求 origin_kind=graph_change")
+            if self.node.review_status != "candidate":
+                raise ValueError("GraphChange node 要求 review_status=candidate")
+            if self.node.last_reviewed_at is not None:
+                raise ValueError("GraphChange node 要求 last_reviewed_at=null")
+        if self.edge is not None:
+            if self.edge.assertion_type not in ("FACT", "MODEL_INFERENCE"):
+                raise ValueError("GraphChange edge 要求 assertion_type 为 FACT/MODEL_INFERENCE")
+            if self.edge.review_status != "candidate":
+                raise ValueError("GraphChange edge 要求 review_status=candidate")
+            if self.edge.last_reviewed_at is not None:
+                raise ValueError("GraphChange edge 要求 last_reviewed_at=null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_review_timing(self) -> "GraphChange":
+        if self.review_status == "candidate":
+            if self.reviewed_at is not None:
+                raise ValueError("candidate 要求 reviewed_at 为 null")
+        else:
+            if self.reviewed_at is None:
+                raise ValueError(f"{self.review_status} 要求 reviewed_at 非 null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_unique_evidence(self) -> "GraphChange":
+        if len(self.new_evidence_ids) != len(set(self.new_evidence_ids)):
+            raise ValueError("new_evidence_ids 要求 unique")
         return self
 
 
@@ -576,6 +610,14 @@ class GraphChangeProposal(StrictModel):
                 raise ValueError("modify_attribute 要求恰好 candidate_node / candidate_edge 一个非 null")
             if cn is not None and cn.existing_node_id is None:
                 raise ValueError("modify_attribute with node 要求 existing_node_id 非 null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_unique_ids(self) -> "GraphChangeProposal":
+        if len(self.source_object_ids) != len(set(self.source_object_ids)):
+            raise ValueError("source_object_ids 要求 unique")
+        if len(self.new_evidence_ids) != len(set(self.new_evidence_ids)):
+            raise ValueError("new_evidence_ids 要求 unique")
         return self
 
 

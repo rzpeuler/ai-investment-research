@@ -926,3 +926,144 @@ class TestGraphReview:
                         reviewer=GraphReviewer(reviewer_id="u1", display_name="Test"),
                         reviewed_at=T1, candidate_hash=_HASH,
                         review_patch=[])
+
+# ============================================================
+# M1-R3: GraphChange candidate overlay attacks
+# ============================================================
+
+class TestCandidateOverlay:
+    def _make_gc(self, **kw):
+        d = {'graph_change_id':_UUID,'change_type':'add_node',
+             'node':_gc_node(),'edge':None,
+             'current_knowledge':'','new_evidence_ids':['ev-001'],
+             'suggested_change':'x','impact_scope':[],'conflicts':[],
+             'verification_points':[],'review_status':'candidate',
+             'created_at':T0,'reviewed_at':None}
+        d.update(kw); return d
+
+    def test_approved_node_embedded_fails(self):
+        n = _gc_node(review_status='approved',last_reviewed_at=T1)
+        assert validate_instance(n,'graph_node')==[]
+        assert validate_instance(self._make_gc(node=n),'graph_change')
+
+    def test_governance_seed_node_embedded_fails(self):
+        n = _gov_node()
+        assert validate_instance(n,'graph_node')==[]
+        assert validate_instance(self._make_gc(node=n),'graph_change')
+
+    def test_governance_edge_embedded_fails(self):
+        e = _gov_edge()
+        assert validate_instance(e,'graph_edge')==[]
+        gc = {'graph_change_id':_UUID,'change_type':'add_edge','node':None,'edge':e,
+              'current_knowledge':'','new_evidence_ids':['ev-001'],'suggested_change':'x',
+              'impact_scope':[],'conflicts':[],'verification_points':[],
+              'review_status':'candidate','created_at':T0,'reviewed_at':None}
+        assert validate_instance(gc,'graph_change')
+
+    def test_fact_approved_edge_embedded_fails(self):
+        e = _gc_edge(review_status='approved',last_reviewed_at=T1)
+        assert validate_instance(e,'graph_edge')==[]
+        gc = {'graph_change_id':_UUID,'change_type':'add_edge','node':None,'edge':e,
+              'current_knowledge':'','new_evidence_ids':['ev-001'],'suggested_change':'x',
+              'impact_scope':[],'conflicts':[],'verification_points':[],
+              'review_status':'candidate','created_at':T0,'reviewed_at':None}
+        assert validate_instance(gc,'graph_change')
+
+    def test_pydantic_approved_node_rejected(self):
+        gn = GraphNode(node_id='company:X',node_type='Company',name='x',created_at=T0,
+                        origin_kind='graph_change',originating_graph_change_id=_UUID,
+                        evidence_ids=['ev'],review_status='approved',last_reviewed_at=T1)
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=_UUID,change_type='add_node',node=gn,
+                         suggested_change='x',created_at=T0,new_evidence_ids=['ev'])
+
+    def test_pydantic_governance_node_rejected(self):
+        gn = GraphNode(node_id='industry:X',node_type='Industry',name='x',created_at=T0,
+                        origin_kind='governance_seed',originating_graph_change_id=None,
+                        evidence_ids=[],review_status='approved')
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=_UUID,change_type='add_node',node=gn,
+                         suggested_change='x',created_at=T0,new_evidence_ids=['ev'])
+
+    def test_pydantic_governance_edge_rejected(self):
+        ge = GraphEdge(edge_id='ge',source_node_id='A',relation='BELONGS_TO',target_node_id='B',
+                        created_at=T0,assertion_type='GOVERNANCE',
+                        originating_graph_change_id=None,evidence_ids=[],review_status='approved')
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=_UUID,change_type='add_edge',edge=ge,
+                         suggested_change='x',created_at=T0,new_evidence_ids=['ev'])
+
+    def test_pydantic_valid_node_accepted(self):
+        gn = GraphNode(node_id='company:X',node_type='Company',name='x',created_at=T0,
+                        origin_kind='graph_change',originating_graph_change_id=_UUID,evidence_ids=['ev'])
+        gc = GraphChange(graph_change_id=_UUID,change_type='add_node',node=gn,
+                          suggested_change='x',created_at=T0,new_evidence_ids=['ev'])
+        assert gc.node is not None
+
+
+class TestR3Parity:
+    def _make_gc(self, **kw):
+        d = {'graph_change_id':_UUID,'change_type':'add_node',
+             'node':_gc_node(),'edge':None,
+             'current_knowledge':'','new_evidence_ids':['ev-001'],
+             'suggested_change':'x','impact_scope':[],'conflicts':[],
+             'verification_points':[],'review_status':'candidate',
+             'created_at':T0,'reviewed_at':None}
+        d.update(kw); return d
+
+    def test_candidate_with_reviewed_at_pydantic_fails(self):
+        gn = GraphNode(node_id='company:X',node_type='Company',name='x',created_at=T0,
+                        origin_kind='graph_change',originating_graph_change_id=_UUID,evidence_ids=['ev'])
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=_UUID,change_type='add_node',node=gn,
+                         suggested_change='x',created_at=T0,new_evidence_ids=['ev'],
+                         review_status='candidate',reviewed_at=T1)
+
+    def test_approved_with_null_reviewed_at_pydantic_fails(self):
+        gn = GraphNode(node_id='company:X',node_type='Company',name='x',created_at=T0,
+                        origin_kind='graph_change',originating_graph_change_id=_UUID,evidence_ids=['ev'])
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=_UUID,change_type='add_node',node=gn,
+                         suggested_change='x',created_at=T0,new_evidence_ids=['ev'],
+                         review_status='approved',reviewed_at=None)
+
+    def test_candidate_with_reviewed_at_schema_fails(self):
+        assert validate_instance(self._make_gc(reviewed_at=T1),'graph_change')
+    def test_approved_with_null_reviewed_at_schema_fails(self):
+        assert validate_instance(self._make_gc(review_status='approved',reviewed_at=None),'graph_change')
+    def test_candidate_null_reviewed_at_schema_passes(self):
+        assert validate_instance(self._make_gc(),'graph_change')==[]
+    def test_approved_nonnull_reviewed_at_schema_passes(self):
+        assert validate_instance(self._make_gc(review_status='approved',reviewed_at=T1),'graph_change')==[]
+
+    def test_duplicate_evidence_pydantic_fails(self):
+        gn = GraphNode(node_id='company:X',node_type='Company',name='x',created_at=T0,
+                        origin_kind='graph_change',originating_graph_change_id=_UUID,evidence_ids=['ev'])
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=_UUID,change_type='add_node',node=gn,
+                         suggested_change='x',created_at=T0,new_evidence_ids=['ev','ev'])
+
+    def test_duplicate_source_ids_pydantic_fails(self):
+        from research_os.models import GraphProposalNode
+        cn = GraphProposalNode(existing_node_id=None,node_type='Company',name='x')
+        with pytest.raises(Exception):
+            GraphChangeProposal(proposal_type='add_node',source_object_ids=['a','a'],
+                                 candidate_node=cn,new_evidence_ids=['ev'],suggested_change='x')
+
+    def test_duplicate_evidence_proposal_pydantic_fails(self):
+        from research_os.models import GraphProposalNode
+        cn = GraphProposalNode(existing_node_id=None,node_type='Company',name='x')
+        with pytest.raises(Exception):
+            GraphChangeProposal(proposal_type='add_node',source_object_ids=['a'],
+                                 candidate_node=cn,new_evidence_ids=['ev','ev'],suggested_change='x')
+
+
+class TestFailClosedRegistryR3:
+    def test_missing_ref_raises_locally(self):
+        import jsonschema
+        from referencing import Registry
+        schema = {"$ref":"https://research-os.local/schemas/DOES_NOT_EXIST.schema.json",
+                  "$schema":"http://json-schema.org/draft-07/schema#"}
+        registry = Registry()
+        with pytest.raises(Exception):
+            list(jsonschema.Draft7Validator(schema, registry=registry).iter_errors({}))

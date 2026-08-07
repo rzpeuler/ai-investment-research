@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://research-os.local/schemas/graph_change.schema.json",
   "title": "GraphChange",
-  "description": "产业图谱变更候选（M1-R2：$ref 复用 GraphNode/GraphEdge，allOf 叠加 candidate 约束）。",
+  "description": "产业图谱变更候选（M1-R3：$ref 复用 GraphNode/GraphEdge，allOf 叠加 candidate 约束）。",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,13 +15,37 @@
     "change_type": { "type": "string", "enum": ["add_node","add_edge","modify_attribute","retire_edge","retire_node"] },
     "node": {
       "anyOf": [
-        { "$ref": "https://research-os.local/schemas/graph_node.schema.json" },
+        {
+          "allOf": [
+            { "$ref": "https://research-os.local/schemas/graph_node.schema.json" },
+            {
+              "type": "object",
+              "properties": {
+                "origin_kind": { "const": "graph_change" },
+                "review_status": { "const": "candidate" },
+                "last_reviewed_at": { "type": "null" }
+              }
+            }
+          ]
+        },
         { "type": "null" }
       ]
     },
     "edge": {
       "anyOf": [
-        { "$ref": "https://research-os.local/schemas/graph_edge.schema.json" },
+        {
+          "allOf": [
+            { "$ref": "https://research-os.local/schemas/graph_edge.schema.json" },
+            {
+              "type": "object",
+              "properties": {
+                "assertion_type": { "enum": ["FACT","MODEL_INFERENCE"] },
+                "review_status": { "const": "candidate" },
+                "last_reviewed_at": { "type": "null" }
+              }
+            }
+          ]
+        },
         { "type": "null" }
       ]
     },
@@ -37,42 +61,23 @@
   },
   "allOf": [
     {
-      "if": {
-        "properties": { "review_status": { "const": "candidate" } },
-        "required": ["review_status"]
-      },
+      "if": { "properties": { "review_status": { "const": "candidate" } }, "required": ["review_status"] },
       "then": { "properties": { "reviewed_at": { "type": "null" } } }
     },
     {
-      "if": {
-        "properties": { "review_status": { "enum": ["approved","approved_with_changes","deferred","rejected"] } },
-        "required": ["review_status"]
-      },
+      "if": { "properties": { "review_status": { "enum": ["approved","approved_with_changes","deferred","rejected"] } }, "required": ["review_status"] },
       "then": { "properties": { "reviewed_at": { "type": "string", "format": "date-time" } } }
     },
     {
-      "if": {
-        "properties": { "change_type": { "enum": ["add_node","retire_node"] } },
-        "required": ["change_type"]
-      },
-      "then": {
-        "properties": { "node": { "type": "object" }, "edge": { "type": "null" } }
-      }
+      "if": { "properties": { "change_type": { "enum": ["add_node","retire_node"] } }, "required": ["change_type"] },
+      "then": { "properties": { "node": { "type": "object" }, "edge": { "type": "null" } } }
     },
     {
-      "if": {
-        "properties": { "change_type": { "enum": ["add_edge","retire_edge"] } },
-        "required": ["change_type"]
-      },
-      "then": {
-        "properties": { "node": { "type": "null" }, "edge": { "type": "object" } }
-      }
+      "if": { "properties": { "change_type": { "enum": ["add_edge","retire_edge"] } }, "required": ["change_type"] },
+      "then": { "properties": { "node": { "type": "null" }, "edge": { "type": "object" } } }
     },
     {
-      "if": {
-        "properties": { "change_type": { "const": "modify_attribute" } },
-        "required": ["change_type"]
-      },
+      "if": { "properties": { "change_type": { "const": "modify_attribute" } }, "required": ["change_type"] },
       "then": {
         "anyOf": [
           { "properties": { "node": { "type": "object" }, "edge": { "type": "null" } } },
