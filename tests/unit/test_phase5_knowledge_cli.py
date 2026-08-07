@@ -168,7 +168,7 @@ def test_real_seed_inserts_34_31(project_env, runner):
     rows = db.query("SELECT edge_id FROM graph_edges")
     db.close()
     for r in rows:
-        assert r["edge_id"].startswith("edge:governance:") or True
+        assert r["edge_id"].startswith("edge:governance:")
 
 
 def test_real_seed_idempotent_second_run(project_env, runner):
@@ -253,3 +253,39 @@ def test_immutable_conflict_detected(project_env, runner):
         assert len(summary["conflicts"]) > 0, f"应检测到冲突但 summary 显示无冲突: {summary}"
     else:
         assert "IMMUTABLE_VERSION_CONFLICT" in result.output or "immutable" in result.output.lower()
+
+
+def test_real_seed_creates_fresh_db(project_env, runner):
+    """M2-R2: 无 --dry-run 时，不存在的 DB 被创建并正常 seed 34+31。"""
+    import json as _json
+    fresh_db = project_env / "data" / "sqlite" / "fresh_seed_r2.db"
+    assert not fresh_db.exists(), "测试开始前 DB 应不存在"
+    result = runner.invoke(cli, [
+        "knowledge", "seed",
+        "--ontology", str(project_env / "knowledge" / "ontology" / "industry_graph_v1.yaml"),
+        "--db", str(fresh_db),
+    ], env={"RESEARCH_PROJECT_PATH": str(project_env)})
+    assert result.exit_code == 0, result.output
+    s = _json.loads(result.output.strip())
+    assert s["status"] == "ok"
+    assert s["dry_run"] is False
+    assert s["nodes_inserted"] == 34
+    assert s["edges_inserted"] == 31
+    assert fresh_db.exists()
+    db = Database(str(fresh_db))
+    assert db.current_version() == 6
+    assert db.count("graph_nodes") == 34
+    assert db.count("graph_edges") == 31
+    db.close()
+    # 第二次：幂等
+    result2 = runner.invoke(cli, [
+        "knowledge", "seed",
+        "--ontology", str(project_env / "knowledge" / "ontology" / "industry_graph_v1.yaml"),
+        "--db", str(fresh_db),
+    ], env={"RESEARCH_PROJECT_PATH": str(project_env)})
+    assert result2.exit_code == 0, result2.output
+    s2 = _json.loads(result2.output.strip())
+    assert s2["nodes_inserted"] == 0
+    assert s2["edges_inserted"] == 0
+    assert s2["nodes_idempotent"] == 34
+    assert s2["edges_idempotent"] == 31

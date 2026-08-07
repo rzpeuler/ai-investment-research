@@ -299,3 +299,51 @@ def test_ontology_sha256_changes_with_content(tmp_path):
     _write_yaml(data, path2)
     _, _, meta2 = load_ontology(path2)
     assert meta1["ontology_sha256"] != meta2["ontology_sha256"]
+
+
+# ---- M2-R2 BELONGS_TO 方向硬门禁攻击 ----
+
+def test_belongs_to_reverse_direction_fails(tmp_path):
+    """Industry BELONGS_TO IndustrySegment -> FAIL."""
+    data = _build_yaml(
+        nodes=[
+            {"node_id": "industry:test", "node_type": "Industry", "name": "Test"},
+            {"node_id": "industry_segment:test:child", "node_type": "IndustrySegment", "name": "Child"},
+        ],
+        edges=[
+            {"source_node_id": "industry:test", "relation": "BELONGS_TO", "target_node_id": "industry_segment:test:child"},
+        ],
+    )
+    _write_yaml(data, tmp_path / "bad.yaml")
+    with pytest.raises(OntologyLoadError, match="方向错误"):
+        load_ontology(tmp_path / "bad.yaml")
+
+def test_belongs_to_segment_to_segment_fails(tmp_path):
+    """IndustrySegment BELONGS_TO IndustrySegment -> FAIL."""
+    data = _build_yaml(
+        nodes=[
+            {"node_id": "industry_segment:test:a", "node_type": "IndustrySegment", "name": "A"},
+            {"node_id": "industry_segment:test:b", "node_type": "IndustrySegment", "name": "B"},
+        ],
+        edges=[
+            {"source_node_id": "industry_segment:test:a", "relation": "BELONGS_TO", "target_node_id": "industry_segment:test:b"},
+        ],
+    )
+    _write_yaml(data, tmp_path / "bad.yaml")
+    with pytest.raises(OntologyLoadError, match="方向错误"):
+        load_ontology(tmp_path / "bad.yaml")
+
+def test_belongs_to_industry_to_industry_fails(tmp_path):
+    """Industry BELONGS_TO Industry -> FAIL."""
+    data = _build_yaml(
+        nodes=[
+            {"node_id": "industry:test:a", "node_type": "Industry", "name": "A"},
+            {"node_id": "industry:test:b", "node_type": "Industry", "name": "B"},
+        ],
+        edges=[
+            {"source_node_id": "industry:test:a", "relation": "BELONGS_TO", "target_node_id": "industry:test:b"},
+        ],
+    )
+    _write_yaml(data, tmp_path / "bad.yaml")
+    with pytest.raises(OntologyLoadError, match="方向错误"):
+        load_ontology(tmp_path / "bad.yaml")

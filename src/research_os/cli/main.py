@@ -695,31 +695,34 @@ def knowledge_seed(ontology_path, db_path, dry_run) -> None:
     nodes_total = len(nodes)
     edges_total = len(edges)
 
-    # ---- 数据库不存在时 ----
+    # ---- 数据库不存在 ----
     if not db_full.exists():
-        summary = {
-            "status": "dry_run",
-            "dry_run": dry_run,
-            "ontology_id": ontology_id,
-            "ontology_version": ontology_version,
-            "ontology_sha256": ontology_sha256,
-            "nodes_total": nodes_total,
-            "edges_total": edges_total,
-            "nodes_inserted": 0,
-            "edges_inserted": 0,
-            "nodes_idempotent": 0,
-            "edges_idempotent": 0,
-            "nodes_would_insert": nodes_total,
-            "edges_would_insert": edges_total,
-            "migration_required": True,
-            "conflicts": [],
-            "db_path": str(db_full),
-        }
-        click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-        return
-
-    # ---- 数据库存在时：检查迁移状态 ----
-    if dry_run:
+        if dry_run:
+            # dry-run + DB 不存在：0 写入，只报告
+            summary = {
+                "status": "dry_run",
+                "dry_run": True,
+                "ontology_id": ontology_id,
+                "ontology_version": ontology_version,
+                "ontology_sha256": ontology_sha256,
+                "nodes_total": nodes_total,
+                "edges_total": edges_total,
+                "nodes_inserted": 0,
+                "edges_inserted": 0,
+                "nodes_idempotent": 0,
+                "edges_idempotent": 0,
+                "nodes_would_insert": nodes_total,
+                "edges_would_insert": edges_total,
+                "migration_required": True,
+                "conflicts": [],
+                "db_path": str(db_full),
+            }
+            click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+            return
+        # 非 dry-run：创建 DB、迁移、继续走正常 seed 路径
+        db = Database(db_full)
+        db.initialize()
+    elif dry_run:
         db = Database.open_read_only(db_full)
     else:
         db = Database(db_full)

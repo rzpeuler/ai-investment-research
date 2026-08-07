@@ -208,6 +208,17 @@ def load_ontology(path: str | Path) -> Tuple[List[GraphNode], List[GraphEdge], d
                 f"edges[{i}] target_node_id={tgt} 不在节点集中"
             )
 
+        # 硬性门禁：BELONGS_TO 方向 = IndustrySegment → Industry
+        if rel == "BELONGS_TO":
+            src_type = node_map[src].get("node_type", "")
+            tgt_type = node_map[tgt].get("node_type", "")
+            if src_type != "IndustrySegment" or tgt_type != "Industry":
+                raise OntologyLoadError(
+                    f"edges[{i}] BELONGS_TO 方向错误："
+                    f"source={src}({src_type}) → target={tgt}({tgt_type})；"
+                    f"必须为 IndustrySegment → Industry"
+                )
+
         edge_id = _deterministic_edge_id(src, rel, tgt)
 
         # 去重

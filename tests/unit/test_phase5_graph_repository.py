@@ -341,3 +341,19 @@ def test_generic_upsert_raises_for_graph_tables(repo):
     assert "graph_edges" not in PK_COLUMNS
     assert "graph_reviews" not in PK_COLUMNS
     assert "graph_applications" not in PK_COLUMNS
+
+
+# ---- M2-R2 edge version-gap ----
+
+def test_edge_version_gap_v3_attempt_fails(tmp_path):
+    """edge v1 insert then v3 attempt -> VERSION_GAP."""
+    db = Database(tmp_path / "test.db")
+    db.initialize()
+    repo = GraphRepository(db)
+    edge = _make_edge("e1", version=1)
+    assert repo.append_edge(edge) == "inserted"
+    edge_v3 = _make_edge("e1", version=3)
+    with pytest.raises(ValueError, match="VERSION_GAP"):
+        repo.append_edge(edge_v3)
+    assert repo.count_edges() == 1
+    db.close()
