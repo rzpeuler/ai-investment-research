@@ -87,7 +87,7 @@
 - **Offline CI 已上线**（`.github/workflows/offline-ci.yml`）：GitHub-hosted Ubuntu、Python 3.12；
   trigger: PR / push to master / workflow_dispatch；permissions: contents: read；
   不配置 DeepSeek API Key / 项目 secrets；5 个 online tests 默认 skip；
-  1140 tests collected / 1133 passed / 5 skipped / 51/51 schemas / compileall PASS
+  1133 passed / 5 skipped / 51/51 schemas / compileall PASS
   （baseline run 31154022296，SHA `ea026f1`）；
   在线能力仍依赖显式 live acceptance，不得由 Offline CI PASS 替代
 - **预测能力边界**：仅确定性外推与显式用户/公司指引假设；model_generated 须真实调用
