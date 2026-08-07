@@ -8,7 +8,8 @@
 > 任务下达时：Phase 4 engineering foundation 已通过，full capability 尚未完成独立验收；
 > Phase 5 = `BLOCKED`
 > 最终结果：Phase 4 full capability = `PASS`；独立验收 SHA
-> `9506f6a19ab60187d1ab0bc4991cfa427606ecae`；PR #3 = `MERGE_READY`；Phase 5 = `BLOCKED`
+> `9506f6a19ab60187d1ab0bc4991cfa427606ecae`；PR #3 = `MERGED`；master Squash SHA
+> `4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`；Phase 5 = `BLOCKED`
 
 ## 1. 授权目标
 
@@ -143,5 +144,6 @@ Fake Provider、Tier C 核心财务、缺必需任务或严重 Evidence 缺陷�
   不依赖 Fake Provider，也未放宽 Validator。
 
 独立验收结论：`PASS`。验收 SHA 为
-`9506f6a19ab60187d1ab0bc4991cfa427606ecae`，PR #3 可按 Squash 方式合并。Phase 4 full
-capability 正式收口；Phase 5 继续 `BLOCKED`，正式任务书和明确授权完成前不得实施。
+`9506f6a19ab60187d1ab0bc4991cfa427606ecae`。PR #3 已按 Squash 方式合并，master SHA 为
+`4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`。Phase 4 full capability 正式收口；Phase 5
+继续 `BLOCKED`，正式任务书和明确授权完成前不得实施。
