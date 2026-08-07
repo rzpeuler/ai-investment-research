@@ -12,11 +12,9 @@ announcementTitle, announcementTime(ms), adjunctUrl, adjunctType, ...}
 """
 from __future__ import annotations
 
-import re
 import subprocess
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 from research_os.collectors.base import (
     CollectorAdapter,
@@ -27,7 +25,7 @@ from research_os.collectors.base import (
 )
 from research_os.models import RawItem
 from research_os.utils.id import content_sha256, new_uuid
-from research_os.utils.time import now_iso, parse_iso
+from research_os.utils.time import now_iso
 from research_os.utils.url import normalize_url
 from research_os.validators.schema_validator import validate_instance
 
@@ -43,7 +41,7 @@ class CninfoCollector(CollectorAdapter):
 
     def _post_query(self, params: Dict[str, Any], timeout: float = 25.0) -> Optional[dict]:
         """调用公告查询接口。失败返回 None（调用方显式处理）。"""
-        data = "&".join(f"{k}={v}" for k, v in params.items())
+        data = urlencode(params)
         cmd = [
             "curl.exe", "-sS", "--max-time", str(int(timeout)),
             "-X", "POST", QUERY_URL,
@@ -51,7 +49,7 @@ class CninfoCollector(CollectorAdapter):
             "--data", data,
         ]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
+            proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
         except subprocess.TimeoutExpired:
             return None
         if proc.returncode != 0 or not proc.stdout.strip():
@@ -59,7 +57,7 @@ class CninfoCollector(CollectorAdapter):
         try:
             import json
 
-            return json.loads(proc.stdout)
+            return json.loads(proc.stdout.decode("utf-8"))
         except Exception:  # noqa: BLE001
             return None
 
@@ -97,7 +95,7 @@ class CninfoCollector(CollectorAdapter):
             "secid": "", "category": "", "trade": "",
             "seDate": se_date,
             "sortName": "", "sortType": "",
-            "isHLtitle": "true",
+            "isHLtitle": "false",
         }
         result = self._post_query(params)
         if result is None:

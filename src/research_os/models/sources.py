@@ -14,12 +14,18 @@ from research_os.utils.time import validate_iso
 
 AccessLevel = Literal[
     "public", "public_but_unstable", "login_required", "client_only",
-    "paid", "manual_only", "unavailable", "unknown",
+    "paid", "manual_only", "user_only", "unavailable", "unknown",
 ]
 AutomationLevel = Literal[
     "api", "html", "browser", "export_import", "manual", "none", "unknown",
 ]
-StoragePolicy = Literal["metadata_only", "metadata_and_excerpt", "full_text_allowed", "unknown"]
+StoragePolicy = Literal[
+    "metadata_only",
+    "metadata_and_excerpt",
+    "full_text_allowed",
+    "local_file_reference",
+    "unknown",
+]
 SourceStatus = Literal["candidate", "approved", "watchlist", "deprecated", "blocked"]
 SourceTier = Literal["S", "A", "B", "C", "D"]
 ProbeStatus = Literal["success", "partial", "blocked", "login_required", "failed"]

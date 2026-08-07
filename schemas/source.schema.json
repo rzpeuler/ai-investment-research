@@ -30,7 +30,7 @@
     "access_level": {
       "type": "string",
       "enum": ["public", "public_but_unstable", "login_required", "client_only",
-               "paid", "manual_only", "unavailable", "unknown"]
+               "paid", "manual_only", "user_only", "unavailable", "unknown"]
     },
     "automation_level": {
       "type": "string",
@@ -40,7 +40,7 @@
     "paid": { "type": "boolean" },
     "storage_policy": {
       "type": "string",
-      "enum": ["metadata_only", "metadata_and_excerpt", "full_text_allowed", "unknown"]
+      "enum": ["metadata_only", "metadata_and_excerpt", "full_text_allowed", "local_file_reference", "unknown"]
     },
     "rate_limit": {
       "type": ["string", "null"],
