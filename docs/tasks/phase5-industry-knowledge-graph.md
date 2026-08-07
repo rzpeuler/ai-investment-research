@@ -1179,7 +1179,9 @@ config/knowledge_policy.yaml
    - JSON 为 deterministic export；
    - SOURCE_OPINION / HYPOTHESIS 不直接进入 active graph。
 5. 更新 NEXT_PHASE：
-   - Phase 5 可进入工程实施，但不得提前标 PASS。
+   - Phase 5 的设计与工程前置条件可被冻结为满足；
+     只有用户另行明确授权后才可进入工程实施，
+     且不得提前标 PASS。
 6. CURRENT_STATE：
    - Phase 5 `IN_PROGRESS` 只能在用户正式授权后写入。
 
@@ -1195,7 +1197,7 @@ docs only
 Commit：
 
 ```text
-docs: authorize phase5 knowledge graph design
+docs: freeze phase5 knowledge graph taskbook
 ```
 
 ---

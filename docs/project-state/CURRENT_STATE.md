@@ -19,6 +19,14 @@
   `INDEPENDENT_ACCEPTANCE: PASS`。PR #3 已以 Squash 合并，master SHA 为
   `4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`。
 
+- `pre_phase5_engineering_baseline`:
+  - `ea026f18ce09efd2f0a24bab8a38255e75233911`
+  - 基线提交：`c35632b` — ci: add offline validation gate；
+    `ea026f1` — fix: make cninfo collector platform independent
+  - Offline CI baseline run 31154022296：Ubuntu / Python 3.12，
+    1133 passed / 5 skipped / 51/51 schemas / compileall PASS；
+    permissions: contents: read；无 DeepSeek key / 无 project secrets
+
 ## 阶段状态
 
 | 阶段 | 状态 | 说明 |
@@ -81,8 +89,9 @@
 ## 当前准入结论
 
 Phase 4.1 已完成独立验收，结论为 `PASS`，验收 SHA 为
-`9506f6a19ab60187d1ab0bc4991cfa427606ecae`。Phase 5 继续 `BLOCKED`，在正式任务书和
-明确授权完成前不得实施。
+`9506f6a19ab60187d1ab0bc4991cfa427606ecae`。
+Phase 5 正式任务书已经批准；当前仅缺用户明确的工程实施授权。
+下一步只能等待实施授权或继续任务书/设计审查。
 
 ## 2026-08-07 最终工程与在线验收
 
@@ -94,4 +103,5 @@ Phase 4.1 已完成独立验收，结论为 `PASS`，验收 SHA 为
   并重新生成脱敏摘要；此前 DeepSeek probe、巨潮元数据与 PDF 下载测试继续有效。
 
 Phase 4 engineering foundation 与 full research capability 均为 `PASS`，Phase 4 正式收口；
-Phase 5 保持 `BLOCKED`，下一步仅可制定正式任务书，不得提前实施。
+Phase 5 正式任务书已经批准；当前仅缺用户明确的工程实施授权。
+下一步只能等待实施授权或继续任务书/设计审查。不得提前实施。

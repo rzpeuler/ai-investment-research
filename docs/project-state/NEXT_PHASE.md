@@ -11,13 +11,30 @@
 - **Phase 5 implementation：BLOCKED_PENDING_USER_AUTHORIZATION**
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
-M1-M10 必须等待用户另行明确授权才能开始。
+
+## Phase 5 工程前置条件
+
+| # | 条件 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 统一控制面、晨报 Evidence、Phase 4 完成定义和文档治理问题全部关闭 | SATISFIED | Phase 4.1 独立验收 PASS，统一 Orchestrator/ScenarioRegistry 已接入，晨报 Evidence 血缘完整 |
+| 2 | 全量测试与已配置质量检查通过 | SATISFIED | 1133 passed / 5 skipped / 51/51 schemas / compileall PASS；Offline CI run 31154022296 通过 |
+| 3 | Phase 4 核心语义模块达到最低覆盖，真实 Provider 状态如实记录 | SATISFIED | DeepSeek 真实 Provider 已验证；600519.SH / 300750.SZ 取得 SUCCESS；无 Provider 时如实回退 |
+| 4 | Claim/Evidence Validator 无严重缺口，人工财务和派生事件血缘可反查 | SATISFIED | ERV-001—093 Validator 已实现；Document/checksum/数值/时间/实体校验全部在位 |
+| 5 | README / CURRENT_STATE / NEXT_PHASE / KNOWN_LIMITATIONS / taskbook 状态一致 | SATISFIED | M0-R1 治理一致性修正已完成，全部文档反映真实能力边界（含 Offline CI 上线） |
+| 6 | 正式 Phase 5 任务书存在且不改变工程指南既有边界 | SATISFIED | `docs/tasks/phase5-industry-knowledge-graph.md` 已批准；DECISIONS.md #30 已冻结 |
 
 ## Phase 5 实施授权门
 
-用户必须另行明确授权开始 Phase 5 工程实施。不得把"批准任务书"解释为实施授权。
+**所有工程前置条件均已满足 ≠ 自动开始 Phase 5。**
 
-```text
+```
+Phase 5 implementation authorization gate: PENDING
+```
+
+用户必须另行明确授权开始 Phase 5 工程实施，不得把"批准任务书"或"前置条件满足"
+解释为实施授权。只有用户明确授权 M1 后，Phase 5 才可进入 `IN_PROGRESS`。
+
+```
 下一允许动作：
 仅等待用户授权 M1，或继续进行任务书/设计审查。
 
