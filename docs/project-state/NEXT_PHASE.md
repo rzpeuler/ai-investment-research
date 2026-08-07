@@ -8,7 +8,12 @@
 - **Phase 5 taskbook：APPROVED**
   - 任务书路径：`docs/tasks/phase5-industry-knowledge-graph.md`
   - 正式设计决策：`DECISIONS.md` #30
-- **Phase 5 implementation：BLOCKED_PENDING_USER_AUTHORIZATION**
+- **Phase 5 implementation：IN_PROGRESS**
+  - M0：PASS（SHA `df358da`，M0 Offline CI `31159354574` PASS）
+  - M1 Graph Contracts：AUTHORIZED / IN_PROGRESS
+  - M2-M10：NOT_AUTHORIZED
+
+Phase 5 正式任务书已由用户批准。用户已于 2026-08-07 明确授权开始 M1。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
@@ -25,14 +30,16 @@ Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施�
 
 ## Phase 5 实施授权门
 
-**所有工程前置条件均已满足 ≠ 自动开始 Phase 5。**
+**所有工程前置条件均已满足。用户已于 2026-08-07 明确授权开始 Phase 5 M1。**
 
 ```
-Phase 5 implementation authorization gate: PENDING
+Phase 5 implementation authorization gate: SATISFIED
 ```
 
-用户必须另行明确授权开始 Phase 5 工程实施，不得把"批准任务书"或"前置条件满足"
-解释为实施授权。只有用户明确授权 M1 后，Phase 5 才可进入 `IN_PROGRESS`。
+当前允许：**M1 only**。
+
+M2 要求：M1 实现完成 + Offline CI PASS + 独立架构验收 + 用户另行明确授权。
+不得预授权 M2。
 
 ```
 下一允许动作：

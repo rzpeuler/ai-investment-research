@@ -8,8 +8,11 @@ from __future__ import annotations
 import pytest
 
 from research_os.models import (
-    Claim, Entity, Event, Evidence, GraphChange, ModuleResult, Opinion,
+    Claim, Entity, Event, Evidence, GraphChange, GraphChangeProposal,
+    GraphEdge, GraphNode, GraphReview, ModuleResult, Opinion,
     RawItem, Task,
+    GraphRelation, GraphAssertionType, GraphReviewer,
+    GraphNodeType, GraphProposalAssertionType,
 )
 from research_os.validators.schema_validator import validate_instance
 from tests.fixtures import samples
@@ -38,7 +41,37 @@ MINIMAL_CONSTRUCTORS = [
     (ModuleResult, {"module": "m", "version": "1.0.0", "as_of": T0},
      "module_result"),
     (GraphChange, {"graph_change_id": _UUID, "change_type": "add_node",
-                   "suggested_change": "s", "created_at": T0}, "graph_change"),
+                   "suggested_change": "add new node", "created_at": T0,
+                   "node": {
+                       "node_id": "company:600519.SH", "node_type": "Company",
+                       "name": "贵州茅台", "aliases": [], "description": "",
+                       "status": "active", "valid_from": None, "valid_to": None,
+                       "evidence_ids": ["ev-001"], "version": 1,
+                       "last_reviewed_at": None, "review_status": "candidate",
+                       "origin_kind": "graph_change",
+                       "originating_graph_change_id": _UUID, "created_at": T0,
+                   },
+                   "edge": None,
+                   "new_evidence_ids": ["ev-001"]}, "graph_change"),
+    (GraphNode, {"node_id": "company:600519.SH", "node_type": "Company",
+                 "name": "贵州茅台", "created_at": T0}, "graph_node"),
+    (GraphEdge, {"edge_id": "edge-001", "source_node_id": "company:A",
+                 "relation": "SUPPLIES", "target_node_id": "company:B",
+                 "created_at": T0}, "graph_edge"),
+    (GraphChangeProposal, {"proposal_type": "add_node",
+                           "source_object_ids": ["obj-001"],
+                           "candidate_node": {"existing_node_id": None,
+                                              "node_type": "Company",
+                                              "name": "新公司",
+                                              "aliases": [], "description": "",
+                                              "valid_from": None, "valid_to": None},
+                           "candidate_edge": None,
+                           "new_evidence_ids": ["ev-001"],
+                           "suggested_change": "add"}, "graph_change_proposal"),
+    (GraphReview, {"review_id": _UUID, "graph_change_id": _UUID,
+                   "decision": "approved",
+                   "reviewer": {"reviewer_type": "human", "reviewer_id": "user-001"},
+                   "reviewed_at": T0, "candidate_hash": "a" * 64}, "graph_review"),
 ]
 
 

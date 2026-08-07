@@ -102,7 +102,7 @@ def test_empty_collections_pass(name, factory):
         "module_result": ["facts", "source_opinions", "analyses", "hypotheses",
                           "open_questions", "evidence_ids", "warnings",
                           "missing_data", "artifacts"],
-        "graph_change": ["new_evidence_ids", "impact_scope", "conflicts",
+        "graph_change": ["impact_scope", "conflicts",
                          "verification_points"],
     }.get(name, [])
     for f in list_fields:
@@ -163,9 +163,9 @@ def test_numeric_bounds_fail():
 
 
 def test_all_schema_files_present():
-    """51 个 Schema 文件必须齐全（含 Phase 4.1 官方财务定位清单）。"""
+    """55 个 Schema 文件必须齐全（含 Phase 5 产业图谱 4 个）。"""
     from research_os.validators.schema_validator import schema_path
 
     for name in SCHEMA_NAMES:
         assert schema_path(name).exists(), f"缺少 {name}.schema.json"
-    assert len(SCHEMA_NAMES) == 51
+    assert len(SCHEMA_NAMES) == 55

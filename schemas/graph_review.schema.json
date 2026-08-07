@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/graph_review.schema.json",
+  "title": "GraphReview",
+  "description": "人工审核审计契约。reviewer 必须是真实 human，不得使用 system/llm/auto。review_patch 使用受限 JSON Patch，只允许修改批准的业务路径。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "review_id",
+    "graph_change_id",
+    "decision",
+    "reviewer",
+    "reviewed_at",
+    "candidate_hash",
+    "review_patch",
+    "notes",
+    "resulting_graph_change_id"
+  ],
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$",
+      "description": "UUID"
+    },
+    "graph_change_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$",
+      "description": "被审核的 GraphChange ID"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["approved", "approved_with_changes", "deferred", "rejected"],
+      "description": "审核决定。approved_with_changes 须有 patch + resulting id；deferred/rejected 禁止 patch。"
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_type", "reviewer_id"],
+      "properties": {
+        "reviewer_type": {
+          "type": "string",
+          "enum": ["human"],
+          "description": "只能 human。阻止 system/llm/auto 冒充。"
+        },
+        "reviewer_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "非空 reviewer 标识"
+        },
+        "display_name": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ],
+          "description": "显示名"
+        }
+      }
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "人工审核发生时间，不是知识发布时间。"
+    },
+    "candidate_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "候选内容 SHA-256 小写 hex。用于检测 candidate 在审核后是否被修改。"
+    },
+    "review_patch": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "path", "value"],
+            "properties": {
+              "op": { "type": "string", "enum": ["add", "replace"] },
+              "path": { "type": "string", "minLength": 1 },
+              "value": {}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "path"],
+            "properties": {
+              "op": { "type": "string", "enum": ["remove"] },
+              "path": { "type": "string", "minLength": 1 }
+            }
+          }
+        ]
+      },
+      "description": "受限 JSON Patch operations。approved 时为空数组。path 仅限批准的业务路径。"
+    },
+    "notes": {
+      "type": "string",
+      "description": "审核备注"
+    },
+    "resulting_graph_change_id": {
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+        { "type": "null" }
+      ],
+      "description": "approved_with_changes 时指向 replacement GraphChange UUID；其他 decision 为 null。"
+    }
+  }
+}

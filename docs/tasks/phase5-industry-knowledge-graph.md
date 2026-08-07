@@ -1,10 +1,11 @@
 # Phase 5：产业图谱与长期知识库闭环——正式工程任务书
 
 **TASKBOOK_STATUS: APPROVED**
-**IMPLEMENTATION_STATUS: BLOCKED_PENDING_USER_AUTHORIZATION**
+**IMPLEMENTATION_STATUS: IN_PROGRESS**
+**CURRENT_MILESTONE: M1_GRAPH_CONTRACTS**
 
-> **任务书批准 ≠ Phase 5 工程实施授权。**
-> M1-M10 必须等待用户另行明确授权。当前 Phase 5 仍为 `BLOCKED`。
+> **任务书批准 ≠ Phase 5 工程实施授权。M1 由用户于 2026-08-07 明确授权。**
+> M2-M10 必须等待各自独立授权。当前 Phase 5 为 `IN_PROGRESS`（M1 阶段）。
 
 **任务书创建基线：**
 

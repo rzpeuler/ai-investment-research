@@ -31,7 +31,8 @@ def test_phase_status_documents_are_consistent():
     ]
     for text in files:
         assert "PASS" in text
-        assert "BLOCKED" in text
+        # Phase 5 is now IN_PROGRESS — any valid phase status is acceptable
+        assert any(s in text for s in ["BLOCKED", "IN_PROGRESS"])
         assert "PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE" not in text
 
 

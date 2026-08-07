@@ -37,7 +37,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | BLOCKED | 正式任务书已由用户批准（`docs/tasks/phase5-industry-knowledge-graph.md`），但尚未收到 M1-M10 工程实施授权。正式设计决策见 DECISIONS.md #30。 |
+| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 AUTHORIZED / IN_PROGRESS，M2-M10 NOT_AUTHORIZED。任务书 `docs/tasks/phase5-industry-knowledge-graph.md`，正式设计决策 DECISIONS.md #30。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -90,8 +90,8 @@
 
 Phase 4.1 已完成独立验收，结论为 `PASS`，验收 SHA 为
 `9506f6a19ab60187d1ab0bc4991cfa427606ecae`。
-Phase 5 正式任务书已经批准；当前仅缺用户明确的工程实施授权。
-下一步只能等待实施授权或继续任务书/设计审查。
+Phase 5 正式任务书已经批准；用户已于 2026-08-07 明确授权开始 Phase 5 M1。
+M1 Graph Contracts 正在进行中。M2-M10 尚未授权。下一步只能完成 M1 或等待独立架构验收。
 
 ## 2026-08-07 最终工程与在线验收
 

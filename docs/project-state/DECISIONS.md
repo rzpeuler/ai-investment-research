@@ -246,3 +246,35 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 17. **任务书获批 ≠ 工程实施获批**；在用户明确授权 M1 前 Phase 5 保持 `BLOCKED`。
 18. **GraphChange 对象**从 Phase 0 候选容器升级为正式变更对象；M1 后 `node` 和
    `edge` 字段必须符合 GraphNode/GraphEdge draft 结构，不再使用 arbitrary dict。
+
+## 31. Phase 5 M1 图谱契约语义冻结（2026-08-07）
+
+> M1 Graph Contracts 已由用户明确授权。本决定冻结 M1 实现必须遵守的语义规则。
+
+1. **GraphNode/GraphEdge 的双重角色**：既是 GraphChange 的 candidate payload 结构，
+   也是 apply 后的正式 core graph object。对象级 `review_status` 只允许 `candidate` / `approved`；
+   `approved_with_changes` / `deferred` / `rejected` 属于 `GraphReview.decision` 和
+   `GraphChange.review_status`，不出现在 core graph object 上。
+
+2. **approved_with_changes 不可原地覆盖**：原始 GraphChange candidate 内容不被 review_patch
+   原地修改。规则为：original GraphChange → GraphReview(decision=approved_with_changes)
+   → validated review_patch → deterministic replacement GraphChange → NEW graph_change_id。
+   `GraphReview.resulting_graph_change_id` 指向新 GraphChange。原始保留。
+
+3. **reviewer 是严格对象**：`{reviewer_type: "human", reviewer_id: non-empty, display_name: string|null}`，
+   `reviewer_type` 只能 `"human"`。从 Schema 层阻止 `system`/`llm`/`auto` 冒充。
+
+4. **review_patch 受限 JSON Patch**：仅允许 `add`/`replace`/`remove`。允许的业务路径：
+   `/suggested_change`、`/impact_scope`、`/conflicts`、`/verification_points`、
+   `/new_evidence_ids`、`/node/name`、`/node/aliases`、`/node/description`、`/node/status`、
+   `/node/valid_from`、`/node/valid_to`、`/node/evidence_ids`、`/edge/attributes`、
+   `/edge/valid_from`、`/edge/valid_to`、`/edge/confidence`、`/edge/evidence_ids` 及子路径。
+   禁止 patch 系统治理字段（ID、type、version、origin、review、created_at 等）。
+
+5. **JSON Schema `$ref` 本地解析**：GraphChange Schema 复用 `graph_node.schema.json` 和
+   `graph_edge.schema.json` 的 `$ref`。validator 必须建立本地 schemas/ registry，离线解析，
+   不发起 HTTP。不得复制内联 Node/Edge schema。
+
+6. **Contract tests scope**：M1 只测试 structural validation（type、enum、required、
+   additionalProperties、信心范围、时间格式、proposal 防污染字段、patch 路径白名单）。
+   不测试 DB existence、entity equality、version monotonicity、graph state conflict（这些属于 M2-M6）。

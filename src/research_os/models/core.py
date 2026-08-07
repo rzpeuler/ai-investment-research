@@ -8,7 +8,7 @@ Task / Entity / RawItem / Event / Opinion / Claim / Evidence / ModuleResult / Gr
 """
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -309,13 +309,43 @@ class ModuleResult(StrictModel):
         return _iso_validator(value)
 
 
-# ---------- GraphChange（指南 46 节） ----------
+# ---------- Phase 5 图谱枚举 ----------
+
+GraphNodeType = Literal[
+    "Industry", "IndustrySegment", "Company", "Product", "Technology",
+    "Material", "Equipment", "Application", "Policy", "Event",
+    "Metric", "PersonOrInstitution", "Report", "InvestmentTheme",
+]
+
+GraphNodeStatus = Literal["active", "superseded", "expired", "retired"]
+
+GraphRelation = Literal[
+    "BELONGS_TO", "UPSTREAM_OF", "DOWNSTREAM_OF", "SUPPLIES",
+    "PURCHASES_FROM", "PRODUCES", "USES_TECHNOLOGY", "APPLIED_IN",
+    "COMPETES_WITH", "SUBSTITUTES", "BENEFITS_FROM", "HARMED_BY",
+    "AFFECTS", "MENTIONED_IN", "SUPPORTED_BY", "CONTRADICTED_BY",
+    "HAS_METRIC", "HAS_CATALYST",
+]
+
+GraphAssertionType = Literal["GOVERNANCE", "FACT", "MODEL_INFERENCE"]
+GraphProposalAssertionType = Literal["FACT", "MODEL_INFERENCE"]
+
+GraphObjectReviewStatus = Literal["candidate", "approved"]
+
+GraphOriginKind = Literal["governance_seed", "graph_change"]
+
+GraphReviewDecision = Literal["approved", "approved_with_changes", "deferred", "rejected"]
+
+GraphPatchOp = Literal["add", "replace", "remove"]
+
+
+# ---------- GraphChange（M1 正式化：node/edge 使用 GraphNode/GraphEdge） ----------
 
 class GraphChange(StrictModel):
     graph_change_id: str
     change_type: GraphChangeType
-    node: Optional[dict] = None
-    edge: Optional[dict] = None
+    node: Optional[Any] = None  # GraphNode | null，延迟引用
+    edge: Optional[Any] = None  # GraphEdge | null，延迟引用
     current_knowledge: str = ""
     new_evidence_ids: List[str] = Field(default_factory=list)
     suggested_change: str = Field(..., min_length=1)
@@ -337,3 +367,156 @@ class GraphChange(StrictModel):
         if value is not None:
             return _iso_validator(value)
         return value
+
+
+# ---------- GraphNode（Phase 5 M1） ----------
+
+class GraphNode(StrictModel):
+    node_id: str = Field(..., min_length=1)
+    node_type: GraphNodeType
+    name: str = Field(..., min_length=1)
+    aliases: List[str] = Field(default_factory=list)
+    description: str = ""
+    status: GraphNodeStatus = "active"
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    evidence_ids: List[str] = Field(default_factory=list)
+    version: int = Field(1, ge=1)
+    last_reviewed_at: Optional[str] = None
+    review_status: GraphObjectReviewStatus = "candidate"
+    origin_kind: GraphOriginKind = "graph_change"
+    originating_graph_change_id: Optional[str] = None
+    created_at: str = ""
+
+    @field_validator("created_at", "last_reviewed_at")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value != "":
+            return _iso_validator(value)
+        return value
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _validity_iso(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+# ---------- GraphEdge（Phase 5 M1） ----------
+
+class GraphEdge(StrictModel):
+    edge_id: str = Field(..., min_length=1)
+    source_node_id: str = Field(..., min_length=1)
+    relation: GraphRelation
+    target_node_id: str = Field(..., min_length=1)
+    attributes: dict = Field(default_factory=dict)
+    assertion_type: GraphAssertionType = "FACT"
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    evidence_ids: List[str] = Field(default_factory=list)
+    review_status: GraphObjectReviewStatus = "candidate"
+    version: int = Field(1, ge=1)
+    originating_graph_change_id: Optional[str] = None
+    created_at: str = ""
+    last_reviewed_at: Optional[str] = None
+
+    @field_validator("created_at", "last_reviewed_at")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value != "":
+            return _iso_validator(value)
+        return value
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _validity_iso(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+# ---------- GraphChangeProposal 辅助模型 ----------
+
+class GraphProposalNode(StrictModel):
+    existing_node_id: Optional[str] = None
+    node_type: GraphNodeType
+    name: str = Field(..., min_length=1)
+    aliases: List[str] = Field(default_factory=list)
+    description: str = ""
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+class GraphProposalEdge(StrictModel):
+    source_node_id: str = Field(..., min_length=1)
+    relation: GraphRelation
+    target_node_id: str = Field(..., min_length=1)
+    attributes: dict = Field(default_factory=dict)
+    assertion_type: GraphProposalAssertionType = "FACT"
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+# ---------- GraphChangeProposal（Phase 5 M1） ----------
+
+class GraphChangeProposal(StrictModel):
+    proposal_type: GraphChangeType
+    source_object_ids: List[str] = Field(..., min_length=1)
+    candidate_node: Optional[GraphProposalNode] = None
+    candidate_edge: Optional[GraphProposalEdge] = None
+    new_evidence_ids: List[str] = Field(..., min_length=1)
+    suggested_change: str = Field(..., min_length=1)
+    impact_scope: List[str] = Field(default_factory=list)
+    conflicts: List[str] = Field(default_factory=list)
+    verification_points: List[str] = Field(default_factory=list)
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+
+# ---------- GraphReview 辅助模型 ----------
+
+class GraphReviewer(StrictModel):
+    reviewer_type: Literal["human"] = "human"
+    reviewer_id: str = Field(..., min_length=1)
+    display_name: Optional[str] = None
+
+
+class GraphPatchOperation(StrictModel):
+    op: GraphPatchOp
+    path: str = Field(..., min_length=1)
+    value: Any = None
+
+
+# ---------- GraphReview（Phase 5 M1） ----------
+
+class GraphReview(StrictModel):
+    review_id: str
+    graph_change_id: str
+    decision: GraphReviewDecision
+    reviewer: GraphReviewer
+    reviewed_at: str
+    candidate_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    review_patch: List[GraphPatchOperation] = Field(default_factory=list)
+    notes: str = ""
+    resulting_graph_change_id: Optional[str] = None
+
+    @field_validator("reviewed_at")
+    @classmethod
+    def _iso(cls, value: str) -> str:
+        return _iso_validator(value)

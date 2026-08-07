@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/graph_node.schema.json",
+  "title": "GraphNode",
+  "description": "产业图谱节点。既是 GraphChange candidate payload 也是 apply 后的正式 core graph object。node_id 必须稳定，Company 须与 Entity.entity_id 一致。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "node_id",
+    "node_type",
+    "name",
+    "aliases",
+    "description",
+    "status",
+    "valid_from",
+    "valid_to",
+    "evidence_ids",
+    "version",
+    "last_reviewed_at",
+    "review_status",
+    "origin_kind",
+    "originating_graph_change_id",
+    "created_at"
+  ],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "稳定节点 identity。Company 须以 company: 开头并与 Entity.entity_id 一致。M4 Validator 检查数据库，M1 仅检查前缀。"
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "Industry",
+        "IndustrySegment",
+        "Company",
+        "Product",
+        "Technology",
+        "Material",
+        "Equipment",
+        "Application",
+        "Policy",
+        "Event",
+        "Metric",
+        "PersonOrInstitution",
+        "Report",
+        "InvestmentTheme"
+      ],
+      "description": "正式 node type 枚举。新增类型属于 ONTOLOGY_CHANGE，须用户批准。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "显示名"
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "别名列表"
+    },
+    "description": {
+      "type": "string",
+      "description": "节点描述"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "superseded", "expired", "retired"],
+      "description": "业务目标状态。active 表示候选或最终版本的期望状态，不等于已写入 active graph（由 M4/M6 决定）。"
+    },
+    "valid_from": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ],
+      "description": "知识在业务世界中的有效起始时间"
+    },
+    "valid_to": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ],
+      "description": "知识在业务世界中的有效截止时间"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Evidence ID 列表。governance_seed 允许为空；graph_change 须至少 1 条。"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "version >= 1。同一 node_id 的新知识版本递增，禁止覆盖历史。"
+    },
+    "last_reviewed_at": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ],
+      "description": "最近审核时间"
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["candidate", "approved"],
+      "description": "对象级审核状态。仅 candidate / approved。approved_with_changes / deferred / rejected 属于 GraphReview.decision，不在此出现。"
+    },
+    "origin_kind": {
+      "type": "string",
+      "enum": ["governance_seed", "graph_change"],
+      "description": "来源类型。governance_seed 仅用于版本控制批准的 ontology 骨架。"
+    },
+    "originating_graph_change_id": {
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+        { "type": "null" }
+      ],
+      "description": "来源 GraphChange UUID。governance_seed 须为 null；graph_change 须非 null。"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "创建时间"
+    }
+  }
+}
