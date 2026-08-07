@@ -34,6 +34,9 @@ packages = ["src/research_os"]
 testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["src"]
+markers = [
+    "online: 需要显式 --live 和对应环境开关的受控网络测试",
+]
 
 [tool.coverage.run]
 source = ["research_os"]

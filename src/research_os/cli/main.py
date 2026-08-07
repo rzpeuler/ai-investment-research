@@ -12,6 +12,7 @@ Phase 0 不实现任何网页抓取；probe-sources 仅输出 stub 健康状态�
 from __future__ import annotations
 
 import os
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -142,6 +143,32 @@ def validate(report_path, check_schemas) -> None:
     if failed:
         raise SystemExit(1)
     click.echo(f"[OK] 全部 {len(SCHEMA_NAMES)} 个 Schema 通过")
+
+
+@cli.group("llm")
+def llm_group() -> None:
+    """LLM Provider 配置与显式在线探测。"""
+
+
+@llm_group.command("probe")
+@click.option("--provider", "provider_id", default="deepseek", show_default=True,
+              help="已登记 Provider ID。")
+@click.option("--model-class", default="flash", show_default=True,
+              type=click.Choice(["flash", "pro"]), help="探测逻辑模型等级。")
+@click.option("--live", is_flag=True, help="显式允许一次低成本 Provider 网络调用。")
+def llm_probe(provider_id, model_class, live) -> None:
+    """输出脱敏 Provider 探测摘要；无 --live 时绝不访问网络。"""
+    from research_os.llm.probe import probe_provider
+
+    root = _project_root()
+    try:
+        result = probe_provider(
+            root, provider_id=provider_id, model_class=model_class, live=live)
+    except (KeyError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from None
+    click.echo(json.dumps(result.model_dump(), ensure_ascii=False, sort_keys=True))
+    if live and not result.reachable:
+        raise SystemExit(1)
 
 @cli.command()
 @click.option("--all", "probe_all", is_flag=True, default=False, help="探测注册表全部来源。")

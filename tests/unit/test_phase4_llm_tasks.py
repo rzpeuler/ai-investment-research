@@ -118,6 +118,23 @@ class TestForbiddenOutput:
 
 
 class TestFakeProviderCalls:
+    def test_actual_project_schema_is_passed_to_provider(self):
+        observed = {}
+
+        def behavior(request, schema):
+            observed.update(schema)
+            return {"ok": True, "output": {"invalid": True}, "model_id": "flash"}
+
+        tasks = EquityLlmTasks(
+            _client(provider=FakeLlmProvider(behavior=behavior), configured=True))
+        tasks.run_task(
+            "research_questions", task_id="t1",
+            evidence_excerpts=["收入增长"], evidence_ids=["ev-1"],
+            evidence_types=["manual_input"], cutoff="2026-08-06",
+        )
+        assert observed.get("$schema")
+        assert observed.get("type") == "object"
+
     def test_flash_success_via_fake(self):
         provider = FakeLlmProvider()
         client = _client(provider=provider, configured=True)

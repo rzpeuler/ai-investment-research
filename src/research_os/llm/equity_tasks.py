@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from research_os.llm.client import LlmClient
 from research_os.llm.models import LlmRequest, LlmResponse
 from research_os.utils.id import new_uuid
+from research_os.validators.schema_validator import load_schema
 
 BUDGET_PER_DEPTH = {
     "fast": {"flash_max": 2, "pro_max": 0},
@@ -206,7 +207,9 @@ class EquityLlmTasks:
             output_schema_name=schema_name,
             timeout_seconds=60,
         )
-        resp = self.client.generate_json(request, output_schema={}, budget=self.budget)
+        # 真实 Provider 必须收到权威项目 Schema；不得以空字典代替输出契约。
+        resp = self.client.generate_json(
+            request, output_schema=load_schema(schema_name), budget=self.budget)
 
         # 禁止内容拦截（模型输出目标价/评级等 → 拒绝）
         if resp.output is not None:

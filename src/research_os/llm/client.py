@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Protocol
 
 from research_os.llm.models import LlmRequest, LlmResponse
 from research_os.llm.provider import FakeLlmProvider, LlmProvider
+from research_os.llm.redaction import redact_text, redact_value
 from research_os.llm.routing import ModelRouter
 from research_os.llm.validation import LlmOutputValidator
 from research_os.models import ModelRoute
@@ -25,12 +26,20 @@ MAX_FLASH_FIX_ATTEMPTS = 2   # Flash 最多两次结构修复（12.4）
 MAX_PRO_CALLS = 1            # 每个任务最多一次 Pro（12.3）
 
 # Provider 配置状态由环境变量决定（与 config/model_routing.yaml 接入方式一致）
-_PROVIDER_ENV_VARS = ("LLM_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+_PROVIDER_ENV_VARS = (
+    "LLM_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    "DEEPSEEK_API_KEY",
+)
 
 
 def is_provider_configured() -> bool:
     """真实 Provider 是否已配置（幂等键/模型路由状态依据）。"""
     return any(bool(os.environ.get(k)) for k in _PROVIDER_ENV_VARS)
+
+
+def _provider_secrets() -> tuple[str, ...]:
+    """只供内存脱敏使用；不得记录变量值。"""
+    return tuple(value for key in _PROVIDER_ENV_VARS if (value := os.environ.get(key)))
 
 
 class CallBudget(Protocol):
@@ -118,12 +127,19 @@ class LlmClient:
                 result = self.provider.complete_json(req, output_schema)
             except Exception as exc:  # noqa: BLE001 —— provider 故障回退（不触发业务升级）
                 provider_fallback_used = True
-                provider_fallback_reason = str(exc)
-                errors.append(f"provider 故障: {exc}")
+                provider_fallback_reason = redact_text(exc, secrets=_provider_secrets())
+                errors.append(f"provider 故障: {provider_fallback_reason}")
                 continue
 
             if not result.get("ok"):
-                errors.append(result.get("error", "provider 返回失败"))
+                error_type = result.get("error_type") or "provider_error"
+                error_message = redact_text(
+                    result.get("error", "provider 返回失败"), secrets=_provider_secrets())
+                errors.append(f"{error_type}: {error_message}")
+                provider_fallback_used = True
+                provider_fallback_reason = error_type
+                if not result.get("retryable", False):
+                    break
                 continue
 
             valid, parsed, verr = self.validator.validate(
@@ -142,6 +158,7 @@ class LlmClient:
                     usage_metadata={
                         "attempts_by_model": {"flash": flash_attempts, "pro": pro_attempts},
                         "task_budget": budget.summary() if budget is not None else None,
+                        "provider_usage": redact_value(result.get("usage") or {}),
                     },
                     latency_seconds=round(perf_counter() - call_started, 6),
                     output=parsed,
@@ -186,7 +203,8 @@ class LlmClient:
             return
         import json as _json
 
-        payload = _json.dumps(response.model_dump(), ensure_ascii=False)
+        payload = _json.dumps(
+            redact_value(response.model_dump(), secrets=_provider_secrets()), ensure_ascii=False)
         try:
             with self.db._conn:  # noqa: SLF001
                 self.db._conn.execute(  # noqa: SLF001
