@@ -430,6 +430,34 @@ def persist_import(db: Any, result: ImportResult) -> None:
         (result.manifest.file_checksum, result.manifest.data_version),
     )
     if existing:
+        # 调用方后续仍会使用 ImportResult 做指标计算和官方 Evidence 绑定。
+        # 幂等命中时必须把内存中的新 UUID 对象替换为数据库既有血缘；仅跳过写入会让
+        # 后续绑定尝试以新 fact_id 插入同一唯一事实，破坏 --force 复验。
+        manifest_id = existing[0]["manifest_id"]
+        manifest_payload = db.get("financial_data_manifests", manifest_id)
+        if manifest_payload is None:
+            raise ValueError(f"财务 manifest 幂等索引断链: {manifest_id}")
+        result.manifest = FinancialDataManifest(**manifest_payload)
+        report_rows = db.query(
+            "SELECT payload FROM financial_reports WHERE manifest_id = ?", (manifest_id,))
+        result.reports = [FinancialReport(**json.loads(row["payload"])) for row in report_rows]
+        report_ids = {report.financial_report_id for report in result.reports}
+        existing_facts: Dict[tuple, FinancialFact] = {}
+        for report_id in report_ids:
+            fact_rows = db.query(
+                "SELECT payload FROM financial_facts WHERE financial_report_id = ?", (report_id,))
+            for row in fact_rows:
+                fact = FinancialFact(**json.loads(row["payload"]))
+                key = (fact.taxonomy_code, fact.period_end, fact.statement_scope)
+                existing_facts[key] = fact
+        for row_result in result.rows:
+            fact = row_result.fact
+            if not row_result.accepted or fact is None:
+                continue
+            key = (fact.taxonomy_code, fact.period_end, fact.statement_scope)
+            if key not in existing_facts:
+                raise ValueError(f"财务 manifest 幂等回载缺事实: {key}")
+            row_result.fact = existing_facts[key]
         return
     db.upsert(result.manifest)
     for report in result.reports:

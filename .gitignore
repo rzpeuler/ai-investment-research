@@ -23,6 +23,7 @@ data/cache/
 data/exports/
 data/quarantine/
 data/disclosures/
+data/acceptance/
 # 仅忽略项目根的报告输出目录（hatch 遵循 .gitignore，裸规则会误伤 src/research_os/reports/）
 /reports/
 

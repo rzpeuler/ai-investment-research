@@ -259,16 +259,31 @@ class EquityLlmTasks:
             lines.append(f"- [{evidence_id}|{evidence_type}] {ex[:500]}")
         lines.append("禁止输出：目标价、评级、买卖/仓位建议、确定性收益承诺；数字不得篡改。")
         task_rules = {
+            "business_description_normalization": (
+                "输出单个简洁 ResearchFinding；finding_type 必须为 business_analysis，"
+                "claim_type 必须为 MODEL_INFERENCE，不得标为 FACT；object 至少含"
+                "core_products_or_services、business_segments、revenue_or_profit_links、"
+                "customers_or_applications、upstream_downstream、unknowns。"),
             "management_statement_summary": (
                 "object 必须含 speaker、role、published_at、statement、topic、company_view、"
-                "possible_bias；只能概括输入中可识别说话者的陈述。"),
+                "possible_bias；claim_type 必须为 SOURCE_OPINION；只能概括输入中可识别"
+                "说话者的陈述。"),
+            "competitive_factor_candidates": (
+                "输出单个简洁 CompetitiveFactor；required_evidence_types 必须与实际引用"
+                "Evidence 类型一致；claim_type 不得为 FACT。"),
             "counter_evidence_organizing": (
                 "object 必须含 challenged_claim、unresolved_difference、next_verification_data；"
-                "counter_evidence_ids 必须非空，反证不得只是原主张改写。"),
+                "counter_evidence_ids 必须非空，claim_type 必须为 MODEL_INFERENCE，"
+                "反证不得只是原主张改写。"),
             "research_questions": (
+                "finding_type 必须为 research_question，claim_type 必须为 MODEL_INFERENCE；"
                 "object 必须含 why_important、required_data、verification_method、priority、current_status。"),
-            "catalyst_candidates": "必须输出 phase4 Catalyst，Evidence 非空，不得把模型输出标为 FACT。",
-            "risk_candidates": "必须输出 phase4 RiskFactor，Evidence 非空，不得把模型输出标为 FACT。",
+            "catalyst_candidates": (
+                "必须输出单个简洁 phase4 Catalyst，Evidence 非空，claim_type 必须为"
+                " MODEL_INFERENCE 或 HYPOTHESIS，不得标为 FACT。"),
+            "risk_candidates": (
+                "必须输出单个简洁 phase4 RiskFactor，Evidence 非空，claim_type 必须为"
+                " MODEL_INFERENCE 或 HYPOTHESIS，不得标为 FACT。"),
         }
         if task_name in task_rules:
             lines.append(task_rules[task_name])

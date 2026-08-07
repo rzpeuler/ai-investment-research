@@ -156,6 +156,16 @@ class TestClaimRules:
         ])
         assert any(i.rule_id == "ERV-048" for i in out.errors)
 
+    def test_supported_inference_is_not_misclassified_as_unknown(self):
+        out = validate_equity_research(findings=[
+            _finding(
+                claim_type="MODEL_INFERENCE",
+                statement="现有证据没有显示该风险影响已发生",
+                model_route={"llm_called": True},
+            ),
+        ])
+        assert not any(i.rule_id == "ERV-048" for i in out.issues)
+
 
 class TestFinancialRules:
     def test_missing_written_as_zero_fails(self):

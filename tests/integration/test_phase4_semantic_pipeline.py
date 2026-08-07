@@ -83,7 +83,8 @@ class SemanticProvider:
                 "title": task_name, "statement": f"{task_name} 的证据约束输出",
                 "claim_type": "SOURCE_OPINION" if task_name == "management_statement_summary" else "MODEL_INFERENCE",
                 "predicate": task_name, "object": obj,
-                "as_of": "2026-08-01T00:00:00", "evidence_ids": [evidence_id],
+                "as_of": "2026-08-01T00:00:00",
+                "evidence_ids": [] if task_name == "counter_evidence_organizing" else [evidence_id],
                 "supporting_object_ids": [],
                 "counter_evidence_ids": [evidence_id] if task_name == "counter_evidence_organizing" else [],
                 "confidence": 0.6, "support_level": "inferred", "status": "supported",
@@ -165,6 +166,12 @@ def test_fake_provider_semantic_outputs_enter_formal_artifacts(tmp_path):
     assert json.loads((actual_run / "management_opinions.json").read_text(encoding="utf-8"))
     assert json.loads((actual_run / "catalysts.json").read_text(encoding="utf-8"))
     assert json.loads((actual_run / "risks.json").read_text(encoding="utf-8"))
+    claims = json.loads((actual_run / "claims.json").read_text(encoding="utf-8"))
+    counter_claim = next(
+        claim for claim in claims
+        if claim["object"].get("finding_id") == "finding-counter_evidence_organizing"
+    )
+    assert counter_claim["evidence_ids"], "反证 Claim 必须继承 counter_evidence_ids"
     result_payload = json.loads(
         (actual_run / "equity_research_result.json").read_text(encoding="utf-8"))
     assert result_payload["coverage"]["source_quality"]["core_financial"] is False

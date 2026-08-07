@@ -846,19 +846,27 @@ class EquityResearchPipeline:
         report_by_id = {r.get("financial_report_id"): r for r in all_reports}
         manifest_by_id = {m.get("manifest_id"): m for m in all_manifests}
         for fact in all_facts:
-            official_ids = list(fact.get("evidence_ids") or []) if fact.get("source_document_id") else []
-            if official_ids:
-                for evidence_id in official_ids:
+            existing_ids = list(fact.get("evidence_ids") or [])
+            loaded_for_fact = 0
+            if existing_ids:
+                for evidence_id in existing_ids:
                     payload = self.db.get("evidence", evidence_id)
                     if payload is None or evidence_id in loaded_evidence_ids:
                         continue
                     evidence = Evidence(**payload)
                     evidence_models.append(evidence)
                     loaded_evidence_ids.add(evidence_id)
+                    loaded_for_fact += 1
                     raw_payload = self.db.get("raw_items", evidence.raw_item_id)
                     if raw_payload is not None and evidence.raw_item_id not in loaded_raw_item_ids:
                         raw_item_models.append(RawItem(**raw_payload))
                         loaded_raw_item_ids.add(evidence.raw_item_id)
+                # --force 复验复用既有 Evidence 血缘；不得生成新 Evidence 后仍让
+                # Finding 引用旧 ID，造成运行内 Evidence 索引断链。
+                if loaded_for_fact == len(existing_ids):
+                    continue
+            if fact.get("source_document_id"):
+                # 官方事实不允许在 Evidence 缺失时静默降级成人工导入 Evidence。
                 continue
             rep_id = fact.get("financial_report_id") or ""
             published = report_published.get(rep_id) or fact.get("valid_from") or request.as_of
@@ -960,7 +968,7 @@ class EquityResearchPipeline:
                     not policy.get("relevance_terms")
                     or any(term in evidence.excerpt for term in policy["relevance_terms"])
                 )
-            ][:20]
+            ][:8]
             task_evidence_ids = [e.evidence_id for e in task_evidences]
             response = semantic_runner.run_task(
                 task_name, task_id=request.task_id,
@@ -1200,7 +1208,10 @@ class EquityResearchPipeline:
         for f in findings:
             claim = build_claim_from_finding(
                 f, company_entity_id=request.company_entity_id,
-                evidence_ids=f.get("evidence_ids", []),
+                evidence_ids=list(dict.fromkeys([
+                    *(f.get("evidence_ids") or []),
+                    *(f.get("counter_evidence_ids") or []),
+                ])),
             )
             self.db.upsert(claim)
             claim_models.append(claim)

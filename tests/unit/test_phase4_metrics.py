@@ -338,3 +338,47 @@ class TestRecomputeRegistry:
         assert result is not None
         assert errors == []
         assert result.value == "0.4" and result.status == "valid"
+
+    def test_cross_period_report_units_recompute_from_normalized_yuan(self):
+        facts = [_complete_fact(f) for f in [
+            {"fact_id": "revenue-2024", "taxonomy_code": "revenue",
+             "raw_value": "10000", "normalized_value": "100000000",
+             "normalized_unit": "yuan", "unit_scale": 10000,
+             "period_end": "2024-12-31"},
+            {"fact_id": "revenue-2025", "taxonomy_code": "revenue",
+             "raw_value": "110000", "normalized_value": "110000000",
+             "normalized_unit": "yuan", "unit_scale": 1000,
+             "period_end": "2025-12-31"},
+        ]]
+        reports = [_report(2024), _report(2025)]
+        reports[0]["unit_scale"] = 10000
+        reports[1]["unit_scale"] = 1000
+        metric = compute_metric(
+            "company:600519.SH", "revenue_growth", {}, facts, "2025-12-31",
+            reports=reports,
+        ).model_dump()
+        result, errors = recompute_from_lineage(metric, facts, reports)
+        assert errors == []
+        assert result is not None and result.value == "0.1"
+
+    def test_cross_period_report_units_require_normalized_lineage(self):
+        facts = [_complete_fact(f) for f in [
+            {"fact_id": "revenue-2024", "taxonomy_code": "revenue",
+             "raw_value": "10000", "normalized_value": "100000000",
+             "normalized_unit": "yuan", "unit_scale": 10000,
+             "period_end": "2024-12-31"},
+            {"fact_id": "revenue-2025", "taxonomy_code": "revenue",
+             "raw_value": "110000", "normalized_value": "110000000",
+             "normalized_unit": "yuan", "unit_scale": 1000,
+             "period_end": "2025-12-31"},
+        ]]
+        reports = [_report(2024), _report(2025)]
+        reports[0]["unit_scale"] = 10000
+        reports[1]["unit_scale"] = 1000
+        metric = compute_metric(
+            "company:600519.SH", "revenue_growth", {}, facts, "2025-12-31",
+            reports=reports,
+        ).model_dump()
+        facts[0]["normalized_unit"] = None
+        _, errors = recompute_from_lineage(metric, facts, reports)
+        assert "公式输入事实的 unit_scale 口径混用且缺少一致标准化值" in errors

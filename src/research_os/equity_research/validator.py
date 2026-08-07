@@ -1104,7 +1104,8 @@ def validate_equity_research(
         check_model_inference_requires_call(issues, f)
         check_fallback_no_inference(issues, f)  # ERV-045
         check_hypothesis_has_failure_condition(issues, f)
-        check_unknown_not_negative(issues, f.get("statement", ""), f.get("finding_id", ""))
+        if f.get("claim_type") == "UNKNOWN":
+            check_unknown_not_negative(issues, f.get("statement", ""), f.get("finding_id", ""))
         check_block_evidence_link(issues, f, block_by_id)  # ERV-052
     for factor in factors or []:
         check_management_only(issues, factor)
