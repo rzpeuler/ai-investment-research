@@ -2,128 +2,59 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://research-os.local/schemas/graph_edge.schema.json",
   "title": "GraphEdge",
-  "description": "产业图谱关系。既是 GraphChange candidate payload 也是 apply 后的正式 core graph object。edge_id 为稳定逻辑 identity，版本通过 edge_id + version 识别。",
+  "description": "产业图谱关系。既是 GraphChange candidate payload 也是 apply 后的正式 core graph object。",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "edge_id",
-    "source_node_id",
-    "relation",
-    "target_node_id",
-    "attributes",
-    "assertion_type",
-    "valid_from",
-    "valid_to",
-    "confidence",
-    "evidence_ids",
-    "review_status",
-    "version",
-    "originating_graph_change_id",
-    "created_at",
-    "last_reviewed_at"
+    "edge_id", "source_node_id", "relation", "target_node_id", "attributes",
+    "assertion_type", "valid_from", "valid_to", "confidence", "evidence_ids",
+    "review_status", "version", "originating_graph_change_id", "created_at", "last_reviewed_at"
   ],
   "properties": {
-    "edge_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "稳定逻辑 identity。同一逻辑关系跨版本保持稳定。"
-    },
-    "source_node_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "源节点 node_id"
-    },
+    "edge_id": { "type": "string", "minLength": 1 },
+    "source_node_id": { "type": "string", "minLength": 1 },
     "relation": {
       "type": "string",
-      "enum": [
-        "BELONGS_TO",
-        "UPSTREAM_OF",
-        "DOWNSTREAM_OF",
-        "SUPPLIES",
-        "PURCHASES_FROM",
-        "PRODUCES",
-        "USES_TECHNOLOGY",
-        "APPLIED_IN",
-        "COMPETES_WITH",
-        "SUBSTITUTES",
-        "BENEFITS_FROM",
-        "HARMED_BY",
-        "AFFECTS",
-        "MENTIONED_IN",
-        "SUPPORTED_BY",
-        "CONTRADICTED_BY",
-        "HAS_METRIC",
-        "HAS_CATALYST"
-      ],
-      "description": "关系类型严格枚举。未登记 relation 为 INVALID_RELATION。新增须 ONTOLOGY_CHANGE 用户批准。"
+      "enum": ["BELONGS_TO","UPSTREAM_OF","DOWNSTREAM_OF","SUPPLIES","PURCHASES_FROM","PRODUCES","USES_TECHNOLOGY","APPLIED_IN","COMPETES_WITH","SUBSTITUTES","BENEFITS_FROM","HARMED_BY","AFFECTS","MENTIONED_IN","SUPPORTED_BY","CONTRADICTED_BY","HAS_METRIC","HAS_CATALYST"]
     },
-    "target_node_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "目标节点 node_id"
+    "target_node_id": { "type": "string", "minLength": 1 },
+    "attributes": { "type": "object" },
+    "assertion_type": { "type": "string", "enum": ["GOVERNANCE","FACT","MODEL_INFERENCE"] },
+    "valid_from": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "valid_to": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "review_status": { "type": "string", "enum": ["candidate","approved"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "originating_graph_change_id": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" }, { "type": "null" }] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "last_reviewed_at": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "assertion_type": { "enum": ["FACT","MODEL_INFERENCE"] } },
+        "required": ["assertion_type"]
+      },
+      "then": {
+        "properties": {
+          "evidence_ids": { "minItems": 1 },
+          "originating_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" }
+        }
+      }
     },
-    "attributes": {
-      "type": "object",
-      "description": "扩展属性"
-    },
-    "assertion_type": {
-      "type": "string",
-      "enum": ["GOVERNANCE", "FACT", "MODEL_INFERENCE"],
-      "description": "认识论分层。GOVERNANCE 仅用于 ontology seed；FACT 须有 Evidence；MODEL_INFERENCE 须有 Evidence 且不能渲染成 FACT。"
-    },
-    "valid_from": {
-      "anyOf": [
-        { "type": "string", "format": "date-time" },
-        { "type": "null" }
-      ],
-      "description": "知识在业务世界中的有效起始时间"
-    },
-    "valid_to": {
-      "anyOf": [
-        { "type": "string", "format": "date-time" },
-        { "type": "null" }
-      ],
-      "description": "知识在业务世界中的有效截止时间"
-    },
-    "confidence": {
-      "type": "number",
-      "minimum": 0.0,
-      "maximum": 1.0,
-      "description": "置信度 0.0-1.0。不能替代 Evidence，高 confidence 无来源关系仍非法。"
-    },
-    "evidence_ids": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Evidence ID 列表。GOVERNANCE edge 允许为空；FACT / MODEL_INFERENCE 须至少 1 条。"
-    },
-    "review_status": {
-      "type": "string",
-      "enum": ["candidate", "approved"],
-      "description": "对象级审核状态。仅 candidate / approved。"
-    },
-    "version": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "version >= 1。同一 edge_id 的新版本递增，禁止覆盖历史。"
-    },
-    "originating_graph_change_id": {
-      "anyOf": [
-        { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
-        { "type": "null" }
-      ],
-      "description": "来源 GraphChange UUID。GOVERNANCE edge 须为 null；FACT / MODEL_INFERENCE 须非 null。"
-    },
-    "created_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "创建时间"
-    },
-    "last_reviewed_at": {
-      "anyOf": [
-        { "type": "string", "format": "date-time" },
-        { "type": "null" }
-      ],
-      "description": "最近审核时间"
+    {
+      "if": {
+        "properties": { "assertion_type": { "const": "GOVERNANCE" } },
+        "required": ["assertion_type"]
+      },
+      "then": {
+        "properties": {
+          "evidence_ids": { "maxItems": 0 },
+          "originating_graph_change_id": { "type": "null" },
+          "review_status": { "const": "approved" }
+        }
+      }
     }
-  }
+  ]
 }

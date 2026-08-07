@@ -42,11 +42,12 @@ M2 要求：M1 实现完成 + Offline CI PASS + 独立架构验收 + 用户另�
 不得预授权 M2。
 
 ```
-下一允许动作：
-仅等待用户授权 M1，或继续进行任务书/设计审查。
+当前允许：
+完成 M1 Graph Contracts 修正与独立验收。
 
-禁止动作：
-任何 Phase 5 Python、Schema、migration、CLI 或知识图谱实现。
+禁止：
+M2 persistence / migration / ontology seed
+以及 M3-M10。
 ```
 
 ## Phase 4 独立验收记录

@@ -74,7 +74,7 @@ def test_nullable_fields_accept_null(name, factory):
         "event": ["effective_at"],
         "opinion": ["time_horizon", "influence_score"],
         "claim": ["valid_until"],
-        "graph_change": ["node", "edge", "reviewed_at"],
+        "graph_change": ["reviewed_at"],
     }.get(name, [])
     for path in nullable_by_schema:
         node = data

@@ -126,26 +126,9 @@ def validate_instance(instance: Any, schema_name: str) -> List[str]:
     但任何失败必须被显式处理，禁止静默失败。
     """
     schema = load_schema(schema_name)
-    # 构建本地 schema registry 以支持跨文件 $ref（如 GraphChange → GraphNode / GraphEdge）
-    store = {}
-    for name in SCHEMA_NAMES:
-        try:
-            store[load_schema(name).get("$id", f"{name}.schema.json")] = load_schema(name)
-        except Exception:
-            pass
-    # 按文件名寻址的别名（jsonschema 解析 $ref 时的默认 base URI）
-    for name in SCHEMA_NAMES:
-        fn = f"{name}.schema.json"
-        if fn not in store:
-            try:
-                store[fn] = load_schema(name)
-            except Exception:
-                pass
-    resolver = jsonschema.RefResolver.from_schema(schema, store=store)
     validator_cls = validators.validator_for(schema)
     validator_cls.check_schema(schema)
-    # 构造 validator（禁用元 schema 校验以避免 draft-07 meta-schema 歧义）
-    validator = validator_cls(schema, format_checker=_format_checker, resolver=resolver)
+    validator = validator_cls(schema, format_checker=_format_checker)
     errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
     return [f"{'.'.join(str(p) for p in e.path) or '<root>'}: {e.message}" for e in errors]
 
