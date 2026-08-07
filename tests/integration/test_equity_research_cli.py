@@ -6,6 +6,7 @@ Validator 失败 exit 4；内部错误 exit 5；不静默猜代码；Skill 只�
 from __future__ import annotations
 
 import json
+import shutil
 
 import pytest
 from click.testing import CliRunner
@@ -128,6 +129,64 @@ class TestFullFlow:
             (run_dir / "scenario_execution_result.json").read_text(encoding="utf-8"))
         assert {task["task_id"], plan["task_id"], request["task_id"],
                 business_run["task_id"], execution["task_id"], run_dir.name} == {run_dir.name}
+
+    def test_official_financial_binding_is_consumed_by_pipeline(self, runner, tmp_path):
+        from pathlib import Path
+
+        from research_os.documents import import_disclosure
+
+        root = Path(__file__).resolve().parents[2]
+        (tmp_path / "registry").mkdir()
+        shutil.copy2(root / "registry" / "sources.yaml", tmp_path / "registry" / "sources.yaml")
+        shutil.copytree(root / "schemas", tmp_path / "schemas")
+        pdf = tmp_path / "annual.pdf"
+        pdf.write_bytes(b"%PDF-1.4 official annual report %%EOF")
+        db = Database(tmp_path / "data" / "sqlite" / "research.db")
+        disclosure = import_disclosure(
+            tmp_path, db, entity_code=COMPANY, file_path=pdf, source_id="cninfo",
+            source_url="http://static.cninfo.com.cn/finalpage/2026-04-01/report.pdf",
+            publisher="贵州茅台股份有限公司", published_at="2026-04-01T18:00:00+08:00",
+            document_type="annual_report", title="2025年年度报告",
+            report_period_end="2025-12-31", fiscal_year=2025,
+        )
+        db.close()
+        values = {"revenue": "123450000000", "cost_of_sales": "70000000000", "total_assets": "300000000000"}
+        locators = []
+        for index, (code, value) in enumerate(values.items()):
+            locators.append({
+                "taxonomy_code": code, "period_end": "2025-12-31",
+                "statement_scope": "consolidated", "document_id": disclosure.document_id,
+                "document_evidence_id": disclosure.evidence_id, "locator_kind": "cell",
+                "page_start": 80 + index, "page_end": 80 + index,
+                "section_path": ["财务报表"], "table_id": "statement",
+                "row_index": index, "column_index": 1, "cell_reference": code,
+                "text_start": None, "text_end": None, "structured_field": code,
+                "source_excerpt": f"{code}={value}", "reported_raw_value": value,
+                "currency": "CNY", "unit_scale": 10000,
+                "confirmation_status": "confirmed", "confirmed_by": "integration-test",
+                "confirmed_at": "2026-04-02T09:00:00+08:00", "correction_reason": None,
+            })
+        binding_path = tmp_path / "binding.json"
+        binding_path.write_text(json.dumps({
+            "binding_version": "1.0.0", "company_entity_id": COMPANY,
+            "as_of": "2026-08-07T23:59:59+08:00", "locators": locators,
+        }, ensure_ascii=False), encoding="utf-8")
+
+        result = runner.invoke(cli, [
+            "run", "equity-research", "--entity", "600519.SH",
+            "--date", "2026-08-07", "--as-of", "2026-08-07T23:59:59+08:00",
+            "--financial-file", _write_fin(tmp_path),
+            "--financial-binding", str(binding_path),
+        ])
+        assert result.exit_code == 0, result.output
+        db = Database(tmp_path / "data" / "sqlite" / "research.db")
+        rows = db.query("SELECT payload FROM financial_facts")
+        bound_facts = [json.loads(row["payload"]) for row in rows if json.loads(row["payload"])["taxonomy_code"] in values]
+        assert len(bound_facts) == 3
+        assert all(fact["source_document_id"] == disclosure.document_id for fact in bound_facts)
+        assert all(fact["source_block_ids"] and fact["evidence_ids"] for fact in bound_facts)
+        assert all(db.get("evidence", fact["evidence_ids"][0])["source_tier"] == "S" for fact in bound_facts)
+        db.close()
 
     def test_report_written_to_db_side_artifacts(self, runner, tmp_path):
         fin = _write_fin(tmp_path)

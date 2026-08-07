@@ -39,6 +39,7 @@ RULES_VERSION = {
     "peer_universe": "1.0.0",
     "peer_scoring": "1.0.0",
     "financial_taxonomy": "1.0.0",
+    "financial_evidence_binding": "1.0.0",
     "metric_formula": "1.0.0",
     "quality_rules": "1.0.0",
     "valuation_rules": "1.0.0",
@@ -146,6 +147,9 @@ class EquityResearchPipeline:
         规则版本 + 真实 LLM Provider 配置状态。"""
         # 财务文件：内容哈希（同一路径内容改变 → 哈希变 → 不命中幂等）
         fin_hashes = ",".join(sorted(self._file_sha256(f) for f in (args.get("financial_files") or [])))
+        binding_hashes = ",".join(sorted(
+            self._file_sha256(f) for f in (args.get("financial_bindings") or [])
+        ))
         doc_hashes = ",".join(sorted(self._file_sha256(d) for d in (args.get("documents") or [])))
         mkt_hash = self._file_sha256(str(args.get("market_file") or ""))
         # 真实 Provider 配置状态（读取 LlmClient 配置，而非硬编码）
@@ -166,6 +170,7 @@ class EquityResearchPipeline:
             ",".join(sorted(args.get("peers") or [])),
             ",".join(sorted(args.get("scenario_ids") or [])),
             fin_hashes,
+            binding_hashes,
             doc_hashes,
             mkt_hash,
             str(request.include_valuation),
@@ -385,6 +390,7 @@ class EquityResearchPipeline:
         all_facts: List[dict] = []
         all_reports: List[dict] = []
         all_manifests: List[dict] = []
+        import_results: List[Any] = []
         import_warnings: List[str] = []
         missing_files: List[str] = []
         for f in financial_files:
@@ -398,6 +404,7 @@ class EquityResearchPipeline:
                 import_warnings.append(f"{f}: {exc}")
                 continue
             persist_import(self.db, res)
+            import_results.append(res)
             all_manifests.append(res.manifest.model_dump())
             for rr in res.rows:
                 if rr.accepted and rr.fact is not None:
@@ -406,6 +413,44 @@ class EquityResearchPipeline:
                 all_reports.append(r.model_dump())
             if res.manifest.rejected_count:
                 import_warnings.append(f"{f}: {res.manifest.rejected_count} 行被拒绝")
+
+        # 可选的官方 locator 清单：只有完整通过文档、checksum、数值和审计核验才回填。
+        binding_files = list(args.get("financial_bindings") or [])
+        if binding_files:
+            if not import_results:
+                raise ValueError("--financial-binding 需要至少一个有效 --financial-file")
+            from research_os.financials.evidence_binding import (
+                bind_official_financial_evidence,
+                load_binding_manifest,
+            )
+
+            aggregate_facts = [row.fact for item in import_results for row in item.rows if row.fact]
+            aggregate_reports = [report for item in import_results for report in item.reports]
+            for binding_path in binding_files:
+                binding = load_binding_manifest(Path(binding_path))
+                target = next(
+                    (item for item in import_results
+                     if binding.company_entity_id in item.manifest.company_entity_ids),
+                    None,
+                )
+                if target is None:
+                    raise ValueError(f"定位清单无匹配财务 manifest: {binding_path}")
+                bound = bind_official_financial_evidence(
+                    self.root, self.db, manifest=target.manifest,
+                    reports=aggregate_reports, facts=aggregate_facts,
+                    binding=binding, as_of=request.as_of,
+                )
+                for document_id in bound.document_ids:
+                    payload = self.db.get("document_records", document_id)
+                    if payload and not any(d.get("document_id") == document_id for d in document_records):
+                        document_records.append(payload)
+                for block_id in bound.block_ids:
+                    payload = self.db.get("document_blocks", block_id)
+                    if payload and not any(b.get("block_id") == block_id for b in document_blocks):
+                        document_blocks.append(payload)
+            all_facts = [fact.model_dump() for fact in aggregate_facts]
+            all_reports = [report.model_dump() for report in aggregate_reports]
+            all_manifests = [item.manifest.model_dump() for item in import_results]
         # H3：文件缺失/全拒绝/无有效事实 → 记录 missing 状态，由持久化阶段判定 exit 3
         comparable_years = self._comparable_fiscal_years(all_reports, request.as_of)
         report_published: Dict[str, str] = {
@@ -794,9 +839,25 @@ class EquityResearchPipeline:
         # 21a. 为每个财务事实构建真实 Evidence（published_at=报告真实披露时间）
         evidence_models: List[Any] = []
         raw_item_models: List[Any] = []
+        loaded_evidence_ids: set[str] = set()
+        loaded_raw_item_ids: set[str] = set()
         report_by_id = {r.get("financial_report_id"): r for r in all_reports}
         manifest_by_id = {m.get("manifest_id"): m for m in all_manifests}
         for fact in all_facts:
+            official_ids = list(fact.get("evidence_ids") or []) if fact.get("source_document_id") else []
+            if official_ids:
+                for evidence_id in official_ids:
+                    payload = self.db.get("evidence", evidence_id)
+                    if payload is None or evidence_id in loaded_evidence_ids:
+                        continue
+                    evidence = Evidence(**payload)
+                    evidence_models.append(evidence)
+                    loaded_evidence_ids.add(evidence_id)
+                    raw_payload = self.db.get("raw_items", evidence.raw_item_id)
+                    if raw_payload is not None and evidence.raw_item_id not in loaded_raw_item_ids:
+                        raw_item_models.append(RawItem(**raw_payload))
+                        loaded_raw_item_ids.add(evidence.raw_item_id)
+                continue
             rep_id = fact.get("financial_report_id") or ""
             published = report_published.get(rep_id) or fact.get("valid_from") or request.as_of
             report = report_by_id.get(rep_id, {})
@@ -814,6 +875,7 @@ class EquityResearchPipeline:
             )
             self.db.upsert(raw_item)
             raw_item_models.append(raw_item)
+            loaded_raw_item_ids.add(raw_item.raw_item_id)
             ev = build_evidence_from_fact(
                 fact, published_at=published, retrieved_at=request.requested_at,
                 file_name=manifest.get("file_name") or "用户财务导入",
@@ -823,6 +885,7 @@ class EquityResearchPipeline:
             )
             self.db.upsert(ev)
             evidence_models.append(ev)
+            loaded_evidence_ids.add(ev.evidence_id)
             fact["evidence_ids"] = list(dict.fromkeys([*(fact.get("evidence_ids") or []), ev.evidence_id]))
             from research_os.models.financials import FinancialFact
             self.db.upsert(FinancialFact(**fact))
@@ -834,9 +897,11 @@ class EquityResearchPipeline:
                     continue
                 ev = Evidence(**payload)
                 evidence_models.append(ev)
+                loaded_evidence_ids.add(ev.evidence_id)
                 raw_payload = self.db.get("raw_items", ev.raw_item_id)
-                if raw_payload is not None:
+                if raw_payload is not None and ev.raw_item_id not in loaded_raw_item_ids:
                     raw_item_models.append(RawItem(**raw_payload))
+                    loaded_raw_item_ids.add(ev.raw_item_id)
         evidence_ids = [e.evidence_id for e in evidence_models]
         evidence_index = build_evidence_index(evidence_models)
 
@@ -932,12 +997,10 @@ class EquityResearchPipeline:
         # 21b. 回填 Findings 的真实 Evidence ID（按事实血缘映射）
         #      fact_key → evidence_id；metric 的 input_fact_ids 定位事实
         fact_key_to_evidence: Dict[str, str] = {}
-        for ev, fact in zip(
-            [e for e in evidence_models if e.evidence_type == "manual_input"],
-            all_facts,
-        ):
+        for fact in all_facts:
             fk = fact.get("fact_key") or f"{fact.get('taxonomy_code')}|{fact.get('period_end')}"
-            fact_key_to_evidence[fk] = ev.evidence_id
+            if fact.get("evidence_ids"):
+                fact_key_to_evidence[fk] = fact["evidence_ids"][0]
         metric_id_to_evidence: Dict[str, str] = {}
         for m in all_metrics:
             for fid in m.get("input_fact_ids", []):
@@ -1071,19 +1134,20 @@ class EquityResearchPipeline:
             e.evidence_id for e in evidence_models
             if e.source_tier in ("S", "A") and e.evidence_type in high_quality_types
         }
-        core_financial_codes = {
-            "revenue", "net_profit", "total_assets", "total_liabilities",
-            "operating_cash_flow", "net_cash_from_operating_activities",
-        }
+        from research_os.financials.evidence_binding import CORE_FINANCIAL_CODES
+        core_financial_codes = CORE_FINANCIAL_CODES
         core_financial_facts = [
             fact for fact in all_facts if fact.get("taxonomy_code") in core_financial_codes
         ]
         financial_evidence_ids = sorted({
             eid for fact in all_facts for eid in fact.get("evidence_ids", [])
         })
-        core_financial_source_quality = bool(core_financial_facts) and all(
+        core_financial_source_quality = (
+            {fact.get("taxonomy_code") for fact in core_financial_facts} == set(core_financial_codes)
+            and all(
             bool(set(fact.get("evidence_ids", [])) & high_quality_ids)
             for fact in core_financial_facts
+            )
         )
         business_evidence_ids = sorted({
             eid

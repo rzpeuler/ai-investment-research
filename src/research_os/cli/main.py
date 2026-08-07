@@ -588,6 +588,8 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
               help="启用情景预测（默认关闭；无 Scenario 时拒绝）。")
 @click.option("--financial-file", "financial_files", multiple=True,
               help="财务文件路径（CSV/JSON/XLSX，可重复）。")
+@click.option("--financial-binding", "financial_bindings", multiple=True,
+              help="官方财务 locator 绑定清单 JSON（可重复）。")
 @click.option("--document", "documents", multiple=True, help="文档路径（PDF/HTML，可重复）。")
 @click.option("--market-file", "market_file", default=None, help="市值/股本/价格输入文件。")
 @click.option("--force", is_flag=True, help="已存在时强制重跑（新 run_version，不覆盖旧产物）。")
@@ -595,7 +597,7 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
 @click.option("--live", is_flag=True, help="只允许调用已批准来源（本阶段无已批准自动来源）。")
 def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
                         scenario_ids, include_valuation, include_forecast,
-                        financial_files, documents, market_file, force, dry_run,
+                        financial_files, financial_bindings, documents, market_file, force, dry_run,
                         live) -> None:
     """个股研报流水线（Phase 4）。
 
@@ -630,6 +632,7 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
             "include_valuation": include_valuation,
             "include_forecast": include_forecast,
             "financial_files": list(financial_files),
+            "financial_bindings": list(financial_bindings),
             "documents": list(documents),
             "market_file": market_file,
             "force": force, "dry_run": dry_run, "live": live,

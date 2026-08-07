@@ -1,6 +1,6 @@
 """Phase 4 跨对象 Validator（任务书 3.22，独立验收修复版）。
 
-规则编号 ERV-001—ERV-079，输出 pass / pass_with_warnings / fail。
+规则编号 ERV-001—ERV-087，输出 pass / pass_with_warnings / fail。
 error 阻止报告 PASS；warning 可 pass_with_warnings；合法降级须明确状态。
 全部为确定性代码，不使用 LLM。
 
@@ -12,9 +12,11 @@ error 阻止报告 PASS；warning 可 pass_with_warnings；合法降级须明确
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 FORBIDDEN_WORDS = [
@@ -773,6 +775,122 @@ def check_idempotent_no_duplicate(issues: List[ValidationIssue], runs: List[Dict
         seen.add(key)
 
 
+def check_core_financial_official_lineage(
+    issues: List[ValidationIssue], facts: List[Dict[str, Any]],
+    documents: List[Dict[str, Any]], blocks: List[Dict[str, Any]],
+    evidences: List[Dict[str, Any]], as_of: str, result: Optional[Dict[str, Any]],
+) -> None:
+    """ERV-080—087：核心财务官方原件、locator、数值、时间和审计血缘。"""
+    from research_os.financials.evidence_binding import CORE_FINANCIAL_CODES
+
+    document_by_id = {d.get("document_id"): d for d in documents if d.get("document_id")}
+    block_by_id = {b.get("block_id"): b for b in blocks if b.get("block_id")}
+    evidence_by_id = {e.get("evidence_id"): e for e in evidences if e.get("evidence_id")}
+    success_claimed = bool(result and result.get("research_status") == "success")
+    core_facts = [
+        fact for fact in facts
+        if fact.get("taxonomy_code") in CORE_FINANCIAL_CODES
+        and fact.get("value_status") in {"reported", "derived_from_report"}
+    ]
+    present_codes = {fact.get("taxonomy_code") for fact in core_facts}
+    missing_codes = sorted(set(CORE_FINANCIAL_CODES) - present_codes)
+    if success_claimed and missing_codes:
+        issues.append(ValidationIssue(
+            "ERV-080", "error", f"success 缺适用核心财务科目: {missing_codes}"))
+    qualified = 0
+    for fact in core_facts:
+        fact_id = fact.get("fact_id")
+        document_id = fact.get("source_document_id")
+        block_ids = list(fact.get("source_block_ids") or [])
+        evidence_ids = list(fact.get("evidence_ids") or [])
+        if not document_id or not block_ids or not evidence_ids:
+            if success_claimed:
+                issues.append(ValidationIssue(
+                    "ERV-080", "error", "success 的核心财务事实缺官方文档、block 或 Evidence", fact_id))
+            continue
+
+        valid = True
+        document = document_by_id.get(document_id)
+        if document is None:
+            issues.append(ValidationIssue("ERV-080", "error", "核心财务事实引用不存在的官方文档", fact_id))
+            continue
+        local_path = Path(document.get("local_path") or "")
+        checksum = document.get("sha256") or ""
+        actual_checksum = ""
+        if local_path.is_file():
+            actual_checksum = hashlib.sha256(local_path.read_bytes()).hexdigest()
+        if (
+            not document.get("source_url")
+            or len(checksum) != 64
+            or not local_path.is_file()
+            or actual_checksum != checksum
+        ):
+            issues.append(ValidationIssue("ERV-081", "error", "官方文档 URL、文件或 checksum 不可复核", fact_id))
+            valid = False
+        if document.get("company_entity_id") != fact.get("company_entity_id"):
+            issues.append(ValidationIssue("ERV-085", "error", "官方文档与财务事实实体不一致", fact_id))
+            valid = False
+        if document.get("report_period_end") and document.get("report_period_end") != fact.get("period_end"):
+            issues.append(ValidationIssue("ERV-085", "error", "官方文档与财务事实报告期不一致", fact_id))
+            valid = False
+        if as_of and document.get("published_at", "") > as_of:
+            issues.append(ValidationIssue("ERV-085", "error", "官方财务文档披露时间晚于 as_of", fact_id))
+            valid = False
+
+        matched_block = next(
+            (block_by_id.get(block_id) for block_id in block_ids
+             if block_by_id.get(block_id, {}).get("document_id") == document_id),
+            None,
+        )
+        payload = (matched_block or {}).get("normalized_payload") or {}
+        if matched_block is None or not payload.get("locator_kind") or not matched_block.get("page_start"):
+            issues.append(ValidationIssue("ERV-082", "error", "核心财务 block 缺失、跨文档或无有效 locator", fact_id))
+            valid = False
+        else:
+            try:
+                block_value = Decimal(str(payload.get("reported_raw_value")))
+                fact_value = Decimal(str(fact.get("raw_value") or fact.get("normalized_value")))
+            except (InvalidOperation, TypeError, ValueError):
+                block_value = fact_value = None
+            if (
+                block_value is None or block_value != fact_value
+                or payload.get("taxonomy_code") != fact.get("taxonomy_code")
+                or payload.get("period_end") != fact.get("period_end")
+                or payload.get("document_checksum") != checksum
+                or payload.get("source_url") != document.get("source_url")
+            ):
+                issues.append(ValidationIssue("ERV-084", "error", "locator 数值或文档元数据与 FinancialFact 不一致", fact_id))
+                valid = False
+            if (
+                payload.get("confirmation_status") not in {"confirmed", "corrected"}
+                or not payload.get("confirmed_by") or not payload.get("confirmed_at")
+                or (payload.get("confirmation_status") == "corrected" and not payload.get("correction_reason"))
+            ):
+                issues.append(ValidationIssue("ERV-086", "error", "人工确认或校正审计记录不完整", fact_id))
+                valid = False
+
+        official_evidence = [
+            evidence_by_id[eid] for eid in evidence_ids
+            if eid in evidence_by_id
+            and evidence_by_id[eid].get("source_tier") in {"S", "A"}
+            and evidence_by_id[eid].get("evidence_type") == "official_disclosure"
+            and evidence_by_id[eid].get("source_id") == document.get("source_id")
+            and evidence_by_id[eid].get("url") == document.get("source_url")
+        ]
+        if not official_evidence:
+            issues.append(ValidationIssue("ERV-083", "error", "核心财务事实缺同源 S/A 官方披露 Evidence", fact_id))
+            valid = False
+        elif as_of and any(evidence.get("published_at", "") > as_of for evidence in official_evidence):
+            issues.append(ValidationIssue("ERV-085", "error", "核心财务 Evidence 晚于 as_of", fact_id))
+            valid = False
+        if valid:
+            qualified += 1
+
+    if success_claimed and (not core_facts or qualified != len(core_facts)):
+        issues.append(ValidationIssue(
+            "ERV-087", "error", "Tier C 或无关 S/A Evidence 不得满足 success 的核心财务来源质量"))
+
+
 # ---------- 主入口 ----------
 
 def validate_equity_research(
@@ -883,6 +1001,8 @@ def validate_equity_research(
     check_metric_recompute(issues, metrics, facts, reports)  # ERV-018—022
     check_restatement_kept(issues, reports)
     check_conflict_not_silenced(issues, facts)
+    check_core_financial_official_lineage(
+        issues, facts, documents, blocks, evidences, as_of, result)
 
     # ERV-028—040：同行与估值
     for p in peers:

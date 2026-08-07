@@ -1,6 +1,6 @@
 """Phase 4 契约测试（任务书 3.25 合约测试节）。
 
-验证：Schema 总数严格等于 50；entity 兼容 security 枚举；
+验证：Schema 总数严格等于 51；entity 兼容 security 枚举；
 20 个新 Schema 全字段 required、additionalProperties:false、nullable 正确；
 Pydantic extra=forbid；model_dump() 后必须通过对应 Schema；
 财务十进制值不被 float 持久化；无多余顶层空壳 Schema。
@@ -364,8 +364,8 @@ def _with(obj, **overrides):
 
 
 class TestSchemaRegistry:
-    def test_schema_total_count_is_50(self):
-        assert len(SCHEMA_NAMES) == 50
+    def test_schema_total_count_is_51(self):
+        assert len(SCHEMA_NAMES) == 51
 
     def test_phase4_schemas_registered(self):
         assert PHASE4_SCHEMAS <= set(SCHEMA_NAMES)
