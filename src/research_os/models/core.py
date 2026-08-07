@@ -336,7 +336,17 @@ GraphOriginKind = Literal["governance_seed", "graph_change"]
 
 GraphReviewDecision = Literal["approved", "approved_with_changes", "deferred", "rejected"]
 
+_GRAPH_UUID_PATTERN = r"^[0-9a-fA-F-]{36}$"
+
 GraphPatchOp = Literal["add", "replace", "remove"]
+
+
+def _uuid_validator(value: Optional[str]) -> Optional[str]:
+    """UUID pattern validator: null 允许，非 null 须匹配 Schema pattern。"""
+    import re
+    if value is not None and not re.fullmatch(_GRAPH_UUID_PATTERN, value):
+        raise ValueError(f"非法 UUID 格式: {value!r}")
+    return value
 
 
 # ---------- GraphNode（Phase 5 M1-R1） ----------
@@ -356,6 +366,12 @@ class GraphNode(StrictModel):
     review_status: GraphObjectReviewStatus = "candidate"
     origin_kind: GraphOriginKind = "graph_change"
     originating_graph_change_id: Optional[str] = None
+
+    @field_validator("originating_graph_change_id")
+    @classmethod
+    def _uuid_opt(cls, value: Optional[str]) -> Optional[str]:
+        return _uuid_validator(value)
+
     created_at: str = Field(..., description="创建时间（必传合法 ISO）")
 
     @field_validator("created_at", "last_reviewed_at")
@@ -411,6 +427,12 @@ class GraphEdge(StrictModel):
     review_status: GraphObjectReviewStatus = "candidate"
     version: int = Field(1, ge=1)
     originating_graph_change_id: Optional[str] = None
+
+    @field_validator("originating_graph_change_id")
+    @classmethod
+    def _uuid_opt(cls, value: Optional[str]) -> Optional[str]:
+        return _uuid_validator(value)
+
     created_at: str = Field(..., description="创建时间（必传合法 ISO）")
     last_reviewed_at: Optional[str] = None
 
@@ -449,7 +471,7 @@ class GraphEdge(StrictModel):
 
 class GraphChange(StrictModel):
     """GraphChange with typed node/edge fields + candidate overlay."""
-    graph_change_id: str
+    graph_change_id: str = Field(..., pattern=_GRAPH_UUID_PATTERN)
     change_type: GraphChangeType
     node: Optional["GraphNode"] = None
     edge: Optional["GraphEdge"] = None
@@ -676,8 +698,8 @@ def _check_patch_path(path: str) -> None:
 # ---------- GraphReview（Phase 5 M1-R1） ----------
 
 class GraphReview(StrictModel):
-    review_id: str
-    graph_change_id: str
+    review_id: str = Field(..., pattern=_GRAPH_UUID_PATTERN)
+    graph_change_id: str = Field(..., pattern=_GRAPH_UUID_PATTERN)
     decision: GraphReviewDecision
     reviewer: GraphReviewer
     reviewed_at: str
@@ -685,6 +707,11 @@ class GraphReview(StrictModel):
     review_patch: List[GraphPatchOperation] = Field(default_factory=list)
     notes: str = ""
     resulting_graph_change_id: Optional[str] = None
+
+    @field_validator("resulting_graph_change_id")
+    @classmethod
+    def _uuid_rid(cls, value: Optional[str]) -> Optional[str]:
+        return _uuid_validator(value)
 
     @field_validator("reviewed_at")
     @classmethod

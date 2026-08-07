@@ -1067,3 +1067,99 @@ class TestFailClosedRegistryR3:
         registry = Registry()
         with pytest.raises(Exception):
             list(jsonschema.Draft7Validator(schema, registry=registry).iter_errors({}))
+
+
+# ============================================================
+# M1-R4: UUID pattern parity tests
+# ============================================================
+
+class TestUuidParity:
+    BAD = "not-a-uuid"
+
+    def test_graphnode_invalid_origin_uuid_pydantic(self):
+        with pytest.raises(Exception):
+            GraphNode(node_id="company:X",node_type="Company",name="x",created_at=T0,
+                       origin_kind="graph_change",originating_graph_change_id=self.BAD,
+                       evidence_ids=["ev"])
+
+    def test_graphnode_invalid_origin_uuid_schema(self):
+        n = _gc_node(originating_graph_change_id="not-a-uuid")
+        assert validate_instance(n,"graph_node")
+
+    def test_graphedge_invalid_origin_uuid_pydantic(self):
+        with pytest.raises(Exception):
+            GraphEdge(edge_id="e",source_node_id="A",relation="SUPPLIES",target_node_id="B",
+                       created_at=T0,originating_graph_change_id=self.BAD,evidence_ids=["ev"])
+
+    def test_graphedge_invalid_origin_uuid_schema(self):
+        e = _gc_edge(originating_graph_change_id="not-a-uuid")
+        assert validate_instance(e,"graph_edge")
+
+    def test_graphchange_invalid_id_pydantic(self):
+        gn = GraphNode(node_id="company:X",node_type="Company",name="x",created_at=T0,
+                        origin_kind="graph_change",originating_graph_change_id=_UUID,evidence_ids=["ev"])
+        with pytest.raises(Exception):
+            GraphChange(graph_change_id=self.BAD,change_type="add_node",node=gn,
+                         suggested_change="x",created_at=T0,new_evidence_ids=["ev"])
+
+    def test_graphchange_invalid_id_schema(self):
+        gc = {"graph_change_id":"not-a-uuid","change_type":"add_node","node":_gc_node(),"edge":None,
+              "current_knowledge":"","new_evidence_ids":["ev-001"],"suggested_change":"x",
+              "impact_scope":[],"conflicts":[],"verification_points":[],
+              "review_status":"candidate","created_at":T0,"reviewed_at":None}
+        assert validate_instance(gc,"graph_change")
+
+    def test_graphreview_invalid_review_id_pydantic(self):
+        with pytest.raises(Exception):
+            GraphReview(review_id=self.BAD,graph_change_id=_UUID,decision="approved",
+                         reviewer=GraphReviewer(reviewer_id="u1",display_name="T"),
+                         reviewed_at=T1,candidate_hash=_HASH,review_patch=[])
+
+    def test_graphreview_invalid_review_id_schema(self):
+        r = {"review_id":"not-a-uuid","graph_change_id":_UUID,"decision":"approved",
+             "reviewer":{"reviewer_type":"human","reviewer_id":"u1","display_name":"T"},
+             "reviewed_at":T1,"candidate_hash":_HASH,"review_patch":[],"notes":"",
+             "resulting_graph_change_id":None}
+        assert validate_instance(r,"graph_review")
+
+    def test_graphreview_invalid_gc_id_pydantic(self):
+        with pytest.raises(Exception):
+            GraphReview(review_id=_UUID,graph_change_id=self.BAD,decision="approved",
+                         reviewer=GraphReviewer(reviewer_id="u1",display_name="T"),
+                         reviewed_at=T1,candidate_hash=_HASH,review_patch=[])
+
+    def test_graphreview_invalid_gc_id_schema(self):
+        r = {"review_id":_UUID,"graph_change_id":"not-a-uuid","decision":"approved",
+             "reviewer":{"reviewer_type":"human","reviewer_id":"u1","display_name":"T"},
+             "reviewed_at":T1,"candidate_hash":_HASH,"review_patch":[],"notes":"",
+             "resulting_graph_change_id":None}
+        assert validate_instance(r,"graph_review")
+
+    def test_graphreview_invalid_resulting_id_pydantic(self):
+        with pytest.raises(Exception):
+            GraphReview(review_id=_UUID,graph_change_id=_UUID,decision="approved_with_changes",
+                         reviewer=GraphReviewer(reviewer_id="u1",display_name="T"),
+                         reviewed_at=T1,candidate_hash=_HASH,
+                         review_patch=[GraphPatchValueOperation(op="replace",path="/suggested_change",value="x")],
+                         resulting_graph_change_id=self.BAD)
+
+    def test_graphreview_invalid_resulting_id_schema(self):
+        r = {"review_id":_UUID,"graph_change_id":_UUID,"decision":"approved_with_changes",
+             "reviewer":{"reviewer_type":"human","reviewer_id":"u1","display_name":"T"},
+             "reviewed_at":T1,"candidate_hash":_HASH,
+             "review_patch":[{"op":"replace","path":"/suggested_change","value":"x"}],
+             "notes":"","resulting_graph_change_id":"not-a-uuid"}
+        assert validate_instance(r,"graph_review")
+
+    def test_valid_graphchange_parity(self):
+        gn = GraphNode(node_id="company:X",node_type="Company",name="x",created_at=T0,
+                        origin_kind="graph_change",originating_graph_change_id=_UUID,evidence_ids=["ev"])
+        gc = GraphChange(graph_change_id=_UUID,change_type="add_node",node=gn,
+                          suggested_change="x",created_at=T0,new_evidence_ids=["ev"])
+        assert validate_instance(gc.model_dump(),"graph_change")==[]
+
+    def test_valid_graphreview_parity(self):
+        r = GraphReview(review_id=_UUID,graph_change_id=_UUID,decision="approved",
+                         reviewer=GraphReviewer(reviewer_id="u1",display_name="T"),
+                         reviewed_at=T1,candidate_hash=_HASH,review_patch=[])
+        assert validate_instance(r.model_dump(),"graph_review")==[]
