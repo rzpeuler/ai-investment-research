@@ -27,11 +27,12 @@ def test_phase_status_documents_are_consistent():
         _read("README.md"), _read("docs/project-state/CURRENT_STATE.md"),
         _read("docs/project-state/NEXT_PHASE.md"),
         _read("docs/project-state/KNOWN_LIMITATIONS.md"),
-        _read("docs/tasks/phase4-equity-research.md"),
+        _read("docs/tasks/phase4-full-research-capability.md"),
     ]
     for text in files:
-        assert "PARTIAL_SUCCESS" in text
+        assert "PASS" in text
         assert "BLOCKED" in text
+        assert "PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE" not in text
 
 
 def test_baseline_readme_does_not_claim_to_be_current():

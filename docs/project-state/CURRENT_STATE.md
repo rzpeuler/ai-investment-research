@@ -57,9 +57,9 @@
   `DEEPSEEK_API_KEY` 读取，调用记录和验收摘要不保存密钥、Prompt 或响应全文。
 - 巨潮资讯通过真实元数据检索、官方 PDF 定位、下载与 checksum 验证；四份年报原件
   默认不提交 Git。
-- 600519.SH：`SUCCESS`，7/7 必需语义任务，Flash 7 / Pro 0，2 份官方年报，18 项
+- 600519.SH：`SUCCESS`，7/7 必需语义任务，Flash 8 / Pro 0，2 份官方年报，18 项
   核心财务事实全部可反查 locator，Validator `pass_with_warnings`，正文禁止项 0 命中。
-- 300750.SZ：`SUCCESS`，7/7 必需语义任务，Flash 7 / Pro 0，2 份官方年报；2023
+- 300750.SZ：`SUCCESS`，7/7 必需语义任务，Flash 8 / Pro 0，2 份官方年报；2023
   万元与 2024 千元经确定性标准化后复算通过，Validator `pass_with_warnings`，禁止项 0 命中。
 - 688981.SH：受控缺失财务文件，`INSUFFICIENT_DATA`，Flash/Pro 均为 0，未被提升为 success。
 - 本轮定向复验将研究截止点固定为 `2026-08-07T00:00:00+08:00`，每个案例开始时
