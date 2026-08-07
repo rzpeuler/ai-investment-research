@@ -53,9 +53,10 @@ RawItem/Evidence 血缘、按 Provider 实际调用计数的 Flash/Pro 预算、
 `SUCCESS`，688981.SH 在受控缺失下取得 `INSUFFICIENT_DATA`。单次输入不足或 Provider
 故障时仍必须降级，不得沿用历史成功状态。
 Schema 30→51，迁移 user_version=5。
-**Phase 5：BLOCKED_PENDING_USER_AUTHORIZATION**。Phase 4 完整能力已通过独立验收；
-Phase 5 正式任务书已由用户批准（`docs/tasks/phase5-industry-knowledge-graph.md`，
-正式设计决策见 `DECISIONS.md` #30），但 M1-M10 工程实施尚未获得用户明确授权。
+**Phase 5：BLOCKED**（implementation: BLOCKED_PENDING_USER_AUTHORIZATION）。
+Phase 4 完整能力已通过独立验收；Phase 5 正式任务书已由用户批准
+（`docs/tasks/phase5-industry-knowledge-graph.md`，正式设计决策见 `DECISIONS.md` #30），
+但 M1-M10 工程实施尚未获得用户明确授权。
 晚报/复盘、主题挖掘、首次覆盖和自动产业图谱入库均尚未开始。
 
 ## 快速开始

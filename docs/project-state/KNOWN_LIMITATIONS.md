@@ -87,7 +87,7 @@
 - **Offline CI 已上线**（`.github/workflows/offline-ci.yml`）：GitHub-hosted Ubuntu、Python 3.12；
   trigger: PR / push to master / workflow_dispatch；permissions: contents: read；
   不配置 DeepSeek API Key / 项目 secrets；5 个 online tests 默认 skip；
-  1140 tests collected / 1135 passed / 5 skipped / 51/51 schemas / compileall PASS
+  1140 tests collected / 1133 passed / 5 skipped / 51/51 schemas / compileall PASS
   （baseline run 31154022296，SHA `ea026f1`）；
   在线能力仍依赖显式 live acceptance，不得由 Offline CI PASS 替代
 - **预测能力边界**：仅确定性外推与显式用户/公司指引假设；model_generated 须真实调用
@@ -116,7 +116,7 @@
   workflow 位于 `.github/workflows/offline-ci.yml`；trigger: PR / push to master / workflow_dispatch；
   permissions: contents: read；secrets: 不配置 DeepSeek API Key / 项目 secrets；
   5 个 online tests 默认 skip；baseline run 31154022296（SHA `ea026f1`）：
-  1135 passed / 5 skipped / 51/51 schemas / compileall PASS。
+  1133 passed / 5 skipped / 51/51 schemas / compileall PASS。
 - Offline CI 限制：不验证 DeepSeek live provider / 真实 CNINFO / 外部服务；
   branch 普通 push 不触发，PR 会触发；GHA Node.js 20 deprecation warning 为 non-blocking
   （runner 强制使用 Node 24）；在线能力仍靠显式 live acceptance，不得由 Offline CI PASS 替代。
