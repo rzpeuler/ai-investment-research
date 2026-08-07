@@ -4,7 +4,7 @@
 > 下达日期：2026-08-06
 > 授权基线：`2b7827c`（Phase 3 收尾后，docs-only）
 > Phase 3 代码基线：`c398e58`
-> 状态：**工程基础 PASS；完整研究能力 PARTIAL_SUCCESS；Phase 5 BLOCKED（2026-08-07 复验）**
+> 状态：**工程基础 PASS；完整研究能力 READY_FOR_INDEPENDENT_ACCEPTANCE（正式状态仍为 PARTIAL_SUCCESS）；Phase 5 BLOCKED（2026-08-07）**
 > 权威边界：本文档仅细化阶段实施授权；与 `docs/engineering-guide.md` 或经正式评审的
 > `docs/project-state/DECISIONS.md` 冲突时，以前两者为准，不得静默覆盖。
 
@@ -467,7 +467,7 @@ model_route.json / equity_research_result.json / validation.json / final.md / er
 
 ## 21. Validator（Commit 16 实现）
 
-输出 pass / pass_with_warnings / fail。规则编号 ERV-001—ERV-079，分组：
+输出 pass / pass_with_warnings / fail。规则编号 ERV-001—ERV-093，分组：
 
 * Schema 与引用：ERV-001—008
 * 财务数据：ERV-009—027

@@ -207,3 +207,17 @@
     src/research_os/equity_research/；tests/integration/；tests/unit/
   agent: Codex
   notes: 本地全量 1067 passed；50/50 Schema；未提交、未推送；Phase 5 继续 BLOCKED
+
+- date: 2026-08-07
+  source_id: "(phase4_full_capability_acceptance_ready)"
+  change: phase_acceptance_ready
+  reason: Phase 4.1 真实能力补齐完成：DeepSeek Provider 与巨潮官方披露在线验证；
+    核心财务事实绑定官方 Document/checksum/locator；七项必需语义任务进入正式 Pipeline；
+    600519.SH 和 300750.SZ 取得真实 SUCCESS，688981.SH 受控缺失取得
+    INSUFFICIENT_DATA；修复 force 幂等回载、跨期不同报表单位标准化复算、UNKNOWN
+    规则作用域和反证 Claim Evidence 血缘。
+  evidence: commit 633cf74；config/equity_research_acceptance.yaml；本地 Git 忽略的
+    reports/acceptance/phase4/ 脱敏摘要；1088 passed / 5 online skipped；51/51 Schema
+  agent: Codex
+  notes: READY_FOR_INDEPENDENT_ACCEPTANCE；独立验收前 full capability 仍为
+    PARTIAL_SUCCESS；Phase 5 继续 BLOCKED

@@ -7,6 +7,8 @@
 > 开发分支：`codex/phase4-full-research-capability`
 > 起始状态：Phase 4 engineering foundation = `PASS`；full capability =
 > `PARTIAL_SUCCESS`；Phase 5 = `BLOCKED`
+> 实施结果：`READY_FOR_INDEPENDENT_ACCEPTANCE`（代码里程碑 `633cf74`；独立验收前
+> 正式 full capability 状态仍为 `PARTIAL_SUCCESS`）
 
 ## 1. 授权目标
 
@@ -119,3 +121,22 @@ Fake Provider、Tier C 核心财务、缺必需任务或严重 Evidence 缺陷�
 
 本任务完成不自动授权 Phase 5。未满足真实条件时维持 Phase 4 full capability
 `PARTIAL_SUCCESS` 和 Phase 5 `BLOCKED`。
+
+## 7. 执行 Agent 验收记录（2026-08-07）
+
+| 案例 | 实际状态 | 模型调用 | 官方原件 | 语义任务 | Validator |
+|---|---|---:|---:|---:|---|
+| `600519.SH` | `SUCCESS` | Flash 7 / Pro 0 | 2 | 7/7 | pass_with_warnings |
+| `300750.SZ` | `SUCCESS` | Flash 7 / Pro 0 | 2 | 7/7 | pass_with_warnings |
+| `688981.SH` | `INSUFFICIENT_DATA` | Flash 0 / Pro 0 | 0 | 0/7（预期不执行） | not_run |
+
+- DeepSeek Flash probe、巨潮公告元数据、官方 PDF 下载与 checksum 在线测试通过；
+- 两个成功案例的 18 项核心财务事实均绑定官方 Document、Block/locator、Evidence 和 URL；
+- 两个成功报告正文的目标价、评级、仓位及交易动作命中均为 0；
+- 默认回归：1093 collected，1088 passed，5 online skipped，0 failed；51/51 Schema；
+  compileall 和 diff-check 通过；
+- Provider 在部分失败尝试中发生间歇性超时，系统按 8/1 共享预算合法降级；最终成功案例
+  不依赖 Fake Provider，也未放宽 Validator。
+
+执行 Agent 结论：`READY_FOR_INDEPENDENT_ACCEPTANCE`。独立验收人尚未签字，因此本文档
+不把 Phase 4 full capability 的正式状态提前改为 `PASS`，Phase 5 继续 `BLOCKED`。
