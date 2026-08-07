@@ -19,6 +19,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from research_os.utils.time import parse_iso
+
 FORBIDDEN_WORDS = [
     "目标价", "买入评级", "卖出评级", "增持评级", "减持评级",
     "建议买入", "建议卖出", "仓位建议", "跟随操作", "上涨空间",
@@ -239,7 +241,7 @@ def check_llm_not_edit_financials(issues: List[ValidationIssue], fact: Dict[str,
 
 def check_peer_cutoff(issues: List[ValidationIssue], peer: Dict[str, Any], as_of: str) -> None:
     """ERV-028：同行 information_cutoff 不晚于研究截止时间。"""
-    if peer.get("information_cutoff", "9999-12-31T00:00:00") > as_of:
+    if _is_after(peer.get("information_cutoff", "9999-12-31T00:00:00"), as_of):
         issues.append(ValidationIssue("ERV-028", "error", "同行 information_cutoff 晚于研究截止时间", peer.get("peer_candidate_id")))
 
 
@@ -460,7 +462,7 @@ def check_evidence_qualified(issues: List[ValidationIssue], finding: Dict[str, A
             issues.append(ValidationIssue("ERV-043", "error", f"FACT 引用不存在的 Evidence: {eid}", finding.get("finding_id")))
             continue
         published = ev.get("published_at") or ""
-        if published and as_of and published > as_of:
+        if _is_after(published, as_of):
             issues.append(ValidationIssue("ERV-043", "error", "Evidence 披露时间晚于 as_of", finding.get("finding_id")))
         if ev.get("source_tier") in ("C", "D") and finding.get("support_level") == "direct":
             severity = "error" if finding.get("materiality") == "high" else "warning"
@@ -653,7 +655,7 @@ def check_full_semantic_contract(
             raw = raw_by_id.get((evidence or {}).get("raw_item_id"))
             if (
                 evidence is None or raw is None
-                or (as_of and evidence.get("published_at", "") > as_of)
+                or _is_after(evidence.get("published_at", ""), as_of)
                 or (company_id and company_id not in (raw.get("entities") or []))
             ):
                 issues.append(ValidationIssue(
@@ -670,7 +672,7 @@ def check_full_semantic_contract(
         required = {"speaker", "role", "published_at", "statement", "topic", "company_view", "possible_bias"}
         if (
             not required <= set(obj) or not management.get("evidence_ids")
-            or (as_of and obj.get("published_at", "") > as_of)
+            or _is_after(obj.get("published_at", ""), as_of)
         ):
             issues.append(ValidationIssue("ERV-091", "error", "管理层陈述缺说话者、时间、偏差或 Evidence"))
     for item in [*catalysts, *risks]:
@@ -799,11 +801,20 @@ def check_block_reference(issues: List[ValidationIssue], blocks: List[Dict[str, 
 
 # ---------- 时间、复用和报告（ERV-053—070） ----------
 
+def _is_after(value: str, cutoff: str) -> bool:
+    """按统一上海时间语义比较 ISO 时间；格式错误由 Schema 规则负责报告。"""
+    if not value or not cutoff:
+        return False
+    try:
+        return parse_iso(value) > parse_iso(cutoff)
+    except ValueError:
+        return False
+
 def check_no_future_info(issues: List[ValidationIssue], item: Dict[str, Any], as_of: str) -> None:
-    """ERV-053：不得引用 as_of 之后的信息。"""
+    """ERV-053：信息时点不得晚于 as_of；处理产物 created_at 不属于信息时点。"""
     published = (item.get("published_at") or item.get("as_of")
-                 or item.get("valid_from") or item.get("created_at") or "")
-    if published and published > as_of:
+                 or item.get("valid_from") or "")
+    if _is_after(published, as_of):
         issues.append(ValidationIssue("ERV-053", "error", "引用 as_of 之后的信息",
                                       item.get("id") or item.get("event_id") or item.get("fact_id")))
 
@@ -854,7 +865,8 @@ def check_idempotent_no_duplicate(issues: List[ValidationIssue], runs: List[Dict
 def check_core_financial_official_lineage(
     issues: List[ValidationIssue], facts: List[Dict[str, Any]],
     documents: List[Dict[str, Any]], blocks: List[Dict[str, Any]],
-    evidences: List[Dict[str, Any]], as_of: str, result: Optional[Dict[str, Any]],
+    evidences: List[Dict[str, Any]], as_of: str, requested_at: str,
+    result: Optional[Dict[str, Any]],
 ) -> None:
     """ERV-080—087：核心财务官方原件、locator、数值、时间和审计血缘。"""
     from research_os.financials.evidence_binding import CORE_FINANCIAL_CODES
@@ -909,7 +921,7 @@ def check_core_financial_official_lineage(
         if document.get("report_period_end") and document.get("report_period_end") != fact.get("period_end"):
             issues.append(ValidationIssue("ERV-085", "error", "官方文档与财务事实报告期不一致", fact_id))
             valid = False
-        if as_of and document.get("published_at", "") > as_of:
+        if _is_after(document.get("published_at", ""), as_of):
             issues.append(ValidationIssue("ERV-085", "error", "官方财务文档披露时间晚于 as_of", fact_id))
             valid = False
 
@@ -944,6 +956,10 @@ def check_core_financial_official_lineage(
             ):
                 issues.append(ValidationIssue("ERV-086", "error", "人工确认或校正审计记录不完整", fact_id))
                 valid = False
+            elif _is_after(payload.get("confirmed_at", ""), requested_at):
+                issues.append(ValidationIssue(
+                    "ERV-086", "error", "人工确认时间晚于 requested_at", fact_id))
+                valid = False
 
         official_evidence = [
             evidence_by_id[eid] for eid in evidence_ids
@@ -956,7 +972,8 @@ def check_core_financial_official_lineage(
         if not official_evidence:
             issues.append(ValidationIssue("ERV-083", "error", "核心财务事实缺同源 S/A 官方披露 Evidence", fact_id))
             valid = False
-        elif as_of and any(evidence.get("published_at", "") > as_of for evidence in official_evidence):
+        elif any(_is_after(evidence.get("published_at", ""), as_of)
+                 for evidence in official_evidence):
             issues.append(ValidationIssue("ERV-085", "error", "核心财务 Evidence 晚于 as_of", fact_id))
             valid = False
         if valid:
@@ -1078,7 +1095,8 @@ def validate_equity_research(
     check_restatement_kept(issues, reports)
     check_conflict_not_silenced(issues, facts)
     check_core_financial_official_lineage(
-        issues, facts, documents, blocks, evidences, as_of, result)
+        issues, facts, documents, blocks, evidences, as_of,
+        (request or {}).get("requested_at", ""), result)
 
     # ERV-028—040：同行与估值
     for p in peers:
@@ -1137,7 +1155,7 @@ def validate_equity_research(
     for s in scenarios:
         check_assumption_has_source(issues, s)  # ERV-047
 
-    # ERV-053：未来信息污染（facts/blocks/findings/reports/evidence 全部覆盖）
+    # ERV-053：未来信息污染（处理/确认产物的 created_at 不与研究 as_of 绑定）
     if as_of:
         for f in findings:
             check_no_future_info(issues, f, as_of)

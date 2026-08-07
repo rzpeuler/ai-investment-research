@@ -13,6 +13,7 @@ announcementTitle, announcementTime(ms), adjunctUrl, adjunctType, ...}
 from __future__ import annotations
 
 import subprocess
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
@@ -25,12 +26,19 @@ from research_os.collectors.base import (
 )
 from research_os.models import RawItem
 from research_os.utils.id import content_sha256, new_uuid
-from research_os.utils.time import now_iso
+from research_os.utils.time import now_iso, shanghai_now
 from research_os.utils.url import normalize_url
 from research_os.validators.schema_validator import validate_instance
 
 QUERY_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
 BASE_URL = "http://static.cninfo.com.cn/"
+
+
+def _recent_se_date() -> str:
+    """返回包含上海当天在内的最近 5 个自然日查询窗口。"""
+    end_date = shanghai_now().date()
+    start_date = end_date - timedelta(days=4)
+    return f"{start_date.isoformat()}~{end_date.isoformat()}"
 
 
 class CninfoCollector(CollectorAdapter):
@@ -65,7 +73,7 @@ class CninfoCollector(CollectorAdapter):
 
     def healthcheck(self) -> HealthStatus:
         result = self._post_query({"pageNum": 1, "pageSize": 1, "column": "szse",
-                                   "tabName": "fulltext", "seDate": "2026-08-01~2026-08-05"})
+                                   "tabName": "fulltext", "seDate": _recent_se_date()})
         ok = result is not None and "announcements" in result
         return HealthStatus(
             source_id=self.source_id,
@@ -84,7 +92,7 @@ class CninfoCollector(CollectorAdapter):
         """
         start = (time_window or {}).get("start")
         end = (time_window or {}).get("end")
-        se_date = "2026-01-01~2026-12-31"
+        se_date = _recent_se_date()
         if start and end:
             se_date = f"{start[:10]}~{end[:10]}"
         params: Dict[str, Any] = {

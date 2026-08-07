@@ -469,6 +469,17 @@ class TestTimeAndReuse:
         )
         assert any(i.rule_id == "ERV-053" for i in out.errors)
 
+    def test_processing_created_at_after_historical_as_of_is_allowed(self):
+        out = validate_equity_research(
+            blocks=[{
+                "block_id": "block-review", "page_start": 1,
+                "content_hash": "a" * 64,
+                "created_at": "2026-08-07T10:00:00+08:00",
+            }],
+            as_of="2026-08-07T00:00:00+08:00",
+        )
+        assert not any(i.rule_id == "ERV-053" for i in out.errors)
+
     def test_phase3_rewrite_fails(self):
         out = validate_equity_research(
             phase3_objects=[{"attribution_result_id": "attr-1", "attribution_status": "EXPLAINED"}],

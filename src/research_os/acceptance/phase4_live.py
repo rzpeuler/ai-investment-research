@@ -18,6 +18,7 @@ from research_os.financials.evidence_binding import CORE_FINANCIAL_CODES
 from research_os.orchestrator import Orchestrator
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
 from research_os.storage import Database
+from research_os.utils.time import now_iso
 
 FINANCIAL_COLUMNS = [
     "company_entity_id", "period_start", "period_end", "fiscal_year", "report_type",
@@ -94,7 +95,7 @@ def _write_financial_csv(path: Path, entity: str, documents: List[Dict[str, Any]
 
 def _locator(
     *, document: Dict[str, Any], imported: Dict[str, Any], code: str,
-    fact: Dict[str, Any], as_of: str,
+    fact: Dict[str, Any], confirmed_at: str,
 ) -> Dict[str, Any]:
     value = str(fact["value"])
     label = str(fact["label"])
@@ -122,7 +123,7 @@ def _locator(
         "unit_scale": int(document["unit_scale"]),
         "confirmation_status": "confirmed",
         "confirmed_by": "phase4.1-acceptance-review",
-        "confirmed_at": as_of,
+        "confirmed_at": confirmed_at,
         "correction_reason": None,
     }
 
@@ -131,6 +132,7 @@ def prepare_phase4_case(
     project_root: Path, db: Database, *, case_id: str,
 ) -> PreparedCase:
     """导入官方原件并生成财务 CSV 与 locator 清单；不调用网络 Provider。"""
+    acceptance_started_at = now_iso()
     root = Path(project_root)
     config = load_phase4_acceptance_config(root)
     case = _case_by_id(config, case_id)
@@ -164,7 +166,8 @@ def prepare_phase4_case(
         imported_documents.append(result)
         for code, fact in document["facts"].items():
             locators.append(_locator(
-                document=document, imported=result, code=code, fact=fact, as_of=as_of))
+                document=document, imported=result, code=code, fact=fact,
+                confirmed_at=acceptance_started_at))
 
     financial_file = workspace / "official_financial_facts.csv"
     binding_file = workspace / "financial_evidence_binding.json"

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 
@@ -47,6 +48,54 @@ def test_cninfo_contract_normal_fixture(cninfo):
     assert "变更持续督导" in r.title
     assert r.published_at  # 时间戳已转换
     assert r.url.startswith("http")
+
+
+def test_cninfo_default_window_uses_recent_five_shanghai_calendar_days(monkeypatch):
+    import research_os.collectors.official.cninfo as cninfo_module
+
+    captured = {}
+    collector = CninfoCollector()
+    monkeypatch.setattr(cninfo_module, "shanghai_now", lambda: datetime(2027, 1, 3, 9, 0, 0))
+
+    def _capture(params, timeout=25.0):
+        captured.update(params)
+        return {"announcements": [], "totalAnnouncement": 0}
+
+    collector._post_query = _capture
+    assert collector.discover({}, {}) == []
+    assert captured["seDate"] == "2026-12-30~2027-01-03"
+
+
+def test_cninfo_healthcheck_uses_same_dynamic_window(monkeypatch):
+    import research_os.collectors.official.cninfo as cninfo_module
+
+    captured = {}
+    collector = CninfoCollector()
+    monkeypatch.setattr(cninfo_module, "shanghai_now", lambda: datetime(2027, 1, 3, 9, 0, 0))
+
+    def _capture(params, timeout=25.0):
+        captured.update(params)
+        return {"announcements": [], "totalAnnouncement": 0}
+
+    collector._post_query = _capture
+    assert collector.healthcheck().ok is True
+    assert captured["seDate"] == "2026-12-30~2027-01-03"
+
+
+def test_cninfo_explicit_historical_window_is_preserved():
+    captured = {}
+    collector = CninfoCollector()
+
+    def _capture(params, timeout=25.0):
+        captured.update(params)
+        return {"announcements": [], "totalAnnouncement": 0}
+
+    collector._post_query = _capture
+    collector.discover({}, {
+        "start": "2025-04-01T00:00:00+08:00",
+        "end": "2025-04-10T23:59:59+08:00",
+    })
+    assert captured["seDate"] == "2025-04-01~2025-04-10"
 
 
 def test_cninfo_contract_empty_result(monkeypatch):

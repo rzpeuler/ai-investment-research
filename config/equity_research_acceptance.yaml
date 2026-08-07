@@ -1,5 +1,5 @@
 version: "1.0.0"
-as_of: "2026-08-07T23:59:59+08:00"
+as_of: "2026-08-07T00:00:00+08:00"
 report_date: "2026-08-07"
 provider_id: deepseek
 required_successes: 2

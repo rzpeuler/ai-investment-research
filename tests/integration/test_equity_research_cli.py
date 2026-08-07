@@ -169,12 +169,12 @@ class TestFullFlow:
         binding_path = tmp_path / "binding.json"
         binding_path.write_text(json.dumps({
             "binding_version": "1.0.0", "company_entity_id": COMPANY,
-            "as_of": "2026-08-07T23:59:59+08:00", "locators": locators,
+            "as_of": "2026-08-07T00:00:00+08:00", "locators": locators,
         }, ensure_ascii=False), encoding="utf-8")
 
         result = runner.invoke(cli, [
             "run", "equity-research", "--entity", "600519.SH",
-            "--date", "2026-08-07", "--as-of", "2026-08-07T23:59:59+08:00",
+            "--date", "2026-08-07", "--as-of", "2026-08-07T00:00:00+08:00",
             "--financial-file", _write_fin(tmp_path),
             "--financial-binding", str(binding_path),
         ])

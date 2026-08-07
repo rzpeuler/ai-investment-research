@@ -16,7 +16,8 @@ from research_os.storage import Database
 from research_os.validators.schema_validator import validate_model
 
 ROOT = Path(__file__).resolve().parents[2]
-AS_OF = "2026-04-30T23:59:59+08:00"
+AS_OF = "2026-04-01T23:59:59+08:00"
+REQUESTED_AT = "2026-04-02T10:00:00+08:00"
 
 
 @pytest.fixture()
@@ -75,7 +76,8 @@ def test_bind_official_financial_evidence_creates_full_lineage(binding_context):
     assert validate_model(binding) == []
     result = bind_official_financial_evidence(
         root, db, manifest=imported.manifest, reports=imported.reports,
-        facts=[row.fact for row in imported.rows if row.fact], binding=binding, as_of=AS_OF,
+        facts=[row.fact for row in imported.rows if row.fact], binding=binding,
+        as_of=AS_OF, requested_at=REQUESTED_AT,
     )
     assert len(result.bound_fact_ids) == 1
     fact = db.get("financial_facts", result.bound_fact_ids[0])
@@ -102,7 +104,7 @@ def test_bind_official_financial_evidence_creates_full_lineage(binding_context):
         ({"reported_raw_value": "999999"}, "数值不一致"),
         ({"currency": "USD"}, "币种或单位"),
         ({"document_id": "missing"}, "官方文档不存在"),
-        ({"confirmed_at": "2026-05-01T00:00:00+08:00"}, "晚于 as_of"),
+        ({"confirmed_at": "2026-04-02T10:00:01+08:00"}, "晚于 requested_at"),
         ({"confirmation_status": "corrected", "correction_reason": None}, "correction_reason"),
     ],
 )
@@ -113,6 +115,7 @@ def test_binding_rejects_invalid_or_unverified_input(binding_context, changes, m
             root, db, manifest=imported.manifest, reports=imported.reports,
             facts=[row.fact for row in imported.rows if row.fact],
             binding=_binding(disclosure, **changes), as_of=AS_OF,
+            requested_at=REQUESTED_AT,
         )
 
 
@@ -123,7 +126,7 @@ def test_binding_rejects_tampered_official_file(binding_context):
         bind_official_financial_evidence(
             root, db, manifest=imported.manifest, reports=imported.reports,
             facts=[row.fact for row in imported.rows if row.fact],
-            binding=_binding(disclosure), as_of=AS_OF,
+            binding=_binding(disclosure), as_of=AS_OF, requested_at=REQUESTED_AT,
         )
 
 
@@ -132,7 +135,7 @@ def test_validator_accepts_a_valid_official_core_fact_lineage(binding_context):
     bound = bind_official_financial_evidence(
         root, db, manifest=imported.manifest, reports=imported.reports,
         facts=[row.fact for row in imported.rows if row.fact],
-        binding=_binding(disclosure), as_of=AS_OF,
+        binding=_binding(disclosure), as_of=AS_OF, requested_at=REQUESTED_AT,
     )
     outcome = validate_equity_research(
         result={"research_status": "partial_success"},
@@ -140,9 +143,54 @@ def test_validator_accepts_a_valid_official_core_fact_lineage(binding_context):
         documents=[db.get("document_records", disclosure.document_id)],
         blocks=[db.get("document_blocks", bound.block_ids[0])],
         evidences=[db.get("evidence", bound.evidence_ids[0])],
-        as_of=AS_OF,
+        as_of=AS_OF, request={"requested_at": REQUESTED_AT},
     )
     assert not [issue for issue in outcome.issues if issue.rule_id.startswith("ERV-08")]
+
+
+def test_validator_rejects_confirmation_after_requested_at(binding_context):
+    root, db, disclosure, imported, _ = binding_context
+    bound = bind_official_financial_evidence(
+        root, db, manifest=imported.manifest, reports=imported.reports,
+        facts=[row.fact for row in imported.rows if row.fact],
+        binding=_binding(disclosure), as_of=AS_OF, requested_at=REQUESTED_AT,
+    )
+    block = db.get("document_blocks", bound.block_ids[0])
+    block["normalized_payload"]["confirmed_at"] = "2026-04-02T10:00:01+08:00"
+    outcome = validate_equity_research(
+        facts=[db.get("financial_facts", bound.bound_fact_ids[0])],
+        documents=[db.get("document_records", disclosure.document_id)],
+        blocks=[block], evidences=[db.get("evidence", bound.evidence_ids[0])],
+        as_of=AS_OF, request={"requested_at": REQUESTED_AT},
+    )
+    assert any(issue.rule_id == "ERV-086" and "requested_at" in issue.message
+               for issue in outcome.errors)
+
+
+@pytest.mark.parametrize("future_object", ["document", "evidence"])
+def test_validator_still_rejects_official_source_published_after_as_of(
+    binding_context, future_object,
+):
+    root, db, disclosure, imported, _ = binding_context
+    bound = bind_official_financial_evidence(
+        root, db, manifest=imported.manifest, reports=imported.reports,
+        facts=[row.fact for row in imported.rows if row.fact],
+        binding=_binding(disclosure), as_of=AS_OF, requested_at=REQUESTED_AT,
+    )
+    document = db.get("document_records", disclosure.document_id)
+    evidence = db.get("evidence", bound.evidence_ids[0])
+    if future_object == "document":
+        document["published_at"] = "2026-04-02T00:00:00+08:00"
+    else:
+        evidence["published_at"] = "2026-04-02T00:00:00+08:00"
+    outcome = validate_equity_research(
+        facts=[db.get("financial_facts", bound.bound_fact_ids[0])],
+        documents=[document], blocks=[db.get("document_blocks", bound.block_ids[0])],
+        evidences=[evidence], as_of=AS_OF,
+        request={"requested_at": REQUESTED_AT},
+    )
+    assert any(issue.rule_id == "ERV-085" and "晚于 as_of" in issue.message
+               for issue in outcome.errors)
 
 
 def test_validator_rejects_tier_c_core_fact_even_with_unrelated_official_evidence(binding_context):
@@ -163,7 +211,7 @@ def test_validator_allows_success_when_all_nine_core_codes_have_official_lineage
     bound = bind_official_financial_evidence(
         root, db, manifest=imported.manifest, reports=imported.reports,
         facts=[row.fact for row in imported.rows if row.fact],
-        binding=_binding(disclosure), as_of=AS_OF,
+        binding=_binding(disclosure), as_of=AS_OF, requested_at=REQUESTED_AT,
     )
     base_fact = db.get("financial_facts", bound.bound_fact_ids[0])
     base_block = db.get("document_blocks", bound.block_ids[0])
@@ -200,7 +248,7 @@ def test_validator_rejects_locator_value_tampering(binding_context):
     bound = bind_official_financial_evidence(
         root, db, manifest=imported.manifest, reports=imported.reports,
         facts=[row.fact for row in imported.rows if row.fact],
-        binding=_binding(disclosure), as_of=AS_OF,
+        binding=_binding(disclosure), as_of=AS_OF, requested_at=REQUESTED_AT,
     )
     block = db.get("document_blocks", bound.block_ids[0])
     block["normalized_payload"]["reported_raw_value"] = "1"

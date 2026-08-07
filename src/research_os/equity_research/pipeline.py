@@ -439,6 +439,7 @@ class EquityResearchPipeline:
                     self.root, self.db, manifest=target.manifest,
                     reports=aggregate_reports, facts=aggregate_facts,
                     binding=binding, as_of=request.as_of,
+                    requested_at=request.requested_at,
                 )
                 for document_id in bound.document_ids:
                     payload = self.db.get("document_records", document_id)

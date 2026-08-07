@@ -12,7 +12,7 @@ from research_os.documents.disclosure_import import _official_source
 from research_os.models import DocumentBlock, Evidence, FinancialDataManifest, FinancialFact, FinancialReport
 from research_os.models.financials import FinancialEvidenceBindingManifest
 from research_os.utils.decimal import normalize_decimal_string
-from research_os.utils.time import now_iso
+from research_os.utils.time import now_iso, parse_iso
 from research_os.validators.schema_validator import validate_model
 
 CORE_FINANCIAL_CODES = frozenset({
@@ -82,6 +82,7 @@ def bind_official_financial_evidence(
     facts: List[FinancialFact],
     binding: FinancialEvidenceBindingManifest,
     as_of: str,
+    requested_at: str,
 ) -> FinancialBindingResult:
     """核验 locator 和原件后，写入 block/Evidence 并回填事实血缘。"""
     if binding.company_entity_id not in manifest.company_entity_ids:
@@ -116,8 +117,8 @@ def bind_official_financial_evidence(
             raise ValueError(f"官方定位币种或单位与 FinancialFact 不一致: {fact.fact_id}")
         if locator.page_end < locator.page_start:
             raise ValueError("locator.page_end 不得早于 page_start")
-        if locator.confirmed_at > as_of:
-            raise ValueError("人工确认时间不得晚于 as_of")
+        if parse_iso(locator.confirmed_at) > parse_iso(requested_at):
+            raise ValueError("人工确认时间不得晚于 requested_at")
         if locator.confirmation_status == "corrected" and not (locator.correction_reason or "").strip():
             raise ValueError("人工校正必须记录 correction_reason")
 
@@ -128,7 +129,10 @@ def bind_official_financial_evidence(
             raise ValueError("官方文档公司实体与财务事实不一致")
         if document.get("report_period_end") and document["report_period_end"] != fact.period_end:
             raise ValueError("官方文档报告期与财务事实不一致")
-        if not document.get("source_url") or document.get("published_at", "") > as_of:
+        if (
+            not document.get("source_url")
+            or parse_iso(document.get("published_at", "")) > parse_iso(as_of)
+        ):
             raise ValueError("官方文档 URL 缺失或披露时间晚于 as_of")
         source = _official_source(
             Path(project_root), document["source_id"], document["source_url"])
