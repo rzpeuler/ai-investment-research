@@ -763,5 +763,74 @@ def knowledge_seed(ontology_path, db_path, dry_run) -> None:
         db.close()
 
 
+@knowledge_group.command("candidates")
+@click.option("--source", "sources", multiple=True, required=True,
+              help="源对象 Type:ID（可重复）。如 Event:ev_xxx Claim:cl_xxx")
+@click.option("--db", "db_path", default="data/sqlite/research.db", show_default=True,
+              help="SQLite 数据库路径（相对项目根）。")
+@click.option("--provider", "provider_id", default="deepseek", show_default=True,
+              help="LLM Provider ID。")
+@click.option("--live", is_flag=True, default=False,
+              help="发起真实 Provider 调用生成 candidate。")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="0 writes：仅执行预检，不调用 LLM，不写候选 DB/文件。")
+def knowledge_candidates(sources, db_path, provider_id, live, dry_run) -> None:
+    """从结构化源对象生成 GraphChange candidate（M3 候选管线）。
+
+    源类型支持：Event / Claim / ResearchFinding / CompetitiveFactor /
+    Catalyst / RiskFactor / BusinessSegment / CompanyProfile / Evidence。
+
+    --live 控制是否真实调用 LLM；--dry-run 控制是否写入。
+    """
+    from research_os.knowledge.candidate_pipeline import CandidatePipeline
+    from research_os.knowledge.candidate_sources import is_allowed_source_type
+    from research_os.llm.provider_factory import create_provider
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    # 解析 source 参数
+    parsed_sources = []
+    for s in sources:
+        if ":" not in s:
+            raise click.ClickException(f"source 参数格式错误（要求 Type:ID）: {s!r}")
+        st, sid = s.split(":", 1)
+        if not is_allowed_source_type(st):
+            raise click.ClickException(
+                f"不支持的源类型: {st!r}，允许: Event/Claim/ResearchFinding/"
+                f"CompetitiveFactor/Catalyst/RiskFactor/BusinessSegment/CompanyProfile/Evidence"
+            )
+        parsed_sources.append((st, sid))
+
+    db = Database(db_full)
+    db.initialize()
+
+    try:
+        provider = None
+        if live:
+            from research_os.llm.provider_factory import create_provider as _create_prov
+            provider = _create_prov(root, provider_id=provider_id, live=live)
+        pipeline = CandidatePipeline(
+            db=db,
+            provider=provider,
+            live=live,
+            dry_run=dry_run,
+        )
+        knowledge_dir = root / "knowledge"
+        result = pipeline.run(
+            sources=parsed_sources,
+            knowledge_dir=knowledge_dir,
+        )
+        click.echo(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        if result.get("status") not in ("ok", "dry_run", "preflight_only"):
+            raise SystemExit(1)
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()

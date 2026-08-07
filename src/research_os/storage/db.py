@@ -24,7 +24,7 @@ TABLES = {
     "Claim": "claims",
     "Evidence": "evidence",
     "ModuleResult": "module_results",
-    "GraphChange": "graph_changes",
+    # GraphChange 由 GraphChangeCandidateRepository 专用追加逻辑管理，不经过 generic upsert
     # Phase 1：来源层
     "Source": "sources",
     "SourceProbe": "source_probes",
@@ -74,7 +74,7 @@ PK_COLUMNS = {
     "opinions": "opinion_id",
     "claims": "claim_id",
     "evidence": "evidence_id",
-    "graph_changes": "graph_change_id",
+    # graph_changes 由 GraphChangeCandidateRepository 专用逻辑管理，不走 generic pk 查找
     "sources": "source_id",
     "source_probes": "probe_id",
     "manual_inbox": "inbox_id",
@@ -223,8 +223,7 @@ class Database:
         if name == "ModuleResult":
             return {"status": d["status"], "as_of": d["as_of"]}
         if name == "GraphChange":
-            return {"change_type": d["change_type"], "review_status": d["review_status"],
-                    "created_at": d["created_at"]}
+            raise ValueError("GraphChange 禁止使用 generic upsert，请使用 GraphChangeCandidateRepository")
         if name == "Source":
             return {"name": d["name"], "status": d["status"],
                     "last_verified_at": d["last_verified_at"]}

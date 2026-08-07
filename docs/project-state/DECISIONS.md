@@ -323,3 +323,41 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 11. **M2 严格不实现**：GraphChangeProposal builder、candidate pipeline、review parser、
     apply engine、historical query、knowledge context builder、JSON mirror export、
     Phase 2/3/4 integration。M3-M10 全部未授权。
+
+## 33. Phase 5 M3 GraphChange Candidate Pipeline 语义冻结（2026-08-07）
+
+> 本决定在 M3 实现启动时冻结。M3 完成不自动授权 M4。
+
+1. **M3 输入只能来自已持久化、已结构化的对象**：Event、Claim、ResearchFinding、
+   CompetitiveFactor、Catalyst、RiskFactor、BusinessSegment、CompanyProfile、Evidence。
+   禁止 Opinion、RawItem、Markdown、网页正文、任意未持久化对象直接输入。
+
+2. **LLM 只能生成 GraphChangeProposal**；禁止 LLM 生成 graph_change_id、node_id、
+   edge_id、version、review_status、reviewed_at、created_at、active status。
+
+3. **Evidence 存在性与子集硬门禁**：Proposal 中 source_object_ids ⊆ 实际输入 ID；
+   new_evidence_ids ⊆ 实际 Evidence context 且 SQLite 中真实存在。任一不满足 → PROPOSAL_REJECTED。
+
+4. **GraphChange builder 为确定性代码**；LLM Proposal → deterministic validate →
+   deterministic build → deterministic persist。
+
+5. **Ontology 运行时保护**：普通 candidate pipeline 禁止对 Industry/IndustrySegment
+   执行 add/modify/retire。此类操作返回 ONTOLOGY_CHANGE_REQUIRES_HUMAN_GOVERNANCE。
+
+6. **实体身份解析**：add_node 必须从输入结构化对象中提取确定 Entity ID（entities 表）。
+   Company 的 GraphNode.node_id == Entity.entity_id。模糊匹配、LLM 猜测、name hash 均不可接受。
+
+7. **GraphChange candidate 是 immutable audit object**：INSERT ONLY，同 ID 同 payload =
+   IDEMPOTENT_NOOP，同 ID 异 payload = IMMUTABLE_CANDIDATE_CONFLICT。
+   Generic Database.upsert(GraphChange) 被机械阻断。
+
+8. **Candidate 审查状态**：review_status = candidate，reviewed_at = null。
+   M3 永远禁止自动 approved。
+
+9. **Markdown 只是 candidate review artifact**，不是权威数据源。
+
+10. **dry-run 零写**：0 graph_changes writes，0 candidate Markdown writes，
+    0 candidate directory creation。即使调用 LLM 也不得写候选 DB/文件。
+
+11. **M3 不实现 M4（Knowledge Validator）、M5（Human Review）、M6（Apply Engine）**。
+    M4-M10 全部未授权。
