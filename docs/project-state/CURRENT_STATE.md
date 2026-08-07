@@ -6,16 +6,18 @@
 
 ## 工程基线
 
-- `code_baseline`: `ce656b1866e0d65b1def292d26bed9c41474983b`
-- 基线来源：PR #1 以 Squash merge 合入 `master`，提交标题为
-  `fix: unify research control plane and close evidence governance gaps`。
-- 基线范围：统一研究控制面、模型调用预算、语义 Evidence 资格、核心财务来源质量
-  和维度级专业评审 Evidence 治理补修。
-- 基线验收：1067/1067 tests passed，50/50 schemas passed；合并时仓库未配置远端状态检查。
+- `code_baseline`: `4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`
+- 基线来源：PR #3 以 Squash merge 合入 `master`，提交标题为
+  `feat: complete phase4 full research capability`；上一工程基线为 `ce656b1`。
+- 基线范围：保留统一控制面和 Evidence 治理补修，并完成真实 DeepSeek Provider、官方
+  财务原件血缘、七项语义任务、时间治理及版本化在线验收摘要。
+- 基线验收：1131 tests passed，5 online tests skipped，51/51 schemas passed；三个显式在线
+  验收案例 3/3 通过；合并时仓库未配置远端状态检查。
 - Phase 4.1 当前代码里程碑：`7a515a4`；真实验收产物位于 Git 忽略的本地 `reports/`，
   版本化验收清单位于 `config/equity_research_acceptance.yaml`。
 - Phase 4.1 独立验收 SHA：`9506f6a19ab60187d1ab0bc4991cfa427606ecae`；验收结论
-  `INDEPENDENT_ACCEPTANCE: PASS`，PR #3 `MERGE_READY`，合并方式为 Squash。
+  `INDEPENDENT_ACCEPTANCE: PASS`。PR #3 已以 Squash 合并，master SHA 为
+  `4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`。
 
 ## 阶段状态
 
