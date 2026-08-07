@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -150,12 +151,49 @@ def test_cninfo_contract_invalid_json(monkeypatch):
 
 def test_cninfo_normalize_passes_schema(cninfo):
     refs = cninfo.discover({}, {})
-    raw = cninfo.fetch(refs[0])
+    ref = refs[0]
+    raw = RawPayload(
+        source_id=ref.source_id, external_id=ref.external_id,
+        url=ref.url, title=ref.title, publisher="巨潮资讯", author=None,
+        published_at=ref.published_at, content="", retrieved_at=T0,
+        fetch_status="ok", error_message="",
+    )
     items = cninfo.normalize(raw)
     assert len(items) == 1
     assert validate_model(items[0]) == []
     assert items[0].content_storage == "metadata_and_excerpt"
     assert items[0].access_status in ("ok", "failed")
+
+
+def test_cninfo_fetch_uses_platform_curl_without_network(monkeypatch):
+    import research_os.collectors.official.cninfo as cninfo_module
+
+    captured = {}
+    monkeypatch.setattr(cninfo_module, "_curl_executable", lambda: "/usr/bin/curl")
+
+    def _run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="HTTP/1.1 200 OK\n")
+
+    monkeypatch.setattr(cninfo_module.subprocess, "run", _run)
+    raw = CninfoCollector().fetch(ItemRef(
+        source_id="cninfo", external_id="ann-1", url="https://example.com/a.pdf",
+        title="公告", published_at=T0,
+    ))
+    assert captured["cmd"][0] == "/usr/bin/curl"
+    assert raw.fetch_status == "ok"
+
+
+def test_cninfo_fetch_without_curl_degrades_explicitly(monkeypatch):
+    import research_os.collectors.official.cninfo as cninfo_module
+
+    monkeypatch.setattr(cninfo_module, "_curl_executable", lambda: None)
+    raw = CninfoCollector().fetch(ItemRef(
+        source_id="cninfo", external_id="ann-1", url="https://example.com/a.pdf",
+        title="公告", published_at=T0,
+    ))
+    assert raw.fetch_status == "failed"
+    assert raw.error_message == "附件 URL 不可达"
 
 
 def test_cninfo_rate_limit_policy(cninfo):

@@ -13,6 +13,7 @@ announcementTitle, announcementTime(ms), adjunctUrl, adjunctType, ...}
 from __future__ import annotations
 
 import subprocess
+import shutil
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -34,6 +35,11 @@ QUERY_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
 BASE_URL = "http://static.cninfo.com.cn/"
 
 
+def _curl_executable() -> Optional[str]:
+    """返回当前平台可用的 curl；缺失时由调用方显式降级。"""
+    return shutil.which("curl.exe") or shutil.which("curl")
+
+
 def _recent_se_date() -> str:
     """返回包含上海当天在内的最近 5 个自然日查询窗口。"""
     end_date = shanghai_now().date()
@@ -49,16 +55,19 @@ class CninfoCollector(CollectorAdapter):
 
     def _post_query(self, params: Dict[str, Any], timeout: float = 25.0) -> Optional[dict]:
         """调用公告查询接口。失败返回 None（调用方显式处理）。"""
+        curl = _curl_executable()
+        if curl is None:
+            return None
         data = urlencode(params)
         cmd = [
-            "curl.exe", "-sS", "--max-time", str(int(timeout)),
+            curl, "-sS", "--max-time", str(int(timeout)),
             "-X", "POST", QUERY_URL,
             "-H", "Content-Type: application/x-www-form-urlencoded",
             "--data", data,
         ]
         try:
             proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
-        except subprocess.TimeoutExpired:
+        except (OSError, subprocess.TimeoutExpired):
             return None
         if proc.returncode != 0 or not proc.stdout.strip():
             return None
@@ -143,16 +152,18 @@ class CninfoCollector(CollectorAdapter):
     def fetch(self, item_ref: ItemRef) -> RawPayload:
         """验证公告附件 URL 可达性（仅 HEAD 少量字节，不下载全文）。"""
         reachable = False
-        cmd = ["curl.exe", "-sS", "-I", "--max-time", "15",
-               "-A", "Mozilla/5.0", item_ref.url]
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
-            reachable = proc.returncode == 0 and any(
-                line.startswith("HTTP/") and "200" in line
-                for line in proc.stdout.splitlines()
-            )
-        except subprocess.TimeoutExpired:
-            reachable = False
+        curl = _curl_executable()
+        if curl is not None:
+            cmd = [curl, "-sS", "-I", "--max-time", "15",
+                   "-A", "Mozilla/5.0", item_ref.url]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+                reachable = proc.returncode == 0 and any(
+                    line.startswith("HTTP/") and "200" in line
+                    for line in proc.stdout.splitlines()
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                reachable = False
         return RawPayload(
             source_id=self.source_id,
             external_id=item_ref.external_id,
