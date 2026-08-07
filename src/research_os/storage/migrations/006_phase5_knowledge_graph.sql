@@ -1,13 +1,14 @@
--- Phase 5 M2 迁移：知识图谱持久化表（任务书 29 节）。
+-- Phase 5 M2 迁移：知识图谱持久化表（架构评审修正版）。
 -- 约定：graph_nodes/graph_edges 为版本化追加表（复合主键），禁止 UPDATE。
 -- graph_reviews/graph_applications 为辅助审计表。
 -- payload 写入前必须通过对应 Schema 校验。
 -- 不得修改或合并既有 Phase 0-4 表；不给旧表增加外键。
+-- M2 修正：CHECK(version >= 1)、graph_applications 最小结构、FK 约束收紧。
 
 -- 图谱节点（版本化追加：node_id + version 复合主键，禁止对已有版本 UPDATE）
 CREATE TABLE IF NOT EXISTS graph_nodes (
     node_id                     TEXT NOT NULL,
-    version                     INTEGER NOT NULL,
+    version                     INTEGER NOT NULL CHECK(version >= 1),
     payload                     TEXT NOT NULL,
     node_type                   TEXT NOT NULL,
     name                        TEXT NOT NULL,
@@ -29,7 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_gn_created ON graph_nodes(created_at);
 -- 图谱关系（版本化追加：edge_id + version 复合主键，禁止对已有版本 UPDATE）
 CREATE TABLE IF NOT EXISTS graph_edges (
     edge_id                     TEXT NOT NULL,
-    version                     INTEGER NOT NULL,
+    version                     INTEGER NOT NULL CHECK(version >= 1),
     payload                     TEXT NOT NULL,
     source_node_id              TEXT NOT NULL,
     relation                    TEXT NOT NULL,
@@ -61,24 +62,27 @@ CREATE TABLE IF NOT EXISTS graph_reviews (
     candidate_hash             TEXT NOT NULL,
     resulting_graph_change_id  TEXT,
     FOREIGN KEY (graph_change_id) REFERENCES graph_changes(graph_change_id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_grev_change ON graph_reviews(graph_change_id, reviewed_at);
 CREATE INDEX IF NOT EXISTS idx_grev_decision ON graph_reviews(decision);
 
--- Apply 记录：哪条 GraphChange 被 applied，产生哪个节点/边版本
+-- Apply 记录：哪条 GraphChange 被 applied 到哪个 node/edge 版本。
+-- M2 修正：最小结构，仅保留 application_id / graph_change_id / review_id /
+--          idempotency_key / payload / applied_at。
+--          idempotency_key 严格 UNIQUE，防止重复 apply。
 CREATE TABLE IF NOT EXISTS graph_applications (
     application_id             TEXT PRIMARY KEY,
-    payload                    TEXT NOT NULL,
     graph_change_id            TEXT NOT NULL,
     review_id                  TEXT NOT NULL,
+    idempotency_key            TEXT NOT NULL UNIQUE,
+    payload                    TEXT NOT NULL,
     applied_at                 TEXT NOT NULL,
-    node_id                    TEXT,
-    node_version               INTEGER,
-    edge_id                    TEXT,
-    edge_version               INTEGER,
-    FOREIGN KEY (graph_change_id) REFERENCES graph_changes(graph_change_id),
+    FOREIGN KEY (graph_change_id) REFERENCES graph_changes(graph_change_id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
     FOREIGN KEY (review_id) REFERENCES graph_reviews(review_id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_gapp_change ON graph_applications(graph_change_id);
-CREATE INDEX IF NOT EXISTS idx_gapp_node ON graph_applications(node_id, node_version);
-CREATE INDEX IF NOT EXISTS idx_gapp_edge ON graph_applications(edge_id, edge_version);
+CREATE INDEX IF NOT EXISTS idx_gapp_review ON graph_applications(review_id);
+CREATE INDEX IF NOT EXISTS idx_gapp_applied ON graph_applications(applied_at);

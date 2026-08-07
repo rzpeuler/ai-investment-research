@@ -1,12 +1,19 @@
-"""Ontology loader：解析 YAML 本体文件 → 构造 GraphNode/GraphEdge 列表（Phase 5 M2）。
+"""Ontology loader：解析 YAML 本体文件 → 构造 GraphNode/GraphEdge 列表（Phase 5 M2 架构评审修正版）。
 
 确定性代码；零 LLM。所有对象在返回前必须通过 Schema 校验。
+
+M2 修正要点：
+- 严格顶层键：ontology_id / ontology_version / seed_created_at / nodes / edges
+- seed_created_at 必须来自 YAML（不允许代码默认值）
+- edge_id 格式：edge:governance:<sha256>
+- Loader 始终设置 aliases=[], description=""（YAML 不再包含这些字段）
+- 硬性门禁包括 ontology_id 和 ontology_version 校验
 """
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import yaml
 
@@ -22,8 +29,9 @@ _ALLOWED_RELATIONS = {"BELONGS_TO"}
 # 禁止的节点类型（Company 不得借 governance seed 绕过 Evidence）
 _FORBIDDEN_NODE_TYPES = {"Company"}
 
-# 种子固定 created_at
-DEFAULT_SEED_CREATED_AT = "2026-08-07T17:34:00+08:00"
+# 顶层键白名单 + 必需键
+_REQUIRED_TOP_KEYS = {"ontology_id", "ontology_version", "seed_created_at", "nodes", "edges"}
+_TOP_KEY_WHITELIST = _REQUIRED_TOP_KEYS
 
 
 class OntologyLoadError(ValueError):
@@ -31,9 +39,9 @@ class OntologyLoadError(ValueError):
 
 
 def _deterministic_edge_id(source_node_id: str, relation: str, target_node_id: str) -> str:
-    """确定性 edge_id：sha256(source + "|" + relation + "|" + target) lowercase hex。"""
+    """确定性 edge_id：edge:governance:<sha256(source|relation|target) lowercase hex>."""
     raw = f"{source_node_id}|{relation}|{target_node_id}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return "edge:governance:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _validate_model_or_raise(obj, label: str) -> None:
@@ -49,14 +57,18 @@ def load_ontology(path: str | Path) -> Tuple[List[GraphNode], List[GraphEdge], d
     """解析 YAML 本体文件 → (nodes, edges, 元信息)。
 
     硬性门禁（失败即抛 OntologyLoadError）：
-    - Company 节点类型  → 拒绝
-    - 未知 node_type    → 拒绝
-    - 未知 relation     → 拒绝
-    - 重复 node_id      → 拒绝
-    - 重复 edge 定义    → 拒绝
-    - 边引用缺失端点   → 拒绝
-    - version != 1      → 拒绝
-    - Schema 校验失败   → 拒绝
+    - 顶层键缺失或多余 → 拒绝
+    - ontology_id 不为 "industry_graph" → 拒绝
+    - ontology_version 不为 1 → 拒绝
+    - seed_created_at 缺失 → 拒绝
+    - Company 节点类型 → 拒绝
+    - 未知 node_type → 拒绝
+    - 未知 relation → 拒绝
+    - 重复 node_id → 拒绝
+    - 重复 edge 定义 → 拒绝
+    - 边引用缺失端点 → 拒绝
+    - version != 1 → 拒绝
+    - Schema 校验失败 → 拒绝
 
     Returns:
         (nodes: List[GraphNode], edges: List[GraphEdge], meta: dict)
@@ -65,12 +77,42 @@ def load_ontology(path: str | Path) -> Tuple[List[GraphNode], List[GraphEdge], d
     if not path.exists():
         raise FileNotFoundError(f"本体文件不存在: {path}")
 
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw_bytes = path.read_bytes()
+    raw = yaml.safe_load(raw_bytes.decode("utf-8"))
     if not isinstance(raw, dict):
         raise OntologyLoadError("本体文件顶层必须是 dict/mapping")
 
-    meta = raw.get("meta", {})
-    seed_created_at = meta.get("seed_created_at", DEFAULT_SEED_CREATED_AT)
+    # ---- 严格顶层键校验 ----
+    top_keys = set(raw.keys())
+    missing = _REQUIRED_TOP_KEYS - top_keys
+    extra = top_keys - _TOP_KEY_WHITELIST
+    if missing:
+        raise OntologyLoadError(f"缺失顶层键: {sorted(missing)}")
+    if extra:
+        raise OntologyLoadError(f"未知顶层键: {sorted(extra)}")
+
+    ontology_id = raw["ontology_id"]
+    ontology_version = raw["ontology_version"]
+    seed_created_at = raw["seed_created_at"]
+
+    # 硬性门禁：ontology_id
+    if not isinstance(ontology_id, str) or ontology_id != "industry_graph":
+        raise OntologyLoadError(
+            f"ontology_id 必须为 'industry_graph'，当前为 {ontology_id!r}"
+        )
+
+    # 硬性门禁：ontology_version
+    if not isinstance(ontology_version, int) or ontology_version != 1:
+        raise OntologyLoadError(
+            f"ontology_version 必须为 1，当前为 {ontology_version!r}"
+        )
+
+    # 硬性门禁：seed_created_at
+    if not isinstance(seed_created_at, str) or not seed_created_at.strip():
+        raise OntologyLoadError("seed_created_at 必须为非空字符串")
+
+    # 计算 YAML 原始字节的 SHA256（供 CLI/测试使用）
+    ontology_sha256 = hashlib.sha256(raw_bytes).hexdigest()
 
     # ---- 收集 node IDs（去重检查） ----
     node_id_set: set = set()
@@ -111,8 +153,8 @@ def load_ontology(path: str | Path) -> Tuple[List[GraphNode], List[GraphEdge], d
                 node_id=nid,
                 node_type=nd["node_type"],
                 name=nd["name"],
-                aliases=list(nd.get("aliases", [])),
-                description=str(nd.get("description", "")),
+                aliases=[],  # 严格始终为空
+                description="",  # 严格始终为空
                 status="active",
                 valid_from=None,
                 valid_to=None,
@@ -199,4 +241,10 @@ def load_ontology(path: str | Path) -> Tuple[List[GraphNode], List[GraphEdge], d
         _validate_model_or_raise(edge, f"edge {edge_id}")
         edges.append(edge)
 
+    meta = {
+        "ontology_id": ontology_id,
+        "ontology_version": ontology_version,
+        "seed_created_at": seed_created_at,
+        "ontology_sha256": ontology_sha256,
+    }
     return nodes, edges, meta

@@ -62,10 +62,7 @@ TABLES = {
     "EquityResearchRequest": "equity_research_requests",
     "EquityResearchRun": "equity_research_runs",
     "EquityResearchResult": "equity_research_results",
-    # Phase 5：产业图谱
-    "GraphNode": "graph_nodes",
-    "GraphEdge": "graph_edges",
-    "GraphReview": "graph_reviews",
+    # Phase 5：产业图谱（graph_* 表使用 GraphRepository 专用追加逻辑，不走 generic upsert）
 }
 
 # 各表主键列名（与 001_initial.sql 保持一致）
@@ -114,11 +111,7 @@ PK_COLUMNS = {
     "equity_research_requests": "request_id",
     "equity_research_runs": "run_id",
     "equity_research_results": "result_id",
-    # Phase 5
-    "graph_nodes": "node_id",
-    "graph_edges": "edge_id",
-    "graph_reviews": "review_id",
-    "graph_applications": "application_id",
+    # Phase 5：graph_* 表使用专用 GraphRepository 追加逻辑，不走 generic pk 查找
 }
 
 

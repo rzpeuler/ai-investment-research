@@ -278,3 +278,48 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 6. **Contract tests scope**：M1 只测试 structural validation（type、enum、required、
    additionalProperties、信心范围、时间格式、proposal 防污染字段、patch 路径白名单）。
    不测试 DB existence、entity equality、version monotonicity、graph state conflict（这些属于 M2-M6）。
+
+## 32. Phase 5 M2 持久化与 Governance Seed 语义冻结（2026-08-07）
+
+> 本决定在 M2 实现完成后冻结。M2 PASS 不自动授权 M3。
+
+1. **SQLite 为结构化权威持久化**；graph_nodes / graph_edges / graph_reviews / graph_applications
+   全部 append-only，绝不 UPDATE。
+
+2. **GraphRepository 为唯一写入路径**：`Database.upsert()` 不得接收 `GraphNode` / `GraphEdge` /
+   `GraphReview`；generic TABLES / PK_COLUMNS 不收录 Phase 5 图谱表。
+
+3. **复合版本主键**：`(node_id, version)` / `(edge_id, version)`。版本规则：
+   首个版本为 1；后续单调递增 N+1；gap 拒绝。
+   同 (id, version) + 同 canonical payload = IDEMPOTENT_NOOP；
+   同 (id, version) + 异 canonical payload = IMMUTABLE_VERSION_CONFLICT。
+
+4. **Governance seed 节点类型仅限 Industry / IndustrySegment**；禁止 Company 等业务类型
+   借 governance seed 绕过 Evidence。v1 关系仅限 BELONGS_TO，
+   方向为 industry_segment → industry（child → parent）。
+
+5. **本体 YAML 严格顶层契约**：
+   `{ontology_id, ontology_version, seed_created_at, nodes, edges}`。
+   `ontology_id == "industry_graph"`，`ontology_version == 1`，
+   `seed_created_at` 必须显式 ISO。额外/缺失字段均为 `OntologyLoadError`。
+
+6. **Genance governance edge ID**：
+   `"edge:governance:" + sha256(source + "|" + relation + "|" + target)` lowercase hex。
+
+7. **确定性 seed**：零 LLM / 零网络 / 零随机数 / 零动态时间戳。
+   任意两次 `load_ontology()` 对同一文件产生完全相同的 Pydantic model 列表。
+
+8. **全量 preflight + 单事务**：先校验本体完整性 → 构造全部对象 → Schema 验证全部 →
+   计算 canonical payload → 预检全部 DB 冲突 → 若有冲突则 0 writes → 单事务批量写入。
+   不允许逐条写后才发现冲突。
+
+9. **Canonical JSON**：`json.dumps(obj.model_dump(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))`。
+   用于幂等比较和 payload 存储。
+
+10. **dry-run 零副作用**：DB 不存在时不创建 DB；DB 存在时 read-only；
+    逐对象 canonical preflight 检测冲突并报告；报告包含 `ontology_sha256` / `migration_required` /
+    `conflicts` 等完整字段。
+
+11. **M2 严格不实现**：GraphChangeProposal builder、candidate pipeline、review parser、
+    apply engine、historical query、knowledge context builder、JSON mirror export、
+    Phase 2/3/4 integration。M3-M10 全部未授权。

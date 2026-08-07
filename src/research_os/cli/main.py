@@ -669,7 +669,10 @@ def knowledge_seed(ontology_path, db_path, dry_run) -> None:
 
     第二次运行产生 0 插入（纯幂等）。
     本体 YAML 需先通过 dry-run 验证。
+    M2 修正：全量预检查、dry-run 支持 pre-v6 DB、输出含 ontology_sha256。
     """
+    import hashlib
+
     from research_os.knowledge.ontology import load_ontology, OntologyLoadError
     from research_os.knowledge.repository import GraphRepository
     from research_os.storage import Database
@@ -680,128 +683,79 @@ def knowledge_seed(ontology_path, db_path, dry_run) -> None:
     ont_path = root / ontology_path
     db_full = root / db_path
 
-    # ---- 加载本体 ----
+    # ---- 加载本体（含 SHA256） ----
     try:
         nodes, edges, meta = load_ontology(ont_path)
     except (FileNotFoundError, OntologyLoadError) as exc:
         raise click.ClickException(str(exc)) from None
 
-    node_count = len(nodes)
-    edge_count = len(edges)
+    ontology_id = meta["ontology_id"]
+    ontology_version = meta["ontology_version"]
+    ontology_sha256 = meta["ontology_sha256"]
+    nodes_total = len(nodes)
+    edges_total = len(edges)
 
-    # ---- 打开数据库 ----
-    if dry_run and not db_full.exists():
-        # dry-run + DB 不存在：0 写入，只报告
+    # ---- 数据库不存在时 ----
+    if not db_full.exists():
         summary = {
             "status": "dry_run",
-            "ontology": str(ont_path),
-            "node_count": node_count,
-            "edge_count": edge_count,
-            "existing_nodes": 0,
-            "new_nodes": node_count,
-            "existing_edges": 0,
-            "new_edges": edge_count,
-            "would_insert_nodes": node_count,
-            "would_insert_edges": edge_count,
+            "dry_run": dry_run,
+            "ontology_id": ontology_id,
+            "ontology_version": ontology_version,
+            "ontology_sha256": ontology_sha256,
+            "nodes_total": nodes_total,
+            "edges_total": edges_total,
+            "nodes_inserted": 0,
+            "edges_inserted": 0,
+            "nodes_idempotent": 0,
+            "edges_idempotent": 0,
+            "nodes_would_insert": nodes_total,
+            "edges_would_insert": edges_total,
+            "migration_required": True,
+            "conflicts": [],
+            "db_path": str(db_full),
         }
         click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
         return
 
+    # ---- 数据库存在时：检查迁移状态 ----
     if dry_run:
         db = Database.open_read_only(db_full)
     else:
         db = Database(db_full)
         db.initialize()
 
-    repo = GraphRepository(db)
-
     try:
-        # ---- 预检查 ----
-        existing_node_ids = 0
-        new_node_ids = 0
-        existing_edge_ids = 0
-        new_edge_ids = 0
+        repo = GraphRepository(db)
 
-        for node in nodes:
-            existing = repo.get_node_version(node.node_id, 1)
-            if existing is not None:
-                existing_node_ids += 1
-            else:
-                new_node_ids += 1
+        # 检查迁移状态
+        db_version = db.current_version()
+        migration_required = db_version < 6
+        if not migration_required:
+            check = db._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='graph_nodes'"
+            ).fetchone()
+            if check is None:
+                migration_required = True
 
-        for edge in edges:
-            existing = repo.get_edge_version(edge.edge_id, 1)
-            if existing is not None:
-                existing_edge_ids += 1
-            else:
-                new_edge_ids += 1
+        # 使用 seed_ontology 方法（全量预检查）
+        summary = repo.seed_ontology(
+            nodes=nodes,
+            edges=edges,
+            ontology_id=ontology_id,
+            ontology_version=ontology_version,
+            ontology_sha256=ontology_sha256,
+            dry_run=dry_run,
+        )
 
-        # ---- dry-run ----
-        if dry_run:
-            summary = {
-                "status": "dry_run",
-                "ontology": str(ont_path),
-                "node_count": node_count,
-                "edge_count": edge_count,
-                "existing_nodes": existing_node_ids,
-                "new_nodes": new_node_ids,
-                "existing_edges": existing_edge_ids,
-                "new_edges": new_edge_ids,
-                "would_insert_nodes": new_node_ids,
-                "would_insert_edges": new_edge_ids,
-            }
-            click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-            return
+        # 如果数据库版号不足，标记 migration_required
+        if migration_required:
+            summary["migration_required"] = True
 
-        # ---- 写入 ----
-        inserted_nodes = 0
-        noop_nodes = 0
-        inserted_edges = 0
-        noop_edges = 0
-        errors: list = []
-
-        with db.transaction() as conn:
-            for i, node in enumerate(nodes):
-                try:
-                    result = repo.append_node(node, conn=conn)
-                    if result == "inserted":
-                        inserted_nodes += 1
-                    else:
-                        noop_nodes += 1
-                except ValueError as exc:
-                    errors.append(f"nodes[{i}] {node.node_id}: {exc}")
-
-            if errors:
-                raise click.ClickException(
-                    f"写入失败，事务已回滚。错误:\n" + "\n".join(errors)
-                )
-
-            for i, edge in enumerate(edges):
-                try:
-                    result = repo.append_edge(edge, conn=conn)
-                    if result == "inserted":
-                        inserted_edges += 1
-                    else:
-                        noop_edges += 1
-                except ValueError as exc:
-                    errors.append(f"edges[{i}] {edge.edge_id}: {exc}")
-
-            if errors:
-                raise click.ClickException(
-                    f"写入失败，事务已回滚。错误:\n" + "\n".join(errors)
-                )
-
-        summary = {
-            "status": "ok",
-            "ontology": str(ont_path),
-            "node_count": node_count,
-            "edge_count": edge_count,
-            "inserted_nodes": inserted_nodes,
-            "noop_nodes": noop_nodes,
-            "inserted_edges": inserted_edges,
-            "noop_edges": noop_edges,
-        }
         click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
     finally:
         db.close()
 
