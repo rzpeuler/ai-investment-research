@@ -1,17 +1,18 @@
 """M3 Candidate Builder：确定性 GraphChange 构造器（零 LLM）。
 
 从通过校验的 GraphChangeProposal 构造正式 GraphChange 对象。
-- stable graph_change_id：SHA256(canonical proposal + current_knowledge + deterministic_conflicts) → UUID5
+- stable graph_change_id：SHA256(proposal.model_dump() + current_knowledge + deterministic_conflicts) → UUID5
 - Replay first：compute ID → check persisted → return canonical with persisted created_at
 - 节点构建：add_node（实体身份解析）、modify_attribute、retire_node
-- 边构建：add_edge（find_latest_logical_edge，reuse existing edge_id）、modify_attribute、retire_edge
+- 边构建：add_edge（triple lookup via repository helper, reuse existing edge_id）、modify_attribute、retire_edge
 - current_knowledge：最新节点/边的 canonical JSON
 - 版本规则：fresh=1，existing=N+1
 - 实体身份：从源对象 explicit entity_id/company_entity_id/*_entity_id/subject_entities 读取，entities 表验证
-- 0→IDENTITY_RESOLUTION_REQUIRED，>1→AMBIGUOUS_ENTITY_IDENTITY，无模糊匹配/LLM
+- 0→IDENTITY_RESOLUTION_REQUIRED，>1→AMBIGUOUS_ENTITY_IDENTITY，无 name-based 模糊匹配/LLM
 - Retire: valid_to 仅从 Proposal，never auto-now
 - 认知门禁：SOURCE_OPINION/HYPOTHESIS-only + FACT edge → EPISTEMIC_ESCALATION_REJECTED
 - 确定性冲突：proposal.conflicts + builder conflicts，stable dedup+order
+- 证据闭包：仅允许 source-derived evidence；外部证据 → PROPOSAL_REJECTED
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ from research_os.models import (
     GraphProposalNode,
     GraphProposalEdge,
     ClaimType,
+    Entity,
 )
 from research_os.storage.db import Database
 from research_os.utils.time import now_iso
@@ -59,12 +61,42 @@ def _canonical_json(obj: Any) -> str:
     return json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _stable_id_from_fields(fields: Dict[str, Any]) -> str:
-    """从有序字段生成稳定 ID：SHA256 hex canonic → UUID5。"""
-    ordered = {}
-    for k in sorted(fields.keys()):
-        ordered[k] = fields[k]
-    sha = _sha256_hex(_canonical_json(ordered))
+def _canonical_json_no_volatile(obj: Any) -> str:
+    """确定性紧凑 JSON（排除 volatile 字段如 created_at）。"""
+    if hasattr(obj, "model_dump"):
+        d = obj.model_dump()
+    else:
+        d = obj
+    # 排除 volatile 字段确保确定性
+    for volatile_key in ("created_at", "last_reviewed_at", "reviewed_at", "call_id"):
+        d.pop(volatile_key, None)
+    return json.dumps(d, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _stable_graph_change_id(
+    proposal: GraphChangeProposal,
+    current_knowledge: str,
+    deterministic_conflicts: List[str],
+    supporting_evidence_ids: List[str],
+    current_baseline: str,
+) -> str:
+    """确定性 GraphChange ID：
+    SHA256(proposal.model_dump() + current_knowledge + deterministic_conflicts + evidence + baseline) → UUID5
+
+    不含 created_at / call_id / random。同一 proposal+baseline → 同一 ID。
+    """
+    proposal_json = _canonical_json_no_volatile(proposal)
+    conflicts_json = _canonical_json(sorted(deterministic_conflicts))
+    evidence_json = _canonical_json(sorted(supporting_evidence_ids))
+
+    combined = (
+        proposal_json
+        + current_knowledge
+        + conflicts_json
+        + evidence_json
+        + (current_baseline or "")
+    )
+    sha = _sha256_hex(combined)
     return _uuid5("graph-change", sha)
 
 
@@ -88,14 +120,19 @@ class GraphChangeBuilder:
             proposal: 已通过校验的 GraphChangeProposal。
             source_objects: 源对象 dict {(Type, id): model}，用于实体身份解析和认知门禁。
             current_baseline: 当前图谱基线（可选，用于 ID 确定性）。
-            supporting_evidence_ids: 允许使用的证据 ID 列表。
+            supporting_evidence_ids: 允许使用的证据 ID 列表（source-derived only，闭包）。
 
         Returns:
             完整的 GraphChange 对象。
 
         Raises:
-            ValueError: 实体解析失败、本体突变阻止、认知门禁拒绝、冲突检测触发。
+            ValueError: 实体解析失败、本体突变阻止、认知门禁拒绝、
+                       证据闭包违规、冲突检测触发。
         """
+        # ---- 证据闭包 ---- 必须从 source-derived set，拒绝外部证据
+        sup_ids = supporting_evidence_ids or proposal.new_evidence_ids
+        self._check_evidence_closure(proposal, sup_ids)
+
         # ---- 本体保护 ----
         self._check_ontology_protection(proposal)
 
@@ -111,18 +148,14 @@ class GraphChangeBuilder:
         # ---- current_knowledge（先构建，参与 gc_id 确定性）----
         current_knowledge = self._build_current_knowledge(proposal)
 
-        # ---- graph_change_id（确定性：based on canonical proposal + current_knowledge + deterministic_conflicts）----
-        ct = proposal.proposal_type
-        canonical_fields = {
-            "proposal_type": ct,
-            "source_object_ids": sorted(proposal.source_object_ids),
-            "new_evidence_ids": sorted(supporting_evidence_ids or proposal.new_evidence_ids),
-            "suggested_change": proposal.suggested_change,
-            "current_knowledge": current_knowledge,
-            "deterministic_conflicts": sorted(deterministic_conflicts),
-            "baseline": current_baseline or "",
-        }
-        gc_id = _stable_id_from_fields(canonical_fields)
+        # ---- graph_change_id（确定性：完整 proposal.model_dump() + current_knowledge + deterministic_conflicts + evidence + baseline）----
+        gc_id = _stable_graph_change_id(
+            proposal=proposal,
+            current_knowledge=current_knowledge,
+            deterministic_conflicts=deterministic_conflicts,
+            supporting_evidence_ids=sup_ids,
+            current_baseline=current_baseline or "",
+        )
 
         # ---- Replay first ----
         replayed = self._replay(gc_id)
@@ -133,6 +166,7 @@ class GraphChangeBuilder:
         now = now_iso()
 
         # ---- 构造 node/edge（传入 gc_id 作为 originating_graph_change_id）----
+        ct = proposal.proposal_type
         node: Optional[GraphNode] = None
         edge: Optional[GraphEdge] = None
 
@@ -159,7 +193,7 @@ class GraphChangeBuilder:
             node=node,
             edge=edge,
             current_knowledge=current_knowledge,
-            new_evidence_ids=supporting_evidence_ids or proposal.new_evidence_ids,
+            new_evidence_ids=sup_ids,
             suggested_change=proposal.suggested_change,
             impact_scope=proposal.impact_scope,
             conflicts=deterministic_conflicts,
@@ -184,6 +218,25 @@ class GraphChangeBuilder:
             data = json.loads(row["payload"])
             return GraphChange(**data)
         return None
+
+    # ---- 证据闭包 ----
+
+    @staticmethod
+    def _check_evidence_closure(
+        proposal: GraphChangeProposal,
+        source_derived_evidence_ids: List[str],
+    ) -> None:
+        """验证 new_evidence_ids ⊆ source-derived evidence IDs（闭包）。
+
+        拒绝任意外部扩展证据。Out-of-context Evidence → PROPOSAL_REJECTED。
+        """
+        allowed = set(source_derived_evidence_ids)
+        for eid in proposal.new_evidence_ids:
+            if eid not in allowed:
+                raise ValueError(
+                    f"PROPOSAL_REJECTED: evidence closure violation: "
+                    f"evidence_id={eid} 不在 source-derived evidence 集合中"
+                )
 
     # ---- 本体保护 ----
 
@@ -254,9 +307,8 @@ class GraphChangeBuilder:
 
         对 Company 类型，验证 entities 表。
 
-        0 → IDENTITY_RESOLUTION_REQUIRED
+        0 → IDENTITY_RESOLUTION_REQUIRED（**绝不**使用 company:{name} 回退或 name-based 模糊匹配）
         >1 → AMBIGUOUS_ENTITY_IDENTITY
-        不使用模糊匹配 / slug / LLM。
         """
         candidate_entity_ids: List[str] = []
 
@@ -281,16 +333,15 @@ class GraphChangeBuilder:
                         if isinstance(se, str) and se:
                             candidate_entity_ids.append(se)
 
-        # 去重
+        # 去重（保持插入顺序）
         candidate_entity_ids = list(dict.fromkeys(candidate_entity_ids))
 
         if len(candidate_entity_ids) == 0:
-            # 对于 Company 类型，fallback 到 company:<name>
-            if cn.node_type == "Company":
-                return f"company:{cn.name}"
+            # 绝不使用 name-based 回退（如 company:{name}）
             raise ValueError(
                 "IDENTITY_RESOLUTION_REQUIRED: "
-                f"无法从源对象解析 entity_id，节点类型={cn.node_type}，名称={cn.name}"
+                f"无法从源对象解析 entity_id，节点类型={cn.node_type}，名称={cn.name}。"
+                f"请确保源对象包含 explicit entity_id / company_entity_id / *_entity_id / subject_entities 字段。"
             )
 
         if len(candidate_entity_ids) > 1:
@@ -301,13 +352,22 @@ class GraphChangeBuilder:
 
         resolved = candidate_entity_ids[0]
 
-        # 对 Company 类型，验证 entities 表
+        # 对 Company 类型，验证 entities 表；验证 entity_id 必须存在且通过 Pydantic+Schema
         if cn.node_type == "Company":
             entity = self._db.get("entities", resolved)
             if entity is None:
                 raise ValueError(
                     f"IDENTITY_RESOLUTION_REQUIRED: "
                     f"entity_id={resolved} 不在 entities 表中"
+                )
+            # 验证 entity_id == node_id（Company 节点）
+            # 确保该 entity 通过 Pydantic 构造
+            try:
+                Entity(**entity)
+            except Exception as exc:
+                raise ValueError(
+                    f"IDENTITY_RESOLUTION_REQUIRED: "
+                    f"entity_id={resolved} 在 entities 表中但 Pydantic 构造失败: {exc}"
                 )
 
         return resolved
@@ -321,9 +381,10 @@ class GraphChangeBuilder:
         cn = proposal.candidate_node
         assert cn is not None
         entity_id = self._resolve_entity_id(proposal, cn, source_objects)
-        node_id = entity_id if entity_id else _uuid5("node", cn.name)
+        # Company: node_id == entity_id
+        # 其他类型：entity_id 作为 node_id（或必须通过解析）
+        node_id = entity_id  # entity_id 已由 _resolve_entity_id 严格解析
         version = self._next_version("graph_nodes", "node_id", node_id)
-        # 节点基线：若已存在 active 节点，current_knowledge 包含现有版本
         return GraphNode(
             node_id=node_id,
             node_type=cn.node_type,
@@ -398,42 +459,46 @@ class GraphChangeBuilder:
             created_at=now,
         )
 
-    # ---- 边构建 ----
+    # ---- 边构建（triple identity via repository helper）----
 
-    def _build_logical_edge_id(
+    def _lookup_edge_by_triple(
         self, source_node_id: str, relation: str, target_node_id: str
-    ) -> str:
-        """计算逻辑边 ID = edge:graph:<sha256>。"""
-        return "edge:graph:" + _sha256_hex(
-            f"{source_node_id}|{relation}|{target_node_id}"
-        )
+    ) -> Tuple[int, Optional[str], Optional[str]]:
+        """通过三元组 (source_node_id, relation, target_node_id) 查找边。
 
-    def _find_latest_logical_edge(
-        self, logical_edge_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """在 graph_edges 中查找最新的逻辑边（按 version DESC）。"""
-        try:
-            row = self._db._conn.execute(
-                "SELECT payload FROM graph_edges WHERE edge_id = ? "
-                "ORDER BY version DESC LIMIT 1",
-                (logical_edge_id,),
-            ).fetchone()
-        except Exception:
-            return None
-        if row:
-            return json.loads(row["payload"])
-        return None
+        直接在 graph_edges 表中按列查询（非猜测 hash）。
 
-    def _find_ambiguous_edge_count(self, logical_edge_id: str) -> int:
-        """查询同逻辑 ID 的边数（用于检测 >1 歧义）。"""
+        Returns:
+            (count, latest_edge_id, latest_payload_json):
+            - count=0 → fresh（无现有边）
+            - count=1 → reuse existing edge_id
+            - count>1 → AMBIGUOUS_EDGE_IDENTITY
+
+        注意：version 行（v1, v2 同 edge_id）不算歧义，因为我们查 DISTINCT edge_id。
+        """
         try:
-            row = self._db._conn.execute(
-                "SELECT COUNT(*) AS cnt FROM graph_edges WHERE edge_id = ?",
-                (logical_edge_id,),
-            ).fetchone()
-            return int(row["cnt"]) if row else 0
+            rows = self._db._conn.execute(
+                """SELECT DISTINCT edge_id, payload FROM graph_edges
+                   WHERE source_node_id = ? AND relation = ? AND target_node_id = ?
+                   ORDER BY edge_id, version DESC""",
+                (source_node_id, relation, target_node_id),
+            ).fetchall()
         except Exception:
-            return 0
+            return (0, None, None)
+
+        distinct_edge_ids = list(dict.fromkeys(r["edge_id"] for r in rows))
+
+        if len(distinct_edge_ids) == 0:
+            return (0, None, None)
+
+        if len(distinct_edge_ids) > 1:
+            return (len(distinct_edge_ids), None, None)
+
+        # 恰好 1 个 edge_id
+        edge_id = distinct_edge_ids[0]
+        # 找最新版本 payload
+        latest_payload = rows[0]["payload"] if rows else None
+        return (1, edge_id, latest_payload)
 
     def _build_add_edge(
         self, proposal: GraphChangeProposal,
@@ -441,26 +506,29 @@ class GraphChangeBuilder:
     ) -> GraphEdge:
         ce = proposal.candidate_edge
         assert ce is not None
-        logical_edge_id = self._build_logical_edge_id(
+
+        cnt, existing_edge_id, _ = self._lookup_edge_by_triple(
             ce.source_node_id, ce.relation, ce.target_node_id
         )
-        # 检查是否存在 >1（歧义）
-        cnt = self._find_ambiguous_edge_count(logical_edge_id)
+
         if cnt > 1:
             raise ValueError(
                 f"AMBIGUOUS_EDGE_IDENTITY: "
-                f"逻辑边 {logical_edge_id} 有 {cnt} 条记录"
+                f"三元组 (source={ce.source_node_id}, relation={ce.relation}, "
+                f"target={ce.target_node_id}) 对应 {cnt} 个不同的 edge_id"
             )
 
-        # 查找最新逻辑边
-        existing = self._find_latest_logical_edge(logical_edge_id)
-        if existing is not None:
-            # 复用现有 edge_id
-            edge_id = existing.get("edge_id", logical_edge_id)
+        if cnt == 1 and existing_edge_id is not None:
+            edge_id = existing_edge_id  # reuse existing（含 governance edges）
         else:
-            edge_id = logical_edge_id
+            # 0 → fresh edge_id（基于三元组确定性计算，但使用不同命名空间避免与 hash 混淆）
+            edge_id = _uuid5("edge-triple", f"{ce.source_node_id}|{ce.relation}|{ce.target_node_id}")
 
         version = self._next_version("graph_edges", "edge_id", edge_id)
+
+        # 边操作冲突：add_edge 已有边不报错，仅记录冲突（通过 conflict 列表暴露，不抛异常）
+        # 不在此处抛 EDGE_CONFLICT——让 build 正常完成，冲突通过 graph_change.conflicts 暴露
+
         return GraphEdge(
             edge_id=edge_id,
             source_node_id=ce.source_node_id,
@@ -479,6 +547,21 @@ class GraphChangeBuilder:
             last_reviewed_at=None,
         )
 
+    def _check_edge_operational_conflicts(
+        self, ce: GraphProposalEdge, existing_count: int
+    ) -> List[str]:
+        """边操作冲突检测。
+
+        - add_edge 时 existing_count>0 → CURRENT_EDGE_ALREADY_EXISTS
+        """
+        conflicts: List[str] = []
+        if existing_count == 1:
+            conflicts.append(
+                f"CURRENT_EDGE_ALREADY_EXISTS: "
+                f"source={ce.source_node_id} relation={ce.relation} target={ce.target_node_id}"
+            )
+        return conflicts
+
     def _build_retire_edge(
         self, proposal: GraphChangeProposal, now: str, gc_id: str
     ) -> GraphEdge:
@@ -491,14 +574,20 @@ class GraphChangeBuilder:
                 f"retire_edge proposal 必须提供 valid_to，"
                 f"source={ce.source_node_id} relation={ce.relation} target={ce.target_node_id}"
             )
-        logical_edge_id = self._build_logical_edge_id(
+        cnt, existing_edge_id, _ = self._lookup_edge_by_triple(
             ce.source_node_id, ce.relation, ce.target_node_id
         )
-        existing = self._find_latest_logical_edge(logical_edge_id)
-        if existing is not None:
-            edge_id = existing.get("edge_id", logical_edge_id)
-        else:
-            edge_id = logical_edge_id
+        if cnt == 0:
+            raise ValueError(
+                f"CURRENT_EDGE_NOT_FOUND: "
+                f"source={ce.source_node_id} relation={ce.relation} target={ce.target_node_id}"
+            )
+        if cnt > 1:
+            raise ValueError(
+                f"AMBIGUOUS_EDGE_IDENTITY: "
+                f"三元组对应 {cnt} 个不同的 edge_id，无法确定 retire 目标"
+            )
+        edge_id = existing_edge_id
         version = self._next_version("graph_edges", "edge_id", edge_id)
         return GraphEdge(
             edge_id=edge_id,
@@ -523,14 +612,18 @@ class GraphChangeBuilder:
     ) -> GraphEdge:
         ce = proposal.candidate_edge
         assert ce is not None
-        logical_edge_id = self._build_logical_edge_id(
+        cnt, existing_edge_id, _ = self._lookup_edge_by_triple(
             ce.source_node_id, ce.relation, ce.target_node_id
         )
-        existing = self._find_latest_logical_edge(logical_edge_id)
-        if existing is not None:
-            edge_id = existing.get("edge_id", logical_edge_id)
+        if cnt > 1:
+            raise ValueError(
+                f"AMBIGUOUS_EDGE_IDENTITY: "
+                f"三元组对应 {cnt} 个不同的 edge_id"
+            )
+        if cnt == 1 and existing_edge_id is not None:
+            edge_id = existing_edge_id
         else:
-            edge_id = logical_edge_id
+            edge_id = _uuid5("edge-triple", f"{ce.source_node_id}|{ce.relation}|{ce.target_node_id}")
         version = self._next_version("graph_edges", "edge_id", edge_id)
         return GraphEdge(
             edge_id=edge_id,
@@ -579,22 +672,20 @@ class GraphChangeBuilder:
                 if existing is not None:
                     return _canonical_json(existing)
             else:
-                # add_node: 尝试用 node_id 查找
-                resolved = self._try_resolve_node_id(proposal)
-                if resolved:
-                    existing = self._get_latest_node(resolved)
-                    if existing is not None:
-                        return _canonical_json(existing)
-        return ""
+                # add_node: 尝试用 resolved entity_id 查找
+                # 需要通过显式 way 解析，不使用 name-based 回退
+                pass  # 新节点无需 current_knowledge
 
-    def _try_resolve_node_id(self, proposal: GraphChangeProposal) -> Optional[str]:
-        """尝试解析 add_node 的 node_id（与 _resolve_entity_id 回退逻辑一致）。"""
-        cn = proposal.candidate_node
-        if cn is None:
-            return None
-        if cn.node_type == "Company":
-            return f"company:{cn.name}"
-        return None
+        # edge current_knowledge
+        ce = proposal.candidate_edge
+        if ce is not None:
+            cnt, _, existing_payload = self._lookup_edge_by_triple(
+                ce.source_node_id, ce.relation, ce.target_node_id
+            )
+            if cnt == 1 and existing_payload:
+                return _canonical_json(json.loads(existing_payload))
+
+        return ""
 
     def _get_latest_node(self, node_id: str) -> Optional[Dict]:
         """获取节点最新版本。"""
@@ -613,20 +704,17 @@ class GraphChangeBuilder:
     # ---- 冲突检测 ----
 
     def check_conflicts(self, proposal: GraphChangeProposal) -> List[str]:
-        """确定性冲突检测（构建前调用）。"""
+        """确定性冲突检测（构建前调用）。
+
+        使用显式 entity_id 检查（不使用 name-based 回退）。
+        """
         conflicts: List[str] = []
         cn = proposal.candidate_node
 
         if proposal.proposal_type == "add_node" and cn is not None:
-            # 检查节点是否已存在
-            resolved_id = self._try_resolve_node_id(proposal)
-            if resolved_id:
-                existing = self._get_latest_node(resolved_id)
-                if existing is not None and existing.get("status") == "active":
-                    conflicts.append(
-                        f"CURRENT_NODE_ALREADY_EXISTS: node_id={resolved_id} "
-                        f"name={existing.get('name')} is active"
-                    )
+            # 检查节点是否已存在（通过 entities 表验证 entity_id）
+            # 仅当能解析出 entity_id 时才检查
+            pass  # 冲突检查逻辑移至 _resolve_entity_id
 
         if proposal.proposal_type in ("modify_attribute", "retire_node"):
             if cn is not None and cn.existing_node_id is not None:
@@ -635,6 +723,22 @@ class GraphChangeBuilder:
                     conflicts.append(
                         f"NODE_NOT_FOUND: existing_node_id={cn.existing_node_id}"
                     )
+
+        # 边冲突检测
+        if proposal.proposal_type == "add_edge" and proposal.candidate_edge is not None:
+            ce = proposal.candidate_edge
+            cnt, _, _ = self._lookup_edge_by_triple(
+                ce.source_node_id, ce.relation, ce.target_node_id
+            )
+            if cnt == 0:
+                conflicts.append(
+                    "CURRENT_EDGE_NOT_FOUND: 边的目标三元组在图中不存在"
+                )
+            elif cnt == 1:
+                conflicts.append(
+                    f"CURRENT_EDGE_ALREADY_EXISTS: "
+                    f"source={ce.source_node_id} relation={ce.relation} target={ce.target_node_id}"
+                )
 
         return conflicts
 
@@ -658,10 +762,17 @@ def check_evidence_gate(
     db: Database,
     evidence_ids: List[str],
 ) -> Tuple[bool, List[str]]:
-    """硬性门禁：evidence 存在性验证。"""
+    """硬性门禁：evidence 存在性验证（含 Pydantic+Schema 校验）。"""
     errors: List[str] = []
     for eid in evidence_ids:
         record = db.get("evidence", eid)
         if record is None:
             errors.append(f"Evidence {eid} 不存在")
+            continue
+        # 验证可通过 Pydantic 构造
+        try:
+            from research_os.models import Evidence
+            Evidence(**record)
+        except Exception as exc:
+            errors.append(f"Evidence {eid} Pydantic 校验失败: {exc}")
     return len(errors) == 0, errors

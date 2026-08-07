@@ -71,6 +71,8 @@ class GraphChangeCandidateRepository:
         """
         self._validate(graph_change)
 
+        self._validate(graph_change)
+
         # 硬性门禁：review_status 必须为 "candidate" 且 reviewed_at is None
         if graph_change.review_status != "candidate":
             raise ValueError(

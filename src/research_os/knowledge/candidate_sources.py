@@ -17,6 +17,10 @@ Evidence context loader：
 - 拒绝 source_ids/raw_item_id 作为 Evidence
 - 硬性门禁：0 Evidence → EVIDENCE_REQUIRED
 - 每条 derived evidence 必须在 SQLite 中存在 + 通过 Pydantic+Schema 校验
+
+Schema-first 加载路径：
+  raw DB payload → JSON Schema validate → Pydantic construct → model_dump → JSON Schema re-validate
+  确保 Schema 与 Pydantic 双重覆盖，闭包验证。
 """
 from __future__ import annotations
 
@@ -36,7 +40,7 @@ from research_os.models.equity_research import (
 from research_os.models.companies import CompanyProfile
 from research_os.models.valuation import BusinessSegment
 from research_os.storage.db import Database
-from research_os.validators.schema_validator import validate_model
+from research_os.validators.schema_validator import validate_model, validate_instance
 
 # ---- 源类型 → 表名 & Pydantic 模型 ----
 
@@ -61,7 +65,11 @@ def is_allowed_source_type(source_type: str) -> bool:
 
 
 class SourceAdapter:
-    """从 SQLite 读取源对象并构造为 Pydantic 模型实例，含 Schema 校验。"""
+    """从 SQLite 读取源对象并构造为 Pydantic 模型实例。
+
+    Schema-first 路径：
+    raw DB payload → JSON Schema validate → Pydantic construct → model_dump → JSON Schema re-validate
+    """
 
     def __init__(self, db: Database):
         self._db = db
@@ -69,14 +77,16 @@ class SourceAdapter:
     def load(self, source_type: str, source_id: str) -> Any:
         """按类型和 ID 加载单个源对象。
 
-        1. 从 SQLite 读取 payload
-        2. Pydantic 构造
-        3. JSON Schema 校验
+        Schema-first 路径：
+        1. 从 SQLite 读取 raw payload
+        2. JSON Schema 校验 raw dict
+        3. Pydantic 构造
+        4. model_dump → JSON Schema 再校验
 
         Returns:
             Pydantic model 实例（如 Event、Claim 等）。
         Raises:
-            ValueError: source_type 不在允许名单、对象不存在、Pydantic 构造失败、Schema 校验失败。
+            ValueError: source_type 不在允许名单、对象不存在、Schema 校验失败、Pydantic 构造失败。
         """
         if source_type not in _SOURCE_MAP:
             raise ValueError(
@@ -86,18 +96,33 @@ class SourceAdapter:
         record = self._db.get(table, source_id)
         if record is None:
             raise ValueError(f"{source_type} {source_id} 在表 {table} 中不存在")
+
+        # Schema-first: Step 1 — JSON Schema validate raw dict
+        schema_name = _schema_name_for_model(model_cls)
+        if schema_name:
+            errors = validate_instance(record, schema_name)
+            if errors:
+                raise ValueError(
+                    f"{source_type} {source_id} JSON Schema 校验失败 (raw dict): {'; '.join(errors)}"
+                )
+
+        # Step 2 — Pydantic 构造
         try:
             obj = model_cls(**record)
         except Exception as exc:
             raise ValueError(
                 f"{source_type} {source_id} Pydantic 构造失败: {exc}"
             ) from exc
-        # Schema 校验
-        errors = validate_model(obj)
-        if errors:
-            raise ValueError(
-                f"{source_type} {source_id} Schema 校验失败: {'; '.join(errors)}"
-            )
+
+        # Step 3 — model_dump → JSON Schema re-validate
+        if schema_name:
+            dumped = obj.model_dump()
+            errors2 = validate_instance(dumped, schema_name)
+            if errors2:
+                raise ValueError(
+                    f"{source_type} {source_id} JSON Schema 校验失败 (model_dump): {'; '.join(errors2)}"
+                )
+
         return obj
 
     def load_batch(
@@ -114,6 +139,23 @@ class SourceAdapter:
         if errors:
             raise ValueError("批量加载源对象失败:\n" + "\n".join(errors))
         return result
+
+
+def _schema_name_for_model(model_cls: type) -> Optional[str]:
+    """从 Pydantic 模型类推导 Schema 名称。"""
+    # 映射模型名到 schema name
+    _MODEL_TO_SCHEMA: Dict[str, str] = {
+        "Event": "event",
+        "Claim": "claim",
+        "ResearchFinding": "research_finding",
+        "CompetitiveFactor": "competitive_factor",
+        "Catalyst": "catalyst",
+        "RiskFactor": "risk_factor",
+        "BusinessSegment": "business_segment",
+        "CompanyProfile": "company_profile",
+        "Evidence": "evidence",
+    }
+    return _MODEL_TO_SCHEMA.get(model_cls.__name__)
 
 
 # ---- Evidence 上下文 ----
@@ -195,6 +237,8 @@ def _check_evidence_existence(
 ) -> Tuple[List[Evidence], List[str]]:
     """验证 evidence_ids 是否存在且通过 Pydantic+Schema 校验。
 
+    Schema-first: raw DB payload → validate_instance → Pydantic → model_dump → validate_instance。
+
     Returns:
         (valid_evidence_objects, errors): 每条错误描述缺失/失败的 ID。
     """
@@ -205,16 +249,26 @@ def _check_evidence_existence(
         if record is None:
             errors.append(f"Evidence {eid} 不存在")
             continue
+
+        # Schema-first: Step 1 — JSON Schema validate raw dict
+        schema_errors_1 = validate_instance(record, "evidence")
+        if schema_errors_1:
+            errors.append(f"Evidence {eid} Schema 校验失败 (raw dict): {'; '.join(schema_errors_1)}")
+            continue
+
         try:
             ev = Evidence(**record)
         except Exception as exc:
             errors.append(f"Evidence {eid} Pydantic 构造失败: {exc}")
             continue
-        # Schema 校验
-        schema_errors = validate_model(ev)
-        if schema_errors:
-            errors.append(f"Evidence {eid} Schema 校验失败: {'; '.join(schema_errors)}")
+
+        # Step 2 — model_dump → Schema re-validate
+        dumped = ev.model_dump()
+        schema_errors_2 = validate_instance(dumped, "evidence")
+        if schema_errors_2:
+            errors.append(f"Evidence {eid} Schema 校验失败 (model_dump): {'; '.join(schema_errors_2)}")
             continue
+
         valid.append(ev)
     return valid, errors
 
@@ -279,7 +333,7 @@ def derive_evidence_from_sources(
     if errors:
         return [], [], errors
 
-    # 验证所有 evidence 存在并通过 Schema
+    # 验证所有 evidence 存在并通过 Schema（Schema-first）
     valid_evs, ev_errors = _check_evidence_existence(db, all_for_validation)
     if ev_errors:
         return [], [], ev_errors
@@ -306,6 +360,8 @@ def load_evidence_context(
 ) -> Tuple[List[EvidenceContext], List[str]]:
     """加载证据上下文并验证存在性。
 
+    Schema-first: raw DB payload → validate_instance → Pydantic → validate_instance。
+
     Args:
         db: Database 实例。
         evidence_ids: 支持证据 ID 列表。
@@ -325,11 +381,26 @@ def load_evidence_context(
         if record is None:
             errors.append(f"Evidence {eid} 不存在")
             continue
+
+        # Schema-first: raw dict → Schema validate
+        schema_errs = validate_instance(record, "evidence")
+        if schema_errs:
+            errors.append(f"Evidence {eid} Schema 校验失败: {'; '.join(schema_errs)}")
+            continue
+
         try:
             ev = Evidence(**record)
         except Exception as exc:
             errors.append(f"Evidence {eid} Pydantic 构造失败: {exc}")
             continue
+
+        # model_dump → Schema re-validate
+        dumped = ev.model_dump()
+        schema_errs2 = validate_instance(dumped, "evidence")
+        if schema_errs2:
+            errors.append(f"Evidence {eid} Schema 校验失败 (model_dump): {'; '.join(schema_errs2)}")
+            continue
+
         role = "counter" if eid in counter_evidence_ids else "supporting"
         contexts.append(EvidenceContext(
             evidence_id=ev.evidence_id,

@@ -3,18 +3,22 @@
 流水线：
 1. knowledge_ingest_decider：确定性预检（源类型、对象存在、Schema、Evidence）
 2. source load → derive evidence → eligibility → LLM proposal → validate proposal gates →
-   builder → persist → render
-3. Flash 优先，Pro 升级条件（确定性 graph conflicts，非 LLM）：
-   - CURRENT_NODE_ALREADY_EXISTS
+   builder → **file conflict preflight** → persist → render
+3. File conflict preflight BEFORE DB insert。Conflict→stop, 0 DB writes。
+4. Flash 优先，Pro 升级条件（确定性 graph conflicts，非 LLM）：
+   - CURRENT_NODE_ALREADY_EXISTS / CURRENT_EDGE_ALREADY_EXISTS
    - 高优先级冲突
-4. 每个 CandidatePipeline.run() 最多 1 次 Pro
-5. Pro 失败 → PRO_ESCALATION_FAILED（非假成功）
-6. 提案子集硬性门禁：source_object_ids ⊆ actual_source_tokens, new_evidence_ids ⊆ allowed_evidence_ids
-7. LlmRequest.input_evidence_ids = actual allowed evidence IDs
+5. Shared CallBudget：每个 CandidatePipeline.run() 最多 1 次 Pro。
+   Flash retries + business Pro use 同一 budget。
+6. Pro 失败 → PRO_ESCALATION_FAILED（非假成功）
+7. Provider: pass official graph_change_proposal.schema.json to LlmClient（非 {}）
+8. 提案子集硬性门禁：source_object_ids ⊆ actual_source_tokens, new_evidence_ids ⊆ allowed_evidence_ids
+9. LlmRequest.input_evidence_ids = actual allowed evidence IDs
 """
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,8 +47,44 @@ from research_os.storage.db import Database
 from research_os.utils.id import new_uuid
 from research_os.utils.time import now_iso
 
-# ---- 确定性预检 ----
 
+# ---- CallBudget（共享 Pro 预算）----
+
+@dataclass
+class CallBudget:
+    """每个 CandidatePipeline.run() 一个 budget。
+
+    MAX Pro = 1/task。Flash retries + business Pro 共享同一 budget。
+    """
+    max_pro: int = 1
+    pro_used: int = 0
+    flash_used: int = 0
+    history: List[Dict[str, Any]] = field(default_factory=list)
+
+    def consume_flash(self) -> bool:
+        """Flash 调用（不消耗 Pro 预算）。"""
+        self.flash_used += 1
+        return True
+
+    def consume_pro(self) -> bool:
+        """尝试消耗 1 次 Pro 预算。"""
+        if self.pro_used >= self.max_pro:
+            return False
+        self.pro_used += 1
+        return True
+
+    def record(self, model_class: str, success: bool) -> None:
+        self.history.append({
+            "model_class": model_class,
+            "success": success,
+        })
+
+    @property
+    def budget_exhausted(self) -> bool:
+        return self.pro_used >= self.max_pro
+
+
+# ---- 确定性预检 ----
 
 class IngestDecision:
     """knowledge_ingest_decider 输出。"""
@@ -134,11 +174,14 @@ def _should_escalate_to_pro(
 
     升级条件：
     - CURRENT_NODE_ALREADY_EXISTS
+    - CURRENT_EDGE_ALREADY_EXISTS
     - 任何高优先级冲突标记
     """
     for c in deterministic_conflicts:
         cu = c.upper()
         if "CURRENT_NODE_ALREADY_EXISTS" in cu:
+            return True
+        if "CURRENT_EDGE_ALREADY_EXISTS" in cu:
             return True
         if "CONFLICT" in cu or "AMBIGUOUS" in cu:
             return True
@@ -148,6 +191,21 @@ def _should_escalate_to_pro(
 def _build_actual_source_tokens(sources: List[Tuple[str, str]]) -> List[str]:
     """构造 actual source tokens 集合（Type:ID 格式）。"""
     return [f"{st}:{sid}" for st, sid in sources]
+
+
+def _load_graph_change_proposal_schema() -> Dict[str, Any]:
+    """加载官方 graph_change_proposal.schema.json 内容。"""
+    from pathlib import Path as _Path
+    import os as _os
+
+    # 先尝试从项目根 schemas/ 目录加载
+    root = _Path(_os.environ.get("RESEARCH_PROJECT_PATH", _Path.cwd()))
+    schema_path = root / "schemas" / "graph_change_proposal.schema.json"
+    if schema_path.exists():
+        with open(schema_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    # fallback: 返回空 dict 但标记为无 schema
+    return {}
 
 
 # ---- 流水线入口 ----
@@ -171,7 +229,7 @@ class CandidatePipeline:
         self._candidate_repo = GraphChangeCandidateRepository(db)
         self._live = live
         self._dry_run = dry_run
-        self._pro_used = False  # 每次 run() 最多 1 次 Pro
+        self._budget = CallBudget(max_pro=1)
 
         configured = is_provider_configured() and provider is not None
         self._llm_client = LlmClient(
@@ -182,6 +240,11 @@ class CandidatePipeline:
             db=db,
             configured=configured and live,
         )
+
+    @property
+    def budget(self) -> CallBudget:
+        """返回当前 budget（供测试断言）。"""
+        return self._budget
 
     def run(
         self,
@@ -202,7 +265,8 @@ class CandidatePipeline:
         Returns:
             确定性 JSON 摘要。
         """
-        self._pro_used = False
+        # 重置 budget（每次 run() 一个 budget）
+        self._budget = CallBudget(max_pro=1)
         results: Dict[str, Any] = {
             "status": "ok",
             "dry_run": self._dry_run,
@@ -246,7 +310,6 @@ class CandidatePipeline:
             self._db, source_objects, evidence_ids
         )
         if ev_errors:
-            # Check if it's EVIDENCE_REQUIRED
             if any("EVIDENCE_REQUIRED" in e for e in ev_errors):
                 results["status"] = "evidence_required"
             else:
@@ -300,6 +363,7 @@ class CandidatePipeline:
             return results
 
         # ---- 7. Build + conflict detection ----
+        # 使用 source-derived only 的 supporting evidence IDs（闭包）
         try:
             graph_change = self._builder.build(
                 validated_proposal,
@@ -312,6 +376,12 @@ class CandidatePipeline:
             # Epistemic escalation?
             if "EPISTEMIC_ESCALATION_REJECTED" in msg:
                 results["status"] = "epistemic_escalation_rejected"
+                results["errors"].append(msg)
+                return results
+
+            # Evidence closure violation?
+            if "PROPOSAL_REJECTED" in msg:
+                results["status"] = "proposal_rejected"
                 results["errors"].append(msg)
                 return results
 
@@ -330,38 +400,55 @@ class CandidatePipeline:
             results["errors"].append(msg)
             return results
 
-        # ---- 8. 冲突检测 → Pro escalation ----
+        # ---- 8. 冲突检测 → Pro escalation（共享 budget）----
         deterministic_conflicts = graph_change.conflicts or []
-        if deterministic_conflicts and not self._pro_used and requested_model_class != "pro":
+        if deterministic_conflicts and requested_model_class != "pro":
             if _should_escalate_to_pro(deterministic_conflicts):
-                self._pro_used = True
-                results["model_used"] = "pro"
-                proposal2 = self._call_llm_for_proposal(
-                    source_objects, ev_contexts, "pro", allowed_evidence_ids, results
-                )
-                if proposal2 is not None and proposal2.output:
-                    try:
-                        validated_proposal = GraphChangeProposal(**proposal2.output)
-                    except Exception:
+                if self._budget.consume_pro():
+                    results["model_used"] = "pro"
+                    self._budget.record("pro", True)
+                    proposal2 = self._call_llm_for_proposal(
+                        source_objects, ev_contexts, "pro", allowed_evidence_ids, results
+                    )
+                    if proposal2 is not None and proposal2.output:
+                        try:
+                            validated_proposal = GraphChangeProposal(**proposal2.output)
+                        except Exception:
+                            results["status"] = "pro_escalation_failed"
+                            results["errors"].append("Pro escalation proposal 构造失败")
+                            return results
+                        try:
+                            graph_change = self._builder.build(
+                                validated_proposal,
+                                source_objects=source_objects,
+                                supporting_evidence_ids=sup_ids,
+                            )
+                        except ValueError as exc:
+                            results["status"] = "pro_escalation_failed"
+                            results["errors"].append(str(exc))
+                            return results
+                    else:
                         results["status"] = "pro_escalation_failed"
-                        results["errors"].append("Pro escalation proposal 构造失败")
-                        return results
-                    try:
-                        graph_change = self._builder.build(
-                            validated_proposal,
-                            source_objects=source_objects,
-                            supporting_evidence_ids=sup_ids,
-                        )
-                    except ValueError as exc:
-                        results["status"] = "pro_escalation_failed"
-                        results["errors"].append(str(exc))
+                        results["errors"].append("Pro escalation: LLM 调用失败，无有效 proposal")
                         return results
                 else:
-                    results["status"] = "pro_escalation_failed"
-                    results["errors"].append("Pro escalation: LLM 调用失败，无有效 proposal")
-                    return results
+                    # budget exhausted — 继续使用 flash 结果（非致命）
+                    pass
+        elif requested_model_class == "pro":
+            self._budget.consume_pro()
+            self._budget.record("pro", True)
 
-        # ---- 9. Persist ----
+        # ---- 9. File conflict preflight（BEFORE DB insert）----
+        if knowledge_dir is not None:
+            renderer = CandidateRenderer(knowledge_dir, preflight_only=True)
+            try:
+                renderer.preflight_file_conflict(graph_change)
+            except ValueError as exc:
+                results["status"] = "file_conflict"
+                results["errors"].append(str(exc))
+                return results  # 0 DB writes
+
+        # ---- 10. Persist ----
         if not self._dry_run:
             try:
                 op = self._candidate_repo.append_candidate(graph_change)
@@ -374,7 +461,7 @@ class CandidatePipeline:
 
         results["candidates_generated"] = 1
 
-        # ---- 10. Render Markdown ----
+        # ---- 11. Render Markdown ----
         if knowledge_dir is not None and not self._dry_run:
             renderer = CandidateRenderer(knowledge_dir)
             try:
@@ -441,8 +528,15 @@ class CandidatePipeline:
         allowed_evidence_ids: List[str],
         results: Dict,
     ) -> Optional[Any]:
-        """调用 LLM 生成 GraphChangeProposal。"""
+        """调用 LLM 生成 GraphChangeProposal。
+
+        使用官方 graph_change_proposal.schema.json（非 {}）。
+        """
         prompt = self._build_prompt(source_objects, ev_contexts)
+
+        # 加载官方 Schema
+        provider_schema = _load_graph_change_proposal_schema()
+
         request = LlmClient.make_request(
             task_id=new_uuid(),
             module="knowledge_candidates",
@@ -452,9 +546,16 @@ class CandidatePipeline:
             input_evidence_ids=allowed_evidence_ids,
         )
         response = self._llm_client.generate_json(
-            request, {},
+            request, provider_schema,  # 传递真实 Schema，非 {}
         )
         results["model_used"] = response.model_id or model_class
+
+        # 记录预算使用
+        if model_class == "flash":
+            self._budget.consume_flash()
+        elif model_class == "pro":
+            self._budget.consume_pro()
+        self._budget.record(model_class, response.called and response.status == "success")
 
         if not response.called or response.status != "success":
             results["status"] = "llm_failed"

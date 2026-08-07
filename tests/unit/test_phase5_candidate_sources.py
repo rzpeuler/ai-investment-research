@@ -1,12 +1,13 @@
 """Phase 5 M3 Candidate Sources 测试。
 
 覆盖：
-- SourceAdapter.load 各源类型
+- SourceAdapter.load 各源类型（Schema-first）
 - SourceAdapter.load_batch
 - 不支持的源类型拒绝
 - 不存在的对象拒绝
-- EvidenceContext 上下文加载
+- EvidenceContext 上下文加载（Schema-first validation）
 - Evidence 存在性验证
+- Schema-first: raw dict → validate_instance → Pydantic → validate_instance
 """
 from __future__ import annotations
 
@@ -68,10 +69,10 @@ def test_is_allowed_source_type():
     assert is_allowed_source_type("Unknown") is False
 
 
-# ---- Evidence 加载 ----
+# ---- Evidence 加载（Schema-first）----
 
 def test_load_evidence(db):
-    """插入 Evidence 后能正确加载。"""
+    """插入 Evidence 后能正确加载（Schema-first path）。"""
     ev_id = new_uuid()
     ev = Evidence(
         evidence_id=ev_id,
@@ -83,7 +84,7 @@ def test_load_evidence(db):
         retrieved_at=T0,
         url="https://example.com/ev",
         excerpt="测试摘录内容",
-        evidence_type="official_disclosure",
+        evidence_type="official_disclosure",  # valid schema enum
         independence_group="group-1",
         source_tier="B",
         access_status="ok",
@@ -98,7 +99,7 @@ def test_load_evidence(db):
 
 
 def test_load_event(db, adapter):
-    """加载 Event 对象。"""
+    """加载 Event 对象（Schema-first）。"""
     ev_id = new_uuid()
     event = Event(
         event_id=ev_id,
@@ -207,16 +208,17 @@ def test_load_batch_failure(db, adapter):
         adapter.load_batch([("Event", ev_id), ("Event", "nonexistent-id")])
 
 
-# ---- Evidence context loader ----
+# ---- Evidence context loader（Schema-first）----
 
 def test_load_evidence_context(db):
-    """加载证据上下文并验证字段。"""
+    """加载证据上下文并验证字段（Schema-first path）。"""
     ev_id = new_uuid()
     ev = Evidence(
         evidence_id=ev_id, source_id="source:test", raw_item_id=new_uuid(),
         title="证据标题", publisher="发布者", published_at=T0, retrieved_at=T0,
         url="https://example.com", excerpt="摘录内容",
-        evidence_type="official", independence_group="g1",
+        evidence_type="official_disclosure",  # valid schema enum
+        independence_group="g1",
         source_tier="A", access_status="ok",
     )
     db.upsert(ev)
@@ -238,13 +240,13 @@ def test_load_evidence_context_with_counter(db):
     ev1 = Evidence(
         evidence_id=ev1_id, source_id="s1", raw_item_id=new_uuid(),
         title="支持证据", publisher="p1", published_at=T0, retrieved_at=T0,
-        url="https://x.com/1", excerpt="支持", evidence_type="official",
+        url="https://x.com/1", excerpt="支持", evidence_type="official_disclosure",
         independence_group="g1", source_tier="B", access_status="ok",
     )
     ev2 = Evidence(
         evidence_id=ev2_id, source_id="s2", raw_item_id=new_uuid(),
         title="反证证据", publisher="p2", published_at=T0, retrieved_at=T0,
-        url="https://x.com/2", excerpt="反证", evidence_type="official",
+        url="https://x.com/2", excerpt="反证", evidence_type="official_disclosure",
         independence_group="g2", source_tier="B", access_status="ok",
     )
     db.upsert(ev1)
@@ -274,7 +276,7 @@ def test_load_evidence_context_dedup(db):
     ev = Evidence(
         evidence_id=ev_id, source_id="s1", raw_item_id=new_uuid(),
         title="证据", publisher="p1", published_at=T0, retrieved_at=T0,
-        url="https://x.com", excerpt="ex", evidence_type="official",
+        url="https://x.com", excerpt="ex", evidence_type="official_disclosure",
         independence_group="g1", source_tier="B", access_status="ok",
     )
     db.upsert(ev)

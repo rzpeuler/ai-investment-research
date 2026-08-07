@@ -8,6 +8,7 @@
 - 字节确定性：相同输入 → 相同输出，跨时间不变
 - dry-run：__init__ 不创建目录；render_to_file dry_run=True 不写文件
 - 文件冲突预检：在 DB 写入前检查，相同 hash → 幂等，不同 hash → 拒绝
+- 标题格式：严格固定冻结格式，不受 proposal 内容影响
 """
 from __future__ import annotations
 
@@ -17,6 +18,21 @@ from typing import Dict, List, Optional
 
 from research_os.models import GraphChange, Evidence
 from research_os.knowledge.candidate_sources import EvidenceContext
+
+# 冻结的标题格式（确定性，永不改变）
+_FROZEN_HEADINGS = [
+    "## 1. 变更标识",
+    "## 2. 当前图谱知识",
+    "## 3. 新证据",
+    "## 4. 建议变更",
+    "## 5. 影响范围",
+    "## 6. 冲突",
+    "## 7. 验证点",
+    "## 8. 变更载体",
+    "## 9. 审核清单",
+    "## 10. 审核决定",
+    "## 11. 批准补丁",
+]
 
 
 def _render_evidence_info(contexts: List[EvidenceContext]) -> str:
@@ -92,8 +108,12 @@ def render_candidate_markdown(
     sections.append(f"# GraphChange Candidate: {gc['graph_change_id'][:8]}")
     sections.append("")
 
+    # 使用冻结标题格式
+    headings = iter(_FROZEN_HEADINGS)
+
     # 1. GraphChange ID
-    sections.append("## 1. 变更标识")
+    h1 = next(headings)
+    sections.append(h1)
     sections.append("")
     sections.append(f"- **graph_change_id**: `{gc['graph_change_id']}`")
     sections.append(f"- **change_type**: `{gc['change_type']}`")
@@ -102,7 +122,8 @@ def render_candidate_markdown(
     sections.append("")
 
     # 2. Current Knowledge
-    sections.append("## 2. 当前图谱知识")
+    h2 = next(headings)
+    sections.append(h2)
     sections.append("")
     current = gc.get("current_knowledge", "")
     if current:
@@ -114,18 +135,21 @@ def render_candidate_markdown(
     sections.append("")
 
     # 3. New Evidence
-    sections.append("## 3. 新证据")
+    h3 = next(headings)
+    sections.append(h3)
     sections.append("")
     sections.append(_render_evidence_info(evidence_contexts))
 
     # 4. Suggested Change
-    sections.append("## 4. 建议变更")
+    h4 = next(headings)
+    sections.append(h4)
     sections.append("")
     sections.append(gc.get("suggested_change", "_（无）_"))
     sections.append("")
 
     # 5. Impact
-    sections.append("## 5. 影响范围")
+    h5 = next(headings)
+    sections.append(h5)
     sections.append("")
     impact = gc.get("impact_scope", [])
     if impact:
@@ -136,7 +160,8 @@ def render_candidate_markdown(
     sections.append("")
 
     # 6. Conflicts
-    sections.append("## 6. 冲突")
+    h6 = next(headings)
+    sections.append(h6)
     sections.append("")
     conflicts = gc.get("conflicts", [])
     if conflicts:
@@ -147,7 +172,8 @@ def render_candidate_markdown(
     sections.append("")
 
     # 7. Verification
-    sections.append("## 7. 验证点")
+    h7 = next(headings)
+    sections.append(h7)
     sections.append("")
     vps = gc.get("verification_points", [])
     if vps:
@@ -158,7 +184,8 @@ def render_candidate_markdown(
     sections.append("")
 
     # 8. 节点/边详情
-    sections.append("## 8. 变更载体")
+    h8 = next(headings)
+    sections.append(h8)
     sections.append("")
     if gc.get("node") is not None:
         sections.append("### 节点")
@@ -170,7 +197,8 @@ def render_candidate_markdown(
         sections.append(_render_edge_info(gc["edge"]))
 
     # 9. Review Checkboxes
-    sections.append("## 9. 审核清单")
+    h9 = next(headings)
+    sections.append(h9)
     sections.append("")
     sections.append("- [ ] 证据来源可靠且可验证")
     sections.append("- [ ] 变更范围明确且影响可控")
@@ -180,7 +208,8 @@ def render_candidate_markdown(
     sections.append("")
 
     # 10. Review
-    sections.append("## 10. 审核决定")
+    h10 = next(headings)
+    sections.append(h10)
     sections.append("")
     sections.append("- **审核人**: _（待审核）_")
     sections.append("- **决定**: `[ ] approved / [ ] approved_with_changes / [ ] deferred / [ ] rejected`")
@@ -188,7 +217,8 @@ def render_candidate_markdown(
     sections.append("")
 
     # 11. Approved Patch
-    sections.append("## 11. 批准补丁")
+    h11 = next(headings)
+    sections.append(h11)
     sections.append("")
     sections.append("_（审核通过后在此填写 JSON Patch）_")
     sections.append("")
@@ -204,15 +234,52 @@ def render_candidate_markdown(
 
 
 class CandidateRenderer:
-    """Candidate Markdown 渲染器（幂等文件写入）。"""
+    """Candidate Markdown 渲染器（幂等文件写入）。
 
-    def __init__(self, knowledge_dir: Path):
+    __init__ 不创建目录。仅在 render_to_file 时按需创建。
+    这确保 dry-run 调用链中无副作用。
+    """
+
+    def __init__(self, knowledge_dir: Path, *, preflight_only: bool = False):
         """knowledge_dir 为项目 knowledge/ 目录。
 
-        注意：__init__ 不创建目录。仅在 render_to_file 时按需创建。
-        这确保 dry-run 调用链中无副作用。
+        Note: __init__ 不创建目录。
+        preflight_only: 仅用于预检，不实际写文件。
         """
         self._candidates_dir = knowledge_dir / "candidates"
+        self._preflight_only = preflight_only
+
+    def preflight_file_conflict(self, graph_change: GraphChange) -> bool:
+        """文件冲突预检（在 DB 写入前调用）。
+
+        检查同 ID 的 markdown 文件是否已存在且内容不同。
+        相同 hash → 幂等 OK
+        不同 hash → ValueError CANDIDATE_FILE_CONFLICT
+        不存在 → OK
+
+        Returns:
+            True if preflight passed (idempotent or new).
+
+        Raises:
+            ValueError: CANDIDATE_FILE_CONFLICT
+        """
+        content = render_candidate_markdown(graph_change, [], render_at="")
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+        file_path = self._candidates_dir / f"{graph_change.graph_change_id}.md"
+
+        if file_path.exists():
+            existing_content = file_path.read_text(encoding="utf-8")
+            existing_hash = hashlib.sha256(existing_content.encode("utf-8")).hexdigest()
+            if existing_hash != content_hash:
+                raise ValueError(
+                    f"CANDIDATE_FILE_CONFLICT: {file_path.name} "
+                    f"already exists with different content"
+                )
+            # 同 hash → 幂等 OK
+            return True
+
+        return True  # 文件不存在，fresh OK
 
     def render_to_file(
         self,

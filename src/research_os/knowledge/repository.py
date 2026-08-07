@@ -217,6 +217,42 @@ class GraphRepository:
         """返回 graph_edges 总行数（所有版本）。"""
         return self._db.count("graph_edges")
 
+    # ---- edge triple lookup helper (for M3 candidate builder) ----
+
+    def find_edge_by_triple(
+        self, source_node_id: str, relation: str, target_node_id: str
+    ) -> List[Dict[str, Any]]:
+        """按三元组 (source_node_id, relation, target_node_id) 查找边。
+
+        直接在 graph_edges 表中按列查询（非猜测 hash）。
+        用于 M3 candidate builder 的 edge identity resolution。
+
+        Returns:
+            匹配的边列表（按 version DESC 排序），
+            每个元素为 dict 包含 edge_id, version, payload。
+            0 条 → fresh edge_id
+            >1 条且有多个不同 edge_id → AMBIGUOUS_EDGE_IDENTITY
+            version 行（v1, v2 同 edge_id）不算歧义。
+        """
+        try:
+            rows = self._db._conn.execute(
+                """SELECT edge_id, version, payload FROM graph_edges
+                   WHERE source_node_id = ? AND relation = ? AND target_node_id = ?
+                   ORDER BY edge_id, version DESC""",
+                (source_node_id, relation, target_node_id),
+            ).fetchall()
+        except Exception:
+            return []
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            result.append({
+                "edge_id": row["edge_id"],
+                "version": row["version"],
+                "payload": row["payload"],
+            })
+        return result
+
     # ---- review ----
 
     def append_review(self, review: GraphReview, conn: Optional[sqlite3.Connection] = None) -> str:
