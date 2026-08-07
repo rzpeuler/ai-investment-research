@@ -10,10 +10,12 @@
   - 正式设计决策：`DECISIONS.md` #30
 - **Phase 5 implementation：IN_PROGRESS**
   - M0：PASS（SHA `df358da`，M0 Offline CI `31159354574` PASS）
-  - M1 Graph Contracts：AUTHORIZED / IN_PROGRESS
-  - M2-M10：NOT_AUTHORIZED
+  - M1 Graph Contracts：PASS（SHA `b097996`，M1 CI `31165533237`：1281 passed / 5 skipped / 55/55 schemas）
+  - M2 Persistence and ontology seed：BLOCKED_PENDING_USER_AUTHORIZATION
+  - M3-M10：NOT_AUTHORIZED
 
-Phase 5 正式任务书已由用户批准。用户已于 2026-08-07 明确授权开始 M1。
+Phase 5 正式任务书已由用户批准。M1 已通过独立架构验收。
+**M1 PASS 不自动授权 M2。** M2 须用户另行明确授权。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
@@ -36,9 +38,9 @@ Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施�
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前允许：**M1 only**。
+当前允许：**等待 M2 授权**。
 
-M2 要求：M1 实现完成 + Offline CI PASS + 独立架构验收 + 用户另行明确授权。
+M2 要求：用户另行明确授权。M1 PASS 不自动授权 M2。
 不得预授权 M2。
 
 ```

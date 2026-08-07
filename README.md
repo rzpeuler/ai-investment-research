@@ -53,11 +53,11 @@ RawItem/Evidence 血缘、按 Provider 实际调用计数的 Flash/Pro 预算、
 `SUCCESS`，688981.SH 在受控缺失下取得 `INSUFFICIENT_DATA`。单次输入不足或 Provider
 故障时仍必须降级，不得沿用历史成功状态。
 Schema 30→51，迁移 user_version=5。
-**Phase 5：IN_PROGRESS**（M0 PASS / M1 authorized / M2-M10 not authorized）。
-Phase 4 完整能力已通过独立验收；当前里程碑：M1 Graph Contracts。
-正式任务书已由用户批准（`docs/tasks/phase5-industry-knowledge-graph.md`，
-正式设计决策见 `DECISIONS.md` #30）。
-晚报/复盘、主题挖掘、首次覆盖和自动产业图谱入库均尚未开始。
+**Phase 5：IN_PROGRESS**（M0 PASS / M1 PASS / M2-M10 NOT_AUTHORIZED）。
+M1 Graph Contracts 已通过独立架构验收（SHA `b097996`，CI run `31165533237`：
+1281 passed / 5 skipped / 55/55 schemas）。
+正式任务书 `docs/tasks/phase5-industry-knowledge-graph.md`，
+M2-M10 尚未授权，不得提前实施。
 
 ## 快速开始
 
