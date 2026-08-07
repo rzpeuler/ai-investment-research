@@ -1,6 +1,18 @@
 # 来源注册表变更日志（Phase 1 任务 4.4 节）
 # 每次新增/降级/恢复/废弃来源必须记录：日期、source_id、原状态、新状态、原因、验证证据、执行人。
 
+- date: 2026-08-07
+  source_id: "(governance_control_evidence_phase4)"
+  change: governance_repair
+  reason: 工程指南升级 V1.1；统一文档权威顺序、三场景 Orchestrator 注册与非空 Plan、
+    晨报真实 Evidence 链、Phase 4 原始证据继承与人工财务定位、正式语义任务入口、
+    集中研究状态和确定性专业评审。状态统一为 Phase 4 工程基础 PASS、完整研究能力
+    PARTIAL_SUCCESS、Phase 5 BLOCKED。
+  evidence: docs/engineering-guide.md；docs/project-state/DECISIONS.md；
+    docs/project-state/CURRENT_STATE.md；src/research_os/orchestrator/；
+    src/research_os/morning/；src/research_os/equity_research/
+  agent: Codex
+
 - date: 2026-08-05
   source_id: "(全部)"
   change: added
@@ -182,3 +194,16 @@
     tests/unit/test_phase4_validator.py；tests/unit/test_phase4_metrics.py
   agent: Codex
   notes: 状态=Phase 4 独立验收 PASS；Phase 5 等待正式任务书，尚未实施
+
+- date: 2026-08-07
+  source_id: "(control_budget_evidence_remediation)"
+  change: blocker_fix
+  reason: 关闭复验发现的四个工程阻断项：1) Task ID 贯穿 Orchestrator、异动/晨报/
+    个股研报 Request、Run、运行目录和 ScenarioExecutionResult，统一持久化 task/plan/result；
+    2) Flash 重试和 Pro 升级按每次 Provider 调用检查并计入共享任务预算；3) 四个语义任务
+    使用任务级 Evidence 资格与最低输入，竞争因素校验 required_evidence_types 和实际类型；
+    4) 核心财务、业务竞争、事件和整体来源质量分域，专业评审改为维度级 Evidence。
+  evidence: src/research_os/orchestrator/；src/research_os/llm/；
+    src/research_os/equity_research/；tests/integration/；tests/unit/
+  agent: Codex
+  notes: 本地全量 1067 passed；50/50 Schema；未提交、未推送；Phase 5 继续 BLOCKED

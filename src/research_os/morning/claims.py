@@ -4,7 +4,7 @@
 UNKNOWN/CONFLICT）。确定性规则生成：
 - 官方/监管/公司披露来源 -> FACT（需有证据）
 - 社区/自媒体/含观点词 -> SOURCE_OPINION（记录说话者）
-- 评分推理/影响路径 -> MODEL_INFERENCE（记录依据）
+- 关键词/影响路径规则 -> UNKNOWN（不得伪装成模型推断）
 - 冲突检测：同簇内关键数值/时间/状态不一致 -> CONFLICT（不消除冲突）
 """
 from __future__ import annotations
@@ -14,7 +14,6 @@ from typing import Dict, List, Optional
 
 from research_os.models import CandidateItem, Claim, EventCluster
 from research_os.utils.id import new_uuid
-from research_os.utils.time import now_iso
 from research_os.validators.schema_validator import validate_instance
 
 _OPINION_HINTS = ["认为", "预计", "看好", "看空", "建议", "观点", "分析师", "机构称",
@@ -38,7 +37,8 @@ def content_type_of(candidate: CandidateItem) -> str:
 
 
 def build_claim(candidate: CandidateItem, evidence_ids: Optional[List[str]] = None,
-                conflict_notes: Optional[List[str]] = None) -> Claim:
+                conflict_notes: Optional[List[str]] = None,
+                publisher: Optional[str] = None) -> Claim:
     """从候选生成一条 Claim（先判定类型，再构造并过 Schema 校验）。"""
     ctype = content_type_of(candidate)
     official = candidate.monitoring_channel in (
@@ -48,9 +48,7 @@ def build_claim(candidate: CandidateItem, evidence_ids: Optional[List[str]] = No
         claim_type = "CONFLICT"
     elif ctype == "opinion":
         claim_type = "SOURCE_OPINION"
-    elif ctype == "analysis":
-        claim_type = "MODEL_INFERENCE"
-    elif official and candidate.entities:
+    elif official and candidate.entities and evidence_ids:
         claim_type = "FACT"
     else:
         claim_type = "UNKNOWN"
@@ -66,6 +64,8 @@ def build_claim(candidate: CandidateItem, evidence_ids: Optional[List[str]] = No
             "candidate_id": candidate.candidate_id,
             "source_ids": candidate.source_ids,
             "monitoring_channel": candidate.monitoring_channel,
+            "publisher": publisher,
+            "speaker": publisher if claim_type == "SOURCE_OPINION" else None,
             "conflict_notes": conflict_notes,
         },
         as_of=candidate.published_at,

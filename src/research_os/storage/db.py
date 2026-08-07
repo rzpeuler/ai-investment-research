@@ -124,6 +124,20 @@ class Database:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
 
+    @classmethod
+    def open_read_only(cls, path: str | Path) -> "Database":
+        """以 SQLite `mode=ro` 打开既有数据库，供严格零写入的 dry-run 使用。"""
+        resolved = Path(path).resolve()
+        if not resolved.is_file():
+            raise FileNotFoundError(resolved)
+        instance = cls.__new__(cls)
+        instance.path = resolved
+        uri = resolved.as_uri() + "?mode=ro"
+        instance._conn = sqlite3.connect(uri, uri=True)
+        instance._conn.row_factory = sqlite3.Row
+        instance._conn.execute("PRAGMA foreign_keys=ON")
+        return instance
+
     # ---------- 迁移 ----------
 
     def migrations_available(self) -> List[str]:

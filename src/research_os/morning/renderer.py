@@ -82,7 +82,8 @@ def _frontmatter(artifacts: PipelineArtifacts, report_date: date,
 def _item_block(cid: str, title: str, path: List[str], channel: str,
                 ctype: str, published: str, entities: List[str],
                 summary: str, importance: str, impact: str,
-                certainty: str, verify: List[str], evidence: List[str]) -> List[str]:
+                certainty: str, verify: List[str], evidence: List[str],
+                claims: List[str]) -> List[str]:
     lines = [f"### {title}", ""]
     lines.append(f"- **分类：**{'/'.join(path) or 'unknown'}")
     lines.append(f"- **监测方向：**{channel}")
@@ -94,7 +95,12 @@ def _item_block(cid: str, title: str, path: List[str], channel: str,
     lines.append(f"- **影响路径：**{impact}")
     lines.append(f"- **确定性：**{certainty}")
     lines.append(f"- **待验证事项：**{'; '.join(verify) or '待后续验证'}")
-    lines.append(f"- **证据：**{', '.join(evidence) or '待补充'}")
+    lines.append(f"- **Claim：**{', '.join(claims) or '无'}")
+    if evidence:
+        lines.append("- **Evidence：**")
+        lines.extend(f"  - {ref}" for ref in evidence)
+    else:
+        lines.append("- **Evidence：**待补充")
     lines.append("")
     return lines
 
@@ -131,8 +137,9 @@ def _cluster_blocks(artifacts: PipelineArtifacts,
             summary=c.summary, importance=importance, impact=importance,
             certainty=f"{score['final_score']:.0f}分（确定性维度 {score['certainty']}/5）",
             verify=verify,
-            evidence=[a["claim_id"] for a in artifacts.claims
-                      if a.get("object", {}).get("candidate_id") == c.candidate_id],
+            evidence=_evidence_refs(artifacts, c.candidate_id),
+            claims=[a["claim_id"] for a in artifacts.claims
+                    if a.get("object", {}).get("candidate_id") == c.candidate_id],
         )
         sections.setdefault(f"{label}###{cand_cluster.get(c.candidate_id, '')}", []).extend(blocks)
     return sections
@@ -184,7 +191,9 @@ def render_morning_brief(
                 out += [f"### {c.title}", "",
                         f"- **分数：**{s['final_score']:.0f}（{band_label(s['final_score'])}）",
                         f"- **分类：**{'/'.join(c.classification_path)}",
-                        f"- **摘要：**{c.summary or c.title}", ""]
+                        f"- **摘要：**{c.summary or c.title}"]
+                refs = _evidence_refs(artifacts, c.candidate_id)
+                out += ["- **Evidence：**"] + [f"  - {ref}" for ref in refs] + [""]
     else:
         out += ["本时间窗口内通过筛选的高价值信息有限。", ""]
 
@@ -260,6 +269,21 @@ def _major_of(label: str) -> str:
         if k in label:
             return v
     return "其他"
+
+
+def _evidence_refs(artifacts: PipelineArtifacts, candidate_id: str) -> List[str]:
+    claim = next((c for c in artifacts.claims
+                  if c.get("object", {}).get("candidate_id") == candidate_id), None)
+    refs: List[str] = []
+    for eid in (claim or {}).get("evidence_ids", []):
+        ev = artifacts.evidence_index.get(eid)
+        if not ev:
+            continue
+        refs.append(
+            f"Evidence ID: `{eid}` | 来源: {ev['publisher']} ({ev['source_id']}) | "
+            f"发布时间: {ev['published_at']} | URL: {ev['url']}"
+        )
+    return refs
 
 
 def _channel_label(ch: str) -> str:

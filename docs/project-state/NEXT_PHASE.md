@@ -1,20 +1,30 @@
-# 下一阶段（NEXT PHASE）
+# 下一阶段准入（NEXT PHASE）
 
-## 下一阶段：Phase 5 产业图谱（等待正式任务书）
+## 当前结论
 
-- **Phase 4 状态**：独立验收 PASS（代码基线 `4f7cdbd`；947 passed；三个 P1 全部 CLOSED）
-- **Phase 5 状态**：尚未开始；等待正式任务书
-- **禁止提前实现 Phase 5**：正式任务书下达前不得开始任何 Phase 5 实现
+- **Phase 4 engineering foundation：PASS**
+- **Phase 4 full research capability：PARTIAL_SUCCESS**
+- **Phase 5：BLOCKED**
 
-## Phase 5 预期范围（以正式任务书为准，当前仅登记边界）
+当前工作只能继续修复和验证 Phase 4 能力，不得开始 Phase 5 产业图谱实现、图谱本体变更、
+自动批准节点/关系或自动写入核心知识图谱。
 
-- 产业图谱（知识库层）：节点/边自动批准机制、本体管理、图谱审核流程；
-- Phase 4 已允许输出 GraphChange 候选与 knowledge_coordinates，但不得自动写入
-  核心产业图谱；任何提前实现改变阶段边界或引入自动核心图谱写入 = BLOCKER。
+## Phase 5 解锁条件
 
-## 待办提示（非阻塞）
+只有以下条件同时满足并完成正式复验，才可提出解除 BLOCKED：
 
-- 真实 LLM Provider 配置（.env 中 API Key 接入 LlmClient；接入后 Flash/Pro 路由生效）
-- 自动历史日线/财务来源的在线验证与审计（满足任务书条件后写入 primary）
-- registry/sources.yaml 中 cninfo/nbs/cls 的 status 字段与文档表述同步（走正式治理）
-- 同行注册表具体公司关系数据登记
+1. 统一控制面、晨报 Evidence、Phase 4 完成定义和文档治理问题全部关闭；
+2. 全量测试与已配置质量检查通过，或仅剩有证据且不影响核心能力的环境限制；
+3. Phase 4 核心语义模块达到最低覆盖，真实 Provider 状态如实记录；
+4. Claim/Evidence Validator 无严重缺口，人工财务和派生事件血缘可反查；
+5. README、CURRENT_STATE、NEXT_PHASE、KNOWN_LIMITATIONS 和阶段任务书状态一致；
+6. 有新的正式 Phase 5 任务书，且不改变工程指南的既有边界。
+
+任何一项不满足，Phase 5 继续 `BLOCKED`。
+
+## Phase 4 后续重点
+
+- 验证并接入真实 LLM Provider，复验业务、竞争、反证和研究问题的结构化输出；
+- 增加经验证的法定披露/财务原件定位能力，提升 Tier C 人工输入之外的来源质量；
+- 完善公司业务、行业竞争、同行、风险、催化剂和市场主要矛盾的实际数据覆盖；
+- 保持分钟行情、自动历史日线、通用 OCR 和深度媒体等未验证能力为明确限制。

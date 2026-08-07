@@ -178,3 +178,15 @@ ROIC 对金融企业 not_applicable；周期企业 PE 仅作观察并提示周�
 研报渲染只聚合结构化对象（Findings/Result/Metrics/Segments/Peers/Valuation/...）；
 必须章节无论有无数据都显示，缺数据写覆盖状态/缺失字段/不能得出的结论/降级原因；
 禁止空章节套话（"公司未来可期"等）。
+
+## 28. 文档权威、统一控制面与 Phase 4 完成定义（2026-08-07）
+
+`docs/engineering-guide.md` 是当前唯一有效工程指南；权威顺序固定为工程指南、正式
+决策、阶段任务、CURRENT_STATE、NEXT_PHASE、KNOWN_LIMITATIONS、README。阶段任务
+只能细化，不能静默覆盖。指南实质变更须更新版本、日期和变更记录。
+
+首批三个核心场景必须经显式场景注册表和统一 Orchestrator 执行。晨报和 Phase 4 的
+关键事实必须保持 RawItem→Evidence→Claim→派生对象→Markdown 血缘。Phase 4 完整成功
+采用集中、版本化多维覆盖判定，不再仅看可比年度数量。当前结论为：工程基础 PASS、
+完整研究能力 PARTIAL_SUCCESS、Phase 5 BLOCKED；真实语义最低覆盖和其余准入条件未
+同时满足前不得改变该边界。

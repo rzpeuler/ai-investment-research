@@ -27,7 +27,7 @@ SOURCE_CLAIM_MAP = {
     "company_guidance": "SOURCE_OPINION",
     "external_opinion": "SOURCE_OPINION",
     "user_input": "HYPOTHESIS",
-    "deterministic_extrapolation": "MODEL_INFERENCE",
+    "deterministic_extrapolation": "HYPOTHESIS",
     "model_generated": "MODEL_INFERENCE",
 }
 

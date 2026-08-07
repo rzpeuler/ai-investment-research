@@ -37,6 +37,65 @@ EQUITY_LLM_SCHEMAS = {
     "section_draft": "research_finding",
 }
 
+SEMANTIC_EVIDENCE_POLICY = {
+    "business_description_normalization": {
+        "allowed_types": {"official_disclosure", "company_official", "institution_material"},
+        "minimum": 1,
+    },
+    "competitive_factor_candidates": {
+        "allowed_types": {
+            "official_disclosure", "company_official", "official_statistics",
+            "institution_material", "news_report", "media_report",
+        },
+        "minimum": 1,
+    },
+    "counter_evidence_organizing": {
+        "allowed_types": {
+            "official_disclosure", "company_official", "official_statistics",
+            "institution_material", "news_report", "media_report", "manual_input",
+        },
+        "minimum": 1,
+    },
+    "research_questions": {
+        "allowed_types": {
+            "official_disclosure", "official_statistics", "company_official",
+            "news_report", "media_report", "social_opinion", "institution_material",
+            "market_data", "manual_input",
+        },
+        "minimum": 1,
+    },
+    "management_statement_summary": {
+        "allowed_types": {"official_disclosure", "company_official", "institution_material"},
+        "minimum": 1,
+    },
+    "product_name_mapping": {
+        "allowed_types": {"official_disclosure", "company_official"},
+        "minimum": 1,
+    },
+    "catalyst_candidates": {
+        "allowed_types": {
+            "official_disclosure", "official_statistics", "company_official",
+            "institution_material", "news_report", "media_report",
+        },
+        "minimum": 1,
+    },
+    "risk_candidates": {
+        "allowed_types": {
+            "official_disclosure", "official_statistics", "company_official",
+            "institution_material", "news_report", "media_report", "manual_input",
+        },
+        "minimum": 1,
+    },
+    "section_draft": {
+        "allowed_types": {
+            "official_disclosure", "official_statistics", "company_official",
+            "institution_material", "news_report", "media_report", "manual_input",
+            "market_data", "social_opinion",
+        },
+        "minimum": 1,
+    },
+}
+
 FORBIDDEN_OUTPUT_TERMS = ["target_price", "fair_value", "upside", "买入", "卖出", "增持", "减持", "仓位"]
 
 
@@ -98,24 +157,42 @@ class EquityLlmTasks:
         task_id: str,
         evidence_excerpts: List[str],
         evidence_ids: List[str],
+        evidence_types: List[str],
         cutoff: str,
+        request_id: str = "",
+        company_entity_id: str = "",
         prompt_version: str = "v1",
     ) -> LlmResponse:
         """运行一个语义任务。返回 LlmResponse（未配置时 called=false 诚实回退）。"""
         schema_name = EQUITY_LLM_SCHEMAS.get(task_name)
         if schema_name is None:
             raise ValueError(f"未知语义任务: {task_name}")
-
-        # 预算检查：Pro 任务须有剩余；Flash 耗尽则不再调用
-        model_class = "flash"
-        if not self.budget.can_call(model_class):
-            resp = LlmResponse(
+        if not (len(evidence_excerpts) == len(evidence_ids) == len(evidence_types)):
+            raise ValueError("语义任务 Evidence 摘录、ID 与类型数量不一致")
+        policy = SEMANTIC_EVIDENCE_POLICY[task_name]
+        eligible = [
+            (excerpt, evidence_id, evidence_type)
+            for excerpt, evidence_id, evidence_type in zip(
+                evidence_excerpts, evidence_ids, evidence_types)
+            if evidence_type in policy["allowed_types"]
+        ]
+        if len(eligible) < policy["minimum"]:
+            return LlmResponse(
                 call_id=new_uuid(), called=False, status="fallback",
-                warnings=["任务级 Flash 预算耗尽，跳过模型调用"],
+                warnings=[f"{task_name} 最低合格 Evidence 输入不足"],
+                usage_metadata={"failure_stage": "evidence_eligibility"},
             )
-            return resp
+        evidence_excerpts = [item[0] for item in eligible]
+        evidence_ids = [item[1] for item in eligible]
+        evidence_types = [item[2] for item in eligible]
 
-        prompt = self._build_prompt(task_name, evidence_excerpts, evidence_ids, cutoff, schema_name, prompt_version)
+        model_class = "flash"
+
+        prompt = self._build_prompt(
+            task_name, evidence_excerpts, evidence_ids, evidence_types,
+            cutoff, schema_name, prompt_version,
+            request_id=request_id, company_entity_id=company_entity_id,
+        )
         request = LlmRequest(
             call_id=new_uuid(),
             task_id=task_id,
@@ -129,10 +206,7 @@ class EquityLlmTasks:
             output_schema_name=schema_name,
             timeout_seconds=60,
         )
-        resp = self.client.generate_json(request, output_schema={})
-        # 实际发生调用才计预算
-        if resp.called:
-            self.budget.record(model_class)
+        resp = self.client.generate_json(request, output_schema={}, budget=self.budget)
 
         # 禁止内容拦截（模型输出目标价/评级等 → 拒绝）
         if resp.output is not None:
@@ -148,19 +222,24 @@ class EquityLlmTasks:
         task_name: str,
         excerpts: List[str],
         evidence_ids: List[str],
+        evidence_types: List[str],
         cutoff: str,
         schema_name: str,
         prompt_version: str,
+        request_id: str = "",
+        company_entity_id: str = "",
     ) -> str:
         """Prompt 只含最小必要摘录 + ID + 截止时间 + Schema + 禁止项。"""
         lines = [
             f"任务: {task_name}（输出 Schema: {schema_name}，Prompt 版本 {prompt_version}）",
             f"信息截止时间: {cutoff}",
+            f"request_id: {request_id or task_name}",
+            f"company_entity_id: {company_entity_id or 'UNKNOWN'}",
             "输入证据摘录（最小必要）：",
         ]
-        for i, ex in enumerate(excerpts[:5]):
-            lines.append(f"- [{i}] {ex[:500]}")
-        lines.append(f"证据 IDs: {', '.join(evidence_ids[:20])}")
+        for evidence_id, evidence_type, ex in list(zip(
+            evidence_ids, evidence_types, excerpts))[:20]:
+            lines.append(f"- [{evidence_id}|{evidence_type}] {ex[:500]}")
         lines.append("禁止输出：目标价、评级、买卖/仓位建议、确定性收益承诺；数字不得篡改。")
         return "\n".join(lines)
 
@@ -172,10 +251,11 @@ def run_equity_llm_task(
     task_id: str,
     excerpts: List[str],
     evidence_ids: List[str],
+    evidence_types: List[str],
     cutoff: str,
 ) -> LlmResponse:
     """便捷入口。"""
     return EquityLlmTasks(client, depth).run_task(
         task_name, task_id=task_id, evidence_excerpts=excerpts,
-        evidence_ids=evidence_ids, cutoff=cutoff,
+        evidence_ids=evidence_ids, evidence_types=evidence_types, cutoff=cutoff,
     )

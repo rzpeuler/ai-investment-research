@@ -84,14 +84,17 @@ def run(ctx, task_id, scenario, entities, depth, as_of, force) -> None:
         return  # 子命令自行处理
     root = _project_root()
     orch = Orchestrator(root)
-    outcome = orch.run(
-        scenario=scenario,
-        entities=list(entities),
-        depth=depth,
-        task_id=task_id,
-        as_of=as_of,
-        force=force,
-    )
+    try:
+        outcome = orch.run(
+            scenario=scenario,
+            entities=list(entities),
+            depth=depth,
+            task_id=task_id,
+            as_of=as_of,
+            force=force,
+        )
+    finally:
+        orch.close()
     if outcome.status == "failed":
         click.echo(f"[FAILED] {outcome.message}", err=True)
         raise SystemExit(1)
@@ -329,197 +332,16 @@ def run_morning_brief(report_date, as_of, depth, force, dry_run, live) -> None:
     默认窗口：前一日 20:00 至当日 08:00（Asia/Shanghai）。
     幂等键：scenario + report_date + window_start + window_end。
     """
-    from datetime import date as _date
-
-    from research_os.morning.pipeline import MorningBriefPipeline, PipelineConfig
-    from research_os.morning.window import (
-        as_of_for,
-        morning_window,
-        parse_report_date,
-        report_path_for,
-        scheduled_for,
-    )
-    from research_os.orchestrator import Plan, RunDirectory
-    from research_os.reports import validate_report
-    from research_os.storage import Database
-    from research_os.utils.logging import ErrorLog
-    from research_os.utils.time import now_iso
-
     root = _project_root()
-    # 默认报告日期：Asia/Shanghai 今天
-    from research_os.utils.time import shanghai_now
-
-    try:
-        day = parse_report_date(report_date) if report_date else shanghai_now().date()
-    except ValueError as exc:
-        raise click.ClickException(f"--date 非法: {exc}（需要 YYYY-MM-DD）") from None
-    if as_of:
-        from research_os.utils.time import validate_iso
-
-        if not validate_iso(as_of):
-            raise click.ClickException(
-                f"--as-of 非法: {as_of!r}（需要 ISO-8601，如 2026-08-06T08:00:00+08:00）")
-    window_start, window_end = morning_window(day)
-    as_of_value = as_of or as_of_for(day)
-    scheduled = scheduled_for(day)
-    started = now_iso()
-
-    # dry-run：只输出计划，不写任何东西
-    if dry_run:
-        click.echo(f"[DRY-RUN] 报告日期: {day.isoformat()}")
-        click.echo(f"[DRY-RUN] 信息窗口: {window_start} 至 {window_end}")
-        click.echo(f"[DRY-RUN] as_of: {as_of_value}  建议运行: {scheduled}")
-        click.echo(f"[DRY-RUN] 数据获取: {'live（cninfo/cls/nbs）' if live else 'manual_inbox（离线）'}")
-        click.echo(f"[DRY-RUN] 模块计划: 窗口过滤 -> 去重 -> 事件聚类（确定性第一版） -> 分类 -> 否决 -> 评分 -> 渲染 -> 校验")
-        click.echo(f"[DRY-RUN] 预期输出: {report_path_for(day, str(root / 'reports'))}")
-        click.echo(f"[DRY-RUN] 不写入任何产物（任务/事件/报告/知识库均不修改）")
-        return
-
-    # 幂等检查：同一窗口已存在通过校验的晨报 -> IDEMPOTENT（--force 重跑）
-    report_path = report_path_for(day, str(root / "reports"))
-    if report_path and Path(report_path).exists() and not force:
-        check = validate_report(report_path)
-        if check.ok:
-            click.echo(f"[IDEMPOTENT] {day.isoformat()} 晨报已存在且通过校验: {report_path}")
-            click.echo("            （--force 可强制重跑，产生新版本）")
-            raise SystemExit(0)
-
-    # 数据获取：manual_inbox（离线默认）；--live 附加真实适配器
-    from research_os.collectors.manual import ManualInboxService
-
-    db = Database(root / "data" / "sqlite" / "research.db")
-    db.initialize()
-    inbox = ManualInboxService(db)
-    raw_items = _inbox_to_raw_items(inbox.list(status="submitted"))
-
-    channel_map = {
-        "cninfo": "official_disclosure", "sse": "official_disclosure",
-        "szse": "official_disclosure", "nbs": "government_and_regulator",
-        "csrc": "government_and_regulator", "cls": "fast_news",
-        "sina_quote": "market_data",
-        "ima": "manual_submission", "manual_inbox": "manual_submission",
-    }
-    source_tiers = {"cninfo": "S", "sse": "S", "szse": "S", "csrc": "S",
-                    "nbs": "S", "cls": "B", "sina_quote": "S", "ima": "C"}
-
-    if live:
-        _append_live_items(raw_items)
-
-    config = PipelineConfig(source_tiers=source_tiers, source_status={},
-                            channel_map=channel_map)
-    pipeline = MorningBriefPipeline(config)
-
-    # Orchestrator 运行目录
     orch = Orchestrator(root)
-    task = orch.create_task(scenario="morning_brief", entities=[],
-                            depth=depth, as_of=as_of_value)
-    run_dir = RunDirectory(orch.runs_root, task.task_id)
-    run_dir.create()
-    run_dir.write_task(task.model_dump())
-    plan = orch.create_plan(task)
-    run_dir.write_plan(plan.model_dump())
-    error_log = ErrorLog(run_dir.errors_log, task_id=task.task_id)
-
     try:
-        artifacts = pipeline.run(raw_items, day, run_dir=run_dir, started_at=started)
-        # 写最终报告（原子）
-        final_dir = Path(report_path).parent
-        final_dir.mkdir(parents=True, exist_ok=True)
-        tmp = final_dir / (Path(report_path).name + ".tmp")
-        tmp.write_text(artifacts.markdown, encoding="utf-8")
-        import os as _os
-
-        _os.replace(tmp, report_path)
-        # 校验
-        check = validate_report(report_path)
-        run_dir.write_validation({
-            "status": "ok" if check.ok else "failed",
-            "task_id": task.task_id,
-            "checks": len(check.errors),
-            "errors": check.errors[:10],
+        outcome = orch.execute("morning_brief", {
+            "report_date": report_date, "as_of": as_of, "depth": depth,
+            "force": force, "dry_run": dry_run, "live": live,
         })
-        # 任务成功状态
-        task.status = "completed"
-        task.finished_at = now_iso()
-        orch.db.upsert(task)
-        run_dir.write_task(task.model_dump())
-
-        click.echo(f"[OK] 晨报 {day.isoformat()} 生成: {report_path}")
-        click.echo(f"[OK] 候选 {len(artifacts.candidates)} | 簇 {len(artifacts.clusters)} "
-                   f"| 入选 {len(artifacts.selected_cluster_ids)}")
-        click.echo(f"[OK] 运行目录: {run_dir.root}")
-        if check.errors:
-            click.echo(f"[WARN] 校验告警 {len(check.errors)} 项（见 validation.json）")
-        if artifacts.missing_data:
-            click.echo(f"[INFO] 缺失/降级: {'; '.join(artifacts.missing_data)}")
-    except Exception as exc:  # noqa: BLE001
-        orch._mark_failed(task, run_dir, exc)
-        error_log.record_exception("cli", f"晨报生成失败: {exc}", exc,
-                                   task_id=task.task_id, module="morning_brief")
-        click.echo(f"[FAILED] {exc}", err=True)
-        raise SystemExit(1)
     finally:
-        db.close()
-
-
-def _inbox_to_raw_items(entries: list) -> list:
-    """inbox 条目 -> RawItem（离线候选源）。"""
-    from research_os.models import RawItem
-    from research_os.utils.id import content_sha256, new_uuid
-
-    items = []
-    for e in entries:
-        items.append(RawItem(
-            raw_item_id=new_uuid(),
-            source_id="manual_inbox",
-            external_id=e["inbox_id"],
-            url=e["source_url"],
-            title=e["title"],
-            publisher=e["source_name"],
-            author=e.get("submitted_by"),
-            published_at=e.get("published_at") or e["submitted_at"],
-            retrieved_at=e["submitted_at"],
-            content_hash=content_sha256(f"{e['source_url']}|{e['title']}"),
-            content_excerpt=e.get("content_excerpt", "")[:300],
-            content_storage="metadata_and_excerpt",
-            language="zh-CN",
-            access_status="ok",
-            entities=e.get("intended_entities", []),
-            raw_category="manual_submission",
-        ))
-    return items
-
-
-def _append_live_items(raw_items: list) -> None:
-    """--live：附加真实适配器采集（Phase 2 标记为实验性，不保证离线）。"""
-    from research_os.collectors.news import ClsMetadataCollector
-    from research_os.collectors.official import CninfoCollector
-
-    for adapter in (CninfoCollector(), ClsMetadataCollector()):
-        try:
-            refs = adapter.discover({}, {"start": None, "end": None})
-            for ref in refs[:10]:
-                payload = adapter.fetch(ref)
-                raw_items.extend(adapter.normalize(payload))
-        except Exception as exc:  # noqa: BLE001
-            raw_items.append(_error_raw_item(adapter.source_id, str(exc)))
-
-
-def _error_raw_item(source_id: str, message: str) -> "object":
-    """适配器失败 -> 解析错误 RawItem（进入否决而非伪造）。"""
-    from research_os.models import RawItem
-    from research_os.utils.id import content_sha256, new_uuid
-    from research_os.utils.time import now_iso
-
-    return RawItem(
-        raw_item_id=new_uuid(), source_id=source_id, external_id="",
-        url="", title=f"[采集失败] {source_id}: {message[:60]}", publisher=source_id,
-        author=None, published_at=now_iso(), retrieved_at=now_iso(),
-        content_hash=content_sha256(message), content_excerpt=message[:200],
-        content_storage="metadata_and_excerpt", language="zh-CN",
-        access_status="failed", entities=[], raw_category="error",
-        warnings=["机器解析明显错误"],
-    )
+        orch.close()
+    _print_scenario_outcome(outcome, dry_run=dry_run)
 
 
 @cli.group()
@@ -595,6 +417,26 @@ def _param_error(message: str) -> None:
     raise exc
 
 
+def _print_scenario_outcome(outcome, *, dry_run: bool = False) -> None:
+    """统一打印场景结果并映射退出码。"""
+    if dry_run or outcome.status == "planned":
+        click.echo(f"[DRY-RUN] {outcome.message}")
+    elif outcome.status == "idempotent_skipped":
+        click.echo(f"[IDEMPOTENT] {outcome.message}")
+    elif outcome.status == "insufficient_data":
+        click.echo(f"[DATA_INSUFFICIENT] {outcome.message}")
+    elif outcome.status == "failed":
+        click.echo(f"[FAILED] {outcome.message}", err=True)
+    else:
+        click.echo(f"[OK] {outcome.message}")
+    if outcome.report_path:
+        click.echo(f"[OK] 报告: {outcome.report_path}")
+    if outcome.run_dir:
+        click.echo(f"[OK] 运行目录: {outcome.run_dir}")
+    if outcome.exit_code:
+        raise SystemExit(outcome.exit_code)
+
+
 @run.command("abnormal-move")
 @click.option("--entity", "entity_code", default=None, help="股票代码（如 600519.SH）。")
 @click.option("--industry", "industry_id", default=None, help="行业实体 ID（如 industry:白酒）。")
@@ -620,14 +462,6 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
     """
     import re
 
-    from research_os.abnormal_move.pipeline import (
-        EXIT_INSUFFICIENT,
-        EXIT_OK,
-        EXIT_PARAM,
-        AbnormalMovePipeline,
-    )
-    from research_os.storage import Database
-
     # 参数校验：三选一
     chosen = [x for x in (entity_code, industry_id, concept_id) if x]
     if len(chosen) != 1:
@@ -645,33 +479,18 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
         entity_type = "industry" if industry_id else "concept"
 
     root = _project_root()
-    db = Database(root / "data" / "sqlite" / "research.db")
-    db.initialize()
-    pipeline = AbnormalMovePipeline(root, db)
-    outcome = pipeline.run(
-        entity_id=entity_id, entity_type=entity_type,
-        analysis_date=analysis_date, depth=depth, granularity=granularity,
-        force=force, dry_run=dry_run, as_of=as_of,
-        window_start=window_start, window_end=window_end,
-        peers=list(peers), entity_name=entity_name,
-    )
-    db.close()
-
-    if outcome.status == "idempotent_skipped":
-        click.echo(f"[IDEMPOTENT] {outcome.message}")
-        raise SystemExit(EXIT_OK)
-    if outcome.status == "insufficient_data":
-        click.echo(f"[DATA_INSUFFICIENT] {outcome.message}")
-        raise SystemExit(EXIT_INSUFFICIENT)
-    if outcome.status == "failed":
-        click.echo(f"[FAILED] {outcome.message}", err=True)
-        raise SystemExit(outcome.exit_code or EXIT_PARAM)
-
-    click.echo(f"[OK] {outcome.message}")
-    if outcome.report_path:
-        click.echo(f"[OK] 报告: {outcome.report_path}")
-    if outcome.run_dir:
-        click.echo(f"[OK] 运行目录: {outcome.run_dir}")
+    orch = Orchestrator(root)
+    try:
+        outcome = orch.execute("abnormal_move_analysis", {
+            "entity_id": entity_id, "entity_type": entity_type,
+            "analysis_date": analysis_date, "depth": depth, "granularity": granularity,
+            "force": force, "dry_run": dry_run, "as_of": as_of,
+            "window_start": window_start, "window_end": window_end,
+            "peers": list(peers), "entity_name": entity_name,
+        })
+    finally:
+        orch.close()
+    _print_scenario_outcome(outcome, dry_run=dry_run)
 
 
 @run.command("equity-research")
@@ -708,15 +527,6 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
     """
     import re as _re
 
-    from research_os.equity_research.pipeline import (
-        EXIT_INSUFFICIENT,
-        EXIT_OK,
-        EXIT_PARAM,
-        EXIT_VALIDATION,
-        EquityResearchPipeline,
-    )
-    from research_os.storage import Database
-
     # 参数规则：不静默猜代码
     if not entity_code:
         _param_error("--entity 必填（股票代码，如 600519.SH）；不允许公司名模糊猜代码")
@@ -732,36 +542,22 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
         _param_error("--as-of 不得晚于 --date")
 
     root = _project_root()
-    db = Database(root / "data" / "sqlite" / "research.db")
-    db.initialize()
-    pipeline = EquityResearchPipeline(root, db)
-    outcome = pipeline.run({
-        "entity": entity_code, "date": report_date, "as_of": as_of,
-        "depth": depth, "periods": periods, "peers": list(peers),
-        "scenario_ids": list(scenario_ids),
-        "include_valuation": include_valuation,
-        "include_forecast": include_forecast,
-        "financial_files": list(financial_files),
-        "documents": list(documents),
-        "market_file": market_file,
-        "force": force, "dry_run": dry_run, "live": live,
-    })
-    db.close()
-
-    if outcome.status == "idempotent_skipped":
-        click.echo(f"[IDEMPOTENT] {outcome.message}")
-        raise SystemExit(EXIT_OK)
-    if outcome.status == "insufficient_data":
-        click.echo(f"[DATA_INSUFFICIENT] {outcome.message}")
-        raise SystemExit(EXIT_INSUFFICIENT)
-    if outcome.status == "failed":
-        click.echo(f"[FAILED] {outcome.message}", err=True)
-        raise SystemExit(outcome.exit_code or EXIT_PARAM)
-    click.echo(f"[OK] {outcome.message}")
-    if outcome.report_path:
-        click.echo(f"[OK] 报告: {outcome.report_path}")
-    if outcome.run_dir:
-        click.echo(f"[OK] 运行目录: {outcome.run_dir}")
+    orch = Orchestrator(root)
+    try:
+        outcome = orch.execute("stock_research_report", {
+            "entity": entity_code, "date": report_date, "as_of": as_of,
+            "depth": depth, "periods": periods, "peers": list(peers),
+            "scenario_ids": list(scenario_ids),
+            "include_valuation": include_valuation,
+            "include_forecast": include_forecast,
+            "financial_files": list(financial_files),
+            "documents": list(documents),
+            "market_file": market_file,
+            "force": force, "dry_run": dry_run, "live": live,
+        })
+    finally:
+        orch.close()
+    _print_scenario_outcome(outcome, dry_run=dry_run)
 
 
 if __name__ == "__main__":

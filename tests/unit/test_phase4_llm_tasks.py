@@ -28,7 +28,8 @@ class TestNoProvider:
         tasks = EquityLlmTasks(client)
         resp = tasks.run_task(
             "business_description_normalization", task_id="t1",
-            evidence_excerpts=["公司主营白酒"], evidence_ids=["ev-1"], cutoff="2026-08-06",
+            evidence_excerpts=["公司主营白酒"], evidence_ids=["ev-1"],
+            evidence_types=["official_disclosure"], cutoff="2026-08-06",
         )
         assert resp.called is False
         assert resp.status == "fallback"
@@ -40,7 +41,7 @@ class TestNoProvider:
         client = _client(configured=False)
         resp = EquityLlmTasks(client).run_task(
             "catalyst_candidates", task_id="t1",
-            evidence_excerpts=[], evidence_ids=[], cutoff="2026-08-06",
+            evidence_excerpts=[], evidence_ids=[], evidence_types=[], cutoff="2026-08-06",
         )
         assert resp.output is None
 
@@ -57,12 +58,12 @@ class TestBudget:
         client = _client(provider=provider, configured=True)
         tasks = EquityLlmTasks(client, depth="fast")  # flash_max=2
         tasks.run_task("research_questions", task_id="t1", evidence_excerpts=["a"],
-                       evidence_ids=[], cutoff="2026-08-06")
-        tasks.run_task("research_questions", task_id="t2", evidence_excerpts=["b"],
-                       evidence_ids=[], cutoff="2026-08-06")
+                       evidence_ids=["ev-1"], evidence_types=["manual_input"],
+                       cutoff="2026-08-06")
         assert tasks.budget.flash_used == 2
-        resp3 = tasks.run_task("research_questions", task_id="t3", evidence_excerpts=["c"],
-                               evidence_ids=[], cutoff="2026-08-06")
+        resp3 = tasks.run_task("research_questions", task_id="t2", evidence_excerpts=["c"],
+                               evidence_ids=["ev-2"], evidence_types=["manual_input"],
+                               cutoff="2026-08-06")
         assert resp3.called is False
         assert any("预算耗尽" in w for w in resp3.warnings)
 
@@ -75,6 +76,29 @@ class TestBudget:
         assert not b.exhausted
         s = b.summary()
         assert s["flash_max"] == 5 and s["pro_max"] == 1
+
+    def test_shared_budget_counts_every_flash_retry_and_pro_upgrade(self):
+        models = []
+
+        def behavior(request, schema):
+            models.append(request.requested_model_class)
+            return {"ok": True, "output": {"invalid": True},
+                    "model_id": request.requested_model_class}
+
+        tasks = EquityLlmTasks(
+            _client(provider=FakeLlmProvider(behavior=behavior), configured=True),
+            depth="standard",
+        )
+        for index in range(4):
+            tasks.run_task(
+                "research_questions", task_id=f"t{index}",
+                evidence_excerpts=["待验证问题"], evidence_ids=[f"ev-{index}"],
+                evidence_types=["manual_input"], cutoff="2026-08-06",
+            )
+        assert models.count("flash") == 5
+        assert models.count("pro") == 1
+        assert tasks.budget.flash_used == 5
+        assert tasks.budget.pro_used == 1
 
 
 class TestForbiddenOutput:
@@ -100,10 +124,23 @@ class TestFakeProviderCalls:
         tasks = EquityLlmTasks(client)
         resp = tasks.run_task(
             "research_questions", task_id="t1",
-            evidence_excerpts=["收入增长"], evidence_ids=["ev-1"], cutoff="2026-08-06",
+            evidence_excerpts=["收入增长"], evidence_ids=["ev-1"],
+            evidence_types=["manual_input"], cutoff="2026-08-06",
         )
         # Fake Provider 实际被调用（called=True）且计入预算；
         # 输出未通过空 Schema 校验 → fallback 诚实记录（不伪造 MODEL_INFERENCE）
         assert resp.called is True
-        assert tasks.budget.flash_used == 1
+        assert tasks.budget.flash_used == resp.usage_metadata["attempts_by_model"]["flash"]
         assert resp.status in ("success", "failed", "fallback")
+
+    def test_ineligible_evidence_skips_provider(self):
+        provider = FakeLlmProvider()
+        tasks = EquityLlmTasks(_client(provider=provider, configured=True))
+        resp = tasks.run_task(
+            "competitive_factor_candidates", task_id="t1",
+            evidence_excerpts=["人工财务行"], evidence_ids=["ev-1"],
+            evidence_types=["manual_input"], cutoff="2026-08-06",
+        )
+        assert resp.called is False
+        assert tasks.budget.flash_used == 0
+        assert any("Evidence 输入不足" in warning for warning in resp.warnings)

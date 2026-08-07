@@ -55,14 +55,21 @@ class PipelineOutcome:
     exit_code: Optional[int] = None
     research_status: str = ""
     run_id: Optional[str] = None
+    model_route: Dict[str, Any] = field(default_factory=dict)
 
 
 class EquityResearchPipeline:
     """个股研报流水线（离线优先；无 Provider 时确定性回退）。"""
 
-    def __init__(self, root: Path, db: Database):
+    def __init__(self, root: Path, db: Database, llm_client: Optional[Any] = None):
         self.root = Path(root)
         self.db = db
+        if llm_client is None:
+            from research_os.llm.client import LlmClient
+
+            # 仓库未实现/验证真实 Provider 适配器时必须诚实回退。
+            llm_client = LlmClient(provider=None, configured=False, db=db)
+        self.llm_client = llm_client
 
     # ---------- 阶段 1：请求解析 ----------
 
@@ -75,7 +82,14 @@ class EquityResearchPipeline:
         if not SYMBOL_RE.match(symbol):
             raise ValueError(f"股票代码非法: {symbol!r}（需要 6 位数字 + .SH/.SZ/.BJ）")
 
-        as_of = args.get("as_of") or f"{args.get('date') or '2026-08-06'}T00:00:00"
+        from research_os.utils.time import now_iso, shanghai_now
+
+        requested_at = now_iso()
+        report_date = args.get("date") or shanghai_now().date().isoformat()
+        as_of = args.get("as_of") or requested_at
+        as_of_basis = args.get("as_of_basis") or (
+            "user_provided" if args.get("as_of") else "query_cutoff"
+        )
         company_id = f"company:{symbol}"
         security_id = f"security:{symbol}"
 
@@ -85,7 +99,8 @@ class EquityResearchPipeline:
             company_entity_id=company_id,
             security_entity_id=security_id,
             as_of=as_of,
-            report_date=args.get("date") or as_of[:10],
+            as_of_basis=as_of_basis,
+            report_date=report_date,
             timezone="Asia/Shanghai",
             depth=args.get("depth", "standard"),
             periods=args.get("periods", 5),
@@ -101,9 +116,11 @@ class EquityResearchPipeline:
             market_manifest_ids=list(args.get("market_manifest_ids") or []),
             source_policy=args.get("source_policy", "manual_only"),
             status="planned",
-            warnings=[],
+            warnings=[] if as_of_basis == "user_provided" else [
+                "未显式提供 as_of：使用请求时点作为检索截止上限；实际数据日期由 Evidence 单独披露"
+            ],
             rule_versions=dict(RULES_VERSION),
-            requested_at=as_of,
+            requested_at=requested_at,
             version=1,
         )
 
@@ -134,12 +151,16 @@ class EquityResearchPipeline:
         # 真实 Provider 配置状态（读取 LlmClient 配置，而非硬编码）
         from research_os.llm.client import is_provider_configured
 
-        provider_state = f"provider:{'configured' if is_provider_configured() else 'not_configured'}"
+        provider_configured = bool(getattr(self.llm_client, "configured", False)) or is_provider_configured()
+        provider_state = f"provider:{'configured' if provider_configured else 'not_configured'}"
+        cutoff_key = request.as_of if request.as_of_basis == "user_provided" else (
+            f"query_cutoff:{request.report_date}"
+        )
         parts = [
             "equity_research",
             request.company_entity_id,
             request.security_entity_id,
-            request.as_of,
+            cutoff_key,
             request.depth,
             str(request.periods),
             ",".join(sorted(args.get("peers") or [])),
@@ -718,6 +739,7 @@ class EquityResearchPipeline:
                     catalyst_type=ev.get("event_type", "other"), description=ev.get("title", "事件"),
                     claim_type="UNKNOWN", announcement_status="unknown",
                     source_phase="phase2", event_id=ev.get("event_id"),
+                    evidence_ids=list(ev.get("evidence_ids") or []),
                 )))
         for cm in catalyst_models:
             self.db.upsert(cm)
@@ -753,7 +775,7 @@ class EquityResearchPipeline:
             finding_models.append(build_finding(FindingInput(
                 request_id=request.request_id, company_entity_id=request.company_entity_id,
                 finding_type="financial_quality", title="财务质量告警", statement=w,
-                claim_type="SOURCE_OPINION", section_id="s12", materiality="low",
+                claim_type="UNKNOWN", section_id="s12", materiality="low",
                 as_of=request.as_of,
             )))
         _finish(st, "success" if finding_models else "partial",
@@ -765,26 +787,147 @@ class EquityResearchPipeline:
             build_claim_from_finding,
             build_evidence_from_fact,
             build_evidence_index,
+            build_raw_item_from_fact,
         )
+        from research_os.models.core import Evidence, RawItem
 
         # 21a. 为每个财务事实构建真实 Evidence（published_at=报告真实披露时间）
         evidence_models: List[Any] = []
+        raw_item_models: List[Any] = []
+        report_by_id = {r.get("financial_report_id"): r for r in all_reports}
+        manifest_by_id = {m.get("manifest_id"): m for m in all_manifests}
         for fact in all_facts:
             rep_id = fact.get("financial_report_id") or ""
             published = report_published.get(rep_id) or fact.get("valid_from") or request.as_of
+            report = report_by_id.get(rep_id, {})
+            manifest = manifest_by_id.get(report.get("manifest_id"), {})
+            locator = ",".join(fact.get("source_block_ids") or []) or f"field:{fact.get('taxonomy_code')}"
+            raw_item = build_raw_item_from_fact(
+                fact, published_at=published, retrieved_at=request.requested_at,
+                file_name=manifest.get("file_name") or "用户财务导入",
+                manifest_id=manifest.get("manifest_id") or "unknown",
+                checksum=manifest.get("file_checksum") or "unknown", locator=locator,
+                source_kind=manifest.get("source_kind") or "manual_import",
+                parser_version=manifest.get("data_version") or "unknown",
+                imported_at=manifest.get("imported_at") or request.requested_at,
+                is_statutory_original=bool(report.get("document_id")),
+            )
+            self.db.upsert(raw_item)
+            raw_item_models.append(raw_item)
             ev = build_evidence_from_fact(
-                fact, published_at=published, retrieved_at=request.as_of,
+                fact, published_at=published, retrieved_at=request.requested_at,
+                file_name=manifest.get("file_name") or "用户财务导入",
+                raw_item_id=raw_item.raw_item_id,
+                provenance={"url": raw_item.url, "checksum": manifest.get("file_checksum"),
+                            "locator": locator},
             )
             self.db.upsert(ev)
             evidence_models.append(ev)
-        # 事件类证据（Phase 2 晨报事件）
+            fact["evidence_ids"] = list(dict.fromkeys([*(fact.get("evidence_ids") or []), ev.evidence_id]))
+            from research_os.models.financials import FinancialFact
+            self.db.upsert(FinancialFact(**fact))
+        # Phase 2 事件只复用原始 Evidence ID；禁止把聚合事件伪装成官方原始证据。
         for ev_link in event_links:
-            ev = build_evidence_from_event(ev_link, retrieved_at=request.as_of)
-            if ev is not None:
-                self.db.upsert(ev)
+            for eid in ev_link.get("evidence_ids") or []:
+                payload = self.db.get("evidence", eid)
+                if payload is None or any(e.evidence_id == eid for e in evidence_models):
+                    continue
+                ev = Evidence(**payload)
                 evidence_models.append(ev)
+                raw_payload = self.db.get("raw_items", ev.raw_item_id)
+                if raw_payload is not None:
+                    raw_item_models.append(RawItem(**raw_payload))
         evidence_ids = [e.evidence_id for e in evidence_models]
         evidence_index = build_evidence_index(evidence_models)
+
+        # 21a.5 共享任务级预算的语义任务；无 Provider 时如实降级。
+        st_semantic = _stage("semantic_research")
+        from research_os.llm.equity_tasks import EquityLlmTasks, SEMANTIC_EVIDENCE_POLICY
+        from research_os.models.equity_research import CompetitiveFactor, ResearchFinding
+
+        semantic_runner = EquityLlmTasks(self.llm_client, request.depth)
+        semantic_records: List[dict] = []
+        semantic_integrated: List[str] = []
+        evidence_by_id = {e.evidence_id: e for e in evidence_models}
+        semantic_names = [
+            "business_description_normalization", "competitive_factor_candidates",
+            "counter_evidence_organizing", "research_questions",
+        ]
+        for task_name in semantic_names:
+            policy = SEMANTIC_EVIDENCE_POLICY[task_name]
+            task_evidences = [
+                evidence for evidence in evidence_models
+                if evidence.evidence_type in policy["allowed_types"]
+            ][:20]
+            task_evidence_ids = [e.evidence_id for e in task_evidences]
+            response = semantic_runner.run_task(
+                task_name, task_id=request.task_id,
+                evidence_excerpts=[e.excerpt for e in task_evidences],
+                evidence_ids=task_evidence_ids,
+                evidence_types=[e.evidence_type for e in task_evidences], cutoff=request.as_of,
+                request_id=request.request_id, company_entity_id=request.company_entity_id,
+            )
+            semantic_records.append({
+                "task_name": task_name, "provider": response.provider,
+                "model": response.model_id, "route": "pro" if response.business_escalation_used else "flash",
+                "budget": semantic_runner.budget.summary(), "latency": response.latency_seconds,
+                "validation_status": "pass" if response.status == "success" else response.status,
+                "fallback_reason": response.provider_fallback_reason or "; ".join(response.warnings),
+                "llm_called": response.called,
+                "input_evidence_ids": task_evidence_ids,
+                "input_evidence_types": [e.evidence_type for e in task_evidences],
+            })
+            if response.status != "success" or response.output is None:
+                continue
+            try:
+                if task_name == "competitive_factor_candidates":
+                    model = CompetitiveFactor(**response.output)
+                    if model.company_entity_id != request.company_entity_id:
+                        raise ValueError("模型输出公司实体与请求不一致")
+                    referenced = set(model.evidence_ids) | set(model.counter_evidence_ids)
+                    if not referenced <= set(task_evidence_ids):
+                        raise ValueError("模型输出引用了未输入或不存在的 Evidence")
+                    required_types = set(model.required_evidence_types)
+                    if not required_types:
+                        raise ValueError("竞争因素 required_evidence_types 不得为空")
+                    if not required_types <= set(policy["allowed_types"]):
+                        raise ValueError("竞争因素声明了该任务不允许的 Evidence 类型")
+                    actual_types = {evidence_by_id[eid].evidence_type for eid in referenced}
+                    if not actual_types or not actual_types <= required_types:
+                        raise ValueError(
+                            "竞争因素 required_evidence_types 与实际引用 Evidence 类型不一致")
+                    self.db.upsert(model)
+                    competitive_factors.append(model.model_dump())
+                else:
+                    model = ResearchFinding(**response.output)
+                    if model.company_entity_id != request.company_entity_id or model.request_id != request.request_id:
+                        raise ValueError("模型输出研究对象与请求不一致")
+                    if model.claim_type == "FACT":
+                        raise ValueError("模型语义输出不得直接成为 FACT")
+                    referenced = set(model.evidence_ids) | set(model.counter_evidence_ids)
+                    if not referenced <= set(task_evidence_ids):
+                        raise ValueError("模型输出引用了未输入或不存在的 Evidence")
+                    if model.claim_type == "SOURCE_OPINION" and not (
+                        model.object.get("speaker") or model.object.get("speaker_entity_id")
+                        or model.object.get("publisher")
+                    ):
+                        raise ValueError("SOURCE_OPINION 未标明说话者或发布者")
+                    model.model_route = {
+                        "llm_called": True, "status": "success", "task_name": task_name,
+                        "provider": response.provider, "model": response.model_id,
+                        "latency_seconds": response.latency_seconds,
+                    }
+                    finding_models.append(model)
+                semantic_integrated.append(task_name)
+            except ValueError as exc:
+                semantic_records[-1]["validation_status"] = "rejected"
+                semantic_records[-1]["fallback_reason"] = str(exc)
+        semantic_coverage = all(name in semantic_integrated for name in semantic_names)
+        _finish(
+            st_semantic, "success" if semantic_coverage else "degraded",
+            warnings=None if semantic_coverage else ["语义任务未完整接入正式对象（Provider 未配置或输出被拒绝）"],
+            missing=None if semantic_coverage else [n for n in semantic_names if n not in semantic_integrated],
+        )
 
         # 21b. 回填 Findings 的真实 Evidence ID（按事实血缘映射）
         #      fact_key → evidence_id；metric 的 input_fact_ids 定位事实
@@ -804,13 +947,70 @@ class EquityResearchPipeline:
                         metric_id_to_evidence[m.get("metric_id")] = fact_key_to_evidence.get(fk, "")
                         break
         for fm in finding_models:
-            ev_ids = [metric_id_to_evidence.get(sid, "") for sid in fm.supporting_object_ids
-                      if metric_id_to_evidence.get(sid)]
-            fm.evidence_ids = list(dict.fromkeys(ev_ids))  # 去重保序
-            fm.support_level = "direct" if fm.evidence_ids else "inferred"
+            if not fm.evidence_ids:
+                ev_ids = [metric_id_to_evidence.get(sid, "") for sid in fm.supporting_object_ids
+                          if metric_id_to_evidence.get(sid)]
+                fm.evidence_ids = list(dict.fromkeys(ev_ids))  # 去重保序
+            if fm.claim_type == "FACT":
+                fm.support_level = "direct" if fm.evidence_ids else "indirect"
         for fm in finding_models:
             self.db.upsert(fm)
         findings = [fm.model_dump() for fm in finding_models]
+
+        semantic_by_task = {
+            (finding.get("model_route") or {}).get("task_name"): finding
+            for finding in findings if (finding.get("model_route") or {}).get("task_name")
+        }
+        business_finding = semantic_by_task.get("business_description_normalization")
+        business_object = (business_finding or {}).get("object") or {}
+        business_analysis = {
+            "status": "covered" if business_finding else "missing_data",
+            "core_products_or_services": business_object.get("core_products_or_services", []),
+            "business_segments": business_object.get("business_segments", []),
+            "revenue_or_profit_links": business_object.get("revenue_or_profit_links", []),
+            "customers_or_applications": business_object.get("customers_or_applications", []),
+            "upstream_downstream": business_object.get("upstream_downstream", []),
+            "information_sources": (business_finding or {}).get("evidence_ids", []),
+            "unknowns": business_object.get("unknowns", []) if business_finding else ["语义任务未形成合格输出"],
+            "finding_id": (business_finding or {}).get("finding_id"),
+        }
+        competitive_landscape = {
+            "status": "covered" if competitive_factors else "missing_data",
+            "industry": None, "sub_industry": None,
+            "competition_dimensions": sorted({f.get("factor_type") for f in competitive_factors}),
+            "major_competitors": peer_selection.get("selected_company_ids", []) if peer_selection else [],
+            "relative_position": [f.get("statement") for f in competitive_factors],
+            "advantage_evidence_ids": sorted({eid for f in competitive_factors
+                                               if f.get("direction") == "advantage"
+                                               for eid in f.get("evidence_ids", [])}),
+            "disadvantage_evidence_ids": sorted({eid for f in competitive_factors
+                                                  if f.get("direction") == "disadvantage"
+                                                  for eid in f.get("evidence_ids", [])}),
+            "industry_constraints": [],
+            "data_gaps": [] if competitive_factors else ["行业与竞争因素语义输出缺失"],
+        }
+        counter_finding = semantic_by_task.get("counter_evidence_organizing")
+        counter_object = (counter_finding or {}).get("object") or {}
+        counter_evidence = {
+            "status": "covered" if counter_finding else "missing_data",
+            "challenged_claim": counter_object.get("challenged_claim"),
+            "counter_evidence": (counter_finding or {}).get("statement"),
+            "evidence_ids": (counter_finding or {}).get("counter_evidence_ids", []),
+            "strength": counter_object.get("strength", "unknown"),
+            "unresolved_questions": counter_object.get("unresolved_questions", []),
+        }
+        question_finding = semantic_by_task.get("research_questions")
+        question_object = (question_finding or {}).get("object") or {}
+        research_questions_artifact = {
+            "status": "covered" if question_finding else "missing_data",
+            "question": (question_finding or {}).get("statement"),
+            "why_important": question_object.get("why_important"),
+            "required_data": question_object.get("required_data", []),
+            "verification_method": question_object.get("verification_method"),
+            "priority": question_object.get("priority", "unknown"),
+            "current_status": question_object.get("current_status", "unverified"),
+            "evidence_ids": (question_finding or {}).get("evidence_ids", []),
+        }
 
         # 21c. 为每个 Finding 构建真实 Claim
         claim_models: List[Any] = []
@@ -825,18 +1025,154 @@ class EquityResearchPipeline:
         _finish(st, "success" if evidence_models else "partial",
                 missing=["无 Evidence 可构建"] if not evidence_models else None)
 
-        # ---------- 研究状态：按真实覆盖计算（≥2 年 success / 1 年 partial） ----------
-        if comparable_years >= 2:
-            research_status = "success"
-        elif comparable_years == 1:
-            research_status = "partial_success"
-        else:
-            research_status = "insufficient_data"
-        if research_status == "success" and (not peer_selection and peers):
-            research_status = "degraded"
-        stage_missing = [s for s in stage_statuses if s.missing_data]
-        if research_status == "success" and stage_missing:
-            research_status = "degraded"
+        # ---------- 市场主要矛盾、专业评审与集中状态判定 ----------
+        bull_claims = [{"statement": c.get("description"), "catalyst_id": c.get("catalyst_id"),
+                        "evidence_ids": c.get("evidence_ids", [])} for c in catalysts]
+        bear_claims = [{"statement": r.get("description"), "risk_id": r.get("risk_id"),
+                        "evidence_ids": r.get("evidence_ids", [])} for r in risks]
+        consensus = [{"statement": f.get("statement"), "finding_id": f.get("finding_id"),
+                      "evidence_ids": f.get("evidence_ids", [])}
+                     for f in findings if f.get("claim_type") == "FACT"]
+        key_variables = [{"statement": f.get("statement"), "finding_id": f.get("finding_id"),
+                          "evidence_ids": f.get("evidence_ids", [])}
+                         for f in findings if f.get("finding_type") == "research_question"]
+        market_debate = {
+            "status": "covered" if (
+                bull_claims and bear_claims
+                and all(item["evidence_ids"] for item in [*bull_claims, *bear_claims])
+            ) else "insufficient_evidence",
+            "market_may_be_trading": bull_claims,
+            "bull_claims": bull_claims,
+            "bull_evidence_ids": sorted({eid for c in catalysts for eid in c.get("evidence_ids", [])}),
+            "bear_claims": bear_claims,
+            "bear_evidence_ids": sorted({eid for r in risks for eid in r.get("evidence_ids", [])}),
+            "consensus": consensus,
+            "disagreements": conflicts,
+            "key_variables": key_variables,
+            "narrative_changers": bull_claims,
+        }
+        from research_os.equity_research.professional_review import build_professional_review
+        from research_os.equity_research.status import ResearchCoverage, evaluate_research_status
+
+        coverage_flags = {
+            "financial": bool(all_facts and all_metrics),
+            "business": bool(segments or any(f.get("finding_type") == "business_analysis" for f in findings)),
+            "competition": bool(competitive_factors),
+            "risks": bool(risks), "catalysts": bool(catalysts),
+            "counter_evidence": any(f.get("counter_evidence_ids") for f in findings),
+            "market_debate": market_debate["status"] == "covered",
+            "valuation": bool(valuation and (valuation.get("status") or valuation.get("applicability_notes"))),
+            "semantic": semantic_coverage,
+        }
+        high_quality_types = {
+            "official_disclosure", "official_statistics", "company_official",
+        }
+        high_quality_ids = {
+            e.evidence_id for e in evidence_models
+            if e.source_tier in ("S", "A") and e.evidence_type in high_quality_types
+        }
+        core_financial_codes = {
+            "revenue", "net_profit", "total_assets", "total_liabilities",
+            "operating_cash_flow", "net_cash_from_operating_activities",
+        }
+        core_financial_facts = [
+            fact for fact in all_facts if fact.get("taxonomy_code") in core_financial_codes
+        ]
+        financial_evidence_ids = sorted({
+            eid for fact in all_facts for eid in fact.get("evidence_ids", [])
+        })
+        core_financial_source_quality = bool(core_financial_facts) and all(
+            bool(set(fact.get("evidence_ids", [])) & high_quality_ids)
+            for fact in core_financial_facts
+        )
+        business_evidence_ids = sorted({
+            eid
+            for finding in findings
+            if finding.get("finding_type") == "business_analysis"
+            for eid in [*(finding.get("evidence_ids") or []),
+                        *(finding.get("counter_evidence_ids") or [])]
+        } | {
+            eid for factor in competitive_factors
+            for eid in [*(factor.get("evidence_ids") or []),
+                        *(factor.get("counter_evidence_ids") or [])]
+        })
+        event_evidence_ids = sorted({
+            eid for item in [*catalysts, *risks, *event_links]
+            for eid in item.get("evidence_ids", [])
+        })
+        business_source_quality = bool(business_evidence_ids) and all(
+            eid in high_quality_ids for eid in business_evidence_ids)
+        event_source_quality = bool(event_evidence_ids) and all(
+            eid in high_quality_ids for eid in event_evidence_ids)
+        overall_evidence_quality = all((
+            core_financial_source_quality,
+            business_source_quality,
+            event_source_quality,
+        ))
+        coverage_input = ResearchCoverage(
+            comparable_years=comparable_years,
+            financial_coverage=coverage_flags["financial"],
+            evidence_coverage=bool(evidence_models) and all(
+                c.claim_type != "FACT" or bool(c.evidence_ids) for c in claim_models),
+            business_coverage=coverage_flags["business"],
+            competition_coverage=coverage_flags["competition"],
+            risk_coverage=coverage_flags["risks"], catalyst_coverage=coverage_flags["catalysts"],
+            counter_evidence_coverage=coverage_flags["counter_evidence"],
+            market_debate_coverage=coverage_flags["market_debate"],
+            valuation_applicable_or_explained=coverage_flags["valuation"],
+            semantic_coverage=coverage_flags["semantic"],
+            core_financial_source_quality=core_financial_source_quality,
+            business_source_quality=business_source_quality,
+            event_source_quality=event_source_quality,
+            overall_evidence_quality=overall_evidence_quality,
+            as_of_known=request.as_of_basis in ("user_provided", "data_derived"),
+            source_conflict=bool(conflicts),
+        )
+        status_decision = evaluate_research_status(coverage_input)
+        research_status = status_decision.status
+        counter_evidence_ids = sorted({
+            eid for finding in findings for eid in finding.get("counter_evidence_ids", [])
+        } | {eid for risk in risks for eid in risk.get("evidence_ids", [])})
+        valuation_evidence_ids = sorted(set(financial_evidence_ids) | {
+            e.evidence_id for e in evidence_models if e.evidence_type == "market_data"
+        })
+        all_relevant_ids = sorted(set(
+            financial_evidence_ids + business_evidence_ids + event_evidence_ids
+            + counter_evidence_ids + valuation_evidence_ids
+        ))
+        evidence_by_dimension = {
+            "fundamental_quality": financial_evidence_ids,
+            "growth_sustainability": financial_evidence_ids,
+            "cycle_position": business_evidence_ids,
+            "financial_quality": financial_evidence_ids,
+            "competitive_advantage": business_evidence_ids,
+            "valuation_constraint": valuation_evidence_ids,
+            "event_reliability": event_evidence_ids,
+            "industry_trend": business_evidence_ids,
+            "short_counter_evidence": counter_evidence_ids,
+            "information_completeness": all_relevant_ids,
+            "evidence_quality": sorted(high_quality_ids & set(all_relevant_ids)),
+        }
+        professional_review = build_professional_review(
+            coverage=coverage_flags,
+            evidence_tiers_by_id={e.evidence_id: e.source_tier for e in evidence_models},
+            evidence_by_dimension=evidence_by_dimension,
+            risks=risks, catalysts=catalysts, conflicts=conflicts,
+            rules_path=self.root / "config" / "professional_review.yaml",
+        )
+
+        llm_called = any(record["llm_called"] for record in semantic_records)
+        semantic_passes = sum(record["validation_status"] == "pass" for record in semantic_records)
+        model_route_summary = {
+            "mode": "semantic_llm" if llm_called else "deterministic_fallback",
+            "llm_called": llm_called,
+            "semantic_tasks_total": len(semantic_records),
+            "semantic_tasks_integrated": semantic_passes,
+            "budget": semantic_runner.budget.summary(),
+            "task_records": semantic_records,
+            "limitation": None if semantic_coverage else "semantic_tasks_incomplete",
+        }
+        run.model_route_summary = model_route_summary
 
         # ---------- 阶段 22：结果合成 ----------
         result = build_result(ResultInput(
@@ -857,6 +1193,15 @@ class EquityResearchPipeline:
                 "phase3_links": len(phase3_objects),
                 "morning_events": len(event_links),
                 "documents": len(document_records),
+                "semantic_tasks": semantic_integrated,
+                "missing_core_modules": status_decision.missing_core_modules,
+                "status_rules_version": status_decision.rules_version,
+                "source_quality": {
+                    "core_financial": core_financial_source_quality,
+                    "business": business_source_quality,
+                    "event": event_source_quality,
+                    "overall": overall_evidence_quality,
+                },
             },
             key_finding_ids=[f["finding_id"] for f in findings],
             financial_metric_ids=[m["metric_id"] for m in all_metrics],
@@ -868,9 +1213,11 @@ class EquityResearchPipeline:
             phase3_link_ids=list(phase3_expected.keys()),
             claim_ids=claim_ids,
             evidence_ids=evidence_ids,
-            unknowns=["无自动行情来源；历史日线仅人工导入", "无真实 LLM Provider"],
+            unknowns=["无自动行情来源；历史日线仅人工导入"]
+            + ([] if llm_called else ["未配置可调用的 LLM Provider，语义任务已确定性降级"]),
             conflicts=conflicts,
             warnings=quality_warnings + import_warnings + doc_warnings,
+            model_route_summary=model_route_summary,
         ))
         self.db.upsert(result)
 
@@ -889,8 +1236,15 @@ class EquityResearchPipeline:
             peers=peer_selection,
             valuation=valuation,
             scenarios=forecast_scenarios,
-            model_route={"mode": "deterministic_fallback", "llm_called": False,
-                         "limitation": "semantic_llm_modules_not_connected"},
+            competitive_factors=competitive_factors,
+            evidences=[e.model_dump() for e in evidence_models],
+            market_debate=market_debate,
+            professional_review=professional_review,
+            business_analysis=business_analysis,
+            competitive_landscape=competitive_landscape,
+            counter_evidence=counter_evidence,
+            research_questions_artifact=research_questions_artifact,
+            model_route=model_route_summary,
             unknowns=result.unknowns,
             data_gaps=[g for s in stage_statuses if s.missing_data for g in s.missing_data] or [],
         )
@@ -922,6 +1276,7 @@ class EquityResearchPipeline:
             scenarios=forecast_scenarios,
             blocks=document_blocks,
             evidences=[e.model_dump() for e in evidence_models],
+            raw_items=[r.model_dump() for r in raw_item_models],
             claims=[c.model_dump() for c in claim_models],
             events=event_links,
             phase3_objects=phase3_objects,
@@ -936,6 +1291,8 @@ class EquityResearchPipeline:
             documents=document_records,
             catalysts=catalysts,
             risks=risks,
+            semantic_records=semantic_records,
+            market_debate=market_debate,
         )
         if outcome.status == "fail":
             run.status = "validation_failed"
@@ -947,6 +1304,16 @@ class EquityResearchPipeline:
             raise _ValidationFailed("; ".join(i.message for i in outcome.errors))
         run.validation_status = "pass" if outcome.status == "pass" else "pass_with_warnings"
         run.warnings = [i.message for i in outcome.warnings]
+        coverage_input.validator_status = outcome.status
+        final_status_decision = evaluate_research_status(coverage_input)
+        research_status = final_status_decision.status
+        result.research_status = research_status
+        result.coverage["missing_core_modules"] = final_status_decision.missing_core_modules
+        result.validator_summary = {
+            "status": outcome.status,
+            "errors": len(outcome.errors),
+            "warnings": len(outcome.warnings),
+        }
 
         # ---------- 阶段 25：持久化（版本化文件名 + 原子写入） ----------
         # H2：先计算最终状态，再写 equity_research_run.json（避免旧状态产物）
@@ -975,13 +1342,16 @@ class EquityResearchPipeline:
         else:
             report_name = f"{request.report_date}_equity_research.md"
         report_path = out_dir / report_name
+        result.report_path = str(report_path)
+        self.db.upsert(result)
         tmp_path = report_path.with_suffix(".md.tmp")
         tmp_path.write_text(md, encoding="utf-8")
         tmp_path.replace(report_path)  # 原子写入
 
         # 运行目录产物（任务书 30 个正式产物；不存在模块写明确状态对象，不用空文件掩盖）
         artifact_names = [
-            "task.json", "entity_resolution.json", "capability.json",
+            "task.json", "plan.json", "scenario_execution_result.json",
+            "entity_resolution.json", "capability.json",
             "equity_research_request.json", "equity_research_run.json",
             "equity_research_result.json", "financial_manifests.json",
             "financial_reports.json", "financial_metrics.json", "financial_validation.json",
@@ -991,6 +1361,10 @@ class EquityResearchPipeline:
             "risks.json", "contradictions.json", "research_findings.json", "claims.json",
             "evidence_index.json", "model_route.json", "validation.json", "errors.log",
             "document_index.json", "document_blocks.jsonl", "financial_facts.jsonl", "final.md",
+            "raw_item_index.json", "semantic_results.json", "market_debate.json",
+            "professional_review.json",
+            "business_analysis.json", "competitive_landscape.json",
+            "counter_evidence.json", "research_questions.json",
         ]
         run.artifact_paths = [str(run_dir / name) for name in artifact_names]
         artifacts: Dict[str, Any] = {
@@ -1030,7 +1404,15 @@ class EquityResearchPipeline:
             "research_findings.json": findings,
             "claims.json": [c.model_dump() for c in claim_models],
             "evidence_index.json": evidence_index,
-            "model_route.json": {"mode": "deterministic_fallback", "llm_called": False},
+            "raw_item_index.json": [r.model_dump() for r in raw_item_models],
+            "semantic_results.json": semantic_records,
+            "market_debate.json": market_debate,
+            "professional_review.json": professional_review,
+            "business_analysis.json": business_analysis,
+            "competitive_landscape.json": competitive_landscape,
+            "counter_evidence.json": counter_evidence,
+            "research_questions.json": research_questions_artifact,
+            "model_route.json": model_route_summary,
             "validation.json": {"status": outcome.status,
                                 "errors": [i.__dict__ for i in outcome.errors],
                                 "warnings": [i.__dict__ for i in outcome.warnings]},
@@ -1065,6 +1447,7 @@ class EquityResearchPipeline:
             exit_code=EXIT_OK,
             research_status=research_status,
             run_id=run.run_id,
+            model_route=model_route_summary,
         )
 
 

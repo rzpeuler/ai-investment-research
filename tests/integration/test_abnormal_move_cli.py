@@ -115,11 +115,21 @@ class TestCliPipeline:
         runs = list((import_daily / "reports" / "runs").iterdir())
         assert runs
         run_dir = runs[0]
-        for f in ["abnormal_move_request.json", "abnormal_move_observation.json",
+        for f in ["task.json", "plan.json", "scenario_execution_result.json",
+                  "abnormal_move_request.json", "abnormal_move_run.json",
+                  "abnormal_move_observation.json",
                   "anomaly_metrics.json", "benchmark_selection.json",
                   "cause_candidates.json", "attribution_result.json",
                   "validation.json", "model_route.json"]:
             assert (run_dir / f).exists(), f"缺少 {f}"
+        import json
+        task = json.loads((run_dir / "task.json").read_text(encoding="utf-8"))
+        plan = json.loads((run_dir / "plan.json").read_text(encoding="utf-8"))
+        request = json.loads((run_dir / "abnormal_move_request.json").read_text(encoding="utf-8"))
+        business_run = json.loads((run_dir / "abnormal_move_run.json").read_text(encoding="utf-8"))
+        execution = json.loads((run_dir / "scenario_execution_result.json").read_text(encoding="utf-8"))
+        assert {task["task_id"], plan["task_id"], request["task_id"],
+                business_run["task_id"], execution["task_id"], run_dir.name} == {run_dir.name}
 
     def test_dry_run_zero_side_effect(self, import_daily):
         before = set((import_daily / "reports").rglob("*"))
@@ -139,7 +149,7 @@ class TestCliPipeline:
         assert second.exit_code == 0
         assert "[IDEMPOTENT]" in second.output
         runs = list((import_daily / "reports" / "runs").iterdir())
-        assert len(runs) == 1
+        assert len(runs) == 2  # 第二次请求仍保留统一控制面审计记录
 
     def test_force_new_version_no_overwrite(self, import_daily):
         runner = CliRunner()

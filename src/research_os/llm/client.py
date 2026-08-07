@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Any, Dict, List, Optional
+from time import perf_counter
+from typing import Any, Dict, List, Optional, Protocol
 
 from research_os.llm.models import LlmRequest, LlmResponse
 from research_os.llm.provider import FakeLlmProvider, LlmProvider
@@ -32,6 +33,14 @@ def is_provider_configured() -> bool:
     return any(bool(os.environ.get(k)) for k in _PROVIDER_ENV_VARS)
 
 
+class CallBudget(Protocol):
+    """可选的任务级调用预算；在每次真实 Provider 调用边界执行。"""
+
+    def can_call(self, model_class: str) -> bool: ...
+    def record(self, model_class: str) -> None: ...
+    def summary(self) -> Dict[str, Any]: ...
+
+
 class LlmClient:
     """业务模块统一入口。"""
 
@@ -50,7 +59,8 @@ class LlmClient:
     # ---------- 主接口 ----------
 
     def generate_json(self, request: LlmRequest,
-                      output_schema: Dict[str, Any]) -> LlmResponse:
+                      output_schema: Dict[str, Any],
+                      budget: Optional[CallBudget] = None) -> LlmResponse:
         """调用模型并返回通过 Schema 校验的结构化输出。
 
         未配置 Provider 时：返回 called=False 的失败响应（诚实回退）。
@@ -64,22 +74,42 @@ class LlmClient:
             return resp
 
         schema_name = request.output_schema_name
+        call_started = perf_counter()
         flash_schema_failures = 0
         errors: List[str] = []
         provider_fallback_used = False
         provider_fallback_reason: Optional[str] = None
         selected_model: Optional[str] = None
         total_attempts = 0
+        flash_attempts = 0
+        pro_attempts = 0
+        budget_denied_model: Optional[str] = None
+        provider_name = request.provider or type(self.provider).__name__
 
-        while total_attempts < MAX_FLASH_FIX_ATTEMPTS + MAX_PRO_CALLS:
+        while True:
             is_pro = flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS
+            model_class = "pro" if is_pro else "flash"
+            if (is_pro and pro_attempts >= MAX_PRO_CALLS) or (
+                not is_pro and flash_attempts >= MAX_FLASH_FIX_ATTEMPTS
+            ):
+                break
+            if budget is not None and not budget.can_call(model_class):
+                budget_denied_model = model_class
+                errors.append(f"任务级 {model_class} 预算耗尽，拒绝 Provider 调用")
+                break
+            if budget is not None:
+                budget.record(model_class)
+            if is_pro:
+                pro_attempts += 1
+            else:
+                flash_attempts += 1
             req = LlmRequest(
                 call_id=request.call_id, task_id=request.task_id,
                 module=request.module, prompt=request.prompt,
                 prompt_template_version=request.prompt_template_version,
                 prompt_hash=request.prompt_hash,
                 input_evidence_ids=request.input_evidence_ids,
-                requested_model_class="pro" if is_pro else "flash",
+                requested_model_class=model_class,
                 provider=request.provider, output_schema_name=schema_name,
                 timeout_seconds=request.timeout_seconds,
             )
@@ -101,7 +131,7 @@ class LlmClient:
             selected_model = result.get("model_id") or ("pro" if is_pro else "flash")
             if valid and parsed is not None:
                 resp = LlmResponse(
-                    call_id=request.call_id, provider=result.get("provider", ""),
+                    call_id=request.call_id, provider=result.get("provider") or provider_name,
                     model_id=selected_model, called=True, status="success",
                     schema_valid=True, attempt_count=total_attempts,
                     provider_fallback_used=provider_fallback_used,
@@ -109,6 +139,11 @@ class LlmClient:
                     business_escalation_used=is_pro,
                     business_escalation_reason=(
                         "Flash 两次结构修复失败，升级 Pro" if is_pro else None),
+                    usage_metadata={
+                        "attempts_by_model": {"flash": flash_attempts, "pro": pro_attempts},
+                        "task_budget": budget.summary() if budget is not None else None,
+                    },
+                    latency_seconds=round(perf_counter() - call_started, 6),
                     output=parsed,
                 )
                 self._record(request, resp)
@@ -119,17 +154,27 @@ class LlmClient:
 
         # 全部尝试失败 -> deterministic fallback（如实记录 failure_stage）
         resp = LlmResponse(
-            call_id=request.call_id, provider=request.provider,
-            model_id=selected_model, called=True, status="fallback",
+            call_id=request.call_id, provider=provider_name,
+            model_id=selected_model or ("pro" if flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS else "flash"),
+            called=total_attempts > 0, status="fallback",
             schema_valid=False, attempt_count=total_attempts,
             provider_fallback_used=provider_fallback_used,
             provider_fallback_reason=provider_fallback_reason,
-            business_escalation_used=flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS,
+            business_escalation_used=pro_attempts > 0,
             business_escalation_reason=(
                 "Flash 两次结构修复失败，升级 Pro"
-                if flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS else None),
+                if pro_attempts > 0 else None),
             validation_errors=errors[:20],
-            warnings=["LLM 输出未通过校验，确定性回退"],
+            usage_metadata={
+                "attempts_by_model": {"flash": flash_attempts, "pro": pro_attempts},
+                "task_budget": budget.summary() if budget is not None else None,
+                "budget_denied_model": budget_denied_model,
+            },
+            latency_seconds=round(perf_counter() - call_started, 6),
+            warnings=[
+                (f"任务级 {budget_denied_model} 预算耗尽，确定性回退"
+                 if budget_denied_model else "LLM 输出未通过校验，确定性回退")
+            ],
         )
         self._record(request, resp)
         return resp

@@ -3,6 +3,10 @@
 本文件为工程执行 Agent（Hermes/DeepSeek/Codex）的**不可违反规则**。
 完整规范见 `docs/engineering-guide.md`。两者冲突时以 `docs/engineering-guide.md` 为准。
 
+文档权威顺序为：`docs/engineering-guide.md` → `docs/project-state/DECISIONS.md` →
+`docs/tasks/*.md` → `CURRENT_STATE.md` → `NEXT_PHASE.md` → `KNOWN_LIMITATIONS.md` →
+`README.md`。阶段任务只能细化指南和正式决策，不能静默覆盖。
+
 ## 0. 项目定位（不得自行修改）
 
 - 个人使用的 AI＋A 股投研系统；A 股为主，港股/美股/商品/海外宏观仅作背景或对照。

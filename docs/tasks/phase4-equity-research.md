@@ -4,8 +4,9 @@
 > 下达日期：2026-08-06
 > 授权基线：`2b7827c`（Phase 3 收尾后，docs-only）
 > Phase 3 代码基线：`c398e58`
-> 状态：**实施中（Commit 1 起）**
-> 本文档为权威 spec；与 AGENTS.md / engineering-guide.md 冲突时按本任务书执行，本任务书未覆盖处按 AGENTS.md / engineering-guide.md 执行。
+> 状态：**工程基础 PASS；完整研究能力 PARTIAL_SUCCESS；Phase 5 BLOCKED（2026-08-07 复验）**
+> 权威边界：本文档仅细化阶段实施授权；与 `docs/engineering-guide.md` 或经正式评审的
+> `docs/project-state/DECISIONS.md` 冲突时，以前两者为准，不得静默覆盖。
 
 ---
 
@@ -91,7 +92,9 @@
 * Fake Provider；
 * 至少一个完整个股黄金案例。
 
-真实 Provider、在线财务源、自动历史日线源不属于 PASS 前置条件。
+真实 Provider、在线财务源、自动历史日线源不属于 **engineering foundation PASS**
+前置条件；但缺失时必须降低单次报告和完整研究能力状态。Phase 5 解锁前，核心语义模块
+仍须通过真实 Provider 或经批准的结构化人工输入达到最低覆盖。
 
 ## 6. 允许的研究状态
 
@@ -464,13 +467,14 @@ model_route.json / equity_research_result.json / validation.json / final.md / er
 
 ## 21. Validator（Commit 16 实现）
 
-输出 pass / pass_with_warnings / fail。规则编号 ERV-001—ERV-070，分组：
+输出 pass / pass_with_warnings / fail。规则编号 ERV-001—ERV-079，分组：
 
 * Schema 与引用：ERV-001—008
 * 财务数据：ERV-009—027
 * 同行与估值：ERV-028—040
 * Claim、Evidence 与 LLM：ERV-041—052
 * 时间、复用和报告：ERV-053—070
+* 统一证据血缘、语义资格与状态契约：ERV-071—079
 
 error 阻止 PASS；warning 可 pass_with_warnings；合法降级须明确状态且无依赖该模块的结论；
 数据不足本身不是 error；数据不足却输出确定性结论是 error；SOURCE_CONFLICT 可是合法
@@ -565,7 +569,9 @@ Phase 3 异动无法归因（保持 UNEXPLAINED）/ 禁止目标价和建议（V
 
 ## 27. 验收标准要点
 
-PASS 硬条件：不存在任何 BLOCKER、未处置 HIGH；MEDIUM/LOW 必须列入 KNOWN_LIMITATIONS.md。
+engineering foundation PASS 硬条件：不存在任何工程 BLOCKER、未处置 HIGH；
+MEDIUM/LOW 必须列入 KNOWN_LIMITATIONS.md。full research capability 另需满足集中状态规则的
+全部最低覆盖，不得以工程测试通过替代。
 
 BLOCKER 级验收项：远端基线未破坏 / Schema 50 且合法 / 模型契约 / 迁移 user_version 5 /
 财务导入 / 财务标准化 / 财务指标 / 同行选择 / 估值 / 无目标价 / Phase 3 复用只读 /
@@ -595,8 +601,9 @@ Company 与 Security 分离 / 同行冻结防事后选择 / 估值仅观察无�
 Phase 3 只读 / 图谱属 Phase 5 / LLM 不得修改数字或资格 / 金融企业适用性 / 报告由结构化对象生成）。
 
 KNOWN_LIMITATIONS.md / NEXT_PHASE.md / registry/sources.yaml / data_requirements.yaml /
-changelog.md / README 按任务书 5.1—5.12 节同步。Phase 4 未 PASS 前 NEXT_PHASE 写
-"Phase 4 修复与复验"；PASS 后才允许写 "Phase 5 产业图谱，等待正式任务书，禁止提前实现"。
+changelog.md / README 按任务书 5.1—5.12 节同步。当前统一状态为 engineering foundation
+PASS、full research capability PARTIAL_SUCCESS、Phase 5 BLOCKED；只有全部 Phase 5 准入
+条件满足并经正式复验后，才能修改该边界。
 
 ## 29. 硬边界（不可违反）
 

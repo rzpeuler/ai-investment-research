@@ -225,6 +225,7 @@ class EquityResearchRequest(StrictModel):
     company_entity_id: str
     security_entity_id: str
     as_of: str
+    as_of_basis: Literal["user_provided", "query_cutoff", "data_derived", "unknown"] = "unknown"
     report_date: str
     timezone: str = "Asia/Shanghai"
     depth: Depth = "standard"

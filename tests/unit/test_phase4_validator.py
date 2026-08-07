@@ -519,3 +519,98 @@ class TestSeverity:
     def test_outcome_helpers(self):
         out = ValidationOutcome("fail", issues=[])
         assert out.errors == [] and out.warnings == []
+
+
+class TestEvidenceLineageAndCompletion:
+    EID = "11111111-1111-4111-8111-111111111111"
+    RID = "22222222-2222-4222-8222-222222222222"
+
+    @classmethod
+    def raw_item(cls, **overrides):
+        item = {
+            "raw_item_id": cls.RID, "source_id": "manual_financial_import",
+            "external_id": "fact-1", "url": "manual://financial/m1/fact-1",
+            "title": "财务导入：营业收入", "publisher": "financial.csv", "author": None,
+            "published_at": "2026-04-30T00:00:00", "retrieved_at": "2026-08-01T00:00:00",
+            "content_hash": "a" * 64,
+            "content_excerpt": (
+                "manifest=m1；checksum=abc；locator=row:2；source_kind=manual_import；"
+                "parser_version=v1；imported_at=2026-08-01T00:00:00；is_statutory_original=false"
+            ),
+            "content_storage": "metadata_and_excerpt", "language": "zh-CN",
+            "access_status": "ok", "entities": ["company:600519.SH"],
+            "raw_category": "financial_fact_import",
+        }
+        item.update(overrides)
+        return item
+
+    @classmethod
+    def evidence(cls, **overrides):
+        evidence = {
+            "evidence_id": cls.EID, "source_id": "manual_financial_import",
+            "raw_item_id": cls.RID, "title": "营业收入", "publisher": "financial.csv",
+            "published_at": "2026-04-30T00:00:00", "retrieved_at": "2026-08-01T00:00:00",
+            "url": "manual://financial/m1/fact-1", "excerpt": "营业收入=100",
+            "evidence_type": "manual_input", "independence_group": "fact:1",
+            "source_tier": "C", "access_status": "ok",
+        }
+        evidence.update(overrides)
+        return evidence
+
+    def test_manual_financial_evidence_requires_original_locator(self):
+        raw = self.raw_item(content_excerpt="只有人工数值")
+        out = validate_equity_research(evidences=[self.evidence()], raw_items=[raw])
+        assert any(issue.rule_id == "ERV-079" for issue in out.errors)
+
+    def test_derived_event_cannot_forge_official_source(self):
+        forged = self.evidence(source_id="morning_brief_events", evidence_type="official_disclosure")
+        raw = self.raw_item(source_id="morning_brief_events")
+        out = validate_equity_research(evidences=[forged], raw_items=[raw])
+        assert any(issue.rule_id == "ERV-072" for issue in out.errors)
+
+    def test_event_must_retain_original_evidence_id(self):
+        missing = "33333333-3333-4333-8333-333333333333"
+        out = validate_equity_research(
+            evidences=[self.evidence()], raw_items=[self.raw_item()],
+            events=[{"event_id": "event-1", "event_type": "earnings", "evidence_ids": [missing]}],
+        )
+        assert any(issue.rule_id == "ERV-072" and issue.object_id == missing for issue in out.errors)
+
+    def test_high_materiality_fact_cannot_rely_on_tier_c_directly(self):
+        finding = _finding(evidence_ids=[self.EID], materiality="high", support_level="direct")
+        out = validate_equity_research(
+            findings=[finding], evidences=[self.evidence()], raw_items=[self.raw_item()],
+            as_of="2026-08-01T00:00:00",
+        )
+        assert any(issue.rule_id == "ERV-043" and issue.severity == "error" for issue in out.errors)
+
+    def test_competitive_factor_required_type_must_match_actual_evidence(self):
+        factor = {
+            "factor_id": "factor-1", "company_entity_id": "company:600519.SH",
+            "factor_type": "brand", "direction": "advantage", "statement": "品牌因素",
+            "business_segment_ids": [], "mechanism": "渠道覆盖",
+            "required_evidence_types": ["official_disclosure"],
+            "evidence_ids": [self.EID], "counter_evidence_ids": [],
+            "management_only": False, "confidence": 0.5, "status": "weakly_supported",
+            "valid_from": "2026-08-01", "valid_to": None, "version": 1,
+            "created_at": "2026-08-01T00:00:00",
+        }
+        out = validate_equity_research(
+            factors=[factor], evidences=[self.evidence()], raw_items=[self.raw_item()],
+        )
+        assert any(issue.rule_id == "ERV-078" and "类型不一致" in issue.message
+                   for issue in out.errors)
+
+    def test_success_rejected_when_core_modules_missing(self):
+        out = validate_equity_research(result={
+            "research_status": "success", "coverage": {"missing_core_modules": ["competition"]},
+        })
+        assert any(issue.rule_id == "ERV-076" for issue in out.errors)
+
+    def test_llm_called_requires_provider_and_model(self):
+        out = validate_equity_research(
+            run={"model_route_summary": {"llm_called": True}},
+            semantic_records=[{"task_name": "research_questions", "llm_called": True,
+                               "validation_status": "fallback", "provider": "", "model": None}],
+        )
+        assert any(issue.rule_id == "ERV-077" for issue in out.errors)

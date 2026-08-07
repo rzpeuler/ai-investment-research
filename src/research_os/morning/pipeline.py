@@ -11,9 +11,10 @@ import json
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from research_os.models import CandidateItem, EventCluster, RawItem
+from research_os.models import CandidateItem, EventCluster, Evidence, RawItem
+from research_os.morning.evidence import build_evidence, evidence_index
 from research_os.morning.claims import build_claim, detect_conflicts
 from research_os.morning.classification import classify_text, source_to_channel
 from research_os.morning.clustering import ClusterBuilder
@@ -33,6 +34,9 @@ from research_os.utils.id import new_uuid
 from research_os.utils.logging import ErrorLog
 from research_os.utils.time import now_iso
 from research_os.validators.schema_validator import validate_instance
+
+if TYPE_CHECKING:
+    from research_os.storage import Database
 
 
 @dataclass
@@ -57,6 +61,8 @@ class PipelineArtifacts:
     duplicate_groups: list = field(default_factory=list)
     clusters: List[EventCluster] = field(default_factory=list)
     scores: list = field(default_factory=list)
+    evidences: List[Evidence] = field(default_factory=list)
+    evidence_index: dict = field(default_factory=dict)
     claims: list = field(default_factory=list)
     coverage: list = field(default_factory=list)
     selected_cluster_ids: List[str] = field(default_factory=list)
@@ -79,13 +85,16 @@ class MorningBriefPipeline:
         raw_items: List[RawItem],
         report_date: date,
         *,
+        task_id: Optional[str] = None,
         run_dir: Optional[RunDirectory] = None,
         started_at: Optional[str] = None,
+        as_of: Optional[str] = None,
+        db: Optional["Database"] = None,
     ) -> PipelineArtifacts:
         """执行流水线。raw_items 为空时仍生成结构化产物（覆盖说明+降级说明）。"""
         window_start, window_end = morning_window(report_date)
         started = started_at or now_iso()
-        artifacts = PipelineArtifacts(task_id=new_uuid())
+        artifacts = PipelineArtifacts(task_id=task_id or new_uuid())
 
         # 0. 时间窗口过滤（窗口外且无新更新 -> 排除，写入 veto 理由）
         in_window = []
@@ -93,15 +102,29 @@ class MorningBriefPipeline:
             try:
                 from research_os.utils.time import parse_iso
 
-                if parse_iso(item.published_at) < parse_iso(window_start):
+                published = parse_iso(item.published_at)
+                cutoff = min(parse_iso(window_end), parse_iso(as_of or as_of_for(report_date)))
+                if published < parse_iso(window_start) or published > cutoff:
                     artifacts.warnings.append(
-                        f"窗口外旧闻排除: {item.raw_item_id[:8]} {item.title[:30]}")
+                        f"窗口外信息排除: {item.raw_item_id[:8]} {item.title[:30]}")
                     continue
             except ValueError:
                 artifacts.warnings.append(f"发布时间无法解析: {item.raw_item_id[:8]}")
                 continue
             in_window.append(item)
         artifacts.raw_items = in_window
+
+        # 0.5 RawItem -> 真实 Evidence；保留原始来源、时间、URL 与最小摘录。
+        raw_to_evidence: Dict[str, Evidence] = {}
+        for item in in_window:
+            channel = self.config.channel_map.get(item.source_id, source_to_channel(item.source_id))
+            evidence = build_evidence(item, self.config.source_tiers, channel)
+            artifacts.evidences.append(evidence)
+            raw_to_evidence[item.raw_item_id] = evidence
+            if db is not None:
+                db.upsert(item)
+                db.upsert(evidence)
+        artifacts.evidence_index = evidence_index(artifacts.evidences)
 
         # 1. 精确去重
         dedup = ExactDeduplicator()
@@ -165,9 +188,17 @@ class MorningBriefPipeline:
             conflicts = detect_conflicts(cl, members)
             cl.conflicts = conflicts
             for c in members:
-                claim = build_claim(c, conflict_notes=conflicts)
+                evidence_ids = [raw_to_evidence[rid].evidence_id for rid in c.raw_item_ids
+                                if rid in raw_to_evidence]
+                publisher = next((r.publisher for r in in_window
+                                  if r.raw_item_id in c.raw_item_ids), None)
+                claim = build_claim(c, evidence_ids=evidence_ids,
+                                    conflict_notes=conflicts, publisher=publisher)
                 artifacts.claims.append(claim.model_dump())
-                cl.primary_evidence_ids.append(claim.claim_id)
+                cl.primary_evidence_ids.extend(
+                    eid for eid in evidence_ids if eid not in cl.primary_evidence_ids)
+                if db is not None:
+                    db.upsert(claim)
 
         # 9. 覆盖状态（自动化方向：有正式适配器的通道）
         artifacts.coverage = build_coverage(
@@ -196,9 +227,14 @@ class MorningBriefPipeline:
         artifacts.markdown = render_morning_brief(
             artifacts=artifacts, report_date=report_date,
             window_start=window_start, window_end=window_end,
-            as_of=as_of_for(report_date), scheduled_for=scheduled,
+            as_of=as_of or as_of_for(report_date), scheduled_for=scheduled,
             started_at=started, delayed=delayed, delay_seconds=delay_seconds,
         )
+        from research_os.morning.validation import validate_morning_evidence
+
+        evidence_validation = validate_morning_evidence(artifacts)
+        if evidence_validation.errors:
+            raise ValueError("晨报 Evidence 校验失败: " + "; ".join(evidence_validation.errors))
         artifacts.report_path = report_path_for(report_date,
                                                 str(Path.cwd() / "reports"))
 
@@ -245,4 +281,5 @@ def _write_artifacts(run_dir: RunDirectory, artifacts: PipelineArtifacts) -> Non
                        [c.model_dump() for c in artifacts.clusters])
     run_dir.write_json("scores.json", artifacts.scores)
     run_dir.write_json("claims.json", artifacts.claims)
+    run_dir.write_json("evidence_index.json", artifacts.evidence_index)
     run_dir.write_json("source_coverage.json", artifacts.coverage)

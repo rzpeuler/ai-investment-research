@@ -1,0 +1,29 @@
+version: "1.0.0"
+score_range: [0, 5]
+missing_data_score: 0
+base_scores:
+  financial_present: 3
+  growth_financial_present: 2
+  competition_present: 3
+  cycle_competition_present: 2
+  valuation_present: 3
+  evidence_base: 1
+  evidence_three_items_bonus: 1
+  evidence_high_tier_bonus: 1
+dimensions:
+  - fundamental_quality
+  - growth_sustainability
+  - cycle_position
+  - financial_quality
+  - competitive_advantage
+  - valuation_constraint
+  - event_reliability
+  - industry_trend
+  - short_counter_evidence
+  - information_completeness
+  - evidence_quality
+prohibited_mapping:
+  - target_price
+  - investment_rating
+  - position_advice
+  - trade_action
