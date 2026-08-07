@@ -1,6 +1,6 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-07（Phase 4.1 真实端到端验收准备完成）
+> 更新日期：2026-08-07（Phase 4.1 独立验收通过）
 > 权威规范：`docs/engineering-guide.md` V1.1
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -14,6 +14,8 @@
 - 基线验收：1067/1067 tests passed，50/50 schemas passed；合并时仓库未配置远端状态检查。
 - Phase 4.1 当前代码里程碑：`7a515a4`；真实验收产物位于 Git 忽略的本地 `reports/`，
   版本化验收清单位于 `config/equity_research_acceptance.yaml`。
+- Phase 4.1 独立验收 SHA：`9506f6a19ab60187d1ab0bc4991cfa427606ecae`；验收结论
+  `INDEPENDENT_ACCEPTANCE: PASS`，PR #3 `MERGE_READY`，合并方式为 Squash。
 
 ## 阶段状态
 
@@ -24,7 +26,7 @@
 | Phase 2 | PASS | 晨报已形成真实 RawItem→Evidence→Claim→EventCluster→Markdown 链路 |
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
-| Phase 4 full research capability | PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE | 两个真实 SUCCESS 和一个预期降级已通过本地定向验收；独立验收签字前不提前改为 PASS |
+| Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
 | Phase 5 | BLOCKED | 未满足全部解锁条件，不得开始产业图谱实现或自动批准 |
 
 ## 2026-08-07 修复后的关键事实
@@ -76,9 +78,9 @@
 
 ## 当前准入结论
 
-Phase 4.1 已满足申请独立验收所需的本地工程与真实案例条件，结论为
-`READY_FOR_INDEPENDENT_ACCEPTANCE`。独立验收签字前，正式 full capability 状态仍保持
-`PARTIAL_SUCCESS`；Phase 5 继续 `BLOCKED`。
+Phase 4.1 已完成独立验收，结论为 `PASS`，验收 SHA 为
+`9506f6a19ab60187d1ab0bc4991cfa427606ecae`。Phase 5 继续 `BLOCKED`，在正式任务书和
+明确授权完成前不得实施。
 
 ## 2026-08-07 最终工程与在线验收
 
@@ -89,5 +91,5 @@ Phase 4.1 已满足申请独立验收所需的本地工程与真实案例条件�
 - 在线定向：修正时间语义后三个 Phase 4.1 验收案例在同一显式 `--live` 运行中 3/3 通过
   并重新生成脱敏摘要；此前 DeepSeek probe、巨潮元数据与 PDF 下载测试继续有效。
 
-Phase 4 engineering foundation 保持 `PASS`；full research capability 已从“缺真实能力”
-推进到“等待独立验收”，正式状态暂保持 `PARTIAL_SUCCESS`；Phase 5 保持 `BLOCKED`。
+Phase 4 engineering foundation 与 full research capability 均为 `PASS`，Phase 4 正式收口；
+Phase 5 保持 `BLOCKED`，下一步仅可制定正式任务书，不得提前实施。

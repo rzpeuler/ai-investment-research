@@ -3,7 +3,7 @@
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
 > 当前统一结论（2026-08-07）：Phase 4 engineering foundation = PASS；
-> Phase 4 full research capability = PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE；
+> Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
 > Phase 5 = BLOCKED。
 
 ## 1. 真实 LLM Provider 已接入但存在外部稳定性风险

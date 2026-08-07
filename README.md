@@ -40,7 +40,7 @@ Hermes Skill（skills/finance/morning-brief）、Cron 文档（docs/operations/�
 （UNEXPLAINED_MOVE 合法输出）、18 章节报告 + 33 条 Validator、
 `research run abnormal-move`、Hermes Skill、14 黄金案例。Schema 19→30，迁移 user_version=4。
 
-**Phase 4（个股研报）**：**工程基础 PASS；完整研究能力 PARTIAL_SUCCESS，已具备独立验收申请条件**（正式任务书见
+**Phase 4（个股研报）**：**工程基础 PASS；完整研究能力 PASS（独立验收 SHA `9506f6a`）**（正式任务书见
 [`docs/tasks/phase4-equity-research.md`](docs/tasks/phase4-equity-research.md)）。
 离线优先、数据优先、证据可定位、财务可复算、结论可审计的 A 股个股研究档案与
 Markdown 报告流水线：CSV/JSON/XLSX 财务导入（Manifest/行级校验/dry-run/幂等）、
@@ -53,7 +53,7 @@ RawItem/Evidence 血缘、按 Provider 实际调用计数的 Flash/Pro 预算、
 `SUCCESS`，688981.SH 在受控缺失下取得 `INSUFFICIENT_DATA`。单次输入不足或 Provider
 故障时仍必须降级，不得沿用历史成功状态。
 Schema 30→51，迁移 user_version=5。
-**Phase 5：BLOCKED**。Phase 4 完整能力尚待独立验收签字，且没有 Phase 5 正式任务书；
+**Phase 5：BLOCKED**。Phase 4 完整能力已通过独立验收，但尚无 Phase 5 正式任务书和明确实施授权；
 晚报/复盘、主题挖掘、首次覆盖和自动产业图谱入库均尚未开始。
 
 ## 快速开始

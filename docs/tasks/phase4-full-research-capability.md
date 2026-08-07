@@ -5,10 +5,10 @@
 > 授权分支基线：`master@e505762cf8fae341ecd06a0c6092f0a88dbb2c7c`
 > 工程代码基线：`ce656b1866e0d65b1def292d26bed9c41474983b`
 > 开发分支：`codex/phase4-full-research-capability`
-> 起始状态：Phase 4 engineering foundation = `PASS`；full capability =
-> `PARTIAL_SUCCESS`；Phase 5 = `BLOCKED`
-> 实施结果：`READY_FOR_INDEPENDENT_ACCEPTANCE`（当前代码里程碑 `7a515a4`；独立验收前
-> 正式 full capability 状态仍为 `PARTIAL_SUCCESS`）
+> 任务下达时：Phase 4 engineering foundation 已通过，full capability 尚未完成独立验收；
+> Phase 5 = `BLOCKED`
+> 最终结果：Phase 4 full capability = `PASS`；独立验收 SHA
+> `9506f6a19ab60187d1ab0bc4991cfa427606ecae`；PR #3 = `MERGE_READY`；Phase 5 = `BLOCKED`
 
 ## 1. 授权目标
 
@@ -115,12 +115,11 @@ Fake Provider、Tier C 核心财务、缺必需任务或严重 Evidence 缺陷�
 ## 6. 最终验收
 
 默认离线测试、Schema、compileall 和 diff-check 必须通过；在线测试必须显式运行并保存
-脱敏摘要。完整能力申请前必须取得两个真实 `SUCCESS` 和一个预期降级案例。最终结论只可
-为 `READY_FOR_INDEPENDENT_ACCEPTANCE`、`NOT_READY_PROVIDER`、`NOT_READY_EVIDENCE`、
-`NOT_READY_SEMANTIC_COVERAGE` 或 `NOT_READY_VALIDATION`。
+脱敏摘要。完整能力申请前必须取得两个真实 `SUCCESS` 和一个预期降级案例。执行 Agent
+先给出申请或未就绪结论；只有独立验收签字后才可把完整研究能力更新为 `PASS`。
 
-本任务完成不自动授权 Phase 5。未满足真实条件时维持 Phase 4 full capability
-`PARTIAL_SUCCESS` 和 Phase 5 `BLOCKED`。
+本任务完成及 Phase 4 独立验收均不自动授权 Phase 5；Phase 5 在正式任务书和明确授权
+完成前保持 `BLOCKED`。
 
 ## 7. 执行 Agent 验收记录（2026-08-07）
 
@@ -143,5 +142,6 @@ Fake Provider、Tier C 核心财务、缺必需任务或严重 Evidence 缺陷�
 - Provider 在部分失败尝试中发生间歇性超时，系统按 8/1 共享预算合法降级；最终成功案例
   不依赖 Fake Provider，也未放宽 Validator。
 
-执行 Agent 结论：`READY_FOR_INDEPENDENT_ACCEPTANCE`。独立验收人尚未签字，因此本文档
-不把 Phase 4 full capability 的正式状态提前改为 `PASS`，Phase 5 继续 `BLOCKED`。
+独立验收结论：`PASS`。验收 SHA 为
+`9506f6a19ab60187d1ab0bc4991cfa427606ecae`，PR #3 可按 Squash 方式合并。Phase 4 full
+capability 正式收口；Phase 5 继续 `BLOCKED`，正式任务书和明确授权完成前不得实施。

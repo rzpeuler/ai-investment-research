@@ -3,11 +3,11 @@
 ## 当前结论
 
 - **Phase 4 engineering foundation：PASS**
-- **Phase 4 full research capability：PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE**
+- **Phase 4 full research capability：PASS（独立验收 SHA `9506f6a`）**
 - **Phase 5：BLOCKED**
 
-下一步是对 `7a515a4` 及其后文档提交做 Phase 4 full capability 独立验收。不得开始 Phase 5 产业图谱实现、图谱本体变更、
-自动批准节点/关系或自动写入核心知识图谱。
+下一步仅是制定 Phase 5 正式任务书并取得明确实施授权。不得开始 Phase 5 产业图谱实现、
+图谱本体变更、自动批准节点/关系或自动写入核心知识图谱。
 
 ## Phase 5 解锁条件
 
@@ -22,10 +22,10 @@
 
 任何一项不满足，Phase 5 继续 `BLOCKED`。
 
-## Phase 4 独立验收重点
+## Phase 4 独立验收记录
 
-- 复核 600519.SH 与 300750.SZ 的 Task→Plan→Request→Run→Evidence→报告血缘；
-- 复核 688981.SH 受控缺失不会被提升为 success；
-- 复核 DeepSeek 间歇性超时仍按 8/1 共享预算降级，且日志无凭证泄漏；
-- 独立验收通过后再记录验收 SHA，并决定是否把 full capability 改为 PASS；
+- 独立验收结论：`PASS`；验收 SHA：`9506f6a19ab60187d1ab0bc4991cfa427606ecae`；
+- 600519.SH 与 300750.SZ 的 Task→Plan→Request→Run→Evidence→报告血缘通过复核；
+- 688981.SH 受控缺失未被提升为 success；
+- DeepSeek 间歇性超时仍按 8/1 共享预算降级，且日志无凭证泄漏；
 - 保持分钟行情、自动历史日线、通用 OCR 和深度媒体等未验证能力为明确限制。
