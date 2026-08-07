@@ -1,0 +1,29 @@
+{
+  "task_id": "e7b888a1-b884-42a9-9369-b50a69e09c7f",
+  "entity": "300750.SZ",
+  "report_status": "success",
+  "expected_status": "success",
+  "provider_live": true,
+  "provider_id": "deepseek",
+  "flash_calls": 8,
+  "pro_calls": 0,
+  "official_documents": 2,
+  "core_financial_evidence_qualified": true,
+  "mandatory_semantic_tasks": {
+    "business_description_normalization": "pass",
+    "management_statement_summary": "pass",
+    "competitive_factor_candidates": "pass",
+    "catalyst_candidates": "pass",
+    "risk_candidates": "pass",
+    "counter_evidence_organizing": "pass",
+    "research_questions": "pass"
+  },
+  "missing_core_modules": [],
+  "validator_status": "pass_with_warnings",
+  "prohibited_output_hits": [],
+  "report_path": "C:\\Users\\Administrator\\Desktop\\投研工作台\\ai-investment-research\\reports\\stocks\\300750.SZ\\2026-08-07_equity_research.md",
+  "acceptance_started_at": "2026-08-07T12:15:19",
+  "requested_at": "2026-08-07T12:15:19",
+  "as_of": "2026-08-07T00:00:00+08:00",
+  "source_commit_sha": "7a515a4f0fc356675d9abfa5f0c4f1a488cc14ad"
+}
