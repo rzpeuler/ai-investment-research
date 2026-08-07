@@ -1,0 +1,322 @@
+# Phase 5 M2 产业图谱首版本体种子（任务书 4 节 + 工程指南 39 节）。
+# 确定性只读文件；节点和边由 ontology.py 加载器和 Research CLI seed 命令读入。
+# 禁止人工直接编辑 JSON 后反写数据库。
+#
+# 种子规则：
+#   - 所有节点 version=1, origin_kind=governance_seed, review_status=approved
+#   - 所有边 assertion_type=GOVERNANCE, version=1, review_status=approved
+#   - 禁止 Company 类型（governance seed 范围限定 Industry + IndustrySegment）
+#   - 禁止除 BELONGS_TO 以外的 relation（首版骨架只支持分类关系）
+#   - seed_created_at: "2026-08-07T17:34:00+08:00"
+
+meta:
+  format_version: "1.0"
+  seed_created_at: "2026-08-07T17:34:00+08:00"
+
+nodes:
+  # ---- 根：AI硬件 (industry) ----
+  - node_id: "industry:ai_hardware"
+    node_type: "Industry"
+    name: "AI硬件"
+    aliases: ["AI Hardware"]
+    description: "AI算力基础设施硬件产业链，涵盖芯片到数据中心"
+
+  - node_id: "industry_segment:ai_hardware:compute_chip"
+    node_type: "IndustrySegment"
+    name: "算力芯片"
+    aliases: ["Compute Chip", "AI芯片"]
+    description: "GPU/TPU/NPU等AI算力芯片"
+
+  - node_id: "industry_segment:ai_hardware:ai_server"
+    node_type: "IndustrySegment"
+    name: "AI服务器"
+    aliases: ["AI Server"]
+    description: "AI训练与推理服务器整机及组件"
+
+  - node_id: "industry_segment:ai_hardware:storage_hbm"
+    node_type: "IndustrySegment"
+    name: "存储与HBM"
+    aliases: ["Storage & HBM", "高带宽内存"]
+    description: "HBM高带宽内存及AI存储方案"
+
+  - node_id: "industry_segment:ai_hardware:advanced_packaging"
+    node_type: "IndustrySegment"
+    name: "先进封装"
+    aliases: ["Advanced Packaging"]
+    description: "CoWoS/3D封装等先进芯片封装技术"
+
+  - node_id: "industry_segment:ai_hardware:pcb"
+    node_type: "IndustrySegment"
+    name: "PCB"
+    aliases: ["印制电路板"]
+    description: "AI服务器用高多层PCB及封装基板"
+
+  - node_id: "industry_segment:ai_hardware:optical_communication"
+    node_type: "IndustrySegment"
+    name: "光模块与光通信"
+    aliases: ["Optical Communication"]
+    description: "数据中心光模块、光芯片及光通信器件"
+
+  - node_id: "industry_segment:ai_hardware:network_switching"
+    node_type: "IndustrySegment"
+    name: "网络交换"
+    aliases: ["Network Switching"]
+    description: "数据中心交换机及网络芯片"
+
+  - node_id: "industry_segment:ai_hardware:power_supply"
+    node_type: "IndustrySegment"
+    name: "电源"
+    aliases: ["Power Supply"]
+    description: "AI服务器及数据中心电源系统"
+
+  - node_id: "industry_segment:ai_hardware:liquid_cooling"
+    node_type: "IndustrySegment"
+    name: "液冷"
+    aliases: ["Liquid Cooling"]
+    description: "数据中心液冷散热方案"
+
+  - node_id: "industry_segment:ai_hardware:data_center_construction"
+    node_type: "IndustrySegment"
+    name: "数据中心建设"
+    aliases: ["Data Center Construction"]
+    description: "数据中心土建、机电及基础设施"
+
+  - node_id: "industry_segment:ai_hardware:edge_ai_device"
+    node_type: "IndustrySegment"
+    name: "边缘AI设备"
+    aliases: ["Edge AI Device"]
+    description: "边缘计算AI推理终端与设备"
+
+  # ---- 根：半导体 (industry) ----
+  - node_id: "industry:semiconductor"
+    node_type: "Industry"
+    name: "半导体"
+    aliases: ["Semiconductor"]
+    description: "半导体产业链，涵盖设计、制造、封测、设备、材料"
+
+  - node_id: "industry_segment:semiconductor:eda_ip"
+    node_type: "IndustrySegment"
+    name: "EDA与IP"
+    aliases: ["EDA & IP"]
+    description: "电子设计自动化工具与半导体IP核"
+
+  - node_id: "industry_segment:semiconductor:chip_design"
+    node_type: "IndustrySegment"
+    name: "芯片设计"
+    aliases: ["Chip Design"]
+    description: "数字/模拟/混合信号芯片设计"
+
+  - node_id: "industry_segment:semiconductor:wafer_manufacturing"
+    node_type: "IndustrySegment"
+    name: "晶圆制造"
+    aliases: ["Wafer Manufacturing"]
+    description: "晶圆代工与IDM制造"
+
+  - node_id: "industry_segment:semiconductor:packaging_testing"
+    node_type: "IndustrySegment"
+    name: "封装测试"
+    aliases: ["Packaging & Testing"]
+    description: "芯片封装与测试服务"
+
+  - node_id: "industry_segment:semiconductor:equipment"
+    node_type: "IndustrySegment"
+    name: "半导体设备"
+    aliases: ["Semiconductor Equipment"]
+    description: "晶圆制造与封装测试设备"
+
+  - node_id: "industry_segment:semiconductor:materials"
+    node_type: "IndustrySegment"
+    name: "半导体材料"
+    aliases: ["Semiconductor Materials"]
+    description: "硅片、光刻胶、电子特气等半导体材料"
+
+  - node_id: "industry_segment:semiconductor:power_semiconductor"
+    node_type: "IndustrySegment"
+    name: "功率半导体"
+    aliases: ["Power Semiconductor"]
+    description: "IGBT/MOSFET/SiC等功率器件"
+
+  - node_id: "industry_segment:semiconductor:analog_chip"
+    node_type: "IndustrySegment"
+    name: "模拟芯片"
+    aliases: ["Analog Chip"]
+    description: "电源管理、信号链等模拟芯片"
+
+  - node_id: "industry_segment:semiconductor:memory_chip"
+    node_type: "IndustrySegment"
+    name: "存储芯片"
+    aliases: ["Memory Chip"]
+    description: "DRAM/NAND/NOR等存储芯片"
+
+  - node_id: "industry_segment:semiconductor:sensor"
+    node_type: "IndustrySegment"
+    name: "传感器"
+    aliases: ["Sensor"]
+    description: "CIS/MEMS/磁传感器等"
+
+  - node_id: "industry_segment:semiconductor:distribution_services"
+    node_type: "IndustrySegment"
+    name: "分销与服务"
+    aliases: ["Distribution & Services"]
+    description: "半导体元器件分销与技术支持"
+
+  # ---- 根：AI软件 (industry) ----
+  - node_id: "industry:ai_software"
+    node_type: "Industry"
+    name: "AI软件"
+    aliases: ["AI Software"]
+    description: "AI软件与平台生态，涵盖模型、工具、应用"
+
+  - node_id: "industry_segment:ai_software:foundation_model"
+    node_type: "IndustrySegment"
+    name: "基础模型"
+    aliases: ["Foundation Model"]
+    description: "大语言模型、多模态模型等基础AI模型"
+
+  - node_id: "industry_segment:ai_software:inference_training_platform"
+    node_type: "IndustrySegment"
+    name: "推理与训练平台"
+    aliases: ["Inference & Training Platform"]
+    description: "模型训练框架、推理引擎及MLOps平台"
+
+  - node_id: "industry_segment:ai_software:agent_platform"
+    node_type: "IndustrySegment"
+    name: "Agent平台"
+    aliases: ["Agent Platform"]
+    description: "AI Agent开发框架与运行平台"
+
+  - node_id: "industry_segment:ai_software:data_knowledge_base"
+    node_type: "IndustrySegment"
+    name: "数据与知识库"
+    aliases: ["Data & Knowledge Base"]
+    description: "AI训练数据集、向量数据库及知识图谱"
+
+  - node_id: "industry_segment:ai_software:development_tools"
+    node_type: "IndustrySegment"
+    name: "开发工具"
+    aliases: ["Development Tools"]
+    description: "AI辅助编程、代码生成与测试工具"
+
+  - node_id: "industry_segment:ai_software:enterprise_software"
+    node_type: "IndustrySegment"
+    name: "企业软件"
+    aliases: ["Enterprise Software"]
+    description: "AI增强的企业管理、协作与生产力软件"
+
+  - node_id: "industry_segment:ai_software:industry_application"
+    node_type: "IndustrySegment"
+    name: "行业应用"
+    aliases: ["Industry Application"]
+    description: "AI在金融/医疗/教育/制造等垂直行业应用"
+
+  - node_id: "industry_segment:ai_software:security_governance"
+    node_type: "IndustrySegment"
+    name: "安全与治理"
+    aliases: ["Security & Governance"]
+    description: "AI安全、可信、合规与治理"
+
+  - node_id: "industry_segment:ai_software:compute_scheduling_ops"
+    node_type: "IndustrySegment"
+    name: "算力调度与运维"
+    aliases: ["Compute Scheduling & Ops"]
+    description: "算力资源调度、云平台与运维管理"
+
+edges:
+  # AI硬件 → 11 个子类
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:compute_chip"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:ai_server"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:storage_hbm"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:advanced_packaging"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:pcb"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:optical_communication"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:network_switching"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:power_supply"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:liquid_cooling"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:data_center_construction"
+  - source_node_id: "industry:ai_hardware"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_hardware:edge_ai_device"
+
+  # 半导体 → 11 个子类
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:eda_ip"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:chip_design"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:wafer_manufacturing"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:packaging_testing"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:equipment"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:materials"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:power_semiconductor"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:analog_chip"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:memory_chip"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:sensor"
+  - source_node_id: "industry:semiconductor"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:semiconductor:distribution_services"
+
+  # AI软件 → 9 个子类
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:foundation_model"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:inference_training_platform"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:agent_platform"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:data_knowledge_base"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:development_tools"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:enterprise_software"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:industry_application"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:security_governance"
+  - source_node_id: "industry:ai_software"
+    relation: "BELONGS_TO"
+    target_node_id: "industry_segment:ai_software:compute_scheduling_ops"

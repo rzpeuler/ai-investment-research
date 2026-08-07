@@ -62,6 +62,10 @@ TABLES = {
     "EquityResearchRequest": "equity_research_requests",
     "EquityResearchRun": "equity_research_runs",
     "EquityResearchResult": "equity_research_results",
+    # Phase 5：产业图谱
+    "GraphNode": "graph_nodes",
+    "GraphEdge": "graph_edges",
+    "GraphReview": "graph_reviews",
 }
 
 # 各表主键列名（与 001_initial.sql 保持一致）
@@ -110,7 +114,29 @@ PK_COLUMNS = {
     "equity_research_requests": "request_id",
     "equity_research_runs": "run_id",
     "equity_research_results": "result_id",
+    # Phase 5
+    "graph_nodes": "node_id",
+    "graph_edges": "edge_id",
+    "graph_reviews": "review_id",
+    "graph_applications": "application_id",
 }
+
+
+class _Transaction:
+    """Database 的事务上下文管理器：commit on success, rollback on exception."""
+
+    def __init__(self, db: "Database"):
+        self._db = db
+
+    def __enter__(self):
+        return self._db._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self._db._conn.rollback()
+            return False  # re-raise
+        self._db._conn.commit()
+        return False
 
 
 class Database:
@@ -418,6 +444,18 @@ class Database:
     def count(self, table: str) -> int:
         row = self._conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
         return int(row["n"])
+
+    # ---------- 事务 ----------
+
+    def transaction(self):
+        """开始一个确定性事务上下文管理器。
+
+        Usage:
+            with db.transaction():
+                db._conn.execute(...)
+                # commit on normal exit, rollback on exception
+        """
+        return _Transaction(self)
 
     def close(self) -> None:
         self._conn.close()

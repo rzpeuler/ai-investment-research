@@ -640,5 +640,171 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
     _print_scenario_outcome(outcome, dry_run=dry_run)
 
 
+# ---------- Phase 5：知识图谱 ----------
+
+@cli.group("knowledge")
+def knowledge_group() -> None:
+    """Phase 5 产业图谱管理（本体种子、查询、审核）。"""
+
+
+@knowledge_group.command("seed")
+@click.option(
+    "--ontology", "ontology_path",
+    default="knowledge/ontology/industry_graph_v1.yaml",
+    show_default=True,
+    help="本体 YAML 文件路径（相对项目根）。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="0 写入：只加载、校验和报告预期操作。",
+)
+def knowledge_seed(ontology_path, db_path, dry_run) -> None:
+    """导入产业图谱首版本体种子（确定性、幂等、零 LLM）。
+
+    第二次运行产生 0 插入（纯幂等）。
+    本体 YAML 需先通过 dry-run 验证。
+    """
+    from research_os.knowledge.ontology import load_ontology, OntologyLoadError
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.storage import Database
+
+    root = _project_root()
+
+    # 解析路径
+    ont_path = root / ontology_path
+    db_full = root / db_path
+
+    # ---- 加载本体 ----
+    try:
+        nodes, edges, meta = load_ontology(ont_path)
+    except (FileNotFoundError, OntologyLoadError) as exc:
+        raise click.ClickException(str(exc)) from None
+
+    node_count = len(nodes)
+    edge_count = len(edges)
+
+    # ---- 打开数据库 ----
+    if dry_run and not db_full.exists():
+        # dry-run + DB 不存在：0 写入，只报告
+        summary = {
+            "status": "dry_run",
+            "ontology": str(ont_path),
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "existing_nodes": 0,
+            "new_nodes": node_count,
+            "existing_edges": 0,
+            "new_edges": edge_count,
+            "would_insert_nodes": node_count,
+            "would_insert_edges": edge_count,
+        }
+        click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+        return
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    repo = GraphRepository(db)
+
+    try:
+        # ---- 预检查 ----
+        existing_node_ids = 0
+        new_node_ids = 0
+        existing_edge_ids = 0
+        new_edge_ids = 0
+
+        for node in nodes:
+            existing = repo.get_node_version(node.node_id, 1)
+            if existing is not None:
+                existing_node_ids += 1
+            else:
+                new_node_ids += 1
+
+        for edge in edges:
+            existing = repo.get_edge_version(edge.edge_id, 1)
+            if existing is not None:
+                existing_edge_ids += 1
+            else:
+                new_edge_ids += 1
+
+        # ---- dry-run ----
+        if dry_run:
+            summary = {
+                "status": "dry_run",
+                "ontology": str(ont_path),
+                "node_count": node_count,
+                "edge_count": edge_count,
+                "existing_nodes": existing_node_ids,
+                "new_nodes": new_node_ids,
+                "existing_edges": existing_edge_ids,
+                "new_edges": new_edge_ids,
+                "would_insert_nodes": new_node_ids,
+                "would_insert_edges": new_edge_ids,
+            }
+            click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+            return
+
+        # ---- 写入 ----
+        inserted_nodes = 0
+        noop_nodes = 0
+        inserted_edges = 0
+        noop_edges = 0
+        errors: list = []
+
+        with db.transaction() as conn:
+            for i, node in enumerate(nodes):
+                try:
+                    result = repo.append_node(node, conn=conn)
+                    if result == "inserted":
+                        inserted_nodes += 1
+                    else:
+                        noop_nodes += 1
+                except ValueError as exc:
+                    errors.append(f"nodes[{i}] {node.node_id}: {exc}")
+
+            if errors:
+                raise click.ClickException(
+                    f"写入失败，事务已回滚。错误:\n" + "\n".join(errors)
+                )
+
+            for i, edge in enumerate(edges):
+                try:
+                    result = repo.append_edge(edge, conn=conn)
+                    if result == "inserted":
+                        inserted_edges += 1
+                    else:
+                        noop_edges += 1
+                except ValueError as exc:
+                    errors.append(f"edges[{i}] {edge.edge_id}: {exc}")
+
+            if errors:
+                raise click.ClickException(
+                    f"写入失败，事务已回滚。错误:\n" + "\n".join(errors)
+                )
+
+        summary = {
+            "status": "ok",
+            "ontology": str(ont_path),
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "inserted_nodes": inserted_nodes,
+            "noop_nodes": noop_nodes,
+            "inserted_edges": inserted_edges,
+            "noop_edges": noop_edges,
+        }
+        click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()
