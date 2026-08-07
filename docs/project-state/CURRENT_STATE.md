@@ -29,7 +29,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | BLOCKED | 未满足全部解锁条件，不得开始产业图谱实现或自动批准 |
+| Phase 5 | BLOCKED | 正式任务书已由用户批准（`docs/tasks/phase5-industry-knowledge-graph.md`），但尚未收到 M1-M10 工程实施授权。正式设计决策见 DECISIONS.md #30。 |
 
 ## 2026-08-07 修复后的关键事实
 

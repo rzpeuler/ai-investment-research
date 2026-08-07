@@ -208,3 +208,41 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 真实覆盖。两个真实成功案例和一个预期降级案例已通过执行 Agent 的本地真实验收，当前
 结论为 `READY_FOR_INDEPENDENT_ACCEPTANCE`；独立验收签字前 Phase 4 full capability
 仍保持 `PARTIAL_SUCCESS`，Phase 5 保持 `BLOCKED`。Phase 4.1 不授权任何 Phase 5 实现。
+
+## 30. Phase 5 产业图谱正式设计决策（2026-08-07）
+
+> 本决策在 Phase 5 正式任务书获批后冻结。任务书批准 ≠ 工程实施授权；
+> M1-M10 必须等待用户另行明确授权。
+
+1. **Phase 5 建设目标**是可审计的长期产业知识系统，不是 LLM 自动建图。
+2. **核心知识链**：
+   `RawItem → Evidence → Claim/Event/ResearchFinding → GraphChangeProposal → GraphChange candidate → Human Review → Deterministic Apply → Versioned GraphNode/GraphEdge`
+3. **LLM 不得直接生成 active graph**（禁止 `LLM → active GraphNode/GraphEdge`）。
+4. **LLM 不得批准 GraphChange**；审核必须由人工 reviewer 完成。
+5. **GraphNode / GraphEdge** 在 M1 通过正式 JSON Schema 契约化；Pydantic 为构造器。
+6. **LLM 输出 GraphChangeProposal**；正式 `graph_change_id`、`version`、timestamps、
+   `review_status` 等全部由确定性代码生成和分配。
+7. **三种认识论分层** `GOVERNANCE / FACT / MODEL_INFERENCE` 必须严格区分：
+   query 和 context builder 输出必须标明每条边的 `assertion_type`。
+8. **SOURCE_OPINION / HYPOTHESIS** 第一版不得直接进入 active core graph；
+   继续保留在 Opinion / Claim / ResearchFinding 层，可用于产生 GraphChange candidate
+   但不能直接成为长期事实。
+9. **Governance seed** 只允许用于版本控制中已批准的 ontology 骨架
+  （`origin_kind = governance_seed`）；Company 等业务事实不得借 governance seed
+  绕过 Evidence 要求。
+10. **SQLite 是结构化权威持久化**；`graph_nodes`、`graph_edges`、`graph_reviews`、
+   `graph_applications` 表为唯一事实源。
+11. **JSON 文件**（`knowledge/graph/nodes/`、`knowledge/graph/edges/`）为
+   deterministic export；不是第二权威源；禁止人工直接编辑 JSON 后反写数据库。
+12. **核心图谱写入继续要求人工审核**（`core_write_requires_review: true`）。
+13. **历史版本不得覆盖**：修改产生 version N+1；旧版本保留；
+   必须能回答任意历史 as_of 查询。
+14. **node type 和 relation allowlist 的变化**属于 human-governed architecture
+   change（`ONTOLOGY_CHANGE`）；必须单独经用户批准，不得由工程 Agent 或运行时 LLM
+   自行增加。
+15. **Phase 5 第一版不引入复杂图数据库**；继续使用 SQLite + JSON + Markdown。
+16. **Phase 2/3/4 只能产生 GraphChange candidate**；晨报、异动分析和个股研报永远
+   不能直接写入 active graph。
+17. **任务书获批 ≠ 工程实施获批**；在用户明确授权 M1 前 Phase 5 保持 `BLOCKED`。
+18. **GraphChange 对象**从 Phase 0 候选容器升级为正式变更对象；M1 后 `node` 和
+   `edge` 字段必须符合 GraphNode/GraphEdge draft 结构，不再使用 arbitrary dict。
