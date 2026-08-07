@@ -319,3 +319,47 @@ def test_init_no_mkdir(tmp_path):
     # __init__ should not create candidates dir
     candidates_dir = knowledge_dir / "candidates"
     assert not candidates_dir.exists()
+
+
+# ---- Fix I：Markdown preflight bytes == final write bytes ----
+
+def test_preflight_bytes_equal_render_bytes(tmp_path):
+    """preflight_file_conflict 与 render_to_file 使用相同渲染参数（字节一致）。"""
+    knowledge_dir = tmp_path / "knowledge"
+    gc = _make_graph_change(VALID_ID_DET)
+    ev_contexts = _make_evidence_contexts()
+
+    # Preflight check with evidence contexts
+    renderer_preflight = CandidateRenderer(knowledge_dir, preflight_only=True)
+    assert renderer_preflight.preflight_file_conflict(gc, evidence_contexts=ev_contexts) is True
+
+    # Actual render with same evidence contexts
+    renderer_render = CandidateRenderer(knowledge_dir)
+    renderer_render.render_to_file(gc, ev_contexts)
+
+    # Second preflight with same contexts → idempotent
+    assert renderer_preflight.preflight_file_conflict(gc, evidence_contexts=ev_contexts) is True
+
+    # Different GC with same ID → file conflict (idempotent preflight succeeded
+    # because content matches, so render won't conflict either)
+    gc_same = _make_graph_change(VALID_ID_DET)
+    # preflight with evidence → idempotent
+    assert renderer_preflight.preflight_file_conflict(gc_same, evidence_contexts=ev_contexts) is True
+    # render with evidence → idempotent (same path)
+    result = renderer_render.render_to_file(gc_same, ev_contexts)
+    assert VALID_ID_DET in result  # same file, idempotent return
+
+
+def test_preflight_with_evidence_vs_empty_contexts(tmp_path):
+    """preflight 与 render 使用不同 evidence contexts 导致内容不同 → 应产生冲突风险。"""
+    knowledge_dir = tmp_path / "knowledge"
+    gc = _make_graph_change(VALID_ID_G)
+    ev_contexts = _make_evidence_contexts()
+
+    # 先用 evidence contexts 写入
+    renderer = CandidateRenderer(knowledge_dir)
+    renderer.render_to_file(gc, ev_contexts)
+
+    # 用空 contexts 预检 → 内容不同 → conflict
+    with pytest.raises(ValueError, match="CANDIDATE_FILE_CONFLICT"):
+        renderer.preflight_file_conflict(gc, evidence_contexts=[])

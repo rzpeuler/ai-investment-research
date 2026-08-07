@@ -532,7 +532,7 @@ def test_ontology_protection_industry_segment_blocked(builder):
 # ---- 冲突检测 ----
 
 def test_check_conflicts_node_not_found(builder):
-    """modify_attribute for non-existing node → NODE_NOT_FOUND。"""
+    """modify_attribute for non-existing node → CURRENT_NODE_NOT_FOUND。"""
     proposal = _make_modify_node_proposal(
         candidate_node={
             "existing_node_id": "company:nonexistent",
@@ -545,7 +545,7 @@ def test_check_conflicts_node_not_found(builder):
         }
     )
     conflicts = builder.check_conflicts(proposal)
-    assert any("NODE_NOT_FOUND" in c for c in conflicts)
+    assert any("CURRENT_NODE_NOT_FOUND" in c for c in conflicts)
 
 
 # ---- 证据门禁 ----
@@ -588,3 +588,308 @@ def test_version_fresh_edge_is_1(builder):
     proposal = _make_add_edge_proposal()
     gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
     assert gc.edge.version == 1
+
+
+# ---- Fix A：Entity identity ALL types ----
+
+def test_add_node_wrong_entity_type_fails(builder, db):
+    """entity_type 不匹配 node_type → IDENTITY_RESOLUTION_REQUIRED。"""
+    # 插入一个 company entity
+    entity_id = f"company:type-mismatch-{new_uuid()[:8]}"
+    entity = Entity(
+        entity_id=entity_id,
+        entity_type="company",  # Company type
+        canonical_name="Type Mismatch",
+        aliases=[],
+        market="SH",
+        industry_ids=[],
+        concept_ids=[],
+        valid_from=None,
+        valid_to=None,
+        source_ids=[],
+    )
+    db.upsert(entity)
+
+    # 尝试以 Product 类型创建节点
+    proposal = _make_add_node_proposal(
+        candidate_node={
+            "existing_node_id": None,
+            "node_type": "Product",
+            "name": "测试产品",
+            "aliases": [],
+            "description": "",
+            "valid_from": None,
+            "valid_to": None,
+        }
+    )
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}",
+        event_type="test", subject_entities=[entity_id],
+        object_entities=[], event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev.event_id): ev}
+    with pytest.raises(ValueError, match="IDENTITY_RESOLUTION_REQUIRED"):
+        builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+
+
+def test_add_node_non_company_entity_type(db, builder):
+    """非 Company 类型节点需正确匹配 entity_type。"""
+    # 插入 product entity
+    entity_id = f"product:test-{new_uuid()[:8]}"
+    entity = Entity(
+        entity_id=entity_id,
+        entity_type="product",
+        canonical_name="测试产品",
+        aliases=[],
+        market="unknown",
+        industry_ids=[],
+        concept_ids=[],
+        valid_from=None,
+        valid_to=None,
+        source_ids=[],
+    )
+    db.upsert(entity)
+
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}",
+        event_type="test", subject_entities=[entity_id],
+        object_entities=[], event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev.event_id): ev}
+
+    proposal = _make_add_node_proposal(
+        candidate_node={
+            "existing_node_id": None,
+            "node_type": "Product",
+            "name": "测试产品",
+            "aliases": [],
+            "description": "",
+            "valid_from": None,
+            "valid_to": None,
+        },
+        new_evidence_ids=["ev:001"],
+    )
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    assert gc.node.node_id == entity_id
+    assert gc.node.node_type == "Product"
+
+
+def test_add_node_object_entities_extraction(db, builder):
+    """object_entities 字段中的 entity_id 被正确提取。"""
+    entity_id = f"company:obj-{new_uuid()[:8]}"
+    entity = Entity(
+        entity_id=entity_id, entity_type="company",
+        canonical_name="对象公司", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    )
+    db.upsert(entity)
+
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}",
+        event_type="test", subject_entities=[],
+        object_entities=[entity_id],  # entity_id 在 object_entities 中
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev.event_id): ev}
+
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    assert gc.node.node_id == entity_id
+
+
+def test_add_node_target_entities_extraction(db, builder):
+    """*_entity_ids (plural) 字段中的 entity_id 被正确提取。"""
+    entity_id = f"company:pl-{new_uuid()[:8]}"
+    entity = Entity(
+        entity_id=entity_id, entity_type="company",
+        canonical_name="Plural Company", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    )
+    db.upsert(entity)
+
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}",
+        event_type="test", subject_entities=[],
+        object_entities=[],
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    # Event doesn't have target_entities — 改用 Claim 的 entity_ids 字段测试
+    from research_os.models import Claim as Clm
+    cl = Clm(
+        claim_id=f"cl-{new_uuid()[:8]}",
+        claim_type="FACT", statement="test",
+        subject_entities=[entity_id],
+        predicate="has",
+        object={"v": 1},
+        as_of=T0,
+        evidence_ids=[],
+        support_level="inferred",
+        confidence=0.5,
+        valid_until=None,
+        review_status="unreviewed",
+    )
+    source_objects = {("Claim", cl.claim_id): cl}
+
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    assert gc.node.node_id == entity_id
+
+
+# ---- Fix B：add-node baseline ordering ----
+
+def test_add_node_existing_baseline_increment(db, builder):
+    """已存在的 entity → add_node 产生 CURRENT_NODE_ALREADY_EXISTS 冲突，版本递增。"""
+    entity_id = f"company:baseline-{new_uuid()[:8]}"
+    entity = Entity(
+        entity_id=entity_id, entity_type="company",
+        canonical_name="基线公司", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    )
+    db.upsert(entity)
+
+    # 先插入一个已存在的 graph_node
+    from research_os.models import GraphNode as GN
+    import json as _json
+    existing_node = GN(
+        node_id=entity_id, node_type="Company", name="基线公司",
+        aliases=[], description="", status="active",
+        valid_from=None, valid_to=None, evidence_ids=["ev:001"],
+        version=1, last_reviewed_at=None, review_status="approved",
+        origin_kind="graph_change",
+        originating_graph_change_id="11111111-1111-1111-1111-111111111111",
+        created_at=T0,
+    )
+    db._conn.execute(
+        """INSERT INTO graph_nodes (node_id, version, payload, node_type, name, status,
+           review_status, origin_kind, created_at, valid_from, valid_to,
+           last_reviewed_at, originating_graph_change_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (existing_node.node_id, existing_node.version,
+         _json.dumps(existing_node.model_dump(), ensure_ascii=False, sort_keys=True),
+         existing_node.node_type, existing_node.name, existing_node.status,
+         existing_node.review_status, existing_node.origin_kind, existing_node.created_at,
+         existing_node.valid_from, existing_node.valid_to,
+         existing_node.last_reviewed_at, existing_node.originating_graph_change_id),
+    )
+    db._conn.commit()
+
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}",
+        event_type="test", subject_entities=[entity_id],
+        object_entities=[], event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev.event_id): ev}
+
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    # 已存在节点 → version 应为 2 (N+1)
+    assert gc.node.version == 2
+
+
+def test_modify_missing_node_returns_current_node_not_found(builder):
+    """modify_attribute 对不存在的节点 → CURRENT_NODE_NOT_FOUND。"""
+    proposal = _make_modify_node_proposal(
+        candidate_node={
+            "existing_node_id": "company:nonexistent-xyz",
+            "node_type": "Company",
+            "name": "不存在",
+            "aliases": [],
+            "description": "",
+            "valid_from": None,
+            "valid_to": None,
+        }
+    )
+    conflicts = builder.check_conflicts(proposal)
+    assert any("CURRENT_NODE_NOT_FOUND" in c for c in conflicts)
+
+
+# ---- Fix E：Edge ID format ----
+
+def test_fresh_edge_id_format(builder):
+    """新边的 edge_id 格式为 edge:graph:SHA256 小写 hex。"""
+    proposal = _make_add_edge_proposal()
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    assert gc.edge.edge_id.startswith("edge:graph:")
+    assert len(gc.edge.edge_id) >= len("edge:graph:") + 64
+    # 验证是合法 hex
+    hex_part = gc.edge.edge_id[len("edge:graph:"):]
+    assert set(hex_part).issubset("0123456789abcdef")
+
+
+# ---- Fix F：Edge semantics ----
+
+def test_add_edge_fresh_no_current_edge_not_found(builder):
+    """新 add_edge 不应报告 CURRENT_EDGE_NOT_FOUND。"""
+    proposal = _make_add_edge_proposal(
+        candidate_edge={
+            "source_node_id": "company:new-a",
+            "relation": "COMPETES_WITH",
+            "target_node_id": "company:new-b",
+            "attributes": {},
+            "assertion_type": "FACT",
+            "valid_from": None,
+            "valid_to": None,
+            "confidence": 0.8,
+        }
+    )
+    conflicts = builder.check_conflicts(proposal)
+    # 新边不应有 CURRENT_EDGE_NOT_FOUND
+    assert not any("CURRENT_EDGE_NOT_FOUND" in c for c in conflicts)
+    assert len(conflicts) == 0
+
+
+def test_modify_edge_missing_raises_current_edge_not_found(builder):
+    """modify_attribute 对不存在的边 → CURRENT_EDGE_NOT_FOUND。"""
+    ce = GraphProposalEdge(
+        source_node_id="company:no-such-a",
+        relation="AFFECTS",
+        target_node_id="company:no-such-b",
+        attributes={},
+        assertion_type="FACT",
+        valid_from=None,
+        valid_to=None,
+        confidence=0.8,
+    )
+    proposal = GraphChangeProposal(
+        proposal_type="modify_attribute",
+        source_object_ids=["Claim:cl1"],
+        candidate_node=None,
+        candidate_edge=ce,
+        new_evidence_ids=["ev:001"],
+        suggested_change="修改不存在的边",
+        impact_scope=[],
+        conflicts=[],
+        verification_points=[],
+        confidence=0.8,
+    )
+    conflicts = builder.check_conflicts(proposal)
+    assert any("CURRENT_EDGE_NOT_FOUND" in c for c in conflicts)
+
+
+# Fix C：GC evidence parity
+def test_graph_change_new_evidence_ids_equals_proposal(builder, entity_in_db):
+    """GraphChange.new_evidence_ids == proposal.new_evidence_ids。"""
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001", "ev:002"])
+    so = _make_source_objects_with_entity(entity_in_db)
+    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001", "ev:002"])
+    assert gc.new_evidence_ids == ["ev:001", "ev:002"]

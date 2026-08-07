@@ -114,8 +114,8 @@ def test_callbudget_flash_no_effect_on_pro():
 def test_callbudget_record_history():
     """budget history 记录。"""
     budget = CallBudget(max_pro=1)
-    budget.record("flash", True)
-    budget.record("pro", False)
+    budget.record_custom("flash", True)
+    budget.record_custom("pro", False)
     assert len(budget.history) == 2
     assert budget.history[0]["model_class"] == "flash"
     assert budget.history[1]["model_class"] == "pro"
@@ -210,11 +210,13 @@ def test_derive_evidence_from_evidence_self(db):
 def test_pipeline_dry_run(db, tmp_path):
     """dry-run 模式下返回 dry_run status，不写任何内容。"""
     ev_id = new_uuid()
-    _insert_event(db, ev_id)
+    _insert_evidence(db, ev_id)
+    event_id = new_uuid()
+    _insert_event(db, event_id, evidence_ids=[ev_id])
 
     pipeline = CandidatePipeline(db=db, live=False, dry_run=True)
     result = pipeline.run(
-        sources=[("Event", ev_id)],
+        sources=[("Event", event_id)],
         knowledge_dir=tmp_path / "knowledge",
     )
     assert result["status"] == "dry_run"
@@ -459,3 +461,99 @@ def test_pro_budget_shared(db, tmp_path):
     # We just verify budget exists and has a max_pro=1
     budget = pipeline.budget
     assert budget.max_pro == 1
+
+
+# ---- Budget Protocol compatibility ----
+
+def test_callbudget_protocol_can_call():
+    """CallBudget 实现 LlmClient Protocol: can_call/record/summary。"""
+    budget = CallBudget(max_pro=1)
+    # can_call
+    assert budget.can_call("flash") is True
+    assert budget.can_call("pro") is True
+    # record a pro call
+    budget.record("pro")
+    assert budget.can_call("pro") is False  # exhausted
+    assert budget.can_call("flash") is True  # flash always ok
+    # summary
+    s = budget.summary()
+    assert s["max_pro"] == 1
+    assert s["pro_used"] == 1
+    assert s["flash_used"] == 0
+
+
+# ---- Schema fail-closed ----
+
+def test_pipeline_schema_fail_closed_blocks_provider_call(db, tmp_path, monkeypatch):
+    """Schema 缺失 → BLOCKED_BY_SCHEMA, 0 Provider 调用。"""
+    ev_id = new_uuid()
+    _insert_evidence(db, ev_id)
+    event_id = new_uuid()
+    _insert_event(db, event_id, evidence_ids=[ev_id])
+
+    # 模拟 Schema 不可用
+    def _empty_schema():
+        return {}
+    monkeypatch.setattr(
+        "research_os.knowledge.candidate_pipeline._load_graph_change_proposal_schema",
+        _empty_schema
+    )
+
+    from research_os.llm.provider import FakeLlmProvider
+    fake_provider = FakeLlmProvider(behavior=lambda req, schema: {
+        "ok": True, "output": {}, "error": None, "model_id": "fake"
+    })
+
+    pipeline = CandidatePipeline(
+        db=db, provider=fake_provider, live=True, dry_run=False
+    )
+    pipeline._llm_client.configured = True
+    pipeline._llm_client.provider = fake_provider
+
+    result = pipeline.run(
+        sources=[("Event", event_id)],
+        knowledge_dir=tmp_path / "knowledge",
+    )
+    assert result["status"] == "blocked_by_schema"
+    assert any("BLOCKED_BY_SCHEMA" in e for e in result["errors"])
+    # 0 Provider 调用
+    assert pipeline.budget.pro_used == 0
+    assert pipeline.budget.flash_used == 0
+
+
+# ---- Dry-run evidence preflight ----
+
+def test_pipeline_dry_run_full_evidence_preflight(db, tmp_path):
+    """dry-run 完整证据预检：source load → derive evidence → Schema → STOP before LLM。"""
+    ev_id = new_uuid()
+    _insert_evidence(db, ev_id)
+    event_id = new_uuid()
+    _insert_event(db, event_id, evidence_ids=[ev_id])
+
+    pipeline = CandidatePipeline(db=db, live=False, dry_run=True)
+    result = pipeline.run(
+        sources=[("Event", event_id)],
+        knowledge_dir=tmp_path / "knowledge",
+    )
+    assert result["status"] == "dry_run"
+    assert result["candidates_generated"] == 0
+    assert result["candidates_persisted"] == 0
+    assert "全证据预检通过" in result.get("message", "")
+    # 0 LLM / 0 candidate / 0 writes
+    assert pipeline.budget.pro_used == 0
+    assert pipeline.budget.flash_used == 0
+
+
+def test_pipeline_dry_run_zero_evidence(db):
+    """dry-run 无证据 → EVIDENCE_REQUIRED，0 writes。"""
+    event_id = new_uuid()
+    _insert_event(db, event_id, evidence_ids=[])
+
+    pipeline = CandidatePipeline(db=db, live=False, dry_run=True)
+    result = pipeline.run(
+        sources=[("Event", event_id)],
+    )
+    assert result["status"] == "evidence_required"
+    assert any("EVIDENCE_REQUIRED" in e for e in result["errors"])
+    assert result["candidates_generated"] == 0
+    assert result["candidates_persisted"] == 0

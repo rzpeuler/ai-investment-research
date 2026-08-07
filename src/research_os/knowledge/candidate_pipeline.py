@@ -55,12 +55,43 @@ class CallBudget:
     """每个 CandidatePipeline.run() 一个 budget。
 
     MAX Pro = 1/task。Flash retries + business Pro 共享同一 budget。
+    兼容 LlmClient CallBudget Protocol (can_call, record, summary)。
     """
     max_pro: int = 1
     pro_used: int = 0
     flash_used: int = 0
     history: List[Dict[str, Any]] = field(default_factory=list)
 
+    # ---- LlmClient CallBudget Protocol ----
+    def can_call(self, model_class: str) -> bool:
+        """检查是否可以调用指定模型等级。"""
+        if model_class == "pro":
+            return self.pro_used < self.max_pro
+        # flash always allowed (no budget limit)
+        return True
+
+    def record(self, model_class: str) -> None:
+        """记录一次调用。"""
+        if model_class == "pro":
+            self.pro_used += 1
+        elif model_class == "flash":
+            self.flash_used += 1
+        self.history.append({
+            "model_class": model_class,
+            "success": True,
+        })
+
+    def summary(self) -> Dict[str, Any]:
+        """返回预算状态摘要。"""
+        return {
+            "max_pro": self.max_pro,
+            "pro_used": self.pro_used,
+            "flash_used": self.flash_used,
+            "history_count": len(self.history),
+            "budget_exhausted": self.budget_exhausted,
+        }
+
+    # ---- 内部方法 ----
     def consume_flash(self) -> bool:
         """Flash 调用（不消耗 Pro 预算）。"""
         self.flash_used += 1
@@ -73,7 +104,8 @@ class CallBudget:
         self.pro_used += 1
         return True
 
-    def record(self, model_class: str, success: bool) -> None:
+    def record_custom(self, model_class: str, success: bool) -> None:
+        """记录自定义成功/失败状态。"""
         self.history.append({
             "model_class": model_class,
             "success": success,
@@ -292,10 +324,38 @@ class CandidatePipeline:
             return results
 
         if self._dry_run:
+            # ---- dry-run: 完整证据预检（source load + derive evidence + evidence existence/Schema）----
+            try:
+                source_objects = self._adapter.load_batch(sources)
+            except ValueError as exc:
+                results["status"] = "preflight_failed"
+                results["errors"].append(f"Source load failed: {exc}")
+                return results
+
+            sup_ids, cnt_ids, ev_errors = derive_evidence_from_sources(
+                self._db, source_objects, evidence_ids
+            )
+            if ev_errors:
+                if any("EVIDENCE_REQUIRED" in e for e in ev_errors):
+                    results["status"] = "evidence_required"
+                else:
+                    results["status"] = "evidence_error"
+                results["errors"].extend(ev_errors)
+                return results
+
+            # 验证 evidence existence + Schema
+            ev_contexts, ev_ctx_errors = load_evidence_context(
+                self._db, sup_ids, cnt_ids
+            )
+            if ev_ctx_errors:
+                results["status"] = "evidence_error"
+                results["errors"].extend(ev_ctx_errors)
+                return results
+
             results["status"] = "dry_run"
             results["sources_processed"] = len(sources)
             results["message"] = (
-                f"Preflight passed for {len(sources)} sources. "
+                f"全证据预检通过 {len(sources)} 个源（{len(sup_ids)} 支持 + {len(cnt_ids)} 反证）。"
                 f"0 LLM / 0 candidate / 0 writes (dry-run)"
             )
             return results
@@ -438,11 +498,11 @@ class CandidatePipeline:
             self._budget.consume_pro()
             self._budget.record("pro", True)
 
-        # ---- 9. File conflict preflight（BEFORE DB insert）----
+        # ---- 9. File conflict preflight（BEFORE DB insert，使用与渲染相同的 evidence contexts）----
         if knowledge_dir is not None:
             renderer = CandidateRenderer(knowledge_dir, preflight_only=True)
             try:
-                renderer.preflight_file_conflict(graph_change)
+                renderer.preflight_file_conflict(graph_change, evidence_contexts=ev_contexts)
             except ValueError as exc:
                 results["status"] = "file_conflict"
                 results["errors"].append(str(exc))
@@ -531,11 +591,18 @@ class CandidatePipeline:
         """调用 LLM 生成 GraphChangeProposal。
 
         使用官方 graph_change_proposal.schema.json（非 {}）。
+        Schema 不可用 → BLOCKED_BY_SCHEMA，0 Provider 调用。
         """
         prompt = self._build_prompt(source_objects, ev_contexts)
 
-        # 加载官方 Schema
+        # 加载官方 Schema（fail-closed: 缺失 → BLOCKED_BY_SCHEMA）
         provider_schema = _load_graph_change_proposal_schema()
+        if not provider_schema or not provider_schema.get("$schema"):
+            results["status"] = "blocked_by_schema"
+            results["errors"].append(
+                "BLOCKED_BY_SCHEMA: graph_change_proposal.schema.json 不可用，0 Provider 调用"
+            )
+            return None
 
         request = LlmClient.make_request(
             task_id=new_uuid(),
@@ -546,16 +613,12 @@ class CandidatePipeline:
             input_evidence_ids=allowed_evidence_ids,
         )
         response = self._llm_client.generate_json(
-            request, provider_schema,  # 传递真实 Schema，非 {}
+            request, provider_schema, budget=self._budget,  # 传递真实 Schema + Budget
         )
         results["model_used"] = response.model_id or model_class
 
-        # 记录预算使用
-        if model_class == "flash":
-            self._budget.consume_flash()
-        elif model_class == "pro":
-            self._budget.consume_pro()
-        self._budget.record(model_class, response.called and response.status == "success")
+        # 记录自定义调用状态（budget 已由 generate_json 内部记录）
+        self._budget.record_custom(model_class, response.called and response.status == "success")
 
         if not response.called or response.status != "success":
             results["status"] = "llm_failed"

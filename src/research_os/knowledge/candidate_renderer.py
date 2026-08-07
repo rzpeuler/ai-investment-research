@@ -249,10 +249,14 @@ class CandidateRenderer:
         self._candidates_dir = knowledge_dir / "candidates"
         self._preflight_only = preflight_only
 
-    def preflight_file_conflict(self, graph_change: GraphChange) -> bool:
+    def preflight_file_conflict(
+        self, graph_change: GraphChange,
+        evidence_contexts: Optional[List[EvidenceContext]] = None,
+    ) -> bool:
         """文件冲突预检（在 DB 写入前调用）。
 
         检查同 ID 的 markdown 文件是否已存在且内容不同。
+        使用与 render_to_file 相同的渲染参数以保证字节一致性。
         相同 hash → 幂等 OK
         不同 hash → ValueError CANDIDATE_FILE_CONFLICT
         不存在 → OK
@@ -263,7 +267,8 @@ class CandidateRenderer:
         Raises:
             ValueError: CANDIDATE_FILE_CONFLICT
         """
-        content = render_candidate_markdown(graph_change, [], render_at="")
+        ev_contexts = evidence_contexts or []
+        content = render_candidate_markdown(graph_change, ev_contexts, render_at="")
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
         file_path = self._candidates_dir / f"{graph_change.graph_change_id}.md"
