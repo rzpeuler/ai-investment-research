@@ -11,11 +11,11 @@
 - **Phase 5 implementation：IN_PROGRESS**
   - M0：PASS（SHA `df358da`，M0 Offline CI `31159354574` PASS）
   - M1 Graph Contracts：PASS（SHA `b097996`，M1 CI `31165533237`：1281 passed / 5 skipped / 55/55 schemas）
-  - M2 Persistence and ontology seed：AUTHORIZED / IN_PROGRESS
+  - M2 Persistence and ontology seed：PASS（SHA `565d500`，M2 CI `31171415215`：1351 passed / 5 skipped / 55/55 schemas）
   - M3-M10：NOT_AUTHORIZED
 
-Phase 5 正式任务书已由用户批准。M1 已通过独立架构验收。M2 已授权实施。
-**M2 完成不自动授权 M3。** M3 须用户另行明确授权。
+Phase 5 正式任务书已由用户批准。M1、M2 已通过独立架构验收。
+**M2 PASS 不自动授权 M3。** M3 须用户另行明确授权。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
