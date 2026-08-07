@@ -4,6 +4,15 @@
 > 权威规范：`docs/engineering-guide.md` V1.1
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
+## 工程基线
+
+- `code_baseline`: `ce656b1866e0d65b1def292d26bed9c41474983b`
+- 基线来源：PR #1 以 Squash merge 合入 `master`，提交标题为
+  `fix: unify research control plane and close evidence governance gaps`。
+- 基线范围：统一研究控制面、模型调用预算、语义 Evidence 资格、核心财务来源质量
+  和维度级专业评审 Evidence 治理补修。
+- 基线验收：1067/1067 tests passed，50/50 schemas passed；合并时仓库未配置远端状态检查。
+
 ## 阶段状态
 
 | 阶段 | 状态 | 说明 |
