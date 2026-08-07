@@ -96,6 +96,16 @@ def test_source_nullable_fields_ok():
     assert s.rate_limit is None
 
 
+def test_source_user_only_access_level_matches_registry_contract():
+    source = Source(**valid_source(access_level="user_only"))
+    assert source.access_level == "user_only"
+
+
+def test_source_local_file_reference_storage_policy_matches_registry_contract():
+    source = Source(**valid_source(storage_policy="local_file_reference"))
+    assert source.storage_policy == "local_file_reference"
+
+
 # ---------- 失败 ----------
 
 def test_source_score_out_of_range_fails():

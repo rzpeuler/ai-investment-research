@@ -1,0 +1,107 @@
+version: "1.0.0"
+as_of: "2026-08-07T00:00:00+08:00"
+report_date: "2026-08-07"
+provider_id: deepseek
+required_successes: 2
+cases:
+  - case_id: stable_consumer_600519
+    entity: 600519.SH
+    category: stable_consumer
+    expected_status: success
+    depth: deep
+    documents:
+      - key: fy2023
+        file: data/disclosures/acceptance-source/600519_2023.pdf
+        source_id: cninfo
+        source_url: http://static.cninfo.com.cn/finalpage/2024-04-03/1219506510.PDF
+        publisher: 贵州茅台酒股份有限公司
+        published_at: "2024-04-03T00:00:00+08:00"
+        title: 贵州茅台2023年年度报告
+        report_period_end: "2023-12-31"
+        fiscal_year: 2023
+        unit_scale: 1
+        facts:
+          revenue: {label: 营业收入, value: "147693604994.14", page: 63, statement_type: income_statement}
+          cost_of_sales: {label: 营业成本, value: "11867273851.78", page: 63, statement_type: income_statement}
+          operating_profit: {label: 营业利润, value: "103708655208.38", page: 64, statement_type: income_statement}
+          net_profit: {label: 净利润, value: "77521476277.80", page: 64, statement_type: income_statement}
+          net_profit_attr: {label: 归属于母公司股东的净利润, value: "74734071550.75", page: 64, statement_type: income_statement}
+          total_assets: {label: 资产总计, value: "272699660092.25", page: 59, statement_type: balance_sheet}
+          total_liabilities: {label: 负债合计, value: "49043190797.43", page: 60, statement_type: balance_sheet}
+          equity_attr: {label: 归属于母公司所有者权益合计, value: "215668571607.43", page: 61, statement_type: balance_sheet}
+          operating_cash_flow: {label: 经营活动产生的现金流量净额, value: "66593247721.09", page: 67, statement_type: cash_flow}
+      - key: fy2024
+        file: data/disclosures/acceptance-source/600519_2024.pdf
+        source_id: cninfo
+        source_url: http://static.cninfo.com.cn/finalpage/2025-04-03/1222993920.PDF
+        publisher: 贵州茅台酒股份有限公司
+        published_at: "2025-04-03T00:00:00+08:00"
+        title: 贵州茅台2024年年度报告
+        report_period_end: "2024-12-31"
+        fiscal_year: 2024
+        unit_scale: 1
+        facts:
+          revenue: {label: 营业收入, value: "170899152276.34", page: 63, statement_type: income_statement}
+          cost_of_sales: {label: 营业成本, value: "13789482367.98", page: 63, statement_type: income_statement}
+          operating_profit: {label: 营业利润, value: "119688579453.23", page: 64, statement_type: income_statement}
+          net_profit: {label: 净利润, value: "89334728025.90", page: 64, statement_type: income_statement}
+          net_profit_attr: {label: 归属于母公司股东的净利润, value: "86228146421.62", page: 64, statement_type: income_statement}
+          total_assets: {label: 资产总计, value: "298944579918.70", page: 59, statement_type: balance_sheet}
+          total_liabilities: {label: 负债合计, value: "56933264798.10", page: 60, statement_type: balance_sheet}
+          equity_attr: {label: 归属于母公司所有者权益合计, value: "233105984399.47", page: 61, statement_type: balance_sheet}
+          operating_cash_flow: {label: 经营活动产生的现金流量净额, value: "92463692168.43", page: 67, statement_type: cash_flow}
+
+  - case_id: complex_manufacturing_300750
+    entity: 300750.SZ
+    category: complex_manufacturing
+    expected_status: success
+    depth: deep
+    documents:
+      - key: fy2023
+        file: data/disclosures/acceptance-source/300750_2023.pdf
+        source_id: cninfo
+        source_url: http://static.cninfo.com.cn/finalpage/2024-03-16/1219313047.PDF
+        publisher: 宁德时代新能源科技股份有限公司
+        published_at: "2024-03-16T00:00:00+08:00"
+        title: 2023年年度报告
+        report_period_end: "2023-12-31"
+        fiscal_year: 2023
+        unit_scale: 10000
+        facts:
+          revenue: {label: 营业收入, value: "40091704.49", page: 120, statement_type: income_statement}
+          cost_of_sales: {label: 营业成本, value: "30907043.40", page: 120, statement_type: income_statement}
+          operating_profit: {label: 营业利润, value: "5371830.21", page: 120, statement_type: income_statement}
+          net_profit: {label: 净利润, value: "4676103.45", page: 121, statement_type: income_statement}
+          net_profit_attr: {label: 归属于母公司股东的净利润, value: "4412124.83", page: 121, statement_type: income_statement}
+          total_assets: {label: 资产总计, value: "71716804.11", page: 116, statement_type: balance_sheet}
+          total_liabilities: {label: 负债合计, value: "49728489.05", page: 117, statement_type: balance_sheet}
+          equity_attr: {label: 归属于母公司所有者权益合计, value: "19770805.24", page: 117, statement_type: balance_sheet}
+          operating_cash_flow: {label: 经营活动产生的现金流量净额, value: "9282612.44", page: 124, statement_type: cash_flow}
+      - key: fy2024
+        file: data/disclosures/acceptance-source/300750_2024.pdf
+        source_id: cninfo
+        source_url: http://static.cninfo.com.cn/finalpage/2025-03-15/1222806982.PDF
+        publisher: 宁德时代新能源科技股份有限公司
+        published_at: "2025-03-15T00:00:00+08:00"
+        title: 2024年年度报告
+        report_period_end: "2024-12-31"
+        fiscal_year: 2024
+        unit_scale: 1000
+        facts:
+          revenue: {label: 营业收入, value: "362012554", page: 119, statement_type: income_statement}
+          cost_of_sales: {label: 营业成本, value: "273518959", page: 119, statement_type: income_statement}
+          operating_profit: {label: 营业利润, value: "64051799", page: 120, statement_type: income_statement}
+          net_profit: {label: 净利润, value: "54006794", page: 120, statement_type: income_statement}
+          net_profit_attr: {label: 归属于母公司股东的净利润, value: "50744682", page: 120, statement_type: income_statement}
+          total_assets: {label: 资产总计, value: "786658123", page: 115, statement_type: balance_sheet}
+          total_liabilities: {label: 负债合计, value: "513201949", page: 116, statement_type: balance_sheet}
+          equity_attr: {label: 归属于母公司所有者权益合计, value: "246930033", page: 116, statement_type: balance_sheet}
+          operating_cash_flow: {label: 经营活动产生的现金流量净额, value: "96990345", page: 123, statement_type: cash_flow}
+
+  - case_id: controlled_missing_688981
+    entity: 688981.SH
+    category: controlled_missing
+    expected_status: insufficient_data
+    expected_missing: financial_file
+    depth: deep
+    documents: []

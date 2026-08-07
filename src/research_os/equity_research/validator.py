@@ -1,6 +1,6 @@
 """Phase 4 跨对象 Validator（任务书 3.22，独立验收修复版）。
 
-规则编号 ERV-001—ERV-079，输出 pass / pass_with_warnings / fail。
+规则编号 ERV-001—ERV-093，输出 pass / pass_with_warnings / fail。
 error 阻止报告 PASS；warning 可 pass_with_warnings；合法降级须明确状态。
 全部为确定性代码，不使用 LLM。
 
@@ -12,10 +12,14 @@ error 阻止报告 PASS；warning 可 pass_with_warnings；合法降级须明确
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+from research_os.utils.time import parse_iso
 
 FORBIDDEN_WORDS = [
     "目标价", "买入评级", "卖出评级", "增持评级", "减持评级",
@@ -237,7 +241,7 @@ def check_llm_not_edit_financials(issues: List[ValidationIssue], fact: Dict[str,
 
 def check_peer_cutoff(issues: List[ValidationIssue], peer: Dict[str, Any], as_of: str) -> None:
     """ERV-028：同行 information_cutoff 不晚于研究截止时间。"""
-    if peer.get("information_cutoff", "9999-12-31T00:00:00") > as_of:
+    if _is_after(peer.get("information_cutoff", "9999-12-31T00:00:00"), as_of):
         issues.append(ValidationIssue("ERV-028", "error", "同行 information_cutoff 晚于研究截止时间", peer.get("peer_candidate_id")))
 
 
@@ -458,7 +462,7 @@ def check_evidence_qualified(issues: List[ValidationIssue], finding: Dict[str, A
             issues.append(ValidationIssue("ERV-043", "error", f"FACT 引用不存在的 Evidence: {eid}", finding.get("finding_id")))
             continue
         published = ev.get("published_at") or ""
-        if published and as_of and published > as_of:
+        if _is_after(published, as_of):
             issues.append(ValidationIssue("ERV-043", "error", "Evidence 披露时间晚于 as_of", finding.get("finding_id")))
         if ev.get("source_tier") in ("C", "D") and finding.get("support_level") == "direct":
             severity = "error" if finding.get("materiality") == "high" else "warning"
@@ -615,6 +619,82 @@ def check_semantic_route_contract(issues: List[ValidationIssue], findings: List[
                                               item.get("finding_id") or item.get("claim_id")))
 
 
+def check_full_semantic_contract(
+    issues: List[ValidationIssue], *, result: Optional[Dict[str, Any]],
+    findings: List[Dict[str, Any]], catalysts: List[Dict[str, Any]],
+    risks: List[Dict[str, Any]], evidences: List[Dict[str, Any]],
+    raw_items: List[Dict[str, Any]], semantic_records: List[Dict[str, Any]], as_of: str,
+) -> None:
+    """ERV-088—093：七任务、真实 Provider、实体/时间和任务级业务资格。"""
+    required_tasks = {
+        "business_description_normalization", "management_statement_summary",
+        "competitive_factor_candidates", "catalyst_candidates", "risk_candidates",
+        "counter_evidence_organizing", "research_questions",
+    }
+    successful = {
+        record.get("task_name") for record in semantic_records
+        if record.get("llm_called") and record.get("validation_status") == "pass"
+    }
+    success_claimed = bool(result and result.get("research_status") == "success")
+    if success_claimed and successful != required_tasks:
+        issues.append(ValidationIssue(
+            "ERV-088", "error", f"success 必须由真实调用完成七个语义任务，缺失: {sorted(required_tasks - successful)}"))
+    if success_claimed and any(
+        "fake" in str(record.get("provider") or "").lower()
+        or "fake" in str(record.get("model") or "").lower()
+        for record in semantic_records if record.get("task_name") in required_tasks
+    ):
+        issues.append(ValidationIssue("ERV-089", "error", "Fake Provider 不得满足完整 success"))
+
+    evidence_by_id = {item.get("evidence_id"): item for item in evidences}
+    raw_by_id = {item.get("raw_item_id"): item for item in raw_items}
+    company_id = (result or {}).get("company_entity_id")
+    for record in semantic_records:
+        for evidence_id in record.get("input_evidence_ids") or []:
+            evidence = evidence_by_id.get(evidence_id)
+            raw = raw_by_id.get((evidence or {}).get("raw_item_id"))
+            if (
+                evidence is None or raw is None
+                or _is_after(evidence.get("published_at", ""), as_of)
+                or (company_id and company_id not in (raw.get("entities") or []))
+            ):
+                issues.append(ValidationIssue(
+                    "ERV-090", "error", "语义任务输入 Evidence 不存在、实体不符或晚于 as_of",
+                    record.get("task_name")))
+
+    by_task = {
+        (finding.get("model_route") or {}).get("task_name"): finding
+        for finding in findings if (finding.get("model_route") or {}).get("task_name")
+    }
+    management = by_task.get("management_statement_summary")
+    if management:
+        obj = management.get("object") or {}
+        required = {"speaker", "role", "published_at", "statement", "topic", "company_view", "possible_bias"}
+        if (
+            not required <= set(obj) or not management.get("evidence_ids")
+            or _is_after(obj.get("published_at", ""), as_of)
+        ):
+            issues.append(ValidationIssue("ERV-091", "error", "管理层陈述缺说话者、时间、偏差或 Evidence"))
+    for item in [*catalysts, *risks]:
+        if item.get("source_phase") == "phase4" and (
+            item.get("claim_type") == "FACT" or not item.get("evidence_ids")
+            or (company_id and item.get("company_entity_id") != company_id)
+        ):
+            issues.append(ValidationIssue(
+                "ERV-092", "error", "模型催化剂/风险不得创建 FACT，且必须具备同实体 Evidence",
+                item.get("catalyst_id") or item.get("risk_id")))
+    counter = by_task.get("counter_evidence_organizing")
+    if counter:
+        obj = counter.get("object") or {}
+        if (
+            not counter.get("counter_evidence_ids")
+            or not obj.get("challenged_claim") or not obj.get("unresolved_difference")
+            or not obj.get("next_verification_data")
+            or counter.get("statement", "").strip() == str(obj.get("challenged_claim", "")).strip()
+        ):
+            issues.append(ValidationIssue("ERV-093", "error", "反证资格不完整或只是原主张改写"))
+
+
 def check_market_debate_contract(issues: List[ValidationIssue], market_debate: Dict[str, Any],
                                  evidence_ids: set) -> None:
     """市场主要矛盾中的多空主张必须保持结构化证据引用。"""
@@ -721,11 +801,20 @@ def check_block_reference(issues: List[ValidationIssue], blocks: List[Dict[str, 
 
 # ---------- 时间、复用和报告（ERV-053—070） ----------
 
+def _is_after(value: str, cutoff: str) -> bool:
+    """按统一上海时间语义比较 ISO 时间；格式错误由 Schema 规则负责报告。"""
+    if not value or not cutoff:
+        return False
+    try:
+        return parse_iso(value) > parse_iso(cutoff)
+    except ValueError:
+        return False
+
 def check_no_future_info(issues: List[ValidationIssue], item: Dict[str, Any], as_of: str) -> None:
-    """ERV-053：不得引用 as_of 之后的信息。"""
+    """ERV-053：信息时点不得晚于 as_of；处理产物 created_at 不属于信息时点。"""
     published = (item.get("published_at") or item.get("as_of")
-                 or item.get("valid_from") or item.get("created_at") or "")
-    if published and published > as_of:
+                 or item.get("valid_from") or "")
+    if _is_after(published, as_of):
         issues.append(ValidationIssue("ERV-053", "error", "引用 as_of 之后的信息",
                                       item.get("id") or item.get("event_id") or item.get("fact_id")))
 
@@ -771,6 +860,128 @@ def check_idempotent_no_duplicate(issues: List[ValidationIssue], runs: List[Dict
         if key in seen:
             issues.append(ValidationIssue("ERV-070", "error", "幂等命中重复写入", r.get("run_id")))
         seen.add(key)
+
+
+def check_core_financial_official_lineage(
+    issues: List[ValidationIssue], facts: List[Dict[str, Any]],
+    documents: List[Dict[str, Any]], blocks: List[Dict[str, Any]],
+    evidences: List[Dict[str, Any]], as_of: str, requested_at: str,
+    result: Optional[Dict[str, Any]],
+) -> None:
+    """ERV-080—087：核心财务官方原件、locator、数值、时间和审计血缘。"""
+    from research_os.financials.evidence_binding import CORE_FINANCIAL_CODES
+
+    document_by_id = {d.get("document_id"): d for d in documents if d.get("document_id")}
+    block_by_id = {b.get("block_id"): b for b in blocks if b.get("block_id")}
+    evidence_by_id = {e.get("evidence_id"): e for e in evidences if e.get("evidence_id")}
+    success_claimed = bool(result and result.get("research_status") == "success")
+    core_facts = [
+        fact for fact in facts
+        if fact.get("taxonomy_code") in CORE_FINANCIAL_CODES
+        and fact.get("value_status") in {"reported", "derived_from_report"}
+    ]
+    present_codes = {fact.get("taxonomy_code") for fact in core_facts}
+    missing_codes = sorted(set(CORE_FINANCIAL_CODES) - present_codes)
+    if success_claimed and missing_codes:
+        issues.append(ValidationIssue(
+            "ERV-080", "error", f"success 缺适用核心财务科目: {missing_codes}"))
+    qualified = 0
+    for fact in core_facts:
+        fact_id = fact.get("fact_id")
+        document_id = fact.get("source_document_id")
+        block_ids = list(fact.get("source_block_ids") or [])
+        evidence_ids = list(fact.get("evidence_ids") or [])
+        if not document_id or not block_ids or not evidence_ids:
+            if success_claimed:
+                issues.append(ValidationIssue(
+                    "ERV-080", "error", "success 的核心财务事实缺官方文档、block 或 Evidence", fact_id))
+            continue
+
+        valid = True
+        document = document_by_id.get(document_id)
+        if document is None:
+            issues.append(ValidationIssue("ERV-080", "error", "核心财务事实引用不存在的官方文档", fact_id))
+            continue
+        local_path = Path(document.get("local_path") or "")
+        checksum = document.get("sha256") or ""
+        actual_checksum = ""
+        if local_path.is_file():
+            actual_checksum = hashlib.sha256(local_path.read_bytes()).hexdigest()
+        if (
+            not document.get("source_url")
+            or len(checksum) != 64
+            or not local_path.is_file()
+            or actual_checksum != checksum
+        ):
+            issues.append(ValidationIssue("ERV-081", "error", "官方文档 URL、文件或 checksum 不可复核", fact_id))
+            valid = False
+        if document.get("company_entity_id") != fact.get("company_entity_id"):
+            issues.append(ValidationIssue("ERV-085", "error", "官方文档与财务事实实体不一致", fact_id))
+            valid = False
+        if document.get("report_period_end") and document.get("report_period_end") != fact.get("period_end"):
+            issues.append(ValidationIssue("ERV-085", "error", "官方文档与财务事实报告期不一致", fact_id))
+            valid = False
+        if _is_after(document.get("published_at", ""), as_of):
+            issues.append(ValidationIssue("ERV-085", "error", "官方财务文档披露时间晚于 as_of", fact_id))
+            valid = False
+
+        matched_block = next(
+            (block_by_id.get(block_id) for block_id in block_ids
+             if block_by_id.get(block_id, {}).get("document_id") == document_id),
+            None,
+        )
+        payload = (matched_block or {}).get("normalized_payload") or {}
+        if matched_block is None or not payload.get("locator_kind") or not matched_block.get("page_start"):
+            issues.append(ValidationIssue("ERV-082", "error", "核心财务 block 缺失、跨文档或无有效 locator", fact_id))
+            valid = False
+        else:
+            try:
+                block_value = Decimal(str(payload.get("reported_raw_value")))
+                fact_value = Decimal(str(fact.get("raw_value") or fact.get("normalized_value")))
+            except (InvalidOperation, TypeError, ValueError):
+                block_value = fact_value = None
+            if (
+                block_value is None or block_value != fact_value
+                or payload.get("taxonomy_code") != fact.get("taxonomy_code")
+                or payload.get("period_end") != fact.get("period_end")
+                or payload.get("document_checksum") != checksum
+                or payload.get("source_url") != document.get("source_url")
+            ):
+                issues.append(ValidationIssue("ERV-084", "error", "locator 数值或文档元数据与 FinancialFact 不一致", fact_id))
+                valid = False
+            if (
+                payload.get("confirmation_status") not in {"confirmed", "corrected"}
+                or not payload.get("confirmed_by") or not payload.get("confirmed_at")
+                or (payload.get("confirmation_status") == "corrected" and not payload.get("correction_reason"))
+            ):
+                issues.append(ValidationIssue("ERV-086", "error", "人工确认或校正审计记录不完整", fact_id))
+                valid = False
+            elif _is_after(payload.get("confirmed_at", ""), requested_at):
+                issues.append(ValidationIssue(
+                    "ERV-086", "error", "人工确认时间晚于 requested_at", fact_id))
+                valid = False
+
+        official_evidence = [
+            evidence_by_id[eid] for eid in evidence_ids
+            if eid in evidence_by_id
+            and evidence_by_id[eid].get("source_tier") in {"S", "A"}
+            and evidence_by_id[eid].get("evidence_type") == "official_disclosure"
+            and evidence_by_id[eid].get("source_id") == document.get("source_id")
+            and evidence_by_id[eid].get("url") == document.get("source_url")
+        ]
+        if not official_evidence:
+            issues.append(ValidationIssue("ERV-083", "error", "核心财务事实缺同源 S/A 官方披露 Evidence", fact_id))
+            valid = False
+        elif any(_is_after(evidence.get("published_at", ""), as_of)
+                 for evidence in official_evidence):
+            issues.append(ValidationIssue("ERV-085", "error", "核心财务 Evidence 晚于 as_of", fact_id))
+            valid = False
+        if valid:
+            qualified += 1
+
+    if success_claimed and (not core_facts or qualified != len(core_facts)):
+        issues.append(ValidationIssue(
+            "ERV-087", "error", "Tier C 或无关 S/A Evidence 不得满足 success 的核心财务来源质量"))
 
 
 # ---------- 主入口 ----------
@@ -883,6 +1094,9 @@ def validate_equity_research(
     check_metric_recompute(issues, metrics, facts, reports)  # ERV-018—022
     check_restatement_kept(issues, reports)
     check_conflict_not_silenced(issues, facts)
+    check_core_financial_official_lineage(
+        issues, facts, documents, blocks, evidences, as_of,
+        (request or {}).get("requested_at", ""), result)
 
     # ERV-028—040：同行与估值
     for p in peers:
@@ -908,7 +1122,8 @@ def validate_equity_research(
         check_model_inference_requires_call(issues, f)
         check_fallback_no_inference(issues, f)  # ERV-045
         check_hypothesis_has_failure_condition(issues, f)
-        check_unknown_not_negative(issues, f.get("statement", ""), f.get("finding_id", ""))
+        if f.get("claim_type") == "UNKNOWN":
+            check_unknown_not_negative(issues, f.get("statement", ""), f.get("finding_id", ""))
         check_block_evidence_link(issues, f, block_by_id)  # ERV-052
     for factor in factors or []:
         check_management_only(issues, factor)
@@ -930,12 +1145,17 @@ def validate_equity_research(
     check_research_status_contract(issues, result)
     if semantic_validation_requested:
         check_semantic_route_contract(issues, findings, claims, run, semantic_records or [])
+        check_full_semantic_contract(
+            issues, result=result, findings=findings, catalysts=catalysts, risks=risks,
+            evidences=evidences, raw_items=raw_items,
+            semantic_records=semantic_records or [], as_of=as_of,
+        )
     if market_debate is not None:
         check_market_debate_contract(issues, market_debate, evidence_id_set)
     for s in scenarios:
         check_assumption_has_source(issues, s)  # ERV-047
 
-    # ERV-053：未来信息污染（facts/blocks/findings/reports/evidence 全部覆盖）
+    # ERV-053：未来信息污染（处理/确认产物的 created_at 不与研究 as_of 绑定）
     if as_of:
         for f in findings:
             check_no_future_info(issues, f, as_of)

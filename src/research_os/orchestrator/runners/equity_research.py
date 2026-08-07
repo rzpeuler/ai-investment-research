@@ -60,7 +60,15 @@ class EquityResearchScenarioRunner:
             ephemeral_db.initialize()
             db = ephemeral_db
         try:
-            outcome = EquityResearchPipeline(context["project_root"], db).run(payload)
+            llm_client = None
+            if payload.get("live") and payload.get("financial_files"):
+                from research_os.llm.client import LlmClient
+                from research_os.llm.provider_factory import create_provider
+
+                provider = create_provider(context["project_root"], live=True)
+                llm_client = LlmClient(provider=provider, configured=True, db=db)
+            outcome = EquityResearchPipeline(
+                context["project_root"], db, llm_client=llm_client).run(payload)
         finally:
             if ephemeral_db is not None:
                 ephemeral_db.close()

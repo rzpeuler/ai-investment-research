@@ -187,6 +187,24 @@ ROIC 对金融企业 not_applicable；周期企业 PE 仅作观察并提示周�
 
 首批三个核心场景必须经显式场景注册表和统一 Orchestrator 执行。晨报和 Phase 4 的
 关键事实必须保持 RawItem→Evidence→Claim→派生对象→Markdown 血缘。Phase 4 完整成功
-采用集中、版本化多维覆盖判定，不再仅看可比年度数量。当前结论为：工程基础 PASS、
-完整研究能力 PARTIAL_SUCCESS、Phase 5 BLOCKED；真实语义最低覆盖和其余准入条件未
-同时满足前不得改变该边界。
+采用集中、版本化多维覆盖判定，不再仅看可比年度数量。本决策下达时的结论为：工程基础
+PASS、完整研究能力 PARTIAL_SUCCESS、Phase 5 BLOCKED；后续状态变化必须由真实验收
+证据和独立签字支持，不能仅以实现或测试数量改变边界。
+
+## 29. Phase 4.1 真实能力补齐边界（2026-08-07）
+
+首个生产 Provider 固定为配置化 `deepseek` 适配器：API Key 只读取
+`DEEPSEEK_API_KEY`，OpenAI-compatible Chat Completions Base URL 和 Flash/Pro 模型 ID
+只存在于 Provider 配置层。业务 Pipeline 不得旁路 `LlmClient`，真实网络调用必须显式
+`--live`，dry-run 优先且不得联网。Provider 故障与业务 Pro 升级分离；每次实际调用计入
+共享任务预算并经过统一脱敏。
+
+Phase 4 完整成功所依赖的核心财务事实必须能反查官方原件、DocumentRecord、有效
+DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无关 S/A 事件不能
+提升核心财务来源质量。辅助导入允许人工确认字段映射，但必须保留原值、校正和定位审计。
+
+完整研究能力必须覆盖业务描述、管理层陈述、竞争因素、催化剂、风险、反证和研究问题
+七个正式语义任务。Fake Provider、仅配置 Provider、章节非空或模型返回 JSON 均不等价于
+真实覆盖。两个真实成功案例和一个预期降级案例已通过执行 Agent 的本地真实验收，当前
+结论为 `READY_FOR_INDEPENDENT_ACCEPTANCE`；独立验收签字前 Phase 4 full capability
+仍保持 `PARTIAL_SUCCESS`，Phase 5 保持 `BLOCKED`。Phase 4.1 不授权任何 Phase 5 实现。

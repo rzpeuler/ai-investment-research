@@ -12,6 +12,7 @@ Phase 0 不实现任何网页抓取；probe-sources 仅输出 stub 健康状态�
 from __future__ import annotations
 
 import os
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -142,6 +143,84 @@ def validate(report_path, check_schemas) -> None:
     if failed:
         raise SystemExit(1)
     click.echo(f"[OK] 全部 {len(SCHEMA_NAMES)} 个 Schema 通过")
+
+
+@cli.group("llm")
+def llm_group() -> None:
+    """LLM Provider 配置与显式在线探测。"""
+
+
+@llm_group.command("probe")
+@click.option("--provider", "provider_id", default="deepseek", show_default=True,
+              help="已登记 Provider ID。")
+@click.option("--model-class", default="flash", show_default=True,
+              type=click.Choice(["flash", "pro"]), help="探测逻辑模型等级。")
+@click.option("--live", is_flag=True, help="显式允许一次低成本 Provider 网络调用。")
+def llm_probe(provider_id, model_class, live) -> None:
+    """输出脱敏 Provider 探测摘要；无 --live 时绝不访问网络。"""
+    from research_os.llm.probe import probe_provider
+
+    root = _project_root()
+    try:
+        result = probe_provider(
+            root, provider_id=provider_id, model_class=model_class, live=live)
+    except (KeyError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from None
+    click.echo(json.dumps(result.model_dump(), ensure_ascii=False, sort_keys=True))
+    if live and not result.reachable:
+        raise SystemExit(1)
+
+
+@cli.group("documents")
+def documents_group() -> None:
+    """官方披露文档的受控导入。"""
+
+
+@documents_group.command("import-disclosure")
+@click.option("--entity", "entity_code", required=True,
+              help="股票代码（如 600519.SH）。")
+@click.option("--file", "file_path", required=True,
+              type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--source-id", required=True, help="已登记官方来源 ID，如 cninfo。")
+@click.option("--source-url", required=True, help="官方原始文件 URL。")
+@click.option("--publisher", required=True, help="披露发布者。")
+@click.option("--published-at", required=True, help="披露时间 ISO-8601。")
+@click.option("--document-type", required=True,
+              type=click.Choice([
+                  "annual_report", "interim_report", "quarterly_report", "announcement",
+                  "inquiry_letter", "inquiry_response", "prospectus", "ir_record",
+                  "audit_report", "other",
+              ]))
+@click.option("--title", default=None, help="文档标题（默认原文件名）。")
+@click.option("--report-period-end", default=None, help="报告期末 YYYY-MM-DD。")
+@click.option("--fiscal-year", type=int, default=None, help="财年。")
+def import_disclosure_command(
+    entity_code, file_path, source_id, source_url, publisher, published_at,
+    document_type, title, report_period_end, fiscal_year,
+) -> None:
+    """导入已下载的官方原件并生成 Document/RawItem/Evidence。"""
+    import re as _re
+
+    from research_os.documents import import_disclosure
+    from research_os.storage import Database
+
+    if not _re.match(r"^\d{6}\.(SH|SZ|BJ)$", entity_code):
+        _param_error(f"股票代码非法: {entity_code!r}")
+    root = _project_root()
+    db = Database(root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    try:
+        result = import_disclosure(
+            root, db, entity_code=f"company:{entity_code}", file_path=file_path,
+            source_id=source_id, source_url=source_url, publisher=publisher,
+            published_at=published_at, document_type=document_type, title=title,
+            report_period_end=report_period_end, fiscal_year=fiscal_year,
+        )
+    except (FileNotFoundError, KeyError, ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+    click.echo(json.dumps(result.model_dump(), ensure_ascii=False, sort_keys=True))
 
 @cli.command()
 @click.option("--all", "probe_all", is_flag=True, default=False, help="探测注册表全部来源。")
@@ -509,14 +588,16 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
               help="启用情景预测（默认关闭；无 Scenario 时拒绝）。")
 @click.option("--financial-file", "financial_files", multiple=True,
               help="财务文件路径（CSV/JSON/XLSX，可重复）。")
+@click.option("--financial-binding", "financial_bindings", multiple=True,
+              help="官方财务 locator 绑定清单 JSON（可重复）。")
 @click.option("--document", "documents", multiple=True, help="文档路径（PDF/HTML，可重复）。")
 @click.option("--market-file", "market_file", default=None, help="市值/股本/价格输入文件。")
 @click.option("--force", is_flag=True, help="已存在时强制重跑（新 run_version，不覆盖旧产物）。")
 @click.option("--dry-run", is_flag=True, help="只预览能力/路径/计划/数据缺口，零副作用。")
-@click.option("--live", is_flag=True, help="只允许调用已批准来源（本阶段无已批准自动来源）。")
+@click.option("--live", is_flag=True, help="显式启用已批准的 DeepSeek Provider 网络调用。")
 def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
                         scenario_ids, include_valuation, include_forecast,
-                        financial_files, documents, market_file, force, dry_run,
+                        financial_files, financial_bindings, documents, market_file, force, dry_run,
                         live) -> None:
     """个股研报流水线（Phase 4）。
 
@@ -536,8 +617,6 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
         _param_error("--periods 必须在 2-10 之间")
     if include_forecast and not scenario_ids:
         _param_error("--include-forecast 需要 --scenario（无 Scenario 时明确拒绝）")
-    if live:
-        _param_error("--live 只允许已批准来源；本阶段无已批准自动来源")
     if as_of and report_date and as_of[:10] > report_date:
         _param_error("--as-of 不得晚于 --date")
 
@@ -551,6 +630,7 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
             "include_valuation": include_valuation,
             "include_forecast": include_forecast,
             "financial_files": list(financial_files),
+            "financial_bindings": list(financial_bindings),
             "documents": list(documents),
             "market_file": market_file,
             "force": force, "dry_run": dry_run, "live": live,

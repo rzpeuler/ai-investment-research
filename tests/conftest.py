@@ -14,3 +14,21 @@ if str(PROJECT_ROOT) not in sys.path:
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--live", action="store_true", default=False,
+        help="显式允许 tests/online 中受控的真实网络测试",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    import pytest
+
+    if config.getoption("--live"):
+        return
+    skip_live = pytest.mark.skip(reason="在线测试默认跳过；使用 --live 显式启用")
+    for item in items:
+        if "online" in item.keywords:
+            item.add_marker(skip_live)

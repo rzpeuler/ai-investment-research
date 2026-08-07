@@ -118,6 +118,13 @@ class TestCsvImport:
         persist_import(db, res2)
         assert db.count("financial_data_manifests") == 1
         assert db.count("financial_facts") == 3
+        assert res2.manifest.manifest_id == res.manifest.manifest_id
+        assert {report.financial_report_id for report in res2.reports} == {
+            report.financial_report_id for report in res.reports
+        }
+        assert {row.fact.fact_id for row in res2.rows if row.fact} == {
+            row.fact.fact_id for row in res.rows if row.fact
+        }
         db.close()
 
     def test_all_rejected_not_persisted(self, tmp_path):

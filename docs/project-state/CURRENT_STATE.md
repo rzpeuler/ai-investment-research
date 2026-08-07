@@ -1,6 +1,6 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-07（本地修复复验）
+> 更新日期：2026-08-07（Phase 4.1 独立验收通过）
 > 权威规范：`docs/engineering-guide.md` V1.1
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -12,6 +12,10 @@
 - 基线范围：统一研究控制面、模型调用预算、语义 Evidence 资格、核心财务来源质量
   和维度级专业评审 Evidence 治理补修。
 - 基线验收：1067/1067 tests passed，50/50 schemas passed；合并时仓库未配置远端状态检查。
+- Phase 4.1 当前代码里程碑：`7a515a4`；真实验收产物位于 Git 忽略的本地 `reports/`，
+  版本化验收清单位于 `config/equity_research_acceptance.yaml`。
+- Phase 4.1 独立验收 SHA：`9506f6a19ab60187d1ab0bc4991cfa427606ecae`；验收结论
+  `INDEPENDENT_ACCEPTANCE: PASS`，PR #3 `MERGE_READY`，合并方式为 Squash。
 
 ## 阶段状态
 
@@ -22,7 +26,7 @@
 | Phase 2 | PASS | 晨报已形成真实 RawItem→Evidence→Claim→EventCluster→Markdown 链路 |
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
-| Phase 4 full research capability | PARTIAL_SUCCESS | 未配置真实 Provider，自动来源及业务/行业竞争/风险/催化剂/反证/市场主要矛盾仍可能缺失；运行时按实际覆盖降级 |
+| Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
 | Phase 5 | BLOCKED | 未满足全部解锁条件，不得开始产业图谱实现或自动批准 |
 
 ## 2026-08-07 修复后的关键事实
@@ -45,27 +49,47 @@
   无关 S/A 事件不能掩盖 Tier C 核心财务来源。
 - 专业评审为确定性 0—5 分制，各维度只引用相关支持/反证 Evidence，不使用通用前五条兜底。
 
+## Phase 4.1 真实能力证据
+
+- DeepSeek `deepseek-v4-flash` 通过真实 probe 和结构化调用；API Key 仅从
+  `DEEPSEEK_API_KEY` 读取，调用记录和验收摘要不保存密钥、Prompt 或响应全文。
+- 巨潮资讯通过真实元数据检索、官方 PDF 定位、下载与 checksum 验证；四份年报原件
+  默认不提交 Git。
+- 600519.SH：`SUCCESS`，7/7 必需语义任务，Flash 7 / Pro 0，2 份官方年报，18 项
+  核心财务事实全部可反查 locator，Validator `pass_with_warnings`，正文禁止项 0 命中。
+- 300750.SZ：`SUCCESS`，7/7 必需语义任务，Flash 7 / Pro 0，2 份官方年报；2023
+  万元与 2024 千元经确定性标准化后复算通过，Validator `pass_with_warnings`，禁止项 0 命中。
+- 688981.SH：受控缺失财务文件，`INSUFFICIENT_DATA`，Flash/Pro 均为 0，未被提升为 success。
+- 本轮定向复验将研究截止点固定为 `2026-08-07T00:00:00+08:00`，每个案例开始时
+  捕获一次真实确认时间；36 个 locator 的 `confirmed_at` 均不晚于对应 `requested_at`，
+  不再与 `as_of` 伪绑定。未来 `as_of` 仅允许最多 5 秒时钟误差。
+- CNINFO 默认发现和健康检查窗口均按上海时区动态计算最近 5 个自然日；显式历史窗口
+  继续严格尊重调用方输入，不含固定生产年份。
+- 在线过程中观察到 Provider 间歇性超时；失败运行均受共享 8/1 预算约束并合法降级，
+  不能复用成功案例状态掩盖新的调用失败。
+
 ## 数据与模型现状
 
 - 自动财务源、自动历史日线、通用 PDF 表格/OCR 和完整行业/同行数据仍未验证或未接入。
-- 真实 LLM Provider 未配置；Fake Provider 只用于离线链路测试，不能作为生产调用成功声明。
+- DeepSeek 已配置并真实验证；默认离线测试仍使用 Fake Provider，真实调用必须显式 `--live`。
 - 人工财务导入属于 Tier C，不等价于法定披露原件；来源质量不足会导致 `degraded`。
 - 报告的 `report_date`、`as_of`、`requested_at` 分开记录；默认日期使用上海时区，
   未显式给出 as_of 时标记为 `query_cutoff`，不能冒充实际数据日期。
 
 ## 当前准入结论
 
-Phase 4 的工程基础已达到可执行、可追溯和可降级标准，但完整研究能力仍依赖真实语义
-Provider 与更多高质量结构化来源。当前不得把 Phase 4 写成单一完整 PASS；Phase 5 继续
-`BLOCKED`。本次精确测试数字以完成报告中的实际命令输出为准，不以历史测试数量代替验收。
+Phase 4.1 已完成独立验收，结论为 `PASS`，验收 SHA 为
+`9506f6a19ab60187d1ab0bc4991cfa427606ecae`。Phase 5 继续 `BLOCKED`，在正式任务书和
+明确授权完成前不得实施。
 
-## 2026-08-07 定向补修验收
+## 2026-08-07 最终工程与在线验收
 
-- 全量测试：`python -m pytest -q`，1067 collected / 1067 passed，0 failed；
-- Schema：`python -m research_os.cli.main validate`，50/50 通过；
+- 全量测试：`python -m pytest`，1136 collected / 1131 passed / 5 online skipped / 0 failed；
+- Schema：`python -m research_os.cli.main validate`，51/51 通过；
 - 编译：`python -m compileall -q src tests` 通过；
 - 补丁格式：`git diff --check` 通过（仅 Windows LF→CRLF 提示）。
+- 在线定向：修正时间语义后三个 Phase 4.1 验收案例在同一显式 `--live` 运行中 3/3 通过
+  并重新生成脱敏摘要；此前 DeepSeek probe、巨潮元数据与 PDF 下载测试继续有效。
 
-本轮四个工程 BLOCKER 已由实现与回归测试关闭，Phase 4 engineering foundation 保持
-`PASS`。真实 Provider、高质量核心财务原件及完整研究覆盖仍未满足，因此 Phase 4 full
-research capability 保持 `PARTIAL_SUCCESS`，Phase 5 保持 `BLOCKED`。
+Phase 4 engineering foundation 与 full research capability 均为 `PASS`，Phase 4 正式收口；
+Phase 5 保持 `BLOCKED`，下一步仅可制定正式任务书，不得提前实施。

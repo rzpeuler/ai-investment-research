@@ -36,6 +36,8 @@ MetricPeriodBasis = Literal["annual", "interim", "single_quarter", "ttm", "point
 MetricStatus = Literal["valid", "missing", "not_applicable", "zero_denominator", "conflict", "insufficient_sample"]
 SectorApplicability = Literal["general", "non_financial", "financial", "cyclical"]
 MetricInputPeriodRole = Literal["current", "start", "end", "comparable"]
+LocatorKind = Literal["page", "table", "row", "column", "cell", "section", "text_offset", "structured_field"]
+ConfirmationStatus = Literal["confirmed", "corrected"]
 
 
 def _check_time(value: Any, field: str) -> Any:
@@ -110,6 +112,78 @@ class FinancialDataManifest(StrictModel):
         if value is not None and (len(value) != 3 or not value.isalpha() or not value.isupper()):
             raise ValueError(f"币种必须为 ISO 4217 三位大写: {value!r}")
         return value
+
+
+class FinancialFactLocator(StrictModel):
+    """人工复核后的官方原件财务定位输入；数值仍由确定性代码核对。"""
+
+    taxonomy_code: str
+    period_end: str
+    statement_scope: StatementScope = "consolidated"
+    document_id: str
+    document_evidence_id: str
+    locator_kind: LocatorKind
+    page_start: int = Field(..., ge=1)
+    page_end: int = Field(..., ge=1)
+    section_path: List[str] = Field(default_factory=list)
+    table_id: Optional[str] = None
+    row_index: Optional[int] = Field(None, ge=0)
+    column_index: Optional[int] = Field(None, ge=0)
+    cell_reference: Optional[str] = None
+    text_start: Optional[int] = Field(None, ge=0)
+    text_end: Optional[int] = Field(None, ge=0)
+    structured_field: Optional[str] = None
+    source_excerpt: str = Field(..., min_length=1)
+    reported_raw_value: str
+    currency: str
+    unit_scale: int = Field(..., gt=0)
+    confirmation_status: ConfirmationStatus
+    confirmed_by: str = Field(..., min_length=1)
+    confirmed_at: str
+    correction_reason: Optional[str] = None
+
+    @field_validator("period_end")
+    @classmethod
+    def _v_locator_period(cls, value: str) -> str:
+        return _check_date(value, "period_end")
+
+    @field_validator("reported_raw_value")
+    @classmethod
+    def _v_locator_value(cls, value: Any) -> Any:
+        return _check_decimal(value, "reported_raw_value")
+
+    @field_validator("currency")
+    @classmethod
+    def _v_locator_currency(cls, value: str) -> str:
+        if len(value) != 3 or not value.isalpha() or not value.isupper():
+            raise ValueError(f"币种必须为 ISO 4217 三位大写: {value!r}")
+        return value
+
+    @field_validator("confirmed_at")
+    @classmethod
+    def _v_confirmed_at(cls, value: Any) -> Any:
+        return _check_time(value, "confirmed_at")
+
+
+class FinancialEvidenceBindingManifest(StrictModel):
+    """一份官方文档到若干财务事实的定位和复核清单。"""
+
+    binding_version: str
+    company_entity_id: str
+    as_of: str
+    locators: List[FinancialFactLocator] = Field(..., min_length=1)
+
+    @field_validator("company_entity_id")
+    @classmethod
+    def _v_binding_company(cls, value: str) -> str:
+        if not value.startswith("company:"):
+            raise ValueError(f"company_entity_id 必须以 company: 开头: {value!r}")
+        return value
+
+    @field_validator("as_of")
+    @classmethod
+    def _v_binding_as_of(cls, value: Any) -> Any:
+        return _check_time(value, "as_of")
 
 
 class FinancialReport(StrictModel):

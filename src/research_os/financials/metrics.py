@@ -268,10 +268,19 @@ def recompute_from_lineage(metric: dict, facts: List[dict], reports: Optional[Li
         errors.append("input_fact_ids 与参数绑定不一致")
     bound_facts = [facts_by_id.get(b.get("fact_id")) for b in raw_bindings]
     bound_facts = [f for f in bound_facts if f]
-    for field in ("company_entity_id", "statement_scope", "currency", "unit_scale"):
+    for field in ("company_entity_id", "statement_scope", "currency"):
         values_for_field = {f.get(field) for f in bound_facts}
         if len(values_for_field) > 1:
             errors.append(f"公式输入事实的 {field} 口径混用")
+    unit_scales = {f.get("unit_scale") for f in bound_facts}
+    if len(unit_scales) > 1:
+        normalized_units = {f.get("normalized_unit") for f in bound_facts}
+        if (
+            len(normalized_units) != 1
+            or None in normalized_units
+            or any(f.get("normalized_value") is None for f in bound_facts)
+        ):
+            errors.append("公式输入事实的 unit_scale 口径混用且缺少一致标准化值")
     if any(f.get("company_entity_id") != metric.get("company_entity_id") for f in bound_facts):
         errors.append("指标公司与输入事实公司不一致")
     if errors:

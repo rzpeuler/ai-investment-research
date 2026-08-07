@@ -3,16 +3,15 @@
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
 > 当前统一结论（2026-08-07）：Phase 4 engineering foundation = PASS；
-> Phase 4 full research capability = PARTIAL_SUCCESS；Phase 5 = BLOCKED。
+> Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
+> Phase 5 = BLOCKED。
 
-## 1. 真实 LLM Provider 尚未接入
+## 1. 真实 LLM Provider 已接入但存在外部稳定性风险
 
-- 统一 LLM Client（LlmClient/五步校验/Flash 修复/Pro 升级/故障降级）已实现并
-  通过 Fake Provider 全链路测试
+- DeepSeek Chat Completions 已通过真实 probe 与两个成功案例；业务仍统一经过 LlmClient
 - 未配置真实 Provider 时 `model_route: {mode: deterministic_fallback, llm_called: false}`
-- **影响**：语义环节（原因机制摘要、叙事语义归纳、语义反证提取、方向验证）仍为
-  确定性规则近似；「正面新闻股价下跌」「澄清 vs 利好」等语义方向问题无法由
-  确定性评分区分（黄金测试已如实标注该局限）
+- 在线验收观察到间歇性超时；每次失败均计入 Flash 预算，预算耗尽后合法降级
+- **影响**：单次真实运行仍可能因外部超时成为 `degraded`，历史 SUCCESS 不得复用为新结果
 
 ## 2. 事件相似聚类（晨报）仍为确定性第一版
 
@@ -71,9 +70,8 @@
 
 ## 12. 个股研报自动化程度（Phase 4 延续，任务书 5.3）
 
-- **真实 LLM Provider 仍未配置**：语义模块（业务描述标准化/管理层摘要/竞争因素候选/
-  催化剂风险候选等）为确定性回退或未启用；`llm_called=false` 如实记录；
-  Flash/Pro 任务级预算已下沉到每次 Provider 调用边界；未接入真实 Provider 时不消耗预算
+- **真实 LLM Provider 已配置**：七项必需语义任务在两个真实案例中全部通过；未显式
+  `--live`、凭证缺失或 Provider 故障时仍如实回退，不生成伪造 `MODEL_INFERENCE`
 - **自动财务源未验证**：financial_statement_data 无 primary/secondary，
   仅 `manual_financial_import` + `disclosure_extraction`；未验证接口不得登记
 - **历史行情仍仅人工导入**：日线 fallback=manual_import；市值/股本历史序列无自动来源
@@ -90,12 +88,12 @@
 - **预测能力边界**：仅确定性外推与显式用户/公司指引假设；model_generated 须真实调用
 - 报告必须章节覆盖：行业位置/竞争格局/管理层治理/重大项目等章节依赖人工或语义
   模块补充，缺数据时如实写覆盖状态，不套话
-- 四个最低 `EquityLlmTasks` 已进入正式 Pipeline 并共享任务预算，但真实 Provider 未配置；
-  Fake Provider 只证明链路和校验可执行，不代表生产语义覆盖
+- 七个必需 `EquityLlmTasks` 已进入正式 Pipeline 并共享任务预算；Fake Provider 仍只用于
+  默认离线回归，不代表生产语义覆盖
 - 市场主要矛盾、业务分析、竞争格局、反证、研究问题和专业评审已有正式结构化产物；
   输入不足时产物必须是 `missing_data` / `insufficient_evidence`，不能据此声称完整 success
-- 人工财务 RawItem 已记录 manifest/checksum/locator/source_kind/imported_at/parser_version/
-  is_statutory_original，但当前导入仍为 Tier C，不能等同法定披露原件
+- 普通人工财务仍为 Tier C；另有已验证的巨潮官方原件辅助导入和人工复核 locator 路径，
+  只有通过 Document/checksum/数值/时间/实体校验的事实才能取得官方 Evidence
 - 来源质量已按核心财务、业务竞争、事件和整体质量分域；因此当前 Tier C 财务输入会明确
   阻止完整 `success`，即使任务同时存在无关的 S/A 事件 Evidence
 
@@ -105,9 +103,9 @@
 - 公司画像（CompanyProfile）/证券画像（SecurityProfile）无自动来源，fallback 人工
 - 同行比较与历史分位受限于用户导入的同行财务数据
 
-## 14. Git 提交元数据待治理
+## 14. Git 与远端 CI
 
-- 当前未合并分支的基线提交标题仍为 `Implement Phase 0 project contracts and validation`，
-  但其内容跨越控制面、Phase 2、Phase 4、LLM 与治理文档。
-- 本轮按用户要求只修改本地文件，未改写提交历史；后续如需整理，必须另行获得授权并使用
-  `--force-with-lease`，不得直接覆盖远端默认分支。
+- 旧的跨阶段大提交已在 PR #1 通过 Squash merge 治理；当前 Phase 4.1 使用独立、单一职责
+  提交序列，不改写既有历史。
+- 仓库仍无 GitHub Actions 或远端 commit status；当前证据来自本地全量回归、显式在线测试
+  和 Git 忽略目录中的脱敏验收摘要，合并前仍需要独立复核。

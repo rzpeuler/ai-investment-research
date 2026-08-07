@@ -12,11 +12,10 @@ announcementTitle, announcementTime(ms), adjunctUrl, adjunctType, ...}
 """
 from __future__ import annotations
 
-import re
 import subprocess
-import tempfile
-from pathlib import Path
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 from research_os.collectors.base import (
     CollectorAdapter,
@@ -27,12 +26,19 @@ from research_os.collectors.base import (
 )
 from research_os.models import RawItem
 from research_os.utils.id import content_sha256, new_uuid
-from research_os.utils.time import now_iso, parse_iso
+from research_os.utils.time import now_iso, shanghai_now
 from research_os.utils.url import normalize_url
 from research_os.validators.schema_validator import validate_instance
 
 QUERY_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
 BASE_URL = "http://static.cninfo.com.cn/"
+
+
+def _recent_se_date() -> str:
+    """返回包含上海当天在内的最近 5 个自然日查询窗口。"""
+    end_date = shanghai_now().date()
+    start_date = end_date - timedelta(days=4)
+    return f"{start_date.isoformat()}~{end_date.isoformat()}"
 
 
 class CninfoCollector(CollectorAdapter):
@@ -43,7 +49,7 @@ class CninfoCollector(CollectorAdapter):
 
     def _post_query(self, params: Dict[str, Any], timeout: float = 25.0) -> Optional[dict]:
         """调用公告查询接口。失败返回 None（调用方显式处理）。"""
-        data = "&".join(f"{k}={v}" for k, v in params.items())
+        data = urlencode(params)
         cmd = [
             "curl.exe", "-sS", "--max-time", str(int(timeout)),
             "-X", "POST", QUERY_URL,
@@ -51,7 +57,7 @@ class CninfoCollector(CollectorAdapter):
             "--data", data,
         ]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
+            proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
         except subprocess.TimeoutExpired:
             return None
         if proc.returncode != 0 or not proc.stdout.strip():
@@ -59,7 +65,7 @@ class CninfoCollector(CollectorAdapter):
         try:
             import json
 
-            return json.loads(proc.stdout)
+            return json.loads(proc.stdout.decode("utf-8"))
         except Exception:  # noqa: BLE001
             return None
 
@@ -67,7 +73,7 @@ class CninfoCollector(CollectorAdapter):
 
     def healthcheck(self) -> HealthStatus:
         result = self._post_query({"pageNum": 1, "pageSize": 1, "column": "szse",
-                                   "tabName": "fulltext", "seDate": "2026-08-01~2026-08-05"})
+                                   "tabName": "fulltext", "seDate": _recent_se_date()})
         ok = result is not None and "announcements" in result
         return HealthStatus(
             source_id=self.source_id,
@@ -86,7 +92,7 @@ class CninfoCollector(CollectorAdapter):
         """
         start = (time_window or {}).get("start")
         end = (time_window or {}).get("end")
-        se_date = "2026-01-01~2026-12-31"
+        se_date = _recent_se_date()
         if start and end:
             se_date = f"{start[:10]}~{end[:10]}"
         params: Dict[str, Any] = {
@@ -97,7 +103,7 @@ class CninfoCollector(CollectorAdapter):
             "secid": "", "category": "", "trade": "",
             "seDate": se_date,
             "sortName": "", "sortType": "",
-            "isHLtitle": "true",
+            "isHLtitle": "false",
         }
         result = self._post_query(params)
         if result is None:

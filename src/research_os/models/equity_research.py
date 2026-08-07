@@ -6,10 +6,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import Field, field_validator
+from datetime import timedelta
+
+from pydantic import Field, field_validator, model_validator
 
 from research_os.models.core import StrictModel
-from research_os.utils.time import validate_iso
+from research_os.utils.time import parse_iso, validate_iso
+
+MAX_AS_OF_CLOCK_SKEW_SECONDS = 5
 
 FactorType = Literal[
     "technology", "brand", "cost", "channel", "customer_switching",
@@ -266,6 +270,16 @@ class EquityResearchRequest(StrictModel):
     @classmethod
     def _v_date(cls, value: str) -> str:
         return _check_date(value, "report_date")
+
+    @model_validator(mode="after")
+    def _v_as_of_not_materially_future(self) -> "EquityResearchRequest":
+        if parse_iso(self.as_of) > parse_iso(self.requested_at) + timedelta(
+            seconds=MAX_AS_OF_CLOCK_SKEW_SECONDS
+        ):
+            raise ValueError(
+                f"as_of 不得晚于 requested_at 超过 {MAX_AS_OF_CLOCK_SKEW_SECONDS} 秒"
+            )
+        return self
 
 
 class StageStatus(StrictModel):

@@ -140,7 +140,7 @@ class TestEndToEndGolden:
         route = artifacts["model_route.json"]
         assert route["mode"] == "deterministic_fallback"
         assert route["llm_called"] is False
-        assert route["semantic_tasks_total"] == 4
+        assert route["semantic_tasks_total"] == 7
         assert route["semantic_tasks_integrated"] == 0
         # Validator 通过
         assert artifacts["validation.json"]["status"] in ("pass", "pass_with_warnings")

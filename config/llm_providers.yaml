@@ -1,0 +1,26 @@
+version: "1.0.0"
+updated_at: "2026-08-07"
+
+providers:
+  deepseek:
+    provider_id: deepseek
+    display_name: DeepSeek
+    enabled: true
+    adapter: deepseek_chat_completions
+    api_key_env: DEEPSEEK_API_KEY
+    base_url_env: DEEPSEEK_BASE_URL
+    default_base_url: https://api.deepseek.com
+    timeout_seconds: 60
+    flash_model: deepseek-v4-flash
+    pro_model: deepseek-v4-pro
+    supports_json_schema: false
+    supports_json_object: true
+    max_input_chars: 120000
+    max_output_tokens: 8192
+    retry_policy:
+      max_transient_retries: 1
+      retryable_errors:
+        - rate_limited
+        - timeout
+        - network_error
+        - provider_5xx
