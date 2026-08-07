@@ -614,3 +614,70 @@ class TestEvidenceLineageAndCompletion:
                                "validation_status": "fallback", "provider": "", "model": None}],
         )
         assert any(issue.rule_id == "ERV-077" for issue in out.errors)
+
+    def test_fake_provider_cannot_satisfy_full_success(self):
+        names = {
+            "business_description_normalization", "management_statement_summary",
+            "competitive_factor_candidates", "catalyst_candidates", "risk_candidates",
+            "counter_evidence_organizing", "research_questions",
+        }
+        records = [{
+            "task_name": name, "llm_called": True, "validation_status": "pass",
+            "provider": "semantic-fake", "model": "fake-flash", "input_evidence_ids": [],
+        } for name in names]
+        out = validate_equity_research(
+            result={"research_status": "success"}, semantic_records=records)
+        assert any(issue.rule_id == "ERV-089" for issue in out.errors)
+
+    def test_success_requires_all_seven_semantic_tasks(self):
+        out = validate_equity_research(
+            result={"research_status": "success"},
+            semantic_records=[{
+                "task_name": "research_questions", "llm_called": True,
+                "validation_status": "pass", "provider": "deepseek",
+                "model": "deepseek-v4-flash", "input_evidence_ids": [],
+            }],
+        )
+        assert any(issue.rule_id == "ERV-088" for issue in out.errors)
+
+    def test_semantic_input_entity_pollution_is_rejected(self):
+        raw = self.raw_item(entities=["company:000001.SZ"])
+        evidence = self.evidence(raw_item_id=raw["raw_item_id"])
+        out = validate_equity_research(
+            result={"research_status": "degraded", "company_entity_id": "company:600519.SH"},
+            evidences=[evidence], raw_items=[raw], as_of="2026-08-01T00:00:00",
+            semantic_records=[{
+                "task_name": "research_questions", "llm_called": True,
+                "validation_status": "pass", "provider": "deepseek",
+                "model": "deepseek-v4-flash", "input_evidence_ids": [evidence["evidence_id"]],
+            }],
+        )
+        assert any(issue.rule_id == "ERV-090" for issue in out.errors)
+
+    def test_management_and_counter_business_rules_are_enforced(self):
+        management = _finding(
+            finding_id="management", claim_type="SOURCE_OPINION",
+            model_route={"task_name": "management_statement_summary", "llm_called": True},
+            object={"speaker": "董事长"},
+        )
+        counter = _finding(
+            finding_id="counter", statement="原主张",
+            model_route={"task_name": "counter_evidence_organizing", "llm_called": True},
+            object={"challenged_claim": "原主张"}, counter_evidence_ids=[],
+        )
+        out = validate_equity_research(
+            findings=[management, counter], semantic_records=[],
+            result={"research_status": "degraded"},
+        )
+        assert any(issue.rule_id == "ERV-091" for issue in out.errors)
+        assert any(issue.rule_id == "ERV-093" for issue in out.errors)
+
+    def test_phase4_model_risk_requires_evidence_and_cannot_be_fact(self):
+        out = validate_equity_research(
+            result={"research_status": "degraded", "company_entity_id": "company:600519.SH"},
+            risks=[{
+                "risk_id": "risk-1", "source_phase": "phase4", "claim_type": "FACT",
+                "company_entity_id": "company:600519.SH", "evidence_ids": [],
+            }], semantic_records=[],
+        )
+        assert any(issue.rule_id == "ERV-092" for issue in out.errors)

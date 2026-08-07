@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from research_os.documents.registry import (
     parse_native_text,
+    parse_pdf_text,
     parse_table_blocks,
     register_document,
     sha256_file,
@@ -201,6 +202,8 @@ def import_disclosure(
         blocks = parse_native_text(destination, document_id, source_id)
     elif suffix == ".csv":
         blocks = parse_table_blocks(destination, document_id, source_id)
+    elif suffix == ".pdf":
+        blocks = parse_pdf_text(destination, document_id, source_id)
     for index, block in enumerate(blocks, start=1):
         block.block_id = _stable_id(f"block:{index}", checksum)
         block.sequence_no = index
@@ -226,6 +229,25 @@ def import_disclosure(
     )
     _validate_and_upsert(db, raw)
     _validate_and_upsert(db, evidence)
+    for block in blocks:
+        block_evidence_id = _stable_id(f"block-evidence:{block.block_id}", checksum)
+        block_evidence = Evidence(
+            evidence_id=block_evidence_id, source_id=source_id,
+            raw_item_id=raw_item_id, title=f"{doc.title}（第 {block.page_start} 页）",
+            publisher=publisher, published_at=published_at, retrieved_at=retrieved_at,
+            url=source_url, excerpt=(block.content_excerpt or doc.title)[:2000],
+            evidence_type="official_disclosure",
+            independence_group=f"official-document:{checksum}",
+            source_tier=source.source_tier, access_status="ok",
+        )
+        block.evidence_ids = [block_evidence_id]
+        _validate_and_upsert(db, block)
+        _validate_and_upsert(db, block_evidence)
+    if blocks:
+        doc.parse_status = "parsed"
+        doc.page_count = max(block.page_end for block in blocks)
+        doc.updated_at = now_iso()
+        _validate_and_upsert(db, doc)
     return DisclosureImportResult(
         document_id=document_id, raw_item_id=raw_item_id, evidence_id=evidence_id,
         metadata_block_id=metadata_block_id, checksum=checksum,

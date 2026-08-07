@@ -1,6 +1,6 @@
 """Phase 4 跨对象 Validator（任务书 3.22，独立验收修复版）。
 
-规则编号 ERV-001—ERV-087，输出 pass / pass_with_warnings / fail。
+规则编号 ERV-001—ERV-093，输出 pass / pass_with_warnings / fail。
 error 阻止报告 PASS；warning 可 pass_with_warnings；合法降级须明确状态。
 全部为确定性代码，不使用 LLM。
 
@@ -617,6 +617,82 @@ def check_semantic_route_contract(issues: List[ValidationIssue], findings: List[
                                               item.get("finding_id") or item.get("claim_id")))
 
 
+def check_full_semantic_contract(
+    issues: List[ValidationIssue], *, result: Optional[Dict[str, Any]],
+    findings: List[Dict[str, Any]], catalysts: List[Dict[str, Any]],
+    risks: List[Dict[str, Any]], evidences: List[Dict[str, Any]],
+    raw_items: List[Dict[str, Any]], semantic_records: List[Dict[str, Any]], as_of: str,
+) -> None:
+    """ERV-088—093：七任务、真实 Provider、实体/时间和任务级业务资格。"""
+    required_tasks = {
+        "business_description_normalization", "management_statement_summary",
+        "competitive_factor_candidates", "catalyst_candidates", "risk_candidates",
+        "counter_evidence_organizing", "research_questions",
+    }
+    successful = {
+        record.get("task_name") for record in semantic_records
+        if record.get("llm_called") and record.get("validation_status") == "pass"
+    }
+    success_claimed = bool(result and result.get("research_status") == "success")
+    if success_claimed and successful != required_tasks:
+        issues.append(ValidationIssue(
+            "ERV-088", "error", f"success 必须由真实调用完成七个语义任务，缺失: {sorted(required_tasks - successful)}"))
+    if success_claimed and any(
+        "fake" in str(record.get("provider") or "").lower()
+        or "fake" in str(record.get("model") or "").lower()
+        for record in semantic_records if record.get("task_name") in required_tasks
+    ):
+        issues.append(ValidationIssue("ERV-089", "error", "Fake Provider 不得满足完整 success"))
+
+    evidence_by_id = {item.get("evidence_id"): item for item in evidences}
+    raw_by_id = {item.get("raw_item_id"): item for item in raw_items}
+    company_id = (result or {}).get("company_entity_id")
+    for record in semantic_records:
+        for evidence_id in record.get("input_evidence_ids") or []:
+            evidence = evidence_by_id.get(evidence_id)
+            raw = raw_by_id.get((evidence or {}).get("raw_item_id"))
+            if (
+                evidence is None or raw is None
+                or (as_of and evidence.get("published_at", "") > as_of)
+                or (company_id and company_id not in (raw.get("entities") or []))
+            ):
+                issues.append(ValidationIssue(
+                    "ERV-090", "error", "语义任务输入 Evidence 不存在、实体不符或晚于 as_of",
+                    record.get("task_name")))
+
+    by_task = {
+        (finding.get("model_route") or {}).get("task_name"): finding
+        for finding in findings if (finding.get("model_route") or {}).get("task_name")
+    }
+    management = by_task.get("management_statement_summary")
+    if management:
+        obj = management.get("object") or {}
+        required = {"speaker", "role", "published_at", "statement", "topic", "company_view", "possible_bias"}
+        if (
+            not required <= set(obj) or not management.get("evidence_ids")
+            or (as_of and obj.get("published_at", "") > as_of)
+        ):
+            issues.append(ValidationIssue("ERV-091", "error", "管理层陈述缺说话者、时间、偏差或 Evidence"))
+    for item in [*catalysts, *risks]:
+        if item.get("source_phase") == "phase4" and (
+            item.get("claim_type") == "FACT" or not item.get("evidence_ids")
+            or (company_id and item.get("company_entity_id") != company_id)
+        ):
+            issues.append(ValidationIssue(
+                "ERV-092", "error", "模型催化剂/风险不得创建 FACT，且必须具备同实体 Evidence",
+                item.get("catalyst_id") or item.get("risk_id")))
+    counter = by_task.get("counter_evidence_organizing")
+    if counter:
+        obj = counter.get("object") or {}
+        if (
+            not counter.get("counter_evidence_ids")
+            or not obj.get("challenged_claim") or not obj.get("unresolved_difference")
+            or not obj.get("next_verification_data")
+            or counter.get("statement", "").strip() == str(obj.get("challenged_claim", "")).strip()
+        ):
+            issues.append(ValidationIssue("ERV-093", "error", "反证资格不完整或只是原主张改写"))
+
+
 def check_market_debate_contract(issues: List[ValidationIssue], market_debate: Dict[str, Any],
                                  evidence_ids: set) -> None:
     """市场主要矛盾中的多空主张必须保持结构化证据引用。"""
@@ -1050,6 +1126,11 @@ def validate_equity_research(
     check_research_status_contract(issues, result)
     if semantic_validation_requested:
         check_semantic_route_contract(issues, findings, claims, run, semantic_records or [])
+        check_full_semantic_contract(
+            issues, result=result, findings=findings, catalysts=catalysts, risks=risks,
+            evidences=evidences, raw_items=raw_items,
+            semantic_records=semantic_records or [], as_of=as_of,
+        )
     if market_debate is not None:
         check_market_debate_contract(issues, market_debate, evidence_id_set)
     for s in scenarios:

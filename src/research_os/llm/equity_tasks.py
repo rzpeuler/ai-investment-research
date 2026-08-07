@@ -42,6 +42,7 @@ SEMANTIC_EVIDENCE_POLICY = {
     "business_description_normalization": {
         "allowed_types": {"official_disclosure", "company_official", "institution_material"},
         "minimum": 1,
+        "relevance_terms": {"主营", "业务", "产品", "服务", "客户", "应用", "收入构成"},
     },
     "competitive_factor_candidates": {
         "allowed_types": {
@@ -49,6 +50,7 @@ SEMANTIC_EVIDENCE_POLICY = {
             "institution_material", "news_report", "media_report",
         },
         "minimum": 1,
+        "relevance_terms": {"竞争", "品牌", "成本", "渠道", "客户", "技术", "市场份额"},
     },
     "counter_evidence_organizing": {
         "allowed_types": {
@@ -56,6 +58,7 @@ SEMANTIC_EVIDENCE_POLICY = {
             "institution_material", "news_report", "media_report", "manual_input",
         },
         "minimum": 1,
+        "relevance_terms": {"风险", "反证", "挑战", "冲突", "下降", "压力", "不确定"},
     },
     "research_questions": {
         "allowed_types": {
@@ -64,14 +67,17 @@ SEMANTIC_EVIDENCE_POLICY = {
             "market_data", "manual_input",
         },
         "minimum": 1,
+        "relevance_terms": set(),
     },
     "management_statement_summary": {
         "allowed_types": {"official_disclosure", "company_official", "institution_material"},
         "minimum": 1,
+        "relevance_terms": {"表示", "指出", "认为", "称", "管理层", "董事长", "总经理"},
     },
     "product_name_mapping": {
         "allowed_types": {"official_disclosure", "company_official"},
         "minimum": 1,
+        "relevance_terms": {"产品", "业务", "服务"},
     },
     "catalyst_candidates": {
         "allowed_types": {
@@ -79,6 +85,7 @@ SEMANTIC_EVIDENCE_POLICY = {
             "institution_material", "news_report", "media_report",
         },
         "minimum": 1,
+        "relevance_terms": {"公告", "项目", "产能", "政策", "产品", "业绩", "进展"},
     },
     "risk_candidates": {
         "allowed_types": {
@@ -86,6 +93,7 @@ SEMANTIC_EVIDENCE_POLICY = {
             "institution_material", "news_report", "media_report", "manual_input",
         },
         "minimum": 1,
+        "relevance_terms": {"风险", "不确定", "压力", "下降", "波动", "诉讼", "监管"},
     },
     "section_draft": {
         "allowed_types": {
@@ -94,6 +102,7 @@ SEMANTIC_EVIDENCE_POLICY = {
             "market_data", "social_opinion",
         },
         "minimum": 1,
+        "relevance_terms": set(),
     },
 }
 
@@ -176,6 +185,10 @@ class EquityLlmTasks:
             for excerpt, evidence_id, evidence_type in zip(
                 evidence_excerpts, evidence_ids, evidence_types)
             if evidence_type in policy["allowed_types"]
+            and (
+                not policy.get("relevance_terms")
+                or any(term in excerpt for term in policy["relevance_terms"])
+            )
         ]
         if len(eligible) < policy["minimum"]:
             return LlmResponse(
@@ -238,12 +251,27 @@ class EquityLlmTasks:
             f"信息截止时间: {cutoff}",
             f"request_id: {request_id or task_name}",
             f"company_entity_id: {company_entity_id or 'UNKNOWN'}",
+            "输出中的 request_id、company_entity_id 和 as_of 必须逐字复用上述值；created_at/updated_at 不得晚于截止时间。",
             "输入证据摘录（最小必要）：",
         ]
         for evidence_id, evidence_type, ex in list(zip(
             evidence_ids, evidence_types, excerpts))[:20]:
             lines.append(f"- [{evidence_id}|{evidence_type}] {ex[:500]}")
         lines.append("禁止输出：目标价、评级、买卖/仓位建议、确定性收益承诺；数字不得篡改。")
+        task_rules = {
+            "management_statement_summary": (
+                "object 必须含 speaker、role、published_at、statement、topic、company_view、"
+                "possible_bias；只能概括输入中可识别说话者的陈述。"),
+            "counter_evidence_organizing": (
+                "object 必须含 challenged_claim、unresolved_difference、next_verification_data；"
+                "counter_evidence_ids 必须非空，反证不得只是原主张改写。"),
+            "research_questions": (
+                "object 必须含 why_important、required_data、verification_method、priority、current_status。"),
+            "catalyst_candidates": "必须输出 phase4 Catalyst，Evidence 非空，不得把模型输出标为 FACT。",
+            "risk_candidates": "必须输出 phase4 RiskFactor，Evidence 非空，不得把模型输出标为 FACT。",
+        }
+        if task_name in task_rules:
+            lines.append(task_rules[task_name])
         return "\n".join(lines)
 
 

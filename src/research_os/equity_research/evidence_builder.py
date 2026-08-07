@@ -100,7 +100,11 @@ def build_claim_from_finding(
         statement=finding.get("statement", ""),
         subject_entities=[company_entity_id],
         predicate=finding.get("title") or finding.get("finding_type", ""),
-        object={"finding_id": finding.get("finding_id"), "section_id": finding.get("section_id", "")},
+        object={
+            **(finding.get("object") or {}),
+            "finding_id": finding.get("finding_id"),
+            "section_id": finding.get("section_id", ""),
+        },
         as_of=finding.get("as_of") or now_iso(),
         evidence_ids=evidence_ids,
         support_level=finding.get("support_level", "indirect"),  # type: ignore[arg-type]

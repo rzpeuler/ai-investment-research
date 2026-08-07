@@ -594,7 +594,7 @@ def run_abnormal_move(entity_code, industry_id, concept_id, analysis_date, depth
 @click.option("--market-file", "market_file", default=None, help="市值/股本/价格输入文件。")
 @click.option("--force", is_flag=True, help="已存在时强制重跑（新 run_version，不覆盖旧产物）。")
 @click.option("--dry-run", is_flag=True, help="只预览能力/路径/计划/数据缺口，零副作用。")
-@click.option("--live", is_flag=True, help="只允许调用已批准来源（本阶段无已批准自动来源）。")
+@click.option("--live", is_flag=True, help="显式启用已批准的 DeepSeek Provider 网络调用。")
 def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
                         scenario_ids, include_valuation, include_forecast,
                         financial_files, financial_bindings, documents, market_file, force, dry_run,
@@ -617,8 +617,6 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
         _param_error("--periods 必须在 2-10 之间")
     if include_forecast and not scenario_ids:
         _param_error("--include-forecast 需要 --scenario（无 Scenario 时明确拒绝）")
-    if live:
-        _param_error("--live 只允许已批准来源；本阶段无已批准自动来源")
     if as_of and report_date and as_of[:10] > report_date:
         _param_error("--as-of 不得晚于 --date")
 

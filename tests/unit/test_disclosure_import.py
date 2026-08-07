@@ -111,6 +111,28 @@ def test_same_name_different_content_is_not_overwritten(project_root, db):
     assert db.count("document_records") == 2
 
 
+def test_official_text_blocks_receive_semantic_evidence(project_root, db):
+    text_path = project_root / "management.txt"
+    text_path.write_text(
+        "公司主营白酒业务。董事长表示产能项目按计划推进。需求波动风险仍需验证。",
+        encoding="utf-8",
+    )
+    result = _import(
+        project_root, db, text_path, document_type="ir_record",
+        title="业绩说明会记录", report_period_end=None, fiscal_year=None,
+    )
+    assert result.parsed_blocks >= 4
+    rows = db.query("SELECT payload FROM document_blocks WHERE document_id = ?", (result.document_id,))
+    parsed = [json.loads(row["payload"]) for row in rows if json.loads(row["payload"])["block_id"] != result.metadata_block_id]
+    assert parsed
+    assert all(block["evidence_ids"] for block in parsed)
+    for block in parsed:
+        evidence = db.get("evidence", block["evidence_ids"][0])
+        assert evidence["evidence_type"] == "official_disclosure"
+        assert evidence["source_tier"] == "S"
+        assert evidence["excerpt"] == block["content_excerpt"]
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [({"source_url": ""}, "source_url"),

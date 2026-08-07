@@ -168,6 +168,48 @@ def parse_native_text(path: Path, document_id: str, source_id: str) -> List[Docu
     return blocks
 
 
+def parse_pdf_text(path: Path, document_id: str, source_id: str) -> List[DocumentBlock]:
+    """使用可选 pypdf 提取原生文本层；缺依赖或解析失败时明确返回空列表。"""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(path))
+    except Exception:  # noqa: BLE001 —— 可选解析能力失败由调用方标记 partial
+        return []
+    blocks: List[DocumentBlock] = []
+    created_at = now_iso()
+    sequence = 0
+    for page_number, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception:  # noqa: BLE001
+            continue
+        text = re.sub(r"\s+", " ", text).strip()
+        for offset in range(0, len(text), 1800):
+            excerpt = text[offset:offset + 1800].strip()
+            if not excerpt:
+                continue
+            blocks.append(DocumentBlock(
+                block_id="", document_id=document_id, block_type="text",
+                page_start=page_number, page_end=page_number, bbox=None,
+                sequence_no=sequence, section_path=[], content_excerpt=excerpt,
+                content_hash=hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+                table_id=None, row_index=None, column_index=None,
+                normalized_payload={
+                    "locator_kind": "text_offset", "text_start": offset,
+                    "text_end": offset + len(excerpt),
+                },
+                extraction_method="native_text", confidence=None,
+                correction_status="unreviewed", correction_of_block_id=None,
+                source_id=source_id, evidence_ids=[], version=1,
+                created_at=created_at,
+            ))
+            sequence += 1
+            if sequence >= 1000:
+                return blocks
+    return blocks
+
+
 def parse_table_blocks(path: Path, document_id: str, source_id: str) -> List[DocumentBlock]:
     """解析 CSV 为表格块（每行为 table_row，表头为 table）。"""
     import csv as _csv

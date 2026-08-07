@@ -69,9 +69,9 @@ class TestParamErrors:
         result = runner.invoke(cli, ["run", "equity-research", "--entity", "600519.SH", "--include-forecast"])
         assert result.exit_code == 2
 
-    def test_live_rejected_exit_2(self, runner):
+    def test_live_without_financial_data_remains_insufficient(self, runner):
         result = runner.invoke(cli, ["run", "equity-research", "--entity", "600519.SH", "--live"])
-        assert result.exit_code == 2
+        assert result.exit_code == 3
 
 
 class TestDataInsufficient:

@@ -161,3 +161,15 @@ class TestFakeProviderCalls:
         assert resp.called is False
         assert tasks.budget.flash_used == 0
         assert any("Evidence 输入不足" in warning for warning in resp.warnings)
+
+    def test_wrong_semantic_topic_skips_provider_even_when_type_is_official(self):
+        provider = FakeLlmProvider()
+        tasks = EquityLlmTasks(_client(provider=provider, configured=True))
+        resp = tasks.run_task(
+            "management_statement_summary", task_id="t1",
+            evidence_excerpts=["营业收入=1000000"], evidence_ids=["ev-1"],
+            evidence_types=["official_disclosure"], cutoff="2026-08-06",
+        )
+        assert resp.called is False
+        assert tasks.budget.flash_used == 0
+        assert any("Evidence 输入不足" in warning for warning in resp.warnings)
