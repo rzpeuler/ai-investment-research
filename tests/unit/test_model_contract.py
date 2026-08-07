@@ -42,6 +42,7 @@ MINIMAL_CONSTRUCTORS = [
      "module_result"),
     (GraphChange, {"graph_change_id": _UUID, "change_type": "add_node",
                    "suggested_change": "add new node", "created_at": T0,
+                   "new_evidence_ids": ["ev-001"],
                    "node": {
                        "node_id": "company:600519.SH", "node_type": "Company",
                        "name": "贵州茅台", "aliases": [], "description": "",

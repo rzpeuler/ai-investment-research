@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://research-os.local/schemas/graph_change.schema.json",
   "title": "GraphChange",
-  "description": "产业图谱变更候选（M1 正式化）。node/edge 与 GraphNode/GraphEdge 结构一致，不再使用 $ref。",
+  "description": "产业图谱变更候选（M1-R2：$ref 复用 GraphNode/GraphEdge，allOf 叠加 candidate 约束）。",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,53 +15,13 @@
     "change_type": { "type": "string", "enum": ["add_node","add_edge","modify_attribute","retire_edge","retire_node"] },
     "node": {
       "anyOf": [
-        {
-          "type": "object", "additionalProperties": false,
-          "required": ["node_id","node_type","name","aliases","description","status","valid_from","valid_to","evidence_ids","version","last_reviewed_at","review_status","origin_kind","originating_graph_change_id","created_at"],
-          "properties": {
-            "node_id": { "type": "string", "minLength": 1 },
-            "node_type": { "type": "string", "enum": ["Industry","IndustrySegment","Company","Product","Technology","Material","Equipment","Application","Policy","Event","Metric","PersonOrInstitution","Report","InvestmentTheme"] },
-            "name": { "type": "string", "minLength": 1 },
-            "aliases": { "type": "array", "items": { "type": "string" } },
-            "description": { "type": "string" },
-            "status": { "type": "string", "enum": ["active","superseded","expired","retired"] },
-            "valid_from": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
-            "valid_to": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
-            "evidence_ids": { "type": "array", "items": { "type": "string" } },
-            "version": { "type": "integer", "minimum": 1 },
-            "last_reviewed_at": { "type": "null" },
-            "review_status": { "const": "candidate" },
-            "origin_kind": { "const": "graph_change" },
-            "originating_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
-            "created_at": { "type": "string", "format": "date-time" }
-          }
-        },
+        { "$ref": "https://research-os.local/schemas/graph_node.schema.json" },
         { "type": "null" }
       ]
     },
     "edge": {
       "anyOf": [
-        {
-          "type": "object", "additionalProperties": false,
-          "required": ["edge_id","source_node_id","relation","target_node_id","attributes","assertion_type","valid_from","valid_to","confidence","evidence_ids","review_status","version","originating_graph_change_id","created_at","last_reviewed_at"],
-          "properties": {
-            "edge_id": { "type": "string", "minLength": 1 },
-            "source_node_id": { "type": "string", "minLength": 1 },
-            "relation": { "type": "string", "enum": ["BELONGS_TO","UPSTREAM_OF","DOWNSTREAM_OF","SUPPLIES","PURCHASES_FROM","PRODUCES","USES_TECHNOLOGY","APPLIED_IN","COMPETES_WITH","SUBSTITUTES","BENEFITS_FROM","HARMED_BY","AFFECTS","MENTIONED_IN","SUPPORTED_BY","CONTRADICTED_BY","HAS_METRIC","HAS_CATALYST"] },
-            "target_node_id": { "type": "string", "minLength": 1 },
-            "attributes": { "type": "object" },
-            "assertion_type": { "type": "string", "enum": ["FACT","MODEL_INFERENCE"] },
-            "valid_from": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
-            "valid_to": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
-            "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-            "evidence_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-            "review_status": { "const": "candidate" },
-            "version": { "type": "integer", "minimum": 1 },
-            "originating_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
-            "created_at": { "type": "string", "format": "date-time" },
-            "last_reviewed_at": { "type": "null" }
-          }
-        },
+        { "$ref": "https://research-os.local/schemas/graph_edge.schema.json" },
         { "type": "null" }
       ]
     },

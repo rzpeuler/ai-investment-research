@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://research-os.local/schemas/graph_change_proposal.schema.json",
   "title": "GraphChangeProposal",
-  "description": "LLM-generated proposal. No persistence IDs/version/review fields.",
+  "description": "LLM-generated proposal. No persistence IDs/version/review fields. M1-R2: fixed modify_attribute rules.",
   "type": "object",
   "additionalProperties": false,
   "required": ["proposal_type","source_object_ids","candidate_node","candidate_edge","new_evidence_ids","suggested_change","impact_scope","conflicts","verification_points","confidence"],
@@ -55,52 +55,45 @@
   },
   "allOf": [
     {
-      "if": {
-        "properties": { "proposal_type": { "const": "add_node" } },
-        "required": ["proposal_type"]
-      },
+      "if": { "properties": { "proposal_type": { "const": "add_node" } }, "required": ["proposal_type"] },
       "then": {
         "properties": {
-          "candidate_node": {
-            "type": "object",
-            "properties": { "existing_node_id": { "type": "null" } }
-          },
+          "candidate_node": { "type": "object", "properties": { "existing_node_id": { "type": "null" } } },
           "candidate_edge": { "type": "null" }
         }
       }
     },
     {
-      "if": {
-        "properties": { "proposal_type": { "enum": ["retire_node","modify_attribute"] } },
-        "required": ["proposal_type"]
-      },
+      "if": { "properties": { "proposal_type": { "const": "retire_node" } }, "required": ["proposal_type"] },
       "then": {
         "properties": {
-          "candidate_node": {
-            "type": "object",
-            "properties": { "existing_node_id": { "type": "string", "minLength": 1 } }
-          }
+          "candidate_node": { "type": "object", "properties": { "existing_node_id": { "type": "string", "minLength": 1 } } },
+          "candidate_edge": { "type": "null" }
         }
       }
     },
     {
-      "if": {
-        "properties": { "proposal_type": { "enum": ["add_edge","retire_edge"] } },
-        "required": ["proposal_type"]
-      },
+      "if": { "properties": { "proposal_type": { "enum": ["add_edge","retire_edge"] } }, "required": ["proposal_type"] },
       "then": {
         "properties": { "candidate_edge": { "type": "object" }, "candidate_node": { "type": "null" } }
       }
     },
     {
-      "if": {
-        "properties": { "proposal_type": { "const": "modify_attribute" } },
-        "required": ["proposal_type"]
-      },
+      "if": { "properties": { "proposal_type": { "const": "modify_attribute" } }, "required": ["proposal_type"] },
       "then": {
         "anyOf": [
-          { "properties": { "candidate_node": { "type": "object" }, "candidate_edge": { "type": "null" } } },
-          { "properties": { "candidate_node": { "type": "null" }, "candidate_edge": { "type": "object" } } }
+          {
+            "properties": {
+              "candidate_node": { "type": "object", "properties": { "existing_node_id": { "type": "string", "minLength": 1 } } },
+              "candidate_edge": { "type": "null" }
+            }
+          },
+          {
+            "properties": {
+              "candidate_node": { "type": "null" },
+              "candidate_edge": { "type": "object" }
+            }
+          }
         ]
       }
     }

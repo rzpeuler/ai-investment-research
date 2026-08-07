@@ -13,6 +13,7 @@ authors = [{ name = "个人投研项目" }]
 dependencies = [
     "pydantic>=2.5",
     "jsonschema>=4.20",
+    "referencing>=0.35",
     "click>=8.1",
     "PyYAML>=6.0",
     "openpyxl>=3.1",

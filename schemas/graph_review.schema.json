@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://research-os.local/schemas/graph_review.schema.json",
   "title": "GraphReview",
-  "description": "人工审核审计契约。reviewer 必须是 human。decision 条件由 schema 强制执行。",
+  "description": "人工审核审计契约。M1-R2: patch path whitelist enforced at Schema level.",
   "type": "object",
   "additionalProperties": false,
   "required": ["review_id","graph_change_id","decision","reviewer","reviewed_at","candidate_hash","review_patch","notes","resulting_graph_change_id"],
@@ -30,7 +30,7 @@
             "required": ["op","path","value"],
             "properties": {
               "op": { "type": "string", "enum": ["add","replace"] },
-              "path": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1, "pattern": "^(/suggested_change|/impact_scope|/conflicts|/verification_points|/new_evidence_ids|/node/name|/node/aliases|/node/description|/node/status|/node/valid_from|/node/valid_to|/node/evidence_ids|/edge/attributes|/edge/valid_from|/edge/valid_to|/edge/confidence|/edge/evidence_ids)(/.*)?$" },
               "value": {}
             }
           },
@@ -39,7 +39,7 @@
             "required": ["op","path"],
             "properties": {
               "op": { "type": "string", "enum": ["remove"] },
-              "path": { "type": "string", "minLength": 1 }
+              "path": { "type": "string", "minLength": 1, "pattern": "^(/suggested_change|/impact_scope|/conflicts|/verification_points|/new_evidence_ids|/node/name|/node/aliases|/node/description|/node/status|/node/valid_from|/node/valid_to|/node/evidence_ids|/edge/attributes|/edge/valid_from|/edge/valid_to|/edge/confidence|/edge/evidence_ids)(/.*)?$" }
             }
           }
         ]
@@ -51,27 +51,19 @@
   "allOf": [
     {
       "if": { "properties": { "decision": { "const": "approved" } }, "required": ["decision"] },
-      "then": {
-        "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } }
-      }
+      "then": { "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } } }
     },
     {
       "if": { "properties": { "decision": { "const": "approved_with_changes" } }, "required": ["decision"] },
-      "then": {
-        "properties": { "review_patch": { "minItems": 1 }, "resulting_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" } }
-      }
+      "then": { "properties": { "review_patch": { "minItems": 1 }, "resulting_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" } } }
     },
     {
       "if": { "properties": { "decision": { "const": "deferred" } }, "required": ["decision"] },
-      "then": {
-        "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } }
-      }
+      "then": { "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } } }
     },
     {
       "if": { "properties": { "decision": { "const": "rejected" } }, "required": ["decision"] },
-      "then": {
-        "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } }
-      }
+      "then": { "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } } }
     }
   ]
 }

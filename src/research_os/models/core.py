@@ -378,6 +378,22 @@ class GraphNode(StrictModel):
             raise ValueError("Company node_id 必须以 'company:' 开头")
         return self
 
+    @model_validator(mode="after")
+    def _check_origin_consistency(self) -> "GraphNode":
+        if self.origin_kind == "graph_change":
+            if len(self.evidence_ids) < 1:
+                raise ValueError("graph_change 要求 evidence_ids 非空")
+            if self.originating_graph_change_id is None:
+                raise ValueError("graph_change 要求 originating_graph_change_id 非 null")
+        elif self.origin_kind == "governance_seed":
+            if len(self.evidence_ids) > 0:
+                raise ValueError("governance_seed 要求 evidence_ids 为空")
+            if self.originating_graph_change_id is not None:
+                raise ValueError("governance_seed 要求 originating_graph_change_id 为 null")
+            if self.review_status != "approved":
+                raise ValueError("governance_seed 要求 review_status 为 approved")
+        return self
+
 
 # ---------- GraphEdge（Phase 5 M1-R1） ----------
 
@@ -412,6 +428,22 @@ class GraphEdge(StrictModel):
             return _iso_validator(value)
         return value
 
+    @model_validator(mode="after")
+    def _check_assertion_consistency(self) -> "GraphEdge":
+        if self.assertion_type in ("FACT", "MODEL_INFERENCE"):
+            if len(self.evidence_ids) < 1:
+                raise ValueError(f"{self.assertion_type} 要求 evidence_ids 非空")
+            if self.originating_graph_change_id is None:
+                raise ValueError(f"{self.assertion_type} 要求 originating_graph_change_id 非 null")
+        elif self.assertion_type == "GOVERNANCE":
+            if len(self.evidence_ids) > 0:
+                raise ValueError("GOVERNANCE 要求 evidence_ids 为空")
+            if self.originating_graph_change_id is not None:
+                raise ValueError("GOVERNANCE 要求 originating_graph_change_id 为 null")
+            if self.review_status != "approved":
+                raise ValueError("GOVERNANCE 要求 review_status 为 approved")
+        return self
+
 
 # ---------- GraphChange（M1-R1 typed node/edge） ----------
 
@@ -422,7 +454,7 @@ class GraphChange(StrictModel):
     node: Optional["GraphNode"] = None
     edge: Optional["GraphEdge"] = None
     current_knowledge: str = ""
-    new_evidence_ids: List[str] = Field(default_factory=list)
+    new_evidence_ids: List[str] = Field(..., min_length=1)
     suggested_change: str = Field(..., min_length=1)
     impact_scope: List[str] = Field(default_factory=list)
     conflicts: List[str] = Field(default_factory=list)
@@ -558,7 +590,7 @@ class GraphReviewer(StrictModel):
 class GraphPatchValueOperation(StrictModel):
     op: Literal["add", "replace"]
     path: str = Field(..., min_length=1)
-    value: Any = None
+    value: Any = Field(..., description="add/replace 必须显式提供 value")
 
     @field_validator("path")
     @classmethod

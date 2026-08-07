@@ -90,8 +90,10 @@
 
 Phase 4.1 已完成独立验收，结论为 `PASS`，验收 SHA 为
 `9506f6a19ab60187d1ab0bc4991cfa427606ecae`。
-Phase 5 正式任务书已经批准；用户已于 2026-08-07 明确授权开始 Phase 5 M1。
-M1 Graph Contracts 正在进行中。M2-M10 尚未授权。下一步只能完成 M1 或等待独立架构验收。
+Phase 5 已获得 M1 工程实施授权。
+M1 Graph Contracts 正在独立验收修正中（R2）。
+M2-M10 尚未授权。
+下一步仅允许完成 M1 修正与独立验收。
 
 ## 2026-08-07 最终工程与在线验收
 
@@ -103,5 +105,5 @@ M1 Graph Contracts 正在进行中。M2-M10 尚未授权。下一步只能完成
   并重新生成脱敏摘要；此前 DeepSeek probe、巨潮元数据与 PDF 下载测试继续有效。
 
 Phase 4 engineering foundation 与 full research capability 均为 `PASS`，Phase 4 正式收口；
-Phase 5 正式任务书已经批准；当前仅缺用户明确的工程实施授权。
-下一步只能等待实施授权或继续任务书/设计审查。不得提前实施。
+Phase 5 已获得 M1 工程实施授权。M1 Graph Contracts 正在独立验收修正中（R2）。
+M2-M10 尚未授权。不得提前实施。

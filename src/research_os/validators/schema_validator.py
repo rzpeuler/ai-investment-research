@@ -1,6 +1,8 @@
 """Schema 校验器：所有核心对象必须通过对应 JSON Schema 校验（工程指南约束）。
 
 确定性逻辑（Schema 校验）必须使用代码，不得交给 LLM（指南 6.3）。
+
+M1-R2: 使用 referencing.Registry 建立本地 $ref 解析，fail-closed，无网络访问。
 """
 from __future__ import annotations
 
@@ -11,7 +13,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import jsonschema
-from jsonschema import FormatChecker, validators
+from jsonschema import Draft7Validator, FormatChecker, validators
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT7
 
 from research_os.utils.time import validate_iso
 
@@ -119,6 +123,24 @@ def schema_path(name: str) -> Path:
     return schema_dir() / f"{name}.schema.json"
 
 
+# ---- 本地 $ref Registry（M1-R2, referencing.Registry, fail-closed） ----
+
+@lru_cache(maxsize=1)
+def _build_local_registry() -> Registry:
+    """构建包含全部本地 schema 的 referencing.Registry。
+
+    $id → Resource，仅本地文件。缺失或解析失败显式报错。
+    无 HTTP/HTTPS/network fallback。
+    """
+    resources = []
+    for name in SCHEMA_NAMES:
+        schema = load_schema(name)
+        schema_id = schema.get("$id", f"{name}.schema.json")
+        resource = Resource.from_contents(schema, default_specification=DRAFT7)
+        resources.append((schema_id, resource))
+    return Registry().with_resources(resources)
+
+
 def validate_instance(instance: Any, schema_name: str) -> List[str]:
     """校验对象是否符合对应 Schema。
 
@@ -126,9 +148,19 @@ def validate_instance(instance: Any, schema_name: str) -> List[str]:
     但任何失败必须被显式处理，禁止静默失败。
     """
     schema = load_schema(schema_name)
+    registry = _build_local_registry()
+    # 先用 check_schema 验证 schema 自身合法性
     validator_cls = validators.validator_for(schema)
     validator_cls.check_schema(schema)
-    validator = validator_cls(schema, format_checker=_format_checker)
+    # 使用 registry 构造 validator，支持 $ref 本地解析
+    Validator = validators.create(
+        meta_schema=Draft7Validator.META_SCHEMA,
+        validators=Draft7Validator.VALIDATORS,
+        version="draft7",
+        format_checker=_format_checker,
+    )
+    # 把 registry 传给 validator（Python 构造函数）
+    validator = Validator(schema, registry=registry, format_checker=_format_checker)
     errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
     return [f"{'.'.join(str(p) for p in e.path) or '<root>'}: {e.message}" for e in errors]
 
@@ -156,7 +188,6 @@ def validate_model(model: Any) -> List[str]:
         "EventCluster": "event_cluster",
         "InformationScore": "information_score",
         "MorningBriefRun": "morning_brief_run",
-        # Phase 3：异动分析
         "MarketDailySeriesManifest": "market_daily_series_manifest",
         "MarketMinuteBar": "market_minute_bar",
         "AbnormalMoveRequest": "abnormal_move_request",
@@ -168,7 +199,6 @@ def validate_model(model: Any) -> List[str]:
         "CauseEvidenceLink": "cause_evidence_link",
         "AttributionResult": "attribution_result",
         "AbnormalMoveRun": "abnormal_move_run",
-        # Phase 4：个股研报
         "CompanyProfile": "company_profile",
         "SecurityProfile": "security_profile",
         "DocumentRecord": "document_record",
