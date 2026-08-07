@@ -7,7 +7,7 @@
 > 开发分支：`codex/phase4-full-research-capability`
 > 起始状态：Phase 4 engineering foundation = `PASS`；full capability =
 > `PARTIAL_SUCCESS`；Phase 5 = `BLOCKED`
-> 实施结果：`READY_FOR_INDEPENDENT_ACCEPTANCE`（代码里程碑 `633cf74`；独立验收前
+> 实施结果：`READY_FOR_INDEPENDENT_ACCEPTANCE`（当前代码里程碑 `7a515a4`；独立验收前
 > 正式 full capability 状态仍为 `PARTIAL_SUCCESS`）
 
 ## 1. 授权目标
@@ -132,9 +132,14 @@ Fake Provider、Tier C 核心财务、缺必需任务或严重 Evidence 缺陷�
 
 - DeepSeek Flash probe、巨潮公告元数据、官方 PDF 下载与 checksum 在线测试通过；
 - 两个成功案例的 18 项核心财务事实均绑定官方 Document、Block/locator、Evidence 和 URL；
+- 定向复验使用 `as_of=2026-08-07T00:00:00+08:00`；36 个 locator 分别在案例开始时以
+  真实 `acceptance_started_at` 确认（12:11:18 / 12:15:19，上海时间），均不晚于对应
+  `requested_at`，且允许合法晚于历史研究截止时间；
 - 两个成功报告正文的目标价、评级、仓位及交易动作命中均为 0；
-- 默认回归：1093 collected，1088 passed，5 online skipped，0 failed；51/51 Schema；
+- 默认回归：1136 collected，1131 passed，5 online skipped，0 failed；51/51 Schema；
   compileall 和 diff-check 通过；
+- Phase 4 Request 对未来 `as_of` 仅允许 5 秒时钟误差；CNINFO discover 与 healthcheck
+  默认窗口均改为上海时区最近 5 个自然日，显式历史窗口保持不变；
 - Provider 在部分失败尝试中发生间歇性超时，系统按 8/1 共享预算合法降级；最终成功案例
   不依赖 Fake Provider，也未放宽 Validator。
 

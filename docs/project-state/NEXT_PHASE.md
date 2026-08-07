@@ -6,7 +6,7 @@
 - **Phase 4 full research capability：PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE**
 - **Phase 5：BLOCKED**
 
-下一步是对 `633cf74` 及其后文档提交做 Phase 4 full capability 独立验收。不得开始 Phase 5 产业图谱实现、图谱本体变更、
+下一步是对 `7a515a4` 及其后文档提交做 Phase 4 full capability 独立验收。不得开始 Phase 5 产业图谱实现、图谱本体变更、
 自动批准节点/关系或自动写入核心知识图谱。
 
 ## Phase 5 解锁条件
