@@ -15,8 +15,9 @@ DIMENSIONS = [
 ]
 
 
-def build_professional_review(*, coverage: Dict[str, Any], evidence_tiers: List[str],
-                              evidence_ids: List[str],
+def build_professional_review(*, coverage: Dict[str, Any],
+                              evidence_tiers_by_id: Dict[str, str],
+                              evidence_by_dimension: Dict[str, List[str]],
                               risks: List[dict], catalysts: List[dict],
                               conflicts: List[str],
                               rules_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -34,6 +35,7 @@ def build_professional_review(*, coverage: Dict[str, Any], evidence_tiers: List[
     score_range = rules.get("score_range") or [0, 5]
     score_min, score_max = int(score_range[0]), int(score_range[1])
     completeness = sum(bool(v) for v in coverage.values()) / max(len(coverage), 1)
+    evidence_tiers = list(evidence_tiers_by_id.values())
     high_tier = sum(t in ("S", "A") for t in evidence_tiers)
     evidence_score = missing_score if not evidence_tiers else min(
         score_max,
@@ -57,12 +59,13 @@ def build_professional_review(*, coverage: Dict[str, Any], evidence_tiers: List[
     items = []
     for dimension in DIMENSIONS:
         score = max(score_min, min(score_max, scores[dimension]))
+        supporting_ids = list(dict.fromkeys(evidence_by_dimension.get(dimension, [])))
         items.append({
             "dimension": dimension, "score": score,
             "deduction_reasons": [] if score >= 3 else ["结构化数据或证据覆盖不足"],
-            "supporting_evidence_ids": evidence_ids[:5] if score else [],
+            "supporting_evidence_ids": supporting_ids if score else [],
             "counter_examples": conflicts[:3],
-            "evidence_gaps": [] if score >= 3 else [dimension],
+            "evidence_gaps": [] if score >= 3 and supporting_ids else [dimension],
             "next_question": f"补充并核验 {dimension} 的原始证据",
         })
     return {"rules_version": version, "items": items,

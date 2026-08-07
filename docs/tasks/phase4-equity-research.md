@@ -467,13 +467,14 @@ model_route.json / equity_research_result.json / validation.json / final.md / er
 
 ## 21. Validator（Commit 16 实现）
 
-输出 pass / pass_with_warnings / fail。规则编号 ERV-001—ERV-070，分组：
+输出 pass / pass_with_warnings / fail。规则编号 ERV-001—ERV-079，分组：
 
 * Schema 与引用：ERV-001—008
 * 财务数据：ERV-009—027
 * 同行与估值：ERV-028—040
 * Claim、Evidence 与 LLM：ERV-041—052
 * 时间、复用和报告：ERV-053—070
+* 统一证据血缘、语义资格与状态契约：ERV-071—079
 
 error 阻止 PASS；warning 可 pass_with_warnings；合法降级须明确状态且无依赖该模块的结论；
 数据不足本身不是 error；数据不足却输出确定性结论是 error；SOURCE_CONFLICT 可是合法

@@ -584,6 +584,23 @@ class TestEvidenceLineageAndCompletion:
         )
         assert any(issue.rule_id == "ERV-043" and issue.severity == "error" for issue in out.errors)
 
+    def test_competitive_factor_required_type_must_match_actual_evidence(self):
+        factor = {
+            "factor_id": "factor-1", "company_entity_id": "company:600519.SH",
+            "factor_type": "brand", "direction": "advantage", "statement": "品牌因素",
+            "business_segment_ids": [], "mechanism": "渠道覆盖",
+            "required_evidence_types": ["official_disclosure"],
+            "evidence_ids": [self.EID], "counter_evidence_ids": [],
+            "management_only": False, "confidence": 0.5, "status": "weakly_supported",
+            "valid_from": "2026-08-01", "valid_to": None, "version": 1,
+            "created_at": "2026-08-01T00:00:00",
+        }
+        out = validate_equity_research(
+            factors=[factor], evidences=[self.evidence()], raw_items=[self.raw_item()],
+        )
+        assert any(issue.rule_id == "ERV-078" and "类型不一致" in issue.message
+                   for issue in out.errors)
+
     def test_success_rejected_when_core_modules_missing(self):
         out = validate_equity_research(result={
             "research_status": "success", "coverage": {"missing_core_modules": ["competition"]},

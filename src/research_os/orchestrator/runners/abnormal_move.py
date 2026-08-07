@@ -48,7 +48,8 @@ class AbnormalMoveScenarioRunner:
                 entity_id=request["entity_id"], entity_type=request.get("entity_type", "company"),
                 analysis_date=request.get("analysis_date"), depth=request.get("depth", "standard"),
                 granularity=request.get("granularity", "daily"), force=bool(request.get("force")),
-                dry_run=bool(request.get("dry_run")), as_of=request.get("as_of"),
+                dry_run=bool(request.get("dry_run")), task_id=context["task"].task_id,
+                as_of=request.get("as_of"),
                 window_start=request.get("window_start"), window_end=request.get("window_end"),
                 peers=list(request.get("peers") or []), entity_name=request.get("entity_name", ""),
             )

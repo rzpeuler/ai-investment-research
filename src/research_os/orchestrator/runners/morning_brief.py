@@ -100,7 +100,8 @@ class MorningBriefScenarioRunner:
         run_dir.write_plan(context["plan"].model_dump())
         artifacts = MorningBriefPipeline(PipelineConfig(
             source_tiers=source_tiers, source_status={}, channel_map=channel_map,
-        )).run(raw_items, day, run_dir=run_dir, started_at=now_iso(), as_of=as_of, db=db)
+        )).run(raw_items, day, task_id=task.task_id, run_dir=run_dir,
+               started_at=now_iso(), as_of=as_of, db=db)
 
         report_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = report_path.with_suffix(report_path.suffix + ".tmp")

@@ -85,6 +85,7 @@ class MorningBriefPipeline:
         raw_items: List[RawItem],
         report_date: date,
         *,
+        task_id: Optional[str] = None,
         run_dir: Optional[RunDirectory] = None,
         started_at: Optional[str] = None,
         as_of: Optional[str] = None,
@@ -93,7 +94,7 @@ class MorningBriefPipeline:
         """执行流水线。raw_items 为空时仍生成结构化产物（覆盖说明+降级说明）。"""
         window_start, window_end = morning_window(report_date)
         started = started_at or now_iso()
-        artifacts = PipelineArtifacts(task_id=new_uuid())
+        artifacts = PipelineArtifacts(task_id=task_id or new_uuid())
 
         # 0. 时间窗口过滤（窗口外且无新更新 -> 排除，写入 veto 理由）
         in_window = []

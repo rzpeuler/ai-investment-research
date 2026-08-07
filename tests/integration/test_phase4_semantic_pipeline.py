@@ -5,10 +5,15 @@ import json
 
 from research_os.equity_research.pipeline import EquityResearchPipeline
 from research_os.llm.client import LlmClient
+from research_os.models import Evidence, Event, RawItem
 from research_os.storage import Database
+from tests.fixtures.samples import valid_evidence, valid_event, valid_raw_item
 
 
 class SemanticProvider:
+    def __init__(self, required_evidence_type="official_disclosure"):
+        self.required_evidence_type = required_evidence_type
+
     def complete_json(self, request, output_schema):
         evidence_id = request.input_evidence_ids[0]
         task_name = request.module.rsplit(".", 1)[-1]
@@ -17,7 +22,7 @@ class SemanticProvider:
                 "factor_id": "factor-1", "company_entity_id": "company:600519.SH",
                 "factor_type": "brand", "direction": "advantage", "statement": "品牌因素待持续验证",
                 "business_segment_ids": [], "mechanism": "消费者认知与渠道覆盖",
-                "required_evidence_types": ["official_disclosure"], "evidence_ids": [evidence_id],
+                "required_evidence_types": [self.required_evidence_type], "evidence_ids": [evidence_id],
                 "counter_evidence_ids": [], "management_only": False, "confidence": 0.6,
                 "status": "weakly_supported", "valid_from": "2026-08-01", "valid_to": None,
                 "version": 1, "created_at": "2026-08-01T00:00:00",
@@ -71,9 +76,31 @@ def _financial_file(tmp_path):
     return path
 
 
+def _seed_official_event(db, *, evidence_type="official_disclosure"):
+    raw = RawItem(**valid_raw_item(
+        published_at="2026-07-31T23:00:00+08:00",
+        retrieved_at="2026-07-31T23:01:00+08:00",
+    ))
+    evidence = Evidence(**valid_evidence(
+        raw_item_id=raw.raw_item_id, evidence_type=evidence_type,
+        source_id=raw.source_id, title=raw.title, publisher=raw.publisher, url=raw.url,
+        published_at=raw.published_at, retrieved_at=raw.retrieved_at,
+        source_tier="S" if evidence_type == "official_disclosure" else "A",
+    ))
+    event = Event(**valid_event(
+        event_time="2026-07-31T23:00:00+08:00",
+        announced_at="2026-07-31T23:00:00+08:00",
+        evidence_ids=[evidence.evidence_id],
+    ))
+    db.upsert(raw)
+    db.upsert(evidence)
+    db.upsert(event)
+
+
 def test_fake_provider_semantic_outputs_enter_formal_artifacts(tmp_path):
     db = Database(tmp_path / "research.db")
     db.initialize()
+    _seed_official_event(db)
     client = LlmClient(provider=SemanticProvider(), configured=True, db=db)
     pipeline = EquityResearchPipeline(tmp_path, db, llm_client=client)
     try:
@@ -86,9 +113,34 @@ def test_fake_provider_semantic_outputs_enter_formal_artifacts(tmp_path):
     assert outcome.exit_code == 0
     assert outcome.model_route["llm_called"] is True
     assert outcome.model_route["semantic_tasks_integrated"] == 4
+    assert outcome.research_status != "success", "S 级事件不得掩盖 Tier C 核心财务来源"
     run_dir = tmp_path / "reports" / "runs"
     actual_run = next(run_dir.iterdir())
     semantic = json.loads((actual_run / "semantic_results.json").read_text(encoding="utf-8"))
     assert all(record["validation_status"] == "pass" for record in semantic)
     assert json.loads((actual_run / "business_analysis.json").read_text(encoding="utf-8"))["status"] == "covered"
     assert json.loads((actual_run / "competitive_landscape.json").read_text(encoding="utf-8"))["status"] == "covered"
+    result_payload = json.loads(
+        (actual_run / "equity_research_result.json").read_text(encoding="utf-8"))
+    assert result_payload["coverage"]["source_quality"]["core_financial"] is False
+
+
+def test_competition_required_evidence_type_must_match_actual_type(tmp_path):
+    db = Database(tmp_path / "research.db")
+    db.initialize()
+    _seed_official_event(db, evidence_type="company_official")
+    client = LlmClient(provider=SemanticProvider("official_disclosure"), configured=True, db=db)
+    pipeline = EquityResearchPipeline(tmp_path, db, llm_client=client)
+    try:
+        outcome = pipeline.run({
+            "entity": "600519.SH", "date": "2026-08-01", "as_of": "2026-08-01T00:00:00",
+            "financial_files": [str(_financial_file(tmp_path))], "include_valuation": False,
+        })
+    finally:
+        db.close()
+    assert outcome.exit_code == 0
+    run_dir = next((tmp_path / "reports" / "runs").iterdir())
+    semantic = json.loads((run_dir / "semantic_results.json").read_text(encoding="utf-8"))
+    competition = next(r for r in semantic if r["task_name"] == "competitive_factor_candidates")
+    assert competition["validation_status"] == "rejected"
+    assert "类型不一致" in competition["fallback_reason"]

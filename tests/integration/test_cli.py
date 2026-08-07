@@ -124,6 +124,18 @@ def test_morning_brief_dry_run_no_side_effects(project_root):
     assert not (project_root / "reports" / "runs").exists()
 
 
+def test_morning_brief_persists_unified_control_artifacts(project_root):
+    runner = CliRunner()
+    result = runner.invoke(cli, ["run", "morning-brief", "--date", "2026-08-06"])
+    assert result.exit_code == 0, result.output
+    run_dir = next((project_root / "reports" / "runs").iterdir())
+    task = json.loads((run_dir / "task.json").read_text(encoding="utf-8"))
+    plan = json.loads((run_dir / "plan.json").read_text(encoding="utf-8"))
+    execution = json.loads(
+        (run_dir / "scenario_execution_result.json").read_text(encoding="utf-8"))
+    assert {task["task_id"], plan["task_id"], execution["task_id"], run_dir.name} == {run_dir.name}
+
+
 def test_validate_schemas_ok(project_root):
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])

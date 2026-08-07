@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, List, Optional
@@ -211,6 +212,8 @@ class Orchestrator:
         started = perf_counter()
         task_id = str(request.get("task_id") or new_uuid())
         task: Optional[Task] = None
+        plan: Optional[Plan] = None
+        control_run_dir: Optional[RunDirectory] = None
         try:
             runner = self.registry.get(scenario)
             normalized = runner.validate_request(dict(request))
@@ -227,6 +230,13 @@ class Orchestrator:
             }
             if not normalized.get("dry_run"):
                 context["db"] = self.db
+                control_run_dir = RunDirectory(self.runs_root, task.task_id)
+                control_run_dir.create()
+                task.status = "running"
+                control_run_dir.write_task(task.model_dump())
+                control_run_dir.write_plan(plan.model_dump())
+                self.db.upsert(task)
+                context["run_dir"] = control_run_dir
         except ValueError as exc:
             result = ScenarioExecutionResult(
                 status="failed", exit_code=2, task_id=task_id,
@@ -235,8 +245,11 @@ class Orchestrator:
         else:
             try:
                 result = runner.execute(normalized, context)
+                result.runtime_seconds = round(perf_counter() - started, 6)
+                if control_run_dir is not None and task is not None and plan is not None:
+                    self._finalize_execution(task, plan, result, control_run_dir)
             except Exception as exc:  # noqa: BLE001
-                run_dir = RunDirectory(self.runs_root, task_id)
+                run_dir = control_run_dir or RunDirectory(self.runs_root, task_id)
                 if task is not None and run_dir.exists():
                     self._mark_failed(task, run_dir, exc)
                 result = ScenarioExecutionResult(
@@ -244,8 +257,48 @@ class Orchestrator:
                     run_dir=str(run_dir.root) if run_dir.exists() else None,
                     validation_status="fail", message=f"场景执行失败: {type(exc).__name__}: {exc}",
                 )
-        result.runtime_seconds = round(perf_counter() - started, 6)
+        if not result.runtime_seconds:
+            result.runtime_seconds = round(perf_counter() - started, 6)
+        if control_run_dir is not None and not (control_run_dir.root / "scenario_execution_result.json").exists():
+            control_run_dir.write_json("scenario_execution_result.json", result.model_dump())
         return result
+
+    def _finalize_execution(
+        self, task: Task, plan: Plan, result: ScenarioExecutionResult,
+        run_dir: RunDirectory,
+    ) -> None:
+        """校验并持久化统一控制面血缘；任何断链都使任务失败。"""
+        if result.task_id != task.task_id:
+            raise ValueError(
+                f"Runner Task ID 断链: expected={task.task_id}, actual={result.task_id}")
+        expected = run_dir.root.resolve()
+        if result.run_dir is not None and Path(result.run_dir).resolve() != expected:
+            raise ValueError(
+                f"Runner 运行目录断链: expected={expected}, actual={Path(result.run_dir).resolve()}")
+        result.run_dir = str(run_dir.root)
+        self._validate_business_lineage(run_dir, task.task_id)
+        task.status = "failed" if result.exit_code != 0 or result.status == "failed" else "completed"
+        task.finished_at = now_iso()
+        run_dir.write_plan(plan.model_dump())
+        run_dir.write_task(task.model_dump())
+        run_dir.write_json("scenario_execution_result.json", result.model_dump())
+        self.db.upsert(task)
+
+    @staticmethod
+    def _validate_business_lineage(run_dir: RunDirectory, task_id: str) -> None:
+        """已生成的场景 Request/Run 必须沿用控制面 Task ID。"""
+        for filename in (
+            "abnormal_move_request.json", "abnormal_move_run.json",
+            "equity_research_request.json", "equity_research_run.json",
+        ):
+            path = run_dir.root / filename
+            if not path.exists():
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            actual = payload.get("task_id")
+            if actual != task_id:
+                raise ValueError(
+                    f"{filename} Task ID 断链: expected={task_id}, actual={actual}")
 
     def close(self) -> None:
         """关闭由控制面持有的数据库连接。"""

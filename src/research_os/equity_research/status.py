@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-STATUS_RULES_VERSION = "2.0.0"
+STATUS_RULES_VERSION = "2.1.0"
 
 
 @dataclass
@@ -20,7 +20,10 @@ class ResearchCoverage:
     market_debate_coverage: bool
     valuation_applicable_or_explained: bool
     semantic_coverage: bool
-    source_quality_adequate: bool
+    core_financial_source_quality: bool
+    business_source_quality: bool
+    event_source_quality: bool
+    overall_evidence_quality: bool
     as_of_known: bool
     validator_status: str = "pending"
     source_conflict: bool = False
@@ -53,7 +56,10 @@ def evaluate_research_status(c: ResearchCoverage) -> StatusDecision:
         "market_debate": c.market_debate_coverage,
         "valuation_applicability": c.valuation_applicable_or_explained,
         "semantic_capability": c.semantic_coverage,
-        "source_quality": c.source_quality_adequate,
+        "core_financial_source_quality": c.core_financial_source_quality,
+        "business_source_quality": c.business_source_quality,
+        "event_source_quality": c.event_source_quality,
+        "overall_evidence_quality": c.overall_evidence_quality,
         "as_of": c.as_of_known,
     }
     missing = [name for name, covered in checks.items() if not covered]

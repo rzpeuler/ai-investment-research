@@ -1,6 +1,6 @@
 """Phase 4 跨对象 Validator（任务书 3.22，独立验收修复版）。
 
-规则编号 ERV-001—ERV-070，输出 pass / pass_with_warnings / fail。
+规则编号 ERV-001—ERV-079，输出 pass / pass_with_warnings / fail。
 error 阻止报告 PASS；warning 可 pass_with_warnings；合法降级须明确状态。
 全部为确定性代码，不使用 LLM。
 
@@ -542,6 +542,38 @@ def check_claim_evidence_contract(issues: List[ValidationIssue], claims: List[Di
                 issues.append(ValidationIssue("ERV-074", "error", "SOURCE_OPINION 未标明说话者或发布者", cid))
 
 
+def check_competitive_evidence_types(
+    issues: List[ValidationIssue], factor: Dict[str, Any],
+    evidence_by_id: Dict[str, Dict[str, Any]],
+) -> None:
+    """ERV-078：竞争因素声明的 Evidence 类型必须与实际引用一致。"""
+    refs = set(factor.get("evidence_ids") or []) | set(factor.get("counter_evidence_ids") or [])
+    required = set(factor.get("required_evidence_types") or [])
+    if not refs:
+        return
+    if not required:
+        issues.append(ValidationIssue(
+            "ERV-078", "error", "竞争因素引用 Evidence 但 required_evidence_types 为空",
+            factor.get("factor_id"),
+        ))
+        return
+    evidence_object_types = {
+        "official_disclosure", "official_statistics", "company_official", "news_report",
+        "media_report", "social_opinion", "institution_material", "market_data",
+        "manual_input", "unknown",
+    }
+    missing_refs = refs - set(evidence_by_id)
+    actual = {evidence_by_id[eid].get("evidence_type") for eid in refs if eid in evidence_by_id}
+    # 历史确定性竞争模块还会使用 market_share 等“业务证据门槛”标签；
+    # 只有声明的是 Evidence 对象类型时才做一一类型资格校验。
+    declares_object_types = required <= evidence_object_types
+    if missing_refs or (declares_object_types and not actual <= required):
+        issues.append(ValidationIssue(
+            "ERV-078", "error", "竞争因素 required_evidence_types 与实际 Evidence 类型不一致",
+            factor.get("factor_id"),
+        ))
+
+
 def check_report_evidence_refs(issues: List[ValidationIssue], report_text: str,
                                evidence_ids: set) -> None:
     """Markdown 中展示的 Evidence ID 必须是真实 Evidence 对象。"""
@@ -880,6 +912,13 @@ def validate_equity_research(
         check_block_evidence_link(issues, f, block_by_id)  # ERV-052
     for factor in factors or []:
         check_management_only(issues, factor)
+        check_foreign_refs(
+            issues,
+            [*(factor.get("evidence_ids") or []), *(factor.get("counter_evidence_ids") or [])],
+            evidence_id_set,
+            "ERV-078",
+        )
+        check_competitive_evidence_types(issues, factor, evidence_by_id)
     check_block_reference(issues, blocks, fact_ids)  # ERV-050/051
     for c in claims:
         check_required_fields(issues, c, "claim", "ERV-043",

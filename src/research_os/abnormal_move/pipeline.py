@@ -90,6 +90,7 @@ class AbnormalMovePipeline:
             granularity: str = "daily",
             force: bool = False,
             dry_run: bool = False,
+            task_id: Optional[str] = None,
             as_of: Optional[str] = None,
             window_start: Optional[str] = None,
             window_end: Optional[str] = None,
@@ -103,6 +104,7 @@ class AbnormalMovePipeline:
                 entity_id=entity_id, entity_type=entity_type,
                 analysis_date=analysis_date, depth=depth,
                 granularity=granularity, force=force, dry_run=dry_run,
+                task_id=task_id,
                 as_of=as_of, window_start=window_start, window_end=window_end,
                 peers=peers or [], benchmark_inputs=benchmark_inputs or [],
                 entity_name=entity_name,
@@ -114,7 +116,7 @@ class AbnormalMovePipeline:
                                    message=f"内部错误: {type(exc).__name__}: {exc}")
 
     def _run_inner(self, entity_id, entity_type, analysis_date, depth,
-                   granularity, force, dry_run, as_of, window_start, window_end,
+                   granularity, force, dry_run, task_id, as_of, window_start, window_end,
                    peers, benchmark_inputs, entity_name) -> PipelineOutcome:
         # 1. 窗口校验（显式非交易日 -> WindowError -> exit 2）
         resolved = resolve_window(analysis_date, self.calendar,
@@ -123,7 +125,7 @@ class AbnormalMovePipeline:
                                   as_of=as_of)
         ws = window_start or resolved.window_start.isoformat()
         we = window_end or resolved.window_end.isoformat()
-        task_id = new_uuid()
+        task_id = task_id or new_uuid()
         request = AbnormalMoveRequest(
             request_id=new_uuid(), task_id=task_id, entity_id=entity_id,
             entity_type=entity_type,  # type: ignore[arg-type]
@@ -353,8 +355,20 @@ class AbnormalMovePipeline:
 
         run_dir = self.root / "reports" / "runs" / run.task_id
         run_dir.mkdir(parents=True, exist_ok=True)
+        artifact_names = [
+            "task.json", "plan.json", "scenario_execution_result.json",
+            "abnormal_move_request.json", "abnormal_move_run.json",
+            "abnormal_move_observation.json", "anomaly_metrics.json",
+            "benchmark_candidates.json", "benchmark_selection.json",
+            "retrieved_events.json", "cause_candidates.json",
+            "cause_evidence_links.json", "contradictions.json",
+            "attribution_result.json", "model_route.json", "validation.json",
+        ]
+        run.report_path = str(report_path)
+        run.artifact_paths = [str(run_dir / name) for name in artifact_names]
         artifacts = {
             "abnormal_move_request.json": request.model_dump(),
+            "abnormal_move_run.json": run.model_dump(),
             "abnormal_move_observation.json": observation.model_dump(),
             "anomaly_metrics.json": [m.model_dump() for m in detect.metrics + linkage.metrics],
             "benchmark_candidates.json": [c.model_dump() for c in sel_result.candidates],
@@ -389,7 +403,5 @@ class AbnormalMovePipeline:
             self.db.upsert(l)
         self.db.upsert(attribution)
 
-        run.report_path = str(report_path)
-        run.artifact_paths = [str(run_dir / f) for f in artifacts]
         self.db.upsert(run)
         return run_dir, report_path
