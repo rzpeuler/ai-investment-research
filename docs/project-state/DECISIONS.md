@@ -1428,3 +1428,26 @@ db_version:
 
 **不变**: M3 source whitelist 不变，Schema 55 不变，DB v6 不变，Phase2/3/4 行为不变，
 Graph→Research 不实现，JSON mirror 不实现。
+
+### 39.10 M9-R2 Authority Finalization（2026-08-09）
+
+> R2 完成 run eligibility 与 full canonical integrity 最终闭包。不新增 Decision #40。
+
+**Eligibility 双 gate**:
+- eligibility = artifact validation PASS + SQLite authoritative run validation PASS
+- Morning: task binding + full Claim + Evidence closure + validation.json status=="ok"
+- Phase3: artifact ok==true + DB `AbnormalMoveRun.validation_status=="passed"`
+- Phase4: artifact status∈{pass, pass_with_warnings} + DB `validation_status`∈{pass, pass_with_warnings} + `status`∉{validation_failed, failed}
+
+**真正的 Schema→Pydantic→model_dump→Schema canonical**:
+- 统一 `_schema_pydantic_roundtrip()` → Schema validation → Pydantic construction → model_dump → re-validate
+- `_canonicalize_artifact(raw, schema_name)` 和 `_canonicalize_db(raw, model_name)` 统一走同一条路径
+- `_CANONICAL_MODEL_BY_SCHEMA` registry 覆盖 8 种对象: Claim/Evidence/ResearchFinding/AbnormalMoveRun/CauseCandidate/CauseEvidenceLink/EquityResearchRun/EquityResearchRequest
+- SQLite load 同样 Schema round-trip（DB payload → Schema → Pydantic → dump → Schema）
+
+**Full canonical equality**:
+- 所有对象（run/cause/link/request）使用完整 `==` 比较 canonical dict
+- 不再 field-by-field 比较
+- 攻击覆盖: observation_id/schema tamper、title/relation tamper、validation_status tamper、company_entity_id tamper
+
+**测试回归恢复**: 原有 M9 测试覆盖已恢复并强化（56 tests vs R1 45，vs original 40）

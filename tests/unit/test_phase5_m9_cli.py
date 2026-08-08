@@ -118,11 +118,12 @@ def _make_abnormal_run(project_root: Path, db_path: str) -> Path:
     eid = str(new_uuid())
 
     _make_evidence(db, eid)
-    db.upsert(AbnormalMoveRun(
+    db_run = AbnormalMoveRun(
         run_id=run_id, task_id=task_id, request_id=req_id,
         observation_id=obs_id, idempotency_key=f"k_{task_id}",
-        run_version=1, started_at=T0, finished_at=T0,
-    ))
+        run_version=1, started_at=T0, finished_at=T0, validation_status="passed",
+    )
+    db.upsert(db_run)
     db_cause = CauseCandidate(
         cause_candidate_id=cause_id, request_id=req_id,
         observation_id=obs_id, title="x", cause_category="direct_trigger",
@@ -136,9 +137,9 @@ def _make_abnormal_run(project_root: Path, db_path: str) -> Path:
     db.upsert(db_link)
     db.close()
 
-    (run_dir / "abnormal_move_run.json").write_text(json.dumps({
-        "run_id": run_id, "task_id": task_id, "request_id": req_id,
-    }), encoding="utf-8")
+    (run_dir / "abnormal_move_run.json").write_text(json.dumps(
+        db_run.model_dump(),
+    ), encoding="utf-8")
     (run_dir / "cause_candidates.json").write_text(json.dumps([
         db_cause.model_dump(),
     ]), encoding="utf-8")
@@ -163,11 +164,12 @@ def _make_equity_run(project_root: Path, db_path: str) -> Path:
     eid = str(new_uuid())
 
     _make_evidence(db, eid)
-    db.upsert(EquityResearchRun(
+    db_run = EquityResearchRun(
         run_id=run_id, request_id=req_id, task_id=task_id,
         idempotency_key=f"k_{task_id}", run_version=1,
-        started_at=T0, status="success",
-    ))
+        started_at=T0, status="success", validation_status="pass",
+    )
+    db.upsert(db_run)
     db_req = EquityResearchRequest(
         request_id=req_id, task_id=task_id,
         company_entity_id="company:600519.SH",
@@ -186,9 +188,9 @@ def _make_equity_run(project_root: Path, db_path: str) -> Path:
     db.upsert(finding)
     db.close()
 
-    (run_dir / "equity_research_run.json").write_text(json.dumps({
-        "run_id": run_id, "request_id": req_id, "task_id": task_id,
-    }), encoding="utf-8")
+    (run_dir / "equity_research_run.json").write_text(json.dumps(
+        db_run.model_dump(),
+    ), encoding="utf-8")
     (run_dir / "equity_research_request.json").write_text(json.dumps(
         db_req.model_dump(),
     ), encoding="utf-8")
