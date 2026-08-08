@@ -1477,6 +1477,8 @@ evidence_ids
 
 # 36. M9：Phase 2/3/4 Integration
 
+**状态：AUTHORIZED / IN_PROGRESS（PR5C `phase5/pipeline-integration`，Draft PR #6）**
+
 **架构设计：V4 Pro**
 
 **普通 glue code：Flash**

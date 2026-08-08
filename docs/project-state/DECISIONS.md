@@ -1291,3 +1291,98 @@ db_version:
   UNRESOLVED / DEFERRED / NOT_IMPLEMENTED / NOT_CANCELLED /
   NOT_ASSIGNED_TO_M9 / NOT_ASSIGNED_TO_M10（#38.10 不变）。
   M8 PASS 不构成对 taskbook §20 JSON mirror 的满足声明。
+
+---
+
+## 39. Phase 5 M9 Structured Research Candidate Integration Contract（2026-08-09）
+
+> 本决定在 M9 实现启动时冻结，经用户明确授权
+> （PR5B MERGED，master `cfdeeba7604efed2ac730c8e0e15692d49809b4d`）。
+> M9 scope：existing persisted structured research objects → GraphChange candidate。
+> Graph→Research NOT implemented in M9。
+
+### 39.1 M9 唯一授权范围
+
+1. **Research→Candidate ONE-WAY**：M9 只建立 Phase2/3/4 已持久化结构化研究对象
+   → GraphChange candidate 的单向集成。M9 不实现 Graph→Research
+   （KnowledgeContext injection），也不消费 M8 KnowledgeContext/GraphQuery
+   输出。
+2. **不得修改 Phase2/3/4**：已验收的 morning scoring、abnormal move detection、
+   benchmark selection、causal timing、equity financial formulas、valuation
+   formulas、research status、LLM research prompts 全部冻结。M9 是显式
+   post-run integration，不给既有 `research run` 命令新增自动 candidate side
+   effect。
+3. **Phase3 原有 timing 缺口本轮不修**：`move_start_at/move_end_at` 缺省是
+   独立 Phase3 defect，不借 M9 修复。
+
+### 39.2 M3 Source Whitelist 完全冻结
+
+4. `_SOURCE_MAP` / `_ALLOWED_SOURCE_TYPES`（`candidate_sources.py`）保持原样：
+   Event / Claim / ResearchFinding / CompetitiveFactor / Catalyst /
+   RiskFactor / BusinessSegment / CompanyProfile / Evidence（9 种）。
+5. **禁止新增**：Opinion、CauseCandidate、AttributionResult、
+   AbnormalMoveObservation、CandidateItem、EventCluster、PeerSelection、
+   ValuationSnapshot。理由：防止 SOURCE_OPINION / abnormal attribution
+   被抬升为图谱事实，以及异动分析自证。
+
+### 39.3 Scenario Integration 模块
+
+6. **新建** `src/research_os/knowledge/scenario_integration.py`
+   `ScenarioCandidateIntegrator.integrate(scenario, run_dir, ...)`。
+   支持 canonical scenario names：`morning_brief` / `abnormal_move_analysis` /
+   `stock_research_report`。
+7. **Run artifact 永远不是 authority**：artifact JSON 只用作 locator
+   （finding_id / claim_id / evidence_id），结构化对象必须从 SQLite
+   经 Schema→Pydantic→Schema 重新严格加载。artifact 内的
+   statement/conclusion/evidence/confidence 永远不直接送给 LLM。
+
+### 39.4 Phase2 / Morning 集成合同
+
+8. **只使用** `claims.json`（Claim ID）→ SQLite claims 表
+   → `SourceAdapter.load("Claim", claim_id)`。artifact Claim 与 DB Claim
+   必须一致（`INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT` 不一致）。
+9. **禁止** CandidateItem、EventCluster、RawItem、Markdown 作为 source。
+
+### 39.5 Phase3 / Abnormal Move 集成合同
+
+10. **只使用** `cause_evidence_links.json` → Evidence IDs → SQLite evidence 表
+    → `Evidence:<evidence_id>`。必须验证完整引用链
+    （run.request_id → cause_candidate → cause_evidence_link → evidence）。
+11. **禁止** CauseCandidate、AttributionResult、Observation 作为 source。
+    禁止根据 cause_category/attribution_status/primary_cause/final_score
+    自行制造 FACT relation。
+
+### 39.6 Phase4 / Equity Research 集成合同
+
+12. **v1 只使用** `research_findings.json` → ResearchFinding ID → SQLite
+    research_findings 表。验证 `run.request_id == finding.request_id`
+    （cross-run → `INTEGRATION_SOURCE_RUN_MISMATCH`）。
+13. CompetitiveFactor/Catalyst/RiskFactor/BusinessSegment/Claim 虽然 M3
+    继续允许作为显式 source（`knowledge candidates --source Type:ID`），
+    但 M9 scenario bridge 因缺少可靠 request_id/run_id 不自动引入。
+    M3 explicit candidates CLI 不受影响。
+
+### 39.7 安全约束
+
+14. **run_dir 必须** `resolve() → 验证在 project_root/reports/runs/` 下
+    （拒绝 `../` / absolute outside / symlink escape）。
+    `INTEGRATION_RUN_DIR_INVALID`。
+15. **Source 数量硬上限** `MAX_INTEGRATION_SOURCES = 20`。超过且无显式
+    `--source` filter → `INTEGRATION_SOURCE_LIMIT_EXCEEDED`，不得 silent
+    top-N。`--source Type:ID` 必须是 resolver-discovered source refs 子集
+    （`INTEGRATION_SOURCE_FILTER_INVALID`）。
+16. **每次 invocation = 一次 CandidatePipeline.run()**，最多一个 candidate。
+    禁止 per-source 循环（保护 M3 Pro budget max-one）。
+17. **Candidate 永不直接 active**：M9 成功最多 `review_status=candidate`。
+    后续仍必须 Human Review → Deterministic Apply。
+
+### 39.8 不变约束
+
+18. **不新增 Schema / Migration**（SCHEMA_COUNT=55，DB_VERSION=6 不变）。
+19. **不消费 M8 KnowledgeContext**（不在 M9 integration 业务路径 import
+    KnowledgeContextBuilder/GraphQueryService/HistoryService）。
+20. **JSON mirror** 保持 `PHASE5_UNRESOLVED_REQUIREMENT`：
+    NOT_IMPLEMENTED / NOT_CANCELLED / NOT_ASSIGNED_TO_M9。
+21. same-run circularity 无（Graph→Research 不实现，candidate ≠ active
+    graph 不回流当前 run）。
+22. M9 completion ≠ Phase5 PASS。M10 仍 NOT_AUTHORIZED。
