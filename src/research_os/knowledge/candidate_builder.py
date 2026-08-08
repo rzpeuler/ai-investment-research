@@ -34,6 +34,7 @@ from research_os.models import (
     Entity,
 )
 from research_os.storage.db import Database
+from research_os.validators.schema_validator import validate_instance
 from research_os.utils.time import now_iso
 
 # ---- 受保护的节点类型（只允许 governance seed）----
@@ -425,17 +426,36 @@ class GraphChangeBuilder:
         # 去重（保持插入顺序）
         candidate_entity_ids = list(dict.fromkeys(candidate_entity_ids))
 
-        # ── 实体类型过滤（先于歧义检查）──
-        # 根据节点类型过滤候选 entity_id：仅保留 entity_type 匹配的 entity
+        # ── Schema-first 实体验证 + 实体类型过滤（先于歧义检查）──
+        # 三步验证：validate_instance(raw) → Entity(**entity) → validate_instance(dump)
+        # 任何一步失败都跳过该 entity
+        # 然后按 entity_type 过滤
         expected_type = _NODE_TYPE_TO_ENTITY_TYPE.get(cn.node_type)
         if expected_type:
             filtered = []
             for eid in candidate_entity_ids:
                 ent = self._db.get("entities", eid)
-                if ent is not None and ent.get("entity_type") == expected_type:
+                if ent is None:
+                    continue
+                # Step 1: Schema-first validation on raw dict
+                errors = validate_instance(ent, "entity")
+                if errors:
+                    continue
+                # Step 2: Pydantic Entity construction
+                try:
+                    entity_obj = Entity(**ent)
+                except Exception:
+                    continue
+                # Step 3: Schema validation on model_dump
+                dumped = entity_obj.model_dump()
+                errors2 = validate_instance(dumped, "entity")
+                if errors2:
+                    continue
+                # Step 4: entity_type filtering
+                if ent.get("entity_type") == expected_type:
                     filtered.append(eid)
-            if filtered:
-                candidate_entity_ids = filtered
+            # UNCONDITIONAL: zero matches → IDENTITY_RESOLUTION_REQUIRED below
+            candidate_entity_ids = filtered
 
         if len(candidate_entity_ids) == 0:
             # 绝不使用 name/alias/slug/hash fallback

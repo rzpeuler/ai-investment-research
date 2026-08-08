@@ -68,7 +68,7 @@ def entity_in_db(db, entity_id):
         entity_type="company",
         canonical_name="测试实体公司",
         aliases=["测试"],
-        market="SH",
+        market="A-share",
         industry_ids=[],
         concept_ids=[],
         valid_from=None,
@@ -245,7 +245,7 @@ def test_add_node_rejects_ambiguous_entity(builder, entity_in_db, db):
     second_entity_id = "company:other"
     db.upsert(Entity(
         entity_id=second_entity_id, entity_type="company",
-        canonical_name="Other Company", aliases=[], market="SH",
+        canonical_name="Other Company", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     ))
     from research_os.models import Event as Evt
@@ -610,7 +610,7 @@ def test_add_node_wrong_entity_type_fails(builder, db):
         entity_type="company",  # Company type
         canonical_name="Type Mismatch",
         aliases=[],
-        market="SH",
+        market="A-share",
         industry_ids=[],
         concept_ids=[],
         valid_from=None,
@@ -696,7 +696,7 @@ def test_add_node_object_entities_extraction(db, builder):
     entity_id = f"company:obj-{new_uuid()[:8]}"
     entity = Entity(
         entity_id=entity_id, entity_type="company",
-        canonical_name="对象公司", aliases=[], market="SH",
+        canonical_name="对象公司", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     )
     db.upsert(entity)
@@ -723,7 +723,7 @@ def test_add_node_target_entities_extraction(db, builder):
     entity_id = f"company:pl-{new_uuid()[:8]}"
     entity = Entity(
         entity_id=entity_id, entity_type="company",
-        canonical_name="Plural Company", aliases=[], market="SH",
+        canonical_name="Plural Company", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     )
     db.upsert(entity)
@@ -767,7 +767,7 @@ def test_add_node_existing_baseline_increment(db, builder):
     entity_id = f"company:baseline-{new_uuid()[:8]}"
     entity = Entity(
         entity_id=entity_id, entity_type="company",
-        canonical_name="基线公司", aliases=[], market="SH",
+        canonical_name="基线公司", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     )
     db.upsert(entity)
@@ -912,7 +912,7 @@ def test_type_filter_before_ambiguity(db, builder):
     product_id = f"product:typefilter-p-{new_uuid()[:8]}"
     db.upsert(Entity(
         entity_id=company_id, entity_type="company",
-        canonical_name="TypeFilter Company", aliases=[], market="SH",
+        canonical_name="TypeFilter Company", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     ))
     db.upsert(Entity(
@@ -951,7 +951,7 @@ def test_type_filter_two_companies_ambiguous(db, builder):
     for cid in (cid1, cid2):
         db.upsert(Entity(
             entity_id=cid, entity_type="company",
-            canonical_name=f"Ambiguous {cid}", aliases=[], market="SH",
+            canonical_name=f"Ambiguous {cid}", aliases=[], market="A-share",
             industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
         ))
     from research_os.models import Event as Evt
@@ -985,7 +985,7 @@ def test_modify_node_evidence_merge(db, builder):
     # 插入 entity
     db.upsert(Entity(
         entity_id=node_id, entity_type="company",
-        canonical_name="EvMerge", aliases=[], market="SH",
+        canonical_name="EvMerge", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     ))
     # 插入已有 graph_node（含旧 evidence_ids）
@@ -1034,7 +1034,7 @@ def test_retire_node_evidence_merge(db, builder):
     node_id = f"company:retire-ev-{new_uuid()[:8]}"
     db.upsert(Entity(
         entity_id=node_id, entity_type="company",
-        canonical_name="RetireEv", aliases=[], market="SH",
+        canonical_name="RetireEv", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     ))
     import json as _json
@@ -1084,7 +1084,7 @@ def test_add_node_deterministic_conflict(db, builder):
     entity_id = f"company:detconf-{new_uuid()[:8]}"
     db.upsert(Entity(
         entity_id=entity_id, entity_type="company",
-        canonical_name="DetConf", aliases=[], market="SH",
+        canonical_name="DetConf", aliases=[], market="A-share",
         industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
     ))
     # 插入已有 node
@@ -1129,3 +1129,141 @@ def test_add_node_deterministic_conflict(db, builder):
     # graph_change 仍然生成（版本递增，非拒绝）
     assert build_result.graph_change is not None
     assert build_result.graph_change.node.version >= 2
+
+
+# ---- M3 Final Gate: raw Entity Schema attack ----
+def test_schema_attack_market_SH_rejected(db, builder):
+    """Direct DB insert with market='SH' (Schema-invalid) → IDENTITY_RESOLUTION_REQUIRED."""
+    entity_id = f"company:schema-attack-{new_uuid()[:8]}"
+    # Direct DB insert with Schema-invalid market='SH' in payload
+    import json as _json
+    db._conn.execute(
+        """INSERT INTO entities (entity_id, payload, entity_type, canonical_name, valid_from, valid_to)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (entity_id,
+         _json.dumps({"entity_id": entity_id, "entity_type": "company",
+                       "canonical_name": "Schema Attack Co", "aliases": ["SA"],
+                       "market": "SH", "industry_ids": [], "concept_ids": [],
+                       "valid_from": None, "valid_to": None, "source_ids": []}),
+         "company", "Schema Attack Co", None, None),
+    )
+    db._conn.commit()
+
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}",
+        event_type="test", subject_entities=[entity_id],
+        object_entities=[], event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev.event_id): ev}
+
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    # Schema-first validation should reject market="SH" → IDENTITY_RESOLUTION_REQUIRED
+    with pytest.raises(ValueError, match="IDENTITY_RESOLUTION_REQUIRED"):
+        builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+
+
+# ---- M3 Final Gate: edge evidence merge ----
+def test_modify_edge_evidence_merge(db, builder):
+    """modify_edge: old=[A,B], new=[B,C] → edge evidence=[A,B,C], GC.new=[B,C]."""
+    edge_id = "edge:graph:modify-merge-test"
+    import json as _json
+    # Insert existing edge with evidence [A, B]
+    db._conn.execute(
+        """INSERT INTO graph_edges (edge_id, version, payload, source_node_id, relation,
+           target_node_id, assertion_type, review_status, created_at, valid_from, valid_to,
+           confidence, last_reviewed_at, originating_graph_change_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (edge_id, 1,
+         _json.dumps({"edge_id": edge_id, "source_node_id": "company:a",
+                       "relation": "SUPPLIES", "target_node_id": "company:b",
+                       "attributes": {}, "assertion_type": "FACT",
+                       "valid_from": None, "valid_to": None, "confidence": 0.9,
+                       "evidence_ids": ["ev:A", "ev:B"], "review_status": "approved",
+                       "version": 1, "originating_graph_change_id":
+                       "11111111-1111-1111-1111-111111111111",
+                       "created_at": T0, "last_reviewed_at": None}),
+         "company:a", "SUPPLIES", "company:b",
+         "FACT", "approved", T0, None, None, 0.9, None,
+         "11111111-1111-1111-1111-111111111111"),
+    )
+    db._conn.commit()
+
+    proposal = GraphChangeProposal(
+        proposal_type="modify_attribute",
+        source_object_ids=["Claim:cl1"],
+        candidate_node=None,
+        candidate_edge=GraphProposalEdge(
+            source_node_id="company:a",
+            relation="SUPPLIES",
+            target_node_id="company:b",
+            attributes={"volume": 200},
+            assertion_type="FACT",
+            valid_from=None,
+            valid_to=None,
+            confidence=0.95,
+        ),
+        new_evidence_ids=["ev:B", "ev:C"],
+        suggested_change="修改边属性",
+        impact_scope=[],
+        conflicts=[],
+        verification_points=[],
+        confidence=0.95,
+    )
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:B", "ev:C"]).graph_change
+    assert gc.edge.evidence_ids == ["ev:A", "ev:B", "ev:C"]
+    assert gc.new_evidence_ids == ["ev:B", "ev:C"]
+
+
+def test_retire_edge_evidence_merge(db, builder):
+    """retire_edge: old=[A,B], new=[B,C] → edge evidence=[A,B,C], GC.new=[B,C]."""
+    edge_id = "edge:graph:retire-merge-test"
+    import json as _json
+    # Insert existing edge with evidence [A, B]
+    db._conn.execute(
+        """INSERT INTO graph_edges (edge_id, version, payload, source_node_id, relation,
+           target_node_id, assertion_type, review_status, created_at, valid_from, valid_to,
+           confidence, last_reviewed_at, originating_graph_change_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (edge_id, 1,
+         _json.dumps({"edge_id": edge_id, "source_node_id": "company:x",
+                       "relation": "COMPETES_WITH", "target_node_id": "company:y",
+                       "attributes": {}, "assertion_type": "FACT",
+                       "valid_from": None, "valid_to": None, "confidence": 0.85,
+                       "evidence_ids": ["ev:A", "ev:B"], "review_status": "approved",
+                       "version": 1, "originating_graph_change_id":
+                       "11111111-1111-1111-1111-111111111111",
+                       "created_at": T0, "last_reviewed_at": None}),
+         "company:x", "COMPETES_WITH", "company:y",
+         "FACT", "approved", T0, None, None, 0.85, None,
+         "11111111-1111-1111-1111-111111111111"),
+    )
+    db._conn.commit()
+
+    proposal = GraphChangeProposal(
+        proposal_type="retire_edge",
+        source_object_ids=["Claim:cl1"],
+        candidate_node=None,
+        candidate_edge=GraphProposalEdge(
+            source_node_id="company:x",
+            relation="COMPETES_WITH",
+            target_node_id="company:y",
+            attributes={},
+            assertion_type="FACT",
+            valid_from=None,
+            valid_to=T0,
+            confidence=0.9,
+        ),
+        new_evidence_ids=["ev:B", "ev:C"],
+        suggested_change="退役边",
+        impact_scope=[],
+        conflicts=[],
+        verification_points=[],
+        confidence=0.9,
+    )
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:B", "ev:C"]).graph_change
+    assert gc.edge.evidence_ids == ["ev:A", "ev:B", "ev:C"]
+    assert gc.new_evidence_ids == ["ev:B", "ev:C"]

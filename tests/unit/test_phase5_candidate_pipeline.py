@@ -30,6 +30,7 @@ from research_os.models import (
     Event,
     Claim,
     Evidence,
+    Entity,
     GraphChangeProposal,
 )
 from research_os.storage.db import Database
@@ -573,13 +574,22 @@ def test_llm_self_conflict_no_pro_escalation():
 # ---- M3 Final: Markdown handler ----
 
 def test_markdown_success_no_exc_reference(db, tmp_path):
-    """Markdown 成功路径设置 markdown_path，不引用 exc。"""
+    """Markdown 成功路径：persist valid Entity → pipeline 产出 markdown_path，文件存在。"""
     from research_os.llm.provider import FakeLlmProvider
+    from pathlib import Path as _Path
 
     ev_id = new_uuid()
     _insert_evidence(db, ev_id)
     event_id = new_uuid()
     _insert_event(db, event_id, evidence_ids=[ev_id])
+
+    # Persist valid Entity so builder can resolve identity
+    db.upsert(Entity(
+        entity_id="company:test", entity_type="company",
+        canonical_name="Markdown Success Co", aliases=["MSC"],
+        market="A-share", industry_ids=[], concept_ids=[],
+        valid_from=None, valid_to=None, source_ids=[],
+    ))
 
     proposal_output = {
         "proposal_type": "add_node",
@@ -618,23 +628,29 @@ def test_markdown_success_no_exc_reference(db, tmp_path):
         knowledge_dir=knowledge_dir,
     )
 
-    # 无论最终状态如何，pipeline 完成了所有步骤
-    assert "status" in result
-    # 如果 markdown 渲染成功，应设置 markdown_path
-    if result["status"] == "ok" or "markdown_path" in result:
-        assert "markdown_path" in result
-        assert result["markdown_path"] != ""
+    assert result["status"] == "ok"
+    assert "markdown_path" in result
+    markdown_path = result["markdown_path"]
+    assert _Path(markdown_path).exists()
 
 
-def test_markdown_failure_returns_non_ok(db, tmp_path):
-    """Markdown 失败设置 file_write_failed 并返回，不引用未定义 exc。"""
-    # 使用只读目录模拟写入失败
+def test_markdown_failure_returns_non_ok(db, tmp_path, monkeypatch):
+    """Markdown 写入失败 → status=file_write_failed。"""
     from research_os.llm.provider import FakeLlmProvider
+    from research_os.knowledge.candidate_renderer import CandidateRenderer
 
     ev_id = new_uuid()
     _insert_evidence(db, ev_id)
     event_id = new_uuid()
     _insert_event(db, event_id, evidence_ids=[ev_id])
+
+    # Persist valid Entity so builder can resolve identity
+    db.upsert(Entity(
+        entity_id="company:test", entity_type="company",
+        canonical_name="Markdown Fail Co", aliases=["MFC"],
+        market="A-share", industry_ids=[], concept_ids=[],
+        valid_from=None, valid_to=None, source_ids=[],
+    ))
 
     proposal_output = {
         "proposal_type": "add_node",
@@ -661,30 +677,22 @@ def test_markdown_failure_returns_non_ok(db, tmp_path):
         "ok": True, "output": proposal_output, "error": None, "model_id": "fake-model"
     })
 
+    # Monkeypatch render_to_file to raise ValueError
+    def _force_write_failure(*args, **kwargs):
+        raise ValueError("forced markdown write failure")
+
+    monkeypatch.setattr(CandidateRenderer, "render_to_file", _force_write_failure)
+
     pipeline = CandidatePipeline(
         db=db, provider=fake_provider, live=True, dry_run=False
     )
     pipeline._llm_client.configured = True
     pipeline._llm_client.provider = fake_provider
 
-    # 使用会导致写入失败的目录（只读父目录）
-    import os
-    import stat
     knowledge_dir = tmp_path / "knowledge"
-    candidates_dir = knowledge_dir / "candidates"
-    candidates_dir.mkdir(parents=True)
-    # 使 candidates 目录只读以触发写入失败
-    os.chmod(str(candidates_dir), stat.S_IREAD)
-
     result = pipeline.run(
         sources=[("Event", event_id)],
         knowledge_dir=knowledge_dir,
     )
 
-    # 恢复权限以便 cleanup
-    os.chmod(str(candidates_dir), stat.S_IREAD | stat.S_IWRITE)
-
-    # Markdown 写入失败应设置 file_write_failed 状态并返回
-    assert result["status"] in ("file_write_failed", "build_failed", "identity_resolution_required")
-    if result["status"] == "file_write_failed":
-        assert any("Markdown render" in e for e in result.get("errors", []))
+    assert result["status"] == "file_write_failed"
