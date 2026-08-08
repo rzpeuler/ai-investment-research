@@ -37,7 +37,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 PASS（SHA `b097996`），M2 PASS（SHA `565d500`），M3 PASS（SHA `242e039`），M4 PASS（SHA `20b7a15`），M5 PASS（SHA `92649a7`，CI `31251491357`，1725 passed / 5 skipped / 0 xfail / 55/55 schemas），M6 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE（1776 passed / 5 skipped / 0 xfail / 55/55 schemas，PR 5B #5 DRAFT），M7-M10 NOT_AUTHORIZED。
+| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 PASS（SHA `b097996`），M2 PASS（SHA `565d500`），M3 PASS（SHA `242e039`），M4 PASS（SHA `20b7a15`），M5 PASS（SHA `92649a7`，CI `31251491357`，1725 passed / 5 skipped / 0 xfail / 55/55 schemas），M6 PASS（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas），M7 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE（PR 5B #5 DRAFT，1879 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），M8-M10 NOT_AUTHORIZED。
 
 ## 2026-08-07 修复后的关键事实
 

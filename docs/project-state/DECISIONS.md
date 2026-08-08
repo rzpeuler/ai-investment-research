@@ -809,3 +809,157 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 - JSON mirror export、knowledge context builder（M8）
 - 自动批准、自动应用
 - M7-M10 全部未授权
+
+---
+
+## 37. Phase 5 M7 Version Lifecycle & History Contract（2026-08-09）
+
+> 本决定在 M7 实现启动时冻结，经用户明确授权（M6_ACCEPTED_SHA=`480b209`）。
+> M7 不修改 M4 KGV-001—019 含义；可增加独立 deterministic lifecycle/history
+> validation，但不得偷偷改变现有 KGV results。
+
+### 37.1 范围与运行时
+
+1. **M7 正式实现**：`modify_attribute` / `retire_node` / `retire_edge` apply、
+   version lifecycle、superseded / expired / retired 派生语义、
+   identity-scoped history query、deterministic as_of resolution。
+2. **运行时 ZERO LLM / ZERO Provider / ZERO network**（apply 与 history 均不得
+   调用模型）。LLM 仍只允许存在于 M3 GraphChangeProposal semantic proposal
+   阶段。
+3. **M7 不新增 Schema、不新增 migration、不修改 006 migration、DB 保持 v6**。
+   现有 `version / status / valid_from / valid_to / originating_graph_change_id /
+   GraphApplication` 足够表达 M7。
+4. **任何 M7 change 都必须经过 M5 Human Review + M6/M7 Apply Engine**；
+   candidate 永不直接进入 active graph。
+
+### 37.2 一级红线：旧版本物理不可变
+
+5. **graph_nodes / graph_edges 全部 INSERT ONLY**。M7 严禁为 superseded /
+   expired / closing valid_to / retired 去 UPDATE vN payload / status /
+   valid_to / 任何 vN column。vN 是否 superseded/expired 由 deterministic
+   history semantics 派生，绝不回写。
+
+### 37.3 时间模型：双时间禁止混用
+
+6. **业务有效时间**（valid_from / valid_to）与**审核/系统 audit 时间**
+   （created_at / reviewed_at / applied_at）严格区分。严禁：
+   reviewed_at → 自动填 valid_from；applied_at → 自动填 valid_from；
+   created_at → 自动关闭 valid_to；now() → 自动退休时间；file mtime → 业务时间。
+7. **业务 transition time 缺失 → REJECT**，绝不用系统时间兜底。
+   - v1 add：valid_from = null 仍允许（history 中 null = unbounded past）。
+   - vN+1 modify：valid_from != null（= transition_at），不得隐式生成；
+     predecessor.valid_from 非 null 时 successor.valid_from > predecessor.valid_from，
+     否则 `TRANSITION_TIME_NOT_MONOTONIC`。
+   - retire：valid_from == valid_to == retire_at（tombstone），均非 null，
+     否则 `RETIRE_TIME_INVALID`。
+
+### 37.4 history interval 与派生状态
+
+8. **半开区间** `[effective_from, effective_to)`：
+   `effective_to = min(vN.valid_to, vN+1.valid_from)`（只有其一 / 均 null 对应
+   单边 / +∞）。`effective_from != null and effective_to != null and
+   effective_from > effective_to` → fail-closed `HISTORY_INTERVAL_INVALID`。
+   as_of < successor.valid_from → predecessor 仍可能有效；
+   as_of == successor.valid_from → successor 接管。
+9. **superseded / expired / retired 全部 derived**，不 UPDATE 旧对象：
+   - superseded：存在 successor 且 as_of >= successor.valid_from
+   - expired：无已生效 successor 且 valid_to != null 且 as_of >= valid_to
+     （允许 v1.valid_to=T1 < v2.valid_from=T2 的 knowledge gap，不得填平）
+   - retired：retire tombstone（node status=retired / edge 通过
+     origin GraphChange.change_type == retire_edge 判定）且 as_of >= retire_at；
+     禁止仅凭 valid_from == valid_to 猜测 retire
+10. **M7 ordinary write 的 persisted status**：add_node → active；
+    modify_attribute → active；retire_node → retired。不得把旧 Node payload
+    改写为 superseded / expired（这两个只存在于 history-derived 语义）。
+
+### 37.5 modify_attribute 合同
+
+11. **Node**：target 必须是 latest persisted；current_knowledge canonical ==
+    latest payload（复用 KGV-019）；effective candidate 必须 same node_id /
+    same node_type、version = latest+1、status = active、valid_from = explicit
+    transition_at。identity（node_id/node_type）改变 → `IMMUTABLE_IDENTITY_CHANGED`。
+    允许业务变化只限 name / aliases / description / valid_to + evidence 追加。
+    禁止借 modify 做 active → retired/superseded/expired（retire 必须走
+    retire_node）。无真实业务字段变化（仅 version/created_at/review fields/
+    evidence_ids/valid_from 变化）→ `NO_EFFECTIVE_CHANGE`。
+12. **Edge**：target 必须 resolve 为唯一 edge identity（KGV-015）；edge_id /
+    source_node_id / relation / target_node_id / assertion_type 全部 immutable
+    （特别禁止 MODEL_INFERENCE ↔ FACT 通过 modify 偷换 epistemic class）；
+    允许 attributes / confidence / valid_to + evidence 追加。
+13. **active-at-transition**：modify 不能复活失效对象。latest.status == active
+    且 predecessor.valid_to >= transition_at，否则 `MODIFY_TARGET_NOT_ACTIVE`。
+    不实现 reactivate / restore / unretire。
+14. **Evidence history preservation**：old evidence_ids ⊆ new evidence_ids，
+    否则 `EVIDENCE_HISTORY_LOSS`。
+
+### 37.6 retire 合同
+
+15. **retire_edge**：新 version 必须 edge_id / source / relation / target /
+    assertion_type / attributes / confidence 全部 unchanged，version=N+1，
+    valid_from == valid_to == retire_at，evidence_ids = stable union。
+    任何业务修改 → `RETIRE_PAYLOAD_MUTATION`；latest 已 expired/retired →
+    `RETIRE_TARGET_NOT_ACTIVE`。
+16. **retire_node**：新 version 必须 same node_id / node_type / name / aliases /
+    description，status=retired，version=N+1，valid_from == valid_to == retire_at，
+    evidence_ids = stable union。业务修改 → `RETIRE_PAYLOAD_MUTATION`；
+    latest.status != active 或 valid_to < retire_at → `RETIRE_TARGET_NOT_ACTIVE`。
+17. **incident-edge guard**：retire_node 在 retire_at 扫描
+    source/target == node_id 的全部 edge identity，用 M7 history semantics
+    （HistoryService.resolve_edge_as_of）判断是否 active。任一 active →
+    `ACTIVE_INCIDENT_EDGES`（0 writes，禁止 cascade；必须先行 retire incident
+    edges）。edge 在 retire_at 前已 expired/retired 不阻塞。任何 incident-edge
+    DB error / invalid JSON / invalid Schema / broken chain → fail-closed
+    （`INCIDENT_EDGE_CHECK_FAILED`），不得当作“没有 active edge”。
+18. **重复完全相同 apply 仍由 GraphApplication replay → idempotent_noop**。
+
+### 37.7 apply 流程与事务
+
+19. modify/retire apply 仍必须：preflight → BEGIN IMMEDIATE → 事务内重读 latest →
+    rerun M4 gates → rerun M7 lifecycle gates → rerun incident-edge guard →
+    append vN+1 → append GraphApplication → COMMIT。任何失败 ROLLBACK ALL
+    （不得产生 new version without application / application without version）。
+20. **并发**：两个 candidate 同时基于 vN modify，最多一个生成 vN+1；
+    另一条 STALE / VERSION conflict / deterministic rejection。
+    绝不产生两个不同 payload 的 vN+1。
+21. **GraphApplication contract 不变**：M7 modify/retire 使用与 M6 完全相同的
+    application_id / original_graph_change_id / effective_graph_change_id /
+    review_id / decision / review_candidate_hash / effective_candidate_hash /
+    target_kind / target_id / target_version / applied_at / status 以及
+    deterministic idempotency_key / application_id 算法。禁止复制或修改
+    candidate hash / replacement / review ID / idempotency 算法。
+
+### 37.8 History Service
+
+22. **职责单一** `knowledge/history.py`：get_node_history / get_edge_history /
+    resolve_node_as_of / resolve_edge_as_of（single identity，非 M8 graph query）。
+23. **strict read**：每行 JSON decode → top-level dict → JSON Schema → Pydantic →
+    model_dump → JSON Schema，并核对 DB columns 与 payload 一致
+    （node 至少 node_id/version/node_type/name/status/review_status/origin_kind/
+    created_at/valid_from/valid_to/last_reviewed_at/originating_graph_change_id）。
+    不一致 → `HISTORY_INTEGRITY_CONFLICT`（不得只信一边）。
+24. **version-chain integrity**：完整 identity history 必须 version 从 1 开始、
+    1..N contiguous；缺号/重复/invalid payload/retrograde → fail-closed。
+    错误码至少：HISTORY_READ_FAILED / HISTORY_PAYLOAD_INVALID /
+    HISTORY_SCHEMA_INVALID / HISTORY_INTEGRITY_CONFLICT / HISTORY_VERSION_GAP /
+    HISTORY_INTERVAL_INVALID。
+25. **origin integrity**：origin_kind=graph_change 或
+    originating_graph_change_id != null 时严格读取对应 GraphChange（exists /
+    Schema valid / identity matches / version matches / change_type compatible）。
+    retire derived status 必须通过 origin GraphChange.change_type 判定。
+    缺失/损坏/不匹配 → `HISTORY_ORIGIN_INTEGRITY_CONFLICT`。
+    Governance seed 继续允许 originating_graph_change_id = null。
+26. **as_of resolver**：as_of 必须显式提供、合法 ISO，禁止默认 now()。
+    未提供 as_of 的 history 调用只输出完整 history（resolved=null）。
+    future successor.valid_from > as_of 不得影响 as_of 时点解析。
+27. **输出 deterministic JSON**（kind / identity / as_of / versions[] /
+    resolved{version, derived_status, is_active, payload}），version ordered，
+    无 wall-clock、无 LLM。不新增 Schema。
+
+### 37.9 M7 严格不实现
+
+- M8：knowledge_context_builder、depth traversal、relation filtering、
+  full graph search、multi-hop traversal
+- Phase 2/3/4 integration
+- M9/M10
+- reactivate / restore / unretire
+- 自动批准、自动应用

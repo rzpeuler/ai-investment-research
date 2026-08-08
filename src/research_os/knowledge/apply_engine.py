@@ -36,10 +36,14 @@ from research_os.knowledge.review_workflow import (
     build_replacement_graph_change,
     _make_replacement_gc_id,
 )
+from research_os.knowledge.history import HistoryService
 from research_os.utils.time import now_iso, parse_iso
 
-# M6 支持（真正 apply）的 change_type
-_SUPPORTED_CHANGE_TYPES = ("add_node", "add_edge")
+# M6/M7 支持（真正 apply）的 change_type
+_SUPPORTED_CHANGE_TYPES = (
+    "add_node", "add_edge",
+    "modify_attribute", "retire_node", "retire_edge",
+)
 
 # 允许继续的 review decision
 _APPLICABLE_DECISIONS = ("approved", "approved_with_changes")
@@ -122,6 +126,8 @@ class ApplyEngine:
         self._candidate_repo = candidate_repo
         self._graph_repo = graph_repo
         self._validator = validator
+        # M7：incident-edge guard / retire 判定复用同一 deterministic history service
+        self._history = HistoryService(db, graph_repo)
         self._last_error: str = ""
 
     # ── public API ──────────────────────────────────────────
@@ -335,6 +341,21 @@ class ApplyEngine:
                 effective_gc_id=effective_gc.graph_change_id,
             )
 
+        # 17b. M7 lifecycle gates（modify/retire：identity immutable、transition
+        #      time、evidence preservation、NO_EFFECTIVE_CHANGE、retire tombstone、
+        #      incident-edge guard；add 类型跳过）。事务外 preflight（dry-run 也执行）
+        m7_err = self._m7_lifecycle_gates(
+            effective_gc.change_type,
+            target_kind, target_id, target_version, target_dump,
+            conn=None,
+        )
+        if m7_err is not None:
+            return self._reject(
+                change_id, m7_err[0], m7_err[1],
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+
         # 18. dry-run：完整预检，0 writes
         if dry_run:
             return ApplyResult(
@@ -392,6 +413,20 @@ class ApplyEngine:
                                             applied_at)
                 if gate is not None:
                     raise _InTxnRejected(gate)
+
+                # 事务内 rerun M7 lifecycle gates（锁内最新状态，含
+                # incident-edge guard；任何失败 ROLLBACK ALL）
+                m7_err = self._m7_lifecycle_gates(
+                    effective_gc.change_type,
+                    target_kind, target_id, target_version, target_dump,
+                    conn=conn,
+                )
+                if m7_err is not None:
+                    raise _InTxnRejected(self._reject(
+                        change_id, m7_err[0], m7_err[1],
+                        review_id=review.review_id,
+                        effective_gc_id=effective_gc.graph_change_id,
+                    ))
 
                 # recheck target/version（append 方法内部强校验）
                 if target_kind == "node":
@@ -680,6 +715,10 @@ class ApplyEngine:
         - add_node 要求 status=active，否则 ADD_NODE_NOT_ACTIVE
           （抛 _TargetBuildError("ADD_NODE_NOT_ACTIVE")，由 apply 映射精确
            error_code，调用方不得从 errors 字符串反解析）
+        - retire_node 要求 status=retired（tombstone），否则
+          RETIRE_PAYLOAD_MUTATION
+        - modify/retire 的 identity / evidence / transition 等 M7 gates
+          在 _m7_lifecycle_gates() 中校验（需要 latest persisted 对比）
 
         Returns:
             (target_kind, target_id, target_version, target_dump)
@@ -687,15 +726,22 @@ class ApplyEngine:
             _TargetBuildError: 带 error_code 的目标构造失败
             ValueError: 其他目标构造失败（Schema 等）
         """
+        ct = effective_gc.change_type
         if effective_gc.node is not None:
             node_dump = effective_gc.node.model_dump()
             node_dump["review_status"] = "approved"
             node_dump["last_reviewed_at"] = review.reviewed_at
-            if node_dump.get("status") != "active":
+            if ct == "add_node" and node_dump.get("status") != "active":
                 raise _TargetBuildError(
                     "ADD_NODE_NOT_ACTIVE",
                     f"node {node_dump['node_id']} status={node_dump.get('status')}"
                     f"（add_node 要求 active）",
+                )
+            if ct == "retire_node" and node_dump.get("status") != "retired":
+                raise _TargetBuildError(
+                    "RETIRE_PAYLOAD_MUTATION",
+                    f"retire_node 要求 status=retired，got "
+                    f"{node_dump.get('status')}",
                 )
             # Schema-first
             schema_errors = validate_instance(node_dump, "graph_node")
@@ -732,6 +778,307 @@ class ApplyEngine:
             return "edge", edge.edge_id, edge.version, dumped
 
         raise ValueError("effective GraphChange 缺少 node 与 edge")
+
+    # ── M7 lifecycle gates（modify / retire） ────────────────
+
+    def _m7_lifecycle_gates(self, change_type, target_kind, target_id,
+                            target_version, target_dump,
+                            conn=None) -> Optional[Tuple[str, str]]:
+        """M7 lifecycle gates（modify_attribute / retire_node / retire_edge）。
+
+        事务外 preflight 与事务内 rerun 共用（conn 参数区分读源）。
+        add_node / add_edge 跳过（M6 语义不变）。
+
+        Gates（Decision #37）：
+        - modify：transition_at 显式（TRANSITION_TIME_MISSING /
+          TRANSITION_TIME_INVALID）、identity immutable
+          （IMMUTABLE_IDENTITY_CHANGED）、active-at-transition
+          （MODIFY_TARGET_NOT_ACTIVE）、transition monotonic
+          （TRANSITION_TIME_NOT_MONOTONIC）、evidence 只增
+          （EVIDENCE_HISTORY_LOSS）、至少一个真实业务变化
+          （NO_EFFECTIVE_CHANGE）
+        - retire：valid_from == valid_to == retire_at
+          （RETIRE_TIME_INVALID）、payload 不允许业务修改
+          （RETIRE_PAYLOAD_MUTATION）、target 在 retire_at 前 active
+          （RETIRE_TARGET_NOT_ACTIVE）、incident-edge guard
+          （ACTIVE_INCIDENT_EDGES / INCIDENT_EDGE_CHECK_FAILED）
+
+        Returns:
+            None（通过）或 (error_code, message)。
+        """
+        if change_type in ("add_node", "add_edge"):
+            return None
+        dbc = conn or self._db._conn
+
+        # strict read：latest persisted（fail-closed）
+        try:
+            latest_version, latest_payload = self._read_latest_persisted(
+                dbc, target_kind, target_id)
+        except Exception as e:
+            return ("TARGET_READ_FAILED",
+                    f"{target_kind} {target_id} latest 读取失败: {e}")
+        if latest_version is None:
+            return ("M7_TARGET_MISSING",
+                    f"{target_kind} {target_id} 不存在（modify/retire 需要已存在 target）")
+        if target_version != latest_version + 1:
+            return ("VERSION_GAP",
+                    f"{target_kind} {target_id} 已有 max version={latest_version}，"
+                    f"got version={target_version}（期望 {latest_version + 1}）")
+
+        if change_type == "modify_attribute":
+            return self._modify_gates(target_kind, latest_payload, target_dump, dbc)
+        if change_type == "retire_node":
+            return self._retire_node_gates(latest_payload, target_dump, dbc)
+        # retire_edge
+        return self._retire_edge_gates(latest_payload, target_dump, dbc)
+
+    def _read_latest_persisted(self, dbc, target_kind, target_id):
+        """strict read latest persisted payload（M7 gates 共用）。"""
+        if target_kind == "node":
+            latest_version = self._graph_repo.get_latest_node_version(target_id)
+            if latest_version is None:
+                return None, None
+            payload = self._graph_repo.get_node_version(target_id, latest_version)
+        else:
+            latest_version = self._graph_repo.get_latest_edge_version(target_id)
+            if latest_version is None:
+                return None, None
+            payload = self._graph_repo.get_edge_version(target_id, latest_version)
+        if payload is None:
+            raise ValueError(
+                f"{target_kind} {target_id} latest v{latest_version} 缺失"
+            )
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"{target_kind} {target_id} latest payload 顶层非 object"
+            )
+        return latest_version, payload
+
+    def _modify_gates(self, target_kind, latest, target,
+                      dbc) -> Optional[Tuple[str, str]]:
+        """modify_attribute gates（node / edge）。"""
+        vf = target.get("valid_from")
+        if vf is None:
+            return ("TRANSITION_TIME_MISSING",
+                    f"modify {target_kind} 要求显式 transition_at（valid_from 非 null）")
+        try:
+            vf_dt = parse_iso(vf)
+        except ValueError as e:
+            return ("TRANSITION_TIME_INVALID", f"transition_at 非法 ISO: {e}")
+
+        if target_kind == "node":
+            # identity immutable（node_id / node_type / origin_kind 全部不可变：
+            # origin_kind 变化 = provenance 静默改写，禁止借 modify 把
+            # governance_seed 改为 graph_change）
+            if (target.get("node_id") != latest.get("node_id")
+                    or target.get("node_type") != latest.get("node_type")):
+                return ("IMMUTABLE_IDENTITY_CHANGED",
+                        f"modify node 不得改变 identity（node_id/node_type）")
+            if target.get("origin_kind") != latest.get("origin_kind"):
+                return ("IMMUTABLE_IDENTITY_CHANGED",
+                        f"modify node 不得改变 origin_kind（provenance 不可改写）："
+                        f"{latest.get('origin_kind')} -> {target.get('origin_kind')}")
+            if target.get("status") != "active":
+                return ("MODIFY_STATUS_CHANGE",
+                        f"modify node status 必须保持 active，got "
+                        f"{target.get('status')}（retire 必须走 retire_node）")
+            # active-at-transition
+            if latest.get("status") != "active":
+                return ("MODIFY_TARGET_NOT_ACTIVE",
+                        f"latest node status={latest.get('status')}（要求 active）")
+            if latest.get("valid_to") is not None \
+                    and parse_iso(latest["valid_to"]) < vf_dt:
+                return ("MODIFY_TARGET_NOT_ACTIVE",
+                        f"predecessor.valid_to={latest.get('valid_to')} < "
+                        f"transition_at={vf}（transition 前已 expired）")
+            # transition monotonic
+            if latest.get("valid_from") is not None \
+                    and parse_iso(latest["valid_from"]) >= vf_dt:
+                return ("TRANSITION_TIME_NOT_MONOTONIC",
+                        f"successor.valid_from={vf} <= "
+                        f"predecessor.valid_from={latest.get('valid_from')}")
+            # evidence 只增
+            old_ev = set(latest.get("evidence_ids") or [])
+            new_ev = set(target.get("evidence_ids") or [])
+            if not old_ev <= new_ev:
+                return ("EVIDENCE_HISTORY_LOSS",
+                        f"modify node 不得删除历史 Evidence："
+                        f"missing={sorted(old_ev - new_ev)}")
+            # NO_EFFECTIVE_CHANGE：业务字段（name/aliases/description/valid_to）
+            business_same = (
+                target.get("name") == latest.get("name")
+                and (target.get("aliases") or []) == (latest.get("aliases") or [])
+                and target.get("description") == latest.get("description")
+                and target.get("valid_to") == latest.get("valid_to")
+            )
+            if business_same:
+                return ("NO_EFFECTIVE_CHANGE",
+                        "modify node 无真实业务字段变化"
+                        "（仅 version/created_at/review/evidence/valid_from 变化）")
+            return None
+
+        # ── edge ──
+        for f in ("edge_id", "source_node_id", "relation",
+                  "target_node_id", "assertion_type"):
+            if target.get(f) != latest.get(f):
+                return ("IMMUTABLE_IDENTITY_CHANGED",
+                        f"modify edge 不得改变 identity 字段 {f}")
+        # active-at-transition（edge 无 status：valid_to / retired origin）
+        if latest.get("valid_to") is not None \
+                and parse_iso(latest["valid_to"]) < vf_dt:
+            return ("MODIFY_TARGET_NOT_ACTIVE",
+                    f"predecessor.valid_to={latest.get('valid_to')} < "
+                    f"transition_at={vf}（transition 前已 expired）")
+        if self._is_retired_edge(latest, dbc):
+            return ("MODIFY_TARGET_NOT_ACTIVE",
+                    f"latest edge {latest.get('edge_id')} 已 retired（不能复活）")
+        # transition monotonic
+        if latest.get("valid_from") is not None \
+                and parse_iso(latest["valid_from"]) >= vf_dt:
+            return ("TRANSITION_TIME_NOT_MONOTONIC",
+                    f"successor.valid_from={vf} <= "
+                    f"predecessor.valid_from={latest.get('valid_from')}")
+        # evidence 只增
+        old_ev = set(latest.get("evidence_ids") or [])
+        new_ev = set(target.get("evidence_ids") or [])
+        if not old_ev <= new_ev:
+            return ("EVIDENCE_HISTORY_LOSS",
+                    f"modify edge 不得删除历史 Evidence："
+                    f"missing={sorted(old_ev - new_ev)}")
+        # NO_EFFECTIVE_CHANGE：业务字段（attributes/confidence/valid_to）
+        business_same = (
+            (target.get("attributes") or {}) == (latest.get("attributes") or {})
+            and target.get("confidence") == latest.get("confidence")
+            and target.get("valid_to") == latest.get("valid_to")
+        )
+        if business_same:
+            return ("NO_EFFECTIVE_CHANGE",
+                    "modify edge 无真实业务字段变化"
+                    "（仅 version/created_at/review/evidence/valid_from 变化）")
+        return None
+
+    def _retire_node_gates(self, latest, target, dbc) -> Optional[Tuple[str, str]]:
+        """retire_node gates（含 incident-edge guard）。"""
+        vf = target.get("valid_from")
+        vt = target.get("valid_to")
+        if vf is None or vt is None or vf != vt:
+            return ("RETIRE_TIME_INVALID",
+                    "retire_node 要求 valid_from == valid_to == retire_at，均非 null")
+        try:
+            vf_dt = parse_iso(vf)
+        except ValueError as e:
+            return ("RETIRE_TIME_INVALID", f"retire_at 非法 ISO: {e}")
+        # payload 不允许业务修改（含 origin_kind provenance）
+        for f in ("node_id", "node_type", "name", "aliases", "description",
+                  "origin_kind"):
+            if target.get(f) != latest.get(f):
+                return ("RETIRE_PAYLOAD_MUTATION",
+                        f"retire_node 不得同时修改业务字段 {f}")
+        if target.get("status") != "retired":
+            return ("RETIRE_PAYLOAD_MUTATION",
+                    f"retire_node status 必须为 retired，got {target.get('status')}")
+        # evidence_ids = stable union old + new（不得删减历史证据）
+        old_ev = set(latest.get("evidence_ids") or [])
+        new_ev = set(target.get("evidence_ids") or [])
+        if not old_ev <= new_ev:
+            return ("EVIDENCE_HISTORY_LOSS",
+                    f"retire_node 不得删除历史 Evidence："
+                    f"missing={sorted(old_ev - new_ev)}")
+        # target 在 retire_at 前 active
+        if latest.get("status") != "active":
+            return ("RETIRE_TARGET_NOT_ACTIVE",
+                    f"latest node status={latest.get('status')}（要求 active）")
+        if latest.get("valid_to") is not None \
+                and parse_iso(latest["valid_to"]) < vf_dt:
+            return ("RETIRE_TARGET_NOT_ACTIVE",
+                    f"latest 在 retire_at={vf} 前已 expired"
+                    f"（valid_to={latest.get('valid_to')}）")
+        # incident-edge guard
+        return self._incident_edge_guard(latest.get("node_id"), vf, dbc)
+
+    def _retire_edge_gates(self, latest, target, dbc) -> Optional[Tuple[str, str]]:
+        """retire_edge gates。"""
+        vf = target.get("valid_from")
+        vt = target.get("valid_to")
+        if vf is None or vt is None or vf != vt:
+            return ("RETIRE_TIME_INVALID",
+                    "retire_edge 要求 valid_from == valid_to == retire_at，均非 null")
+        try:
+            vf_dt = parse_iso(vf)
+        except ValueError as e:
+            return ("RETIRE_TIME_INVALID", f"retire_at 非法 ISO: {e}")
+        # 只允许 lifecycle boundary / evidence / version / review 变化
+        for f in ("edge_id", "source_node_id", "relation", "target_node_id",
+                  "assertion_type", "attributes", "confidence"):
+            if target.get(f) != latest.get(f):
+                return ("RETIRE_PAYLOAD_MUTATION",
+                        f"retire_edge 不得同时修改字段 {f}")
+        # evidence_ids = stable union old + new（不得删减历史证据）
+        old_ev = set(latest.get("evidence_ids") or [])
+        new_ev = set(target.get("evidence_ids") or [])
+        if not old_ev <= new_ev:
+            return ("EVIDENCE_HISTORY_LOSS",
+                    f"retire_edge 不得删除历史 Evidence："
+                    f"missing={sorted(old_ev - new_ev)}")
+        # target 在 retire_at 前 active（未 expired / 未 retired）
+        if latest.get("valid_to") is not None \
+                and parse_iso(latest["valid_to"]) <= vf_dt:
+            return ("RETIRE_TARGET_NOT_ACTIVE",
+                    f"latest 在 retire_at={vf} 时已 expired"
+                    f"（valid_to={latest.get('valid_to')}）")
+        if self._is_retired_edge(latest, dbc):
+            return ("RETIRE_TARGET_NOT_ACTIVE",
+                    f"latest edge {latest.get('edge_id')} 已 retired（second retire 拒绝）")
+        return None
+
+    def _is_retired_edge(self, payload: dict, dbc) -> bool:
+        """edge 是否 retire tombstone：origin GraphChange.change_type == retire_edge。
+
+        禁止仅凭 valid_from == valid_to 猜测 retire（Decision #37）。
+        """
+        gc_id = payload.get("originating_graph_change_id")
+        if gc_id is None:
+            return False
+        try:
+            ct = self._graph_repo.get_graph_change_type(gc_id, conn=dbc)
+        except Exception as e:
+            raise ValueError(
+                f"edge {payload.get('edge_id')} origin GraphChange 读取失败: {e}"
+            ) from e
+        return ct == "retire_edge"
+
+    def _incident_edge_guard(self, node_id: str, retire_at: str,
+                             dbc) -> Optional[Tuple[str, str]]:
+        """retire_node 的 incident-edge guard。
+
+        在 retire_at 时点扫描 source/target == node_id 的全部 edge identities，
+        用 M7 history semantics（HistoryService.resolve_edge_as_of）判断是否 active。
+        任一 active → ACTIVE_INCIDENT_EDGES（禁止 cascade）。
+        DB error / invalid JSON / invalid schema / broken chain → fail-closed
+        （INCIDENT_EDGE_CHECK_FAILED，不得当作“没有 active edge”）。
+        """
+        try:
+            rows = dbc.execute(
+                "SELECT DISTINCT edge_id FROM graph_edges "
+                "WHERE source_node_id = ? OR target_node_id = ?",
+                (node_id, node_id),
+            ).fetchall()
+        except Exception as e:
+            return ("INCIDENT_EDGE_CHECK_FAILED",
+                    f"incident edge 查询失败: {e}")
+        for row in rows:
+            edge_id = row["edge_id"]
+            try:
+                resolved = self._history.resolve_edge_as_of(
+                    edge_id, retire_at, conn=dbc)
+            except Exception as e:
+                return ("INCIDENT_EDGE_CHECK_FAILED",
+                        f"incident edge {edge_id} 在 {retire_at} 解析失败: {e}")
+            if resolved is not None and resolved.get("is_active"):
+                return ("ACTIVE_INCIDENT_EDGES",
+                        f"node {node_id} 在 {retire_at} 仍有 active incident edge "
+                        f"{edge_id}（必须先 retire 该 edge）")
+        return None
 
     # ── idempotency ─────────────────────────────────────────
 

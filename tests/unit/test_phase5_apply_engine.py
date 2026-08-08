@@ -1345,42 +1345,43 @@ class TestApplyDryRunAndM7:
                 _count_table(db, "graph_reviews")) == counts_before
         db.close()
 
-    def test_modify_attribute_requires_m7(self, tmp_path):
-        """46. modify_attribute → CHANGE_TYPE_REQUIRES_M7。"""
+    def test_modify_attribute_without_target_rejected(self, tmp_path):
+        """M7 语义：modify_attribute 但 target 不存在 → M4 fail-closed。"""
         db, _ = _setup_db(tmp_path)
         candidate_repo, _, _, workflow, engine = _make_components(db)
-        gc = _make_node_candidate(change_type="modify_attribute")
+        gc = _make_node_candidate(change_type="modify_attribute",
+                                  node=_make_node_candidate().node.model_copy(
+                                      update={"version": 2}))
         candidate_repo.append_candidate(gc)
-        _import_review(workflow, gc, decision="批准")
-
-        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
-        assert _reject_code(result) == "CHANGE_TYPE_REQUIRES_M7"
+        # M4 KGV-013/KGV-019 在 import 阶段拦截（无 v1 → first version must be 1）
+        result = workflow.review_import(_build_review_markdown(
+            gc, decision="批准"))
+        assert result.status != "ok", "modify 无 target 必须 fail-closed"
         assert _count_table(db, "graph_applications") == 0
         db.close()
 
-    def test_retire_node_requires_m7(self, tmp_path):
-        """47. retire_node → CHANGE_TYPE_REQUIRES_M7。"""
+    def test_retire_node_without_target_rejected(self, tmp_path):
+        """M7 语义：retire_node 但 target 不存在 → M4 fail-closed。"""
         db, _ = _setup_db(tmp_path)
         candidate_repo, _, _, workflow, engine = _make_components(db)
-        gc = _make_node_candidate(change_type="retire_node")
+        gc = _make_node_candidate(change_type="retire_node",
+                                  node=_make_node_candidate().node.model_copy(
+                                      update={"version": 2, "status": "retired"}))
         candidate_repo.append_candidate(gc)
-        _import_review(workflow, gc, decision="批准")
-
-        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
-        assert _reject_code(result) == "CHANGE_TYPE_REQUIRES_M7"
+        result = workflow.review_import(_build_review_markdown(
+            gc, decision="批准"))
+        assert result.status != "ok", "retire 无 target 必须 fail-closed"
         db.close()
 
-    def test_retire_edge_requires_m7(self, tmp_path):
-        """48. retire_edge → CHANGE_TYPE_REQUIRES_M7。"""
+    def test_retire_edge_without_target_rejected(self, tmp_path):
+        """M7 语义：retire_edge 但 triple 无现有 edge → M4 KGV-015 拦截。"""
         db, _ = _setup_db(tmp_path, raw_item_entities=["company:src", "company:tgt"])
-        candidate_repo, graph_repo, _, _, engine = _make_components(db)
+        candidate_repo, graph_repo, _, workflow, engine = _make_components(db)
         gc = _make_edge_candidate(change_type="retire_edge")
         candidate_repo.append_candidate(gc)
-        # M4 KGV-015 在 import 阶段拦截 retire（需 persisted edge），手工构造 review
-        _manual_review(db, gc, graph_repo, decision="approved")
-
-        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
-        assert _reject_code(result) == "CHANGE_TYPE_REQUIRES_M7"
+        result = workflow.review_import(_build_review_markdown(
+            gc, decision="批准"))
+        assert result.status != "ok", "retire_edge 无 target 必须 fail-closed"
         assert _count_table(db, "graph_applications") == 0
         db.close()
 

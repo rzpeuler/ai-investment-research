@@ -1368,9 +1368,9 @@ candidate hash
 
 **执行模型：DeepSeek V4 Pro**
 
-> M6 实现状态（2026-08-08）：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE。
-> 实现于 PR 5B `phase5/graph-apply-query`（#5 DRAFT）。全量 1776 passed /
-> 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变。契约冻结见 DECISIONS.md #36。
+> M6 实现状态（2026-08-09）：**PASS**。
+> 独立验收 SHA `480b209`，Offline CI `31257395650`，
+> 1809 passed / 5 skipped / 0 xfail / 55/55 schemas。PR 5B #5 DRAFT。
 
 这是 Phase 5 高风险核心。
 
@@ -1402,6 +1402,11 @@ conflict-aware
 # 34. M7：Supersede / expire / history
 
 **执行模型：Flash，Pro 审查时间语义**
+
+> M7 实现状态（2026-08-09）：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE。
+> 实现于 PR 5B `phase5/graph-apply-query`（#5 DRAFT）。全量 1879 passed /
+> 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变（无 Schema/migration 变更）。
+> 契约冻结见 DECISIONS.md #37。M8-M10 NOT_AUTHORIZED。
 
 实现：
 

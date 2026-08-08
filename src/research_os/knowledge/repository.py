@@ -400,6 +400,51 @@ class GraphRepository:
         ).fetchone()
         return json.loads(row["payload"]) if row else None
 
+    def get_graph_change_type(
+        self,
+        graph_change_id: str,
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> Optional[str]:
+        """strict read：GraphChange.change_type（M7 origin integrity / retire 判定共享）。
+
+        - missing → None
+        - DB error / invalid JSON / 顶层非 dict / 无 change_type 字段
+          → raise ValueError（strict read 语义，调用方转
+          HISTORY_ORIGIN_INTEGRITY_CONFLICT / INCIDENT_EDGE_CHECK_FAILED 等）
+
+        仅读取 change_type 一个字段；完整 schema-first 校验由
+        HistoryService._check_origin 负责（本 helper 供 apply 侧判定
+        latest edge 是否 retire tombstone 等轻量用途）。
+        """
+        dbc = conn or self._db._conn
+        try:
+            row = dbc.execute(
+                "SELECT payload FROM graph_changes WHERE graph_change_id = ?",
+                (graph_change_id,),
+            ).fetchone()
+        except Exception as e:
+            raise ValueError(
+                f"GRAPH_CHANGE_READ_FAILED: DB error reading {graph_change_id}: {e}"
+            ) from e
+        if row is None:
+            return None
+        try:
+            gc_dict = json.loads(row["payload"])
+        except Exception as e:
+            raise ValueError(
+                f"GRAPH_CHANGE_PAYLOAD_INVALID: {graph_change_id} invalid JSON: {e}"
+            ) from e
+        if not isinstance(gc_dict, dict):
+            raise ValueError(
+                f"GRAPH_CHANGE_PAYLOAD_INVALID: {graph_change_id} payload 顶层非 object"
+            )
+        ct = gc_dict.get("change_type")
+        if not isinstance(ct, str) or not ct:
+            raise ValueError(
+                f"GRAPH_CHANGE_PAYLOAD_INVALID: {graph_change_id} 缺少 change_type"
+            )
+        return ct
+
     def append_application(
         self,
         application_id: str,

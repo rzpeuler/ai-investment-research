@@ -1098,5 +1098,82 @@ def knowledge_apply(change_id, review_id, db_path, dry_run, applied_at) -> None:
         db.close()
 
 
+@knowledge_group.command("history")
+@click.option(
+    "--node-id", "node_id", default=None,
+    help="节点 identity（与 --edge-id 二选一）。",
+)
+@click.option(
+    "--edge-id", "edge_id", default=None,
+    help="边 identity（与 --node-id 二选一）。",
+)
+@click.option(
+    "--as-of", "as_of", default=None,
+    help="显式 ISO 8601 时间（可选）。未提供时只输出完整 history，不计算 resolved。"
+         "禁止默认 now()。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+def knowledge_history(node_id, edge_id, db_path, as_of) -> None:
+    """M7 Deterministic History：identity-scoped history / as_of resolution。
+
+    零 LLM / 零 Provider / 零 network。
+    exactly one of --node-id / --edge-id；错误 → non-zero exit + structured
+    JSON + explicit error_code（无 traceback）。
+    """
+    from research_os.knowledge.history import HistoryService, HistoryError
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.storage import Database
+
+    if (node_id is None) == (edge_id is None):
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "HISTORY_IDENTITY_REQUIRED",
+            "errors": ["必须且只能提供一个：--node-id 或 --edge-id"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    root = _project_root()
+    db_full = root / db_path
+    if not db_full.exists():
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "HISTORY_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1)
+
+    db = Database.open_read_only(db_full)
+    try:
+        graph_repo = GraphRepository(db)
+        history = HistoryService(db, graph_repo)
+        if node_id is not None:
+            result = history.get_node_history(node_id, as_of=as_of)
+        else:
+            result = history.get_edge_history(edge_id, as_of=as_of)
+    except HistoryError as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": exc.error_code,
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    except Exception as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "HISTORY_READ_FAILED",
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    finally:
+        db.close()
+
+    click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
+
+
 if __name__ == "__main__":
     cli()
