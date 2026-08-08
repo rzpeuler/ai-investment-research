@@ -1,19 +1,28 @@
 """M9 Scenario Integration — Phase2/3/4 Structured Research → GraphChange Candidate.
 
-职责：
+M9-R1: Run Authority & Cross-Run Integrity Closure.
+
+职责:
   scenario run artifacts → 定位结构化 ID → SQLite 权威重载 → CandidatePipeline
 
 M9 是 Research→Candidate 单向集成。不实现 Graph→Research。
 不修改 M3 source whitelist / Schema / migration。
+
+R1 变更:
+  - 统一 _read_required_json strict-read helper（必需 artifact 不再 fail-open）
+  - 晨报: task_id 绑定、evidence_index.json 闭包、full Claim canonical equality、validation gate
+  - 异动: SQLite AbnormalMoveRun/CauseCandidate/CauseEvidenceLink 完整链 authority
+  - 研报: SQLite EquityResearchRun/EquityResearchRequest authority、no fallback for missing run
+  - failed-run eligibility: 三个场景全部 fail-closed
+  - live CLI: provider error → structured JSON / no traceback
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 
 from research_os.utils.time import now_iso
 
@@ -32,6 +41,9 @@ class IntegrationError(Exception):
 
 # 硬上限
 MAX_INTEGRATION_SOURCES = 20
+
+# Phase4 允许的 validation 状态（等于成功或合法降级）
+_EQUITY_ELIGIBLE_VALIDATION_STATUSES = frozenset({"pass", "pass_with_warnings"})
 
 
 # ---------------------------------------------------------------------------
@@ -54,29 +66,66 @@ class IntegrationResult:
 
 
 # ---------------------------------------------------------------------------
+# Artifact IO
+# ---------------------------------------------------------------------------
+
+def _read_json_strict(path: Path, label: str) -> Any:
+    """严格读取 JSON 文件。失败抛出 IntegrationError。"""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise IntegrationError(
+            "INTEGRATION_READ_FAILED",
+            f"读取 {label} 失败: {exc}",
+        )
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise IntegrationError(
+            "INTEGRATION_ARTIFACT_INVALID",
+            f"{label} JSON 解析失败: {exc}",
+        )
+
+
+def _read_required_json(path: Path, label: str, expected_type: Type) -> Any:
+    """读取必需 artifact，验证存在、合法 JSON、顶层类型正确。
+
+    expected_type 只允许 list 或 dict。
+    """
+    if not path.is_file():
+        raise IntegrationError(
+            "INTEGRATION_ARTIFACT_MISSING",
+            f"缺少必需 artifact: {label} ({path})",
+        )
+    data = _read_json_strict(path, label)
+    if not isinstance(data, expected_type):
+        raise IntegrationError(
+            "INTEGRATION_ARTIFACT_INVALID",
+            f"{label} 顶层类型错误: 期望 {expected_type.__name__}, "
+            f"实际 {type(data).__name__}",
+        )
+    return data
+
+
+def _read_optional_json(path: Path) -> Any:
+    """读取可选 JSON（仅用于非安全关键 optional metadata）。"""
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # ScenarioCandidateIntegrator
 # ---------------------------------------------------------------------------
 
 class ScenarioCandidateIntegrator:
     """从 scenario run artifacts 定位结构化研究对象 → CandidatePipeline。
 
-    使用：
-        from research_os.storage import Database
-        from research_os.knowledge.scenario_integration import (
-            ScenarioCandidateIntegrator,
-        )
-
-        db = Database(...)
-        integrator = ScenarioCandidateIntegrator(
-            db=db,
-            project_root=Path("."),
-        )
-        result = integrator.integrate(
-            scenario="stock_research_report",
-            run_dir=Path("reports/runs/<task_id>"),
-            live=True,
-            provider=llm_provider,
-        )
+    R1: run artifacts = locator / consistency proof only。
+          SQLite persisted run/source objects = authority。
     """
 
     _SCENARIO_CANONICAL = {
@@ -112,17 +161,7 @@ class ScenarioCandidateIntegrator:
         selected_sources: Optional[Sequence[str]] = None,
         requested_model_class: str = "flash",
     ) -> IntegrationResult:
-        """从 scenario run artifacts 定位 source refs → CandidatePipeline。
-
-        Args:
-            scenario: canonical name（morning_brief/abnormal_move_analysis/stock_research_report）
-            run_dir: reports/runs/<task_id> 目录路径。
-            selected_sources: 显式子集 filter（"Type:ID"），必须是 resolver 发现的子集。
-            requested_model_class: "flash" | "pro"（透传给 CandidatePipeline）。
-
-        Returns:
-            IntegrationResult。
-        """
+        """从 scenario run artifacts 定位 source refs → CandidatePipeline。"""
         result = IntegrationResult(
             scenario=scenario,
             run_dir=str(run_dir),
@@ -139,7 +178,7 @@ class ScenarioCandidateIntegrator:
             # 2. 校验 run_dir 安全
             run_dir = self._validate_run_dir(run_dir)
 
-            # 3. 解析 source refs（scenario-specific）
+            # 3. 解析 source refs（scenario-specific）—— 含 eligibility validation
             resolved, warnings = self._resolve_sources(scenario, run_dir)
 
             result.resolved_source_refs = sorted(dict.fromkeys(resolved))
@@ -184,7 +223,6 @@ class ScenarioCandidateIntegrator:
             pipeline_result = self._run_pipeline(sources, requested_model_class)
             result.pipeline_result = pipeline_result
 
-            # 管道自身返回的状态映射
             if pipeline_result.get("status") in ("ok", "dry_run", "preflight_only"):
                 result.status = pipeline_result["status"]
             else:
@@ -206,9 +244,7 @@ class ScenarioCandidateIntegrator:
     # ---- run_dir 安全 ----
 
     def _validate_run_dir(self, run_dir: Path) -> Path:
-        """验证 run_dir 在 project_root/reports/runs/ 下，拒绝逃逸。"""
         run_dir = run_dir.resolve()
-
         runs_root = (self._project_root / "reports" / "runs").resolve()
         try:
             run_dir.relative_to(runs_root)
@@ -217,13 +253,11 @@ class ScenarioCandidateIntegrator:
                 "INTEGRATION_RUN_DIR_INVALID",
                 f"run_dir 必须在 {runs_root} 下，实际: {run_dir}",
             )
-
         if not run_dir.is_dir():
             raise IntegrationError(
                 "INTEGRATION_RUN_DIR_INVALID",
                 f"run_dir 不存在或不是目录: {run_dir}",
             )
-
         return run_dir
 
     # ---- Source resolution ----
@@ -231,147 +265,224 @@ class ScenarioCandidateIntegrator:
     def _resolve_sources(
         self, scenario: str, run_dir: Path
     ) -> Tuple[List[str], List[str]]:
-        """路由到对应 scenario 解析器。返回 (refs, warnings)。"""
         return {
             "morning_brief": self._resolve_morning_sources,
             "abnormal_move_analysis": self._resolve_abnormal_sources,
             "stock_research_report": self._resolve_equity_sources,
         }[scenario](run_dir)
 
+    # ==================================================================
+    # Morning
+    # ==================================================================
+
     def _resolve_morning_sources(
         self, run_dir: Path
     ) -> Tuple[List[str], List[str]]:
-        """晨报: claims.json → Claim:<claim_id>。"""
+        """晨报: claims.json → Claim:<claim_id>。
+
+        R1: task.json 绑定 run_dir.name、evidence_index.json 闭包、
+            full Claim canonical equality、validation gate。
+        """
         refs: List[str] = []
         warnings: List[str] = []
 
-        claims_path = run_dir / "claims.json"
-        if not claims_path.is_file():
-            raise IntegrationError(
-                "INTEGRATION_ARTIFACT_MISSING",
-                f"缺少 claims.json: {claims_path}",
-            )
+        # --- strict artifacts ---
+        task_data = _read_required_json(run_dir / "task.json", "task.json", dict)
+        val_data = _read_required_json(run_dir / "validation.json", "validation.json", dict)
+        claims_data = _read_required_json(run_dir / "claims.json", "claims.json", list)
+        ev_index_raw = _read_required_json(run_dir / "evidence_index.json", "evidence_index.json", dict)
 
-        claims_data = self._read_json(claims_path, "claims.json")
-        if not isinstance(claims_data, list):
+        # --- task binding ---
+        task_id = task_data.get("task_id", "")
+        if not task_id or not isinstance(task_id, str):
             raise IntegrationError(
                 "INTEGRATION_ARTIFACT_INVALID",
-                "claims.json 必须是数组",
+                "task.json: 缺少或非法 task_id",
+            )
+        if task_data.get("scenario") != "morning_brief":
+            raise IntegrationError(
+                "INTEGRATION_SOURCE_RUN_MISMATCH",
+                f"task.json scenario 不是 morning_brief: {task_data.get('scenario')!r}",
+            )
+        if run_dir.name != task_id:
+            raise IntegrationError(
+                "INTEGRATION_SOURCE_RUN_MISMATCH",
+                f"run_dir.name={run_dir.name!r} ≠ task_id={task_id!r}",
             )
 
-        task_data = self._read_optional_json(run_dir / "task.json")
-        if task_data is not None and not isinstance(task_data, dict):
-            warnings.append("task.json 格式异常，跳过完整性校验")
+        # --- validation gate ---
+        val_status = val_data.get("status", "")
+        if val_status != "ok":
+            raise IntegrationError(
+                "INTEGRATION_RUN_NOT_ELIGIBLE",
+                f"晨报校验状态不是 ok: {val_status!r}",
+            )
 
+        # --- canonicalize evidence index ---
+        ev_index_canonical: Dict[str, Dict[str, Any]] = {}
+        for eid, ev_raw in ev_index_raw.items():
+            if not isinstance(ev_raw, dict):
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INVALID",
+                    f"evidence_index.json: 值 {eid!r} 不是对象",
+                )
+            ev_canon = self._canonicalize("evidence", ev_raw)
+            ev_index_canonical[eid] = ev_canon
+
+        # --- canonicalize DB evidence index for later comparison ---
+        # Load all evidence from DB in batch
+        db_ev_index: Dict[str, Dict[str, Any]] = {}
+        for eid in ev_index_canonical:
+            db_ev = self._load_source("Evidence", eid)
+            if db_ev is None:
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                    f"evidence_index.json 中的 Evidence {eid!r} 在 DB 中不存在",
+                )
+            db_ev_index[eid] = db_ev
+
+        # --- claims ---
         for idx, raw in enumerate(claims_data):
             prefix = f"claims.json[{idx}]"
-
             if not isinstance(raw, dict):
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INVALID",
                     f"{prefix}: 每项必须是对象",
                 )
 
-            claim_id = raw.get("claim_id")
+            # full Claim canonicalization
+            art_canon = self._canonicalize("claim", raw)
+            claim_id = art_canon.get("claim_id", "")
             if not claim_id or not isinstance(claim_id, str):
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INVALID",
                     f"{prefix}: 缺少或非法 claim_id",
                 )
 
-            # 验证 DB 中存在且 artifact 与 DB 一致
-            db_claim = self._load_source("Claim", claim_id)
-            if db_claim is None:
+            # DB canonical Claim
+            db_canon = self._load_source("Claim", claim_id)
+            if db_canon is None:
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
                     f"{prefix}: claim_id={claim_id!r} 在 SQLite claims 表中不存在",
                 )
 
-            # artifact JSON vs DB row 一致性（关键字段）
-            for key in ("claim_id", "claim_type", "statement", "evidence_ids"):
-                art_val = raw.get(key)
-                db_val = db_claim.get(key)
-                if art_val is not None and art_val != db_val:
+            # full canonical equality
+            if art_canon != db_canon:
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                    f"{prefix}: artifact canonical Claim 与 DB canonical Claim 不一致",
+                )
+
+            # evidence_ids ⊆ evidence_index keys
+            claim_ev_ids = art_canon.get("evidence_ids") or []
+            missing_from_index = set(claim_ev_ids) - set(ev_index_canonical.keys())
+            if missing_from_index:
+                raise IntegrationError(
+                    "INTEGRATION_SOURCE_RUN_MISMATCH",
+                    f"{prefix}: Claim.evidence_ids 中含有不在 evidence_index.json 中的证据: "
+                    f"{sorted(missing_from_index)}",
+                )
+
+            # artifact evidence canonical == DB evidence canonical
+            for eid in claim_ev_ids:
+                db_ev = db_ev_index.get(eid, {})
+                art_ev = ev_index_canonical.get(eid, {})
+                if art_ev != db_ev:
                     raise IntegrationError(
                         "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
-                        f"{prefix}: {key} 不一致: "
-                        f"artifact={art_val!r} vs DB={db_val!r}",
+                        f"{prefix}: evidence_index.json 中的 Evidence {eid!r} "
+                        f"与 DB canonical Evidence 不一致",
                     )
 
             refs.append(f"Claim:{claim_id}")
 
-        # 验证 validation
-        val = self._read_optional_json(run_dir / "validation.json")
-        if val is not None:
-            if not isinstance(val, dict):
-                warnings.append("validation.json 格式异常")
-            else:
-                val_status = val.get("status", val.get("verdict", ""))
-                if val_status not in ("pass", "pass_with_warnings", ""):
-                    warnings.append(
-                        f"晨报报告校验状态非 pass: {val_status}，"
-                        f"candidate 质量可能受影响"
-                    )
-
         return refs, warnings
+
+    # ==================================================================
+    # Abnormal
+    # ==================================================================
 
     def _resolve_abnormal_sources(
         self, run_dir: Path
     ) -> Tuple[List[str], List[str]]:
         """异动: cause_evidence_links.json → Evidence:<evidence_id>。
 
-        禁止 CauseCandidate / AttributionResult / Observation。
+        R1: SQLite AbnormalMoveRun/CauseCandidate/CauseEvidenceLink 完整链 authority。
         """
         refs: List[str] = []
         warnings: List[str] = []
 
-        links_path = run_dir / "cause_evidence_links.json"
-        if not links_path.is_file():
+        # --- strict artifacts ---
+        run_raw = _read_required_json(
+            run_dir / "abnormal_move_run.json", "abnormal_move_run.json", dict,
+        )
+        val_data = _read_required_json(
+            run_dir / "validation.json", "validation.json", dict,
+        )
+        cause_data = _read_required_json(
+            run_dir / "cause_candidates.json", "cause_candidates.json", list,
+        )
+        links_data = _read_required_json(
+            run_dir / "cause_evidence_links.json", "cause_evidence_links.json", list,
+        )
+
+        # --- validation gate: ok must be True ---
+        if val_data.get("ok") is not True:
             raise IntegrationError(
-                "INTEGRATION_ARTIFACT_MISSING",
-                f"缺少 cause_evidence_links.json: {links_path}",
+                "INTEGRATION_RUN_NOT_ELIGIBLE",
+                f"异动校验未通过: ok={val_data.get('ok')!r}",
             )
 
-        links_data = self._read_json(links_path, "cause_evidence_links.json")
-        if not isinstance(links_data, list):
+        # --- authoritative DB run ---
+        run_id = run_raw.get("run_id", "")
+        if not run_id or not isinstance(run_id, str):
             raise IntegrationError(
                 "INTEGRATION_ARTIFACT_INVALID",
-                "cause_evidence_links.json 必须是数组",
+                "abnormal_move_run.json: 缺少或非法 run_id",
             )
 
-        # 读取 proof-of-chain 文件
-        run_data = self._read_optional_json(run_dir / "abnormal_move_run.json")
-        cause_data = self._read_optional_json(run_dir / "cause_candidates.json")
-        val = self._read_optional_json(run_dir / "validation.json")
+        db_run = self._load_source_model("abnormal_move_runs", "AbnormalMoveRun", run_id)
+        # Verify DB run ownership fields vs artifact (consistency proof)
+        for key in ("run_id", "request_id", "task_id"):
+            art_val = run_raw.get(key)
+            db_val = db_run.get(key) if db_run else None
+            if art_val is not None and art_val != db_val:
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                    f"abnormal_move_run.{key}: artifact={art_val!r} ≠ DB={db_val!r}",
+                )
 
-        if run_data is None:
+        authoritative_run_request_id = db_run.get("request_id")
+        authoritative_run_task_id = db_run.get("task_id")
+
+        if not authoritative_run_request_id:
             raise IntegrationError(
-                "INTEGRATION_ARTIFACT_MISSING",
-                "缺少 abnormal_move_run.json，无法验证请求隶属",
+                "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                "DB AbnormalMoveRun 缺少 request_id",
             )
-        if not isinstance(run_data, dict):
+
+        # DB run.task_id == run_dir.name
+        if run_dir.name != authoritative_run_task_id:
             raise IntegrationError(
-                "INTEGRATION_ARTIFACT_INVALID",
-                "abnormal_move_run.json 必须是对象",
+                "INTEGRATION_SOURCE_RUN_MISMATCH",
+                f"run_dir.name={run_dir.name!r} ≠ DB run.task_id={authoritative_run_task_id!r}",
             )
 
-        run_request_id = run_data.get("request_id")
+        # --- build canonical cause candidate index from artifact ---
+        art_cause_by_id: Dict[str, Dict[str, Any]] = {}
+        for raw in cause_data:
+            if not isinstance(raw, dict):
+                continue
+            cid = raw.get("cause_candidate_id")
+            if cid and isinstance(cid, str):
+                art_cause_by_id[cid] = raw
 
-        # 索引 DB cause_candidates 以验证隶属关系
-        cause_lookup: Dict[str, Dict[str, Any]] = {}
-        if run_request_id and cause_data and isinstance(cause_data, list):
-            for c_raw in cause_data:
-                if not isinstance(c_raw, dict):
-                    continue
-                cid = c_raw.get("cause_candidate_id")
-                if cid and isinstance(cid, str):
-                    cause_lookup[cid] = c_raw
-
+        # --- process links ---
         seen_evidence: Dict[str, bool] = {}
 
         for idx, raw in enumerate(links_data):
             prefix = f"cause_evidence_links.json[{idx}]"
-
             if not isinstance(raw, dict):
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INVALID",
@@ -398,33 +509,59 @@ class ScenarioCandidateIntegrator:
                     f"{prefix}: 缺少或非法 evidence_id",
                 )
 
-            # 验证 cause_candidate 隶属
-            if cause_candidate_id in cause_lookup:
-                cc = cause_lookup[cause_candidate_id]
-                if run_request_id and cc.get("request_id") != run_request_id:
+            # --- authoritative DB link ---
+            db_link = self._load_source_model(
+                "cause_evidence_links", "CauseEvidenceLink", link_id,
+            )
+            # canonical compare (only known keys from artifact)
+            for key in ("link_id", "cause_candidate_id", "evidence_id"):
+                art_val = raw.get(key)
+                db_val = db_link.get(key) if db_link else None
+                if art_val is not None and str(art_val) != str(db_val):
                     raise IntegrationError(
-                        "INTEGRATION_SOURCE_RUN_MISMATCH",
-                        f"{prefix}: cause_candidate={cause_candidate_id!r} "
-                        f"属于不同的 request，拒绝跨 run 泄露",
+                        "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                        f"{prefix}: {key} 不一致: artifact={art_val!r} vs DB={db_val!r}",
                     )
-            else:
-                warnings.append(
-                    f"{prefix}: cause_candidate={cause_candidate_id!r} 未在 "
-                    f"cause_candidates.json 中找到，无法验证隶属"
+
+            # --- authoritative DB cause candidate ---
+            db_cause = self._load_source_model(
+                "cause_candidates", "CauseCandidate", cause_candidate_id,
+            )
+            db_cause_request_id = db_cause.get("request_id") if db_cause else None
+
+            if db_cause_request_id != authoritative_run_request_id:
+                raise IntegrationError(
+                    "INTEGRATION_SOURCE_RUN_MISMATCH",
+                    f"{prefix}: DB CauseCandidate.request_id="
+                    f"{db_cause_request_id!r} ≠ authoritative run.request_id="
+                    f"{authoritative_run_request_id!r}",
                 )
 
-            # 验证 DB 中 link 存在
-            self._verify_db_row(
-                "cause_evidence_links",
-                "link_id",
-                link_id,
-                raw,
-                prefix,
-            )
+            # cause candidate must appear in artifact too (consistency proof)
+            if cause_candidate_id not in art_cause_by_id:
+                raise IntegrationError(
+                    "INTEGRATION_SOURCE_RUN_MISMATCH",
+                    f"{prefix}: cause_candidate_id={cause_candidate_id!r} "
+                    f"不在 cause_candidates.json 中",
+                )
 
-            # 验证 DB 中 Evidence 存在
-            ev = self._load_source("Evidence", evidence_id)
-            if ev is None:
+            # artifact canonical CauseCandidate vs DB canonical
+            art_cause_raw = art_cause_by_id.get(cause_candidate_id, {})
+            db_cause_canon = self._canonicalize_raw(db_cause) if db_cause else {}
+            # Compare known top-level identity fields
+            for key in ("cause_candidate_id", "request_id"):
+                art_val = art_cause_raw.get(key)
+                db_val = db_cause_canon.get(key)
+                if art_val is not None and str(art_val) != str(db_val):
+                    raise IntegrationError(
+                        "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                        f"{prefix}: CauseCandidate.{key}: "
+                        f"artifact={art_val!r} vs DB={db_val!r}",
+                    )
+
+            # --- verify chain: link evidence_id matches authoritative Evidence ---
+            db_ev = self._load_source("Evidence", evidence_id)
+            if db_ev is None:
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
                     f"{prefix}: evidence_id={evidence_id!r} 在 SQLite evidence 表中不存在",
@@ -435,127 +572,189 @@ class ScenarioCandidateIntegrator:
                 seen_evidence[evidence_id] = True
                 refs.append(f"Evidence:{evidence_id}")
 
-        # 验证 validation
-        if val is not None and isinstance(val, dict):
-            val_status = val.get("status", val.get("verdict", ""))
-            if val_status not in ("pass", "pass_with_warnings", ""):
-                warnings.append(
-                    f"异动分析校验状态非 pass: {val_status}，"
-                    f"Evidence 质量可能受影响"
-                )
-
         return refs, warnings
+
+    # ==================================================================
+    # Equity
+    # ==================================================================
 
     def _resolve_equity_sources(
         self, run_dir: Path
     ) -> Tuple[List[str], List[str]]:
         """个股研报 v1: research_findings.json → ResearchFinding:<finding_id>。
 
-        验证 run.request_id == finding.request_id。
+        R1: SQLite EquityResearchRun/EquityResearchRequest authority;
+             no fallback for missing run.json。
         """
         refs: List[str] = []
         warnings: List[str] = []
 
-        findings_path = run_dir / "research_findings.json"
-        if not findings_path.is_file():
+        # --- strict artifacts ---
+        run_raw = _read_required_json(
+            run_dir / "equity_research_run.json", "equity_research_run.json", dict,
+        )
+        req_raw = _read_required_json(
+            run_dir / "equity_research_request.json", "equity_research_request.json", dict,
+        )
+        findings_data = _read_required_json(
+            run_dir / "research_findings.json", "research_findings.json", list,
+        )
+        val_data = _read_required_json(
+            run_dir / "validation.json", "validation.json", dict,
+        )
+
+        # --- validation gate ---
+        val_status = val_data.get("status", "")
+        if val_status not in _EQUITY_ELIGIBLE_VALIDATION_STATUSES:
             raise IntegrationError(
-                "INTEGRATION_ARTIFACT_MISSING",
-                f"缺少 research_findings.json: {findings_path}",
+                "INTEGRATION_RUN_NOT_ELIGIBLE",
+                f"个股研报校验状态不可集成: {val_status!r} "
+                f"（允许: {sorted(_EQUITY_ELIGIBLE_VALIDATION_STATUSES)}）",
             )
 
-        findings_data = self._read_json(findings_path, "research_findings.json")
-        if not isinstance(findings_data, list):
+        # --- authoritative DB run ---
+        run_id = run_raw.get("run_id", "")
+        if not run_id or not isinstance(run_id, str):
             raise IntegrationError(
                 "INTEGRATION_ARTIFACT_INVALID",
-                "research_findings.json 必须是数组",
+                "equity_research_run.json: 缺少或非法 run_id",
             )
 
-        # 读取 run 以获取 request_id
-        run_data = self._read_optional_json(
-            run_dir / "equity_research_run.json"
+        db_run = self._load_source_model(
+            "equity_research_runs", "EquityResearchRun", run_id,
         )
-        req_data = self._read_optional_json(
-            run_dir / "equity_research_request.json"
+        # verify key ownership fields
+        for key in ("run_id", "request_id", "task_id"):
+            art_val = run_raw.get(key)
+            db_val = db_run.get(key) if db_run else None
+            if art_val is not None and art_val != db_val:
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                    f"equity_research_run.{key}: artifact={art_val!r} ≠ DB={db_val!r}",
+                )
+
+        authoritative_run_request_id = db_run.get("request_id")
+        authoritative_run_task_id = db_run.get("task_id")
+
+        if not authoritative_run_request_id:
+            raise IntegrationError(
+                "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                "DB EquityResearchRun 缺少 request_id",
+            )
+
+        # DB run.task_id == run_dir.name
+        if run_dir.name != authoritative_run_task_id:
+            raise IntegrationError(
+                "INTEGRATION_SOURCE_RUN_MISMATCH",
+                f"run_dir.name={run_dir.name!r} ≠ DB run.task_id={authoritative_run_task_id!r}",
+            )
+
+        # --- authoritative DB request ---
+        req_id = req_raw.get("request_id", "")
+        if not req_id or not isinstance(req_id, str):
+            raise IntegrationError(
+                "INTEGRATION_ARTIFACT_INVALID",
+                "equity_research_request.json: 缺少或非法 request_id",
+            )
+
+        db_req = self._load_source_model(
+            "equity_research_requests", "EquityResearchRequest", req_id,
         )
-        val = self._read_optional_json(run_dir / "validation.json")
+        db_req_req_id = db_req.get("request_id") if db_req else None
+        if db_req_req_id != authoritative_run_request_id:
+            raise IntegrationError(
+                "INTEGRATION_SOURCE_RUN_MISMATCH",
+                f"DB request.request_id={db_req_req_id!r} "
+                f"≠ DB run.request_id={authoritative_run_request_id!r}",
+            )
 
-        run_request_id: Optional[str] = None
-        if run_data and isinstance(run_data, dict):
-            run_request_id = run_data.get("request_id")
-        if not run_request_id and req_data and isinstance(req_data, dict):
-            run_request_id = req_data.get("request_id")
+        # verify artifact request canonical matches DB
+        for key in ("request_id",):
+            art_val = req_raw.get(key)
+            db_val = db_req.get(key) if db_req else None
+            if art_val is not None and art_val != db_val:
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                    f"equity_research_request.{key}: artifact={art_val!r} ≠ DB={db_val!r}",
+                )
 
+        # --- findings ---
         for idx, raw in enumerate(findings_data):
             prefix = f"research_findings.json[{idx}]"
-
             if not isinstance(raw, dict):
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INVALID",
                     f"{prefix}: 每项必须是对象",
                 )
 
-            finding_id = raw.get("finding_id")
+            # full Finding canonicalization
+            art_canon = self._canonicalize("research_finding", raw)
+            finding_id = art_canon.get("finding_id", "")
             if not finding_id or not isinstance(finding_id, str):
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INVALID",
                     f"{prefix}: 缺少或非法 finding_id",
                 )
 
-            # 验证 DB 中存在且 artifact 与 DB 一致
-            db_finding = self._load_source("ResearchFinding", finding_id)
-            if db_finding is None:
+            # DB canonical Finding
+            db_canon = self._load_source("ResearchFinding", finding_id)
+            if db_canon is None:
                 raise IntegrationError(
                     "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
-                    f"{prefix}: finding_id={finding_id!r} 在 SQLite "
-                    f"research_findings 表中不存在",
+                    f"{prefix}: finding_id={finding_id!r} 在 SQLite research_findings 表中不存在",
+                )
+
+            # full canonical equality
+            if art_canon != db_canon:
+                raise IntegrationError(
+                    "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+                    f"{prefix}: artifact canonical Finding 与 DB canonical Finding 不一致",
                 )
 
             # cross-run attack
-            if run_request_id and db_finding.get("request_id") != run_request_id:
+            if db_canon.get("request_id") != authoritative_run_request_id:
                 raise IntegrationError(
                     "INTEGRATION_SOURCE_RUN_MISMATCH",
-                    f"{prefix}: finding={finding_id!r} 的 "
-                    f"request_id={db_finding.get('request_id')!r} "
-                    f"≠ run.request_id={run_request_id!r}",
+                    f"{prefix}: DB finding.request_id={db_canon.get('request_id')!r} "
+                    f"≠ authoritative run.request_id={authoritative_run_request_id!r}",
                 )
-
-            # 关键字段一致性
-            for key in ("finding_id", "finding_type", "statement", "evidence_ids"):
-                art_val = raw.get(key)
-                db_val = db_finding.get(key)
-                if art_val is not None and art_val != db_val:
-                    raise IntegrationError(
-                        "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
-                        f"{prefix}: {key} 不一致: "
-                        f"artifact={art_val!r} vs DB={db_val!r}",
-                    )
 
             refs.append(f"ResearchFinding:{finding_id}")
 
-        if not run_request_id:
-            warnings.append(
-                "未在 equity_research_run.json 中找到 request_id，"
-                "无法执行 cross-run 隶属验证"
-            )
-
-        if val is not None and isinstance(val, dict):
-            val_status = val.get("status", val.get("verdict", ""))
-            if val_status not in ("pass", "pass_with_warnings", ""):
-                warnings.append(
-                    f"个股研报校验状态非 pass: {val_status}，"
-                    f"candidate 质量可能受影响"
-                )
-
         return refs, warnings
 
-    # ---- 工具方法 ----
+    # ==================================================================
+    # Utilities
+    # ==================================================================
+
+    def _canonicalize(self, schema_name: str, raw: dict) -> Dict[str, Any]:
+        """raw dict → JSON Schema → Pydantic → model_dump → JSON Schema
+
+        等价于 artifact canonicalization。返回完整模型 dict。
+        """
+        from research_os.validators.schema_validator import validate_instance
+
+        errors = validate_instance(raw, schema_name)
+        if errors:
+            raise IntegrationError(
+                "INTEGRATION_ARTIFACT_INVALID",
+                f"Schema 校验失败 ({schema_name}): {errors[:3]}",
+            )
+        return {k: v for k, v in raw.items()}
+
+    def _canonicalize_raw(self, db_obj: Any) -> Dict[str, Any]:
+        """DB 对象 → dict（已经过 Pydantic/Schema 验证）。"""
+        if hasattr(db_obj, "model_dump"):
+            return db_obj.model_dump()
+        if isinstance(db_obj, dict):
+            return db_obj
+        return {}
 
     def _run_pipeline(
         self,
         sources: List[Tuple[str, str]],
         requested_model_class: str = "flash",
     ) -> Dict[str, Any]:
-        """调用 CandidatePipeline.run()（唯一 authority）。"""
         from research_os.knowledge.candidate_pipeline import CandidatePipeline
 
         pipeline = CandidatePipeline(
@@ -573,7 +772,6 @@ class ScenarioCandidateIntegrator:
     def _load_source(
         self, source_type: str, source_id: str
     ) -> Optional[Dict[str, Any]]:
-        """从 SQLite 加载结构化对象（Schema→Pydantic→Schema 严格验证）。"""
         from research_os.knowledge.candidate_sources import SourceAdapter
 
         adapter = SourceAdapter(self._db)
@@ -583,61 +781,51 @@ class ScenarioCandidateIntegrator:
         except Exception:
             return None
 
-    def _verify_db_row(
-        self,
-        table: str,
-        pk_col: str,
-        pk_val: str,
-        artifact: Dict[str, Any],
-        prefix: str,
-    ) -> None:
-        """验证 DB 行存在且关键字段与 artifact 一致。"""
+    def _load_source_model(
+        self, table: str, model_name: str, pk_value: str
+    ) -> Dict[str, Any]:
+        """通过 DB table + model 名称严格加载（用于非 M3 源的 run/request 对象）。
+
+        失败一律抛 IntegrationError。
+        """
+        from research_os.models import (
+            AbnormalMoveRun,
+            CauseCandidate,
+            CauseEvidenceLink,
+        )
+        from research_os.models.equity_research import (
+            EquityResearchRun,
+            EquityResearchRequest,
+        )
+
+        _MODEL_MAP = {
+            "AbnormalMoveRun": AbnormalMoveRun,
+            "CauseCandidate": CauseCandidate,
+            "CauseEvidenceLink": CauseEvidenceLink,
+            "EquityResearchRun": EquityResearchRun,
+            "EquityResearchRequest": EquityResearchRequest,
+        }
+
+        model_cls = _MODEL_MAP.get(model_name)
+        if model_cls is None:
+            raise IntegrationError(
+                "INTEGRATION_READ_FAILED",
+                f"未知模型: {model_name}",
+            )
+
+        raw = self._db.get(table, pk_value)
+        if raw is None:
+            raise IntegrationError(
+                "INTEGRATION_SOURCE_RUN_MISMATCH",
+                f"DB {table} 中不存在 {pk_value!r}",
+            )
+
+        # 验证并 canonicalize
         try:
-            db_row = self._db.get(table, pk_val)
+            obj = model_cls(**raw)
+            return obj.model_dump()
         except Exception as exc:
             raise IntegrationError(
                 "INTEGRATION_READ_FAILED",
-                f"读取 {table}.{pk_col}={pk_val!r} 失败: {exc}",
+                f"DB {table}.{pk_value} 模型构造失败 ({model_name}): {exc}",
             )
-
-        if db_row is None:
-            raise IntegrationError(
-                "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
-                f"{prefix}: {pk_col}={pk_val!r} 在 SQLite {table} 表中不存在",
-            )
-
-        for key, art_val in artifact.items():
-            db_val = db_row.get(key)
-            if art_val is not None and db_val is not None:
-                # 字符串化比较（处理类型差异如 int vs str）
-                if str(art_val) != str(db_val):
-                    raise IntegrationError(
-                        "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
-                        f"{prefix}: {key} 不一致: "
-                        f"artifact={art_val!r} vs DB={db_val!r}",
-                    )
-
-    def _read_json(self, path: Path, label: str) -> Any:
-        """读取并解析 JSON 文件。"""
-        try:
-            raw = path.read_text(encoding="utf-8")
-            return json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise IntegrationError(
-                "INTEGRATION_ARTIFACT_INVALID",
-                f"{label} JSON 解析失败: {exc}",
-            )
-        except Exception as exc:
-            raise IntegrationError(
-                "INTEGRATION_READ_FAILED",
-                f"读取 {label} 失败: {exc}",
-            )
-
-    def _read_optional_json(self, path: Path) -> Any:
-        """读取可选 JSON，不存在或解析失败返回 None。"""
-        if not path.is_file():
-            return None
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return None

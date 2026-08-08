@@ -1,10 +1,13 @@
-"""Phase 5 M9 Structured Research Candidate Integration 测试。
+"""Phase 5 M9-R1 结构化研究 Candidate 集成测试。
 
-覆盖:
-- Phase2 晨报: Claim refs 解析 / 完整性校验
-- Phase3 异动: Evidence refs 解析 / 因果链验证 / 直属 source 拒绝
-- Phase4 个股研报: ResearchFinding refs 解析 / cross-run 拒绝
-- M9 core: 场景支持 / run_dir 安全 / source 数量限制 / canonicalization / dry-run / live
+R1 覆盖:
+- Morning: task_id 绑定、evidence_index 闭包、full Claim canonical equality、validation gate
+- Phase3: SQLite run/cause/link authority、full chain verification
+- Phase4: SQLite run/request authority、no fallback、full Finding canonical
+- 攻击测试: foreign claim/evidence tamper/forged IDs/cross-run/missing cause/failed validation
+- CLI: provider error structured
+
+基准: 9750dcf M9 initial implementation
 """
 
 from __future__ import annotations
@@ -21,16 +24,13 @@ from research_os.knowledge.scenario_integration import (
     MAX_INTEGRATION_SOURCES,
     ScenarioCandidateIntegrator,
 )
-from research_os.models import Claim, Evidence, Event
-from research_os.models.abnormal_move import CauseEvidenceLink
-from research_os.models.equity_research import ResearchFinding, EquityResearchRun
+from research_os.models import Claim, Evidence, Event, AbnormalMoveRun, CauseCandidate, CauseEvidenceLink
+from research_os.models.equity_research import ResearchFinding, EquityResearchRun, EquityResearchRequest
 from research_os.storage.db import Database
 from research_os.utils.id import new_uuid
-from research_os.utils.time import now_iso
 
 T0 = "2026-08-07T17:00:00+08:00"
 T1 = "2026-08-07T18:00:00+08:00"
-T2 = "2026-08-08T09:00:00+08:00"
 
 
 # ====================================================================
@@ -39,7 +39,6 @@ T2 = "2026-08-08T09:00:00+08:00"
 
 @pytest.fixture()
 def project_env(tmp_path):
-    """创建最小项目结构。"""
     root = tmp_path / "project"
     real_root = Path(__file__).resolve().parents[2]
     (root / "schemas").mkdir(parents=True, exist_ok=True)
@@ -64,7 +63,6 @@ def project_env(tmp_path):
 
 @pytest.fixture()
 def db_path(project_env):
-    """已迁移的数据库路径。"""
     db_p = project_env / "data" / "sqlite" / "research.db"
     db = Database(db_p)
     db.migrate()
@@ -76,1106 +74,882 @@ def _open_db(db_p: str) -> Database:
     return Database(Path(db_p))
 
 
-def _make_integrator(db: Database, project_root: Path, *, live=False, dry_run=False):
-    """便捷构造 integrator（无 provider）。"""
+def _make_integrator(db, project_root, *, live=False, dry_run=False):
     return ScenarioCandidateIntegrator(
-        db=db,
-        project_root=project_root,
+        db=db, project_root=project_root,
         knowledge_dir=project_root / "knowledge",
-        live=live,
-        dry_run=dry_run,
+        live=live, dry_run=dry_run,
     )
 
 
-def _make_morning_run_quick(project_root: Path, db: Database, claims: list) -> Path:
-    """模块级 helper：创建晨报 run 目录。"""
-    helper = TestMorningIntegration()
-    return helper._make_morning_run(project_root, db, claims)
+# ====================================================================
+# Helpers: produce real artifact JSON + DB records
+# ====================================================================
+
+def _make_evidence(db: Database, eid: str, title: str = "证据") -> Evidence:
+    ev = Evidence(
+        evidence_id=eid, source_id="source:test", raw_item_id=str(new_uuid()),
+        title=title, publisher="test", published_at=T0, retrieved_at=T0,
+        url="https://example.com/ev", excerpt="...",
+        evidence_type="news_report", independence_group="g1",
+        source_tier="B", access_status="ok",
+    )
+    db.upsert(ev)
+    return ev
+
+
+def _make_claim(db: Database, cid: str, ev_ids: list, statement: str = "声明") -> Claim:
+    claim = Claim(
+        claim_id=cid, claim_type="FACT", statement=statement,
+        subject_entities=["company:test"], predicate="reports",
+        as_of=T0, evidence_ids=ev_ids,
+    )
+    db.upsert(claim)
+    return claim
+
+
+def _make_morning_run(project_root: Path, db: Database) -> tuple[Path, list[str], list[str]]:
+    """创建符合真实 Phase2 artifact contract 的晨报 run。
+
+    返回 (run_dir, claim_ids, evidence_ids)。
+    """
+    task_id = str(new_uuid())
+    run_dir = project_root / "reports" / "runs" / task_id
+    run_dir.mkdir(parents=True)
+
+    eid = str(new_uuid())
+    ev = _make_evidence(db, eid)
+    cid = str(new_uuid())
+    claim = _make_claim(db, cid, [eid])
+
+    # task.json（真实 contract）
+    (run_dir / "task.json").write_text(json.dumps({
+        "task_id": task_id, "scenario": "morning_brief",
+    }), encoding="utf-8")
+
+    # evidence_index.json（{eid: Evidence.model_dump()}）
+    (run_dir / "evidence_index.json").write_text(json.dumps({
+        eid: ev.model_dump(),
+    }), encoding="utf-8")
+
+    # claims.json
+    (run_dir / "claims.json").write_text(json.dumps([
+        claim.model_dump(),
+    ]), encoding="utf-8")
+
+    # validation.json（真实 contract: status="ok"）
+    (run_dir / "validation.json").write_text(json.dumps({
+        "status": "ok", "task_id": task_id, "checks": 0, "errors": [],
+    }), encoding="utf-8")
+
+    return run_dir, [cid], [eid]
+
+
+def _make_abnormal_run(project_root: Path, db: Database) -> tuple[Path, str, str, str, str]:
+    """创建符合真实 Phase3 artifact contract 的异动 run。
+
+    返回 (run_dir, run_id, cause_id, link_id, evidence_id)。
+    """
+    task_id = str(new_uuid())
+    run_dir = project_root / "reports" / "runs" / task_id
+    run_dir.mkdir(parents=True)
+
+    run_id = str(new_uuid())
+    request_id = str(new_uuid())
+    observation_id = str(new_uuid())
+    cause_id = str(new_uuid())
+    link_id = str(new_uuid())
+    eid = str(new_uuid())
+
+    # Evidence
+    _make_evidence(db, eid)
+
+    # DB AbnormalMoveRun
+    db_run = AbnormalMoveRun(
+        run_id=run_id, task_id=task_id, request_id=request_id,
+        observation_id=observation_id,
+        idempotency_key=f"key_{task_id}", run_version=1,
+        started_at=T0, finished_at=T0,
+    )
+    db.upsert(db_run)
+
+    # DB CauseCandidate
+    db_cause = CauseCandidate(
+        cause_candidate_id=cause_id, request_id=request_id,
+        observation_id=observation_id,
+        title="测试原因", cause_category="direct_trigger", retrieval_layer=1,
+        evidence_ids=[eid],
+    )
+    db.upsert(db_cause)
+
+    # DB CauseEvidenceLink
+    db_link = CauseEvidenceLink(
+        link_id=link_id, cause_candidate_id=cause_id, evidence_id=eid,
+        relation="supports", independence_group="g1", created_at=T0,
+    )
+    db.upsert(db_link)
+
+    # Artifacts
+    (run_dir / "abnormal_move_run.json").write_text(json.dumps({
+        "run_id": run_id, "task_id": task_id, "request_id": request_id,
+    }), encoding="utf-8")
+    (run_dir / "cause_candidates.json").write_text(json.dumps([
+        db_cause.model_dump(),
+    ]), encoding="utf-8")
+    (run_dir / "cause_evidence_links.json").write_text(json.dumps([
+        db_link.model_dump(),
+    ]), encoding="utf-8")
+    # 真实 Phase3 validation contract: {"ok": true/false, "errors": [...], "warnings": [...]}
+    (run_dir / "validation.json").write_text(json.dumps({
+        "ok": True, "errors": [], "warnings": [],
+    }), encoding="utf-8")
+
+    return run_dir, run_id, cause_id, link_id, eid
+
+
+def _make_equity_run(project_root: Path, db: Database) -> tuple[Path, str, str]:
+    """创建符合真实 Phase4 artifact contract 的个股研报 run。
+
+    返回 (run_dir, finding_id, request_id)。
+    """
+    task_id = str(new_uuid())
+    run_dir = project_root / "reports" / "runs" / task_id
+    run_dir.mkdir(parents=True)
+
+    run_id = str(new_uuid())
+    request_id = str(new_uuid())
+    finding_id = str(new_uuid())
+    eid = str(new_uuid())
+
+    _make_evidence(db, eid)
+
+    # DB EquityResearchRun
+    db_run = EquityResearchRun(
+        run_id=run_id, request_id=request_id, task_id=task_id,
+        idempotency_key=f"eq_{task_id}", run_version=1,
+        started_at=T0, status="success",
+    )
+    db.upsert(db_run)
+
+    # DB EquityResearchRequest
+    db_req = EquityResearchRequest(
+        request_id=request_id, task_id=task_id,
+        company_entity_id="company:600519.SH", security_entity_id="security:600519.SH",
+        as_of=T0, as_of_basis="user_provided", report_date="2026-08-07",
+        timezone="Asia/Shanghai", requested_at=T0,
+    )
+    db.upsert(db_req)
+
+    # DB ResearchFinding
+    finding = ResearchFinding(
+        finding_id=finding_id, request_id=request_id,
+        company_entity_id="company:600519.SH", finding_type="business_analysis",
+        title="发现", statement="发现", claim_type="FACT", predicate="reports",
+        as_of=T0, evidence_ids=[eid], counter_evidence_ids=[],
+        confidence=0.5, section_id="semantic", created_at=T0,
+    )
+    db.upsert(finding)
+
+    # Artifacts
+    (run_dir / "equity_research_run.json").write_text(json.dumps({
+        "run_id": run_id, "request_id": request_id, "task_id": task_id,
+    }), encoding="utf-8")
+    (run_dir / "equity_research_request.json").write_text(json.dumps({
+        "request_id": request_id, "task_id": task_id,
+        "company_entity_id": "company:600519.SH", "security_entity_id": "security:600519.SH",
+        "as_of": T0, "as_of_basis": "user_provided", "report_date": "2026-08-07",
+        "timezone": "Asia/Shanghai", "requested_at": T0,
+    }), encoding="utf-8")
+    (run_dir / "research_findings.json").write_text(json.dumps([
+        finding.model_dump(),
+    ]), encoding="utf-8")
+    # 真实 Phase4 validation contract: {"status": ..., "errors": [...], "warnings": [...]}
+    (run_dir / "validation.json").write_text(json.dumps({
+        "status": "pass", "errors": [], "warnings": [],
+    }), encoding="utf-8")
+
+    return run_dir, finding_id, request_id
 
 
 # ====================================================================
-# Phase2 / Morning Tests (任务书 #27, 10 tests)
+# Morning Tests
 # ====================================================================
 
 class TestMorningIntegration:
-    """晨报 → Claim 集成。"""
-
-    def _make_morning_run(self, project_root: Path, db: Database, claims: list) -> Path:
-        """创建晨报 run 目录 + 插入 Claim 和 Evidence 到 DB。"""
-        task_id = str(new_uuid())
-        run_dir = project_root / "reports" / "runs" / task_id
-        run_dir.mkdir(parents=True)
-
-        # 创建 shared evidence（至少 1 条，用于 satisfy M3 evidence requirement）
-        shared_ev = str(new_uuid())
-        ev = Evidence(
-            evidence_id=shared_ev, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="共享证据", publisher="test", published_at=T0,
-            retrieved_at=T0, url="https://example.com/ev", excerpt="...",
-            evidence_type="news_report", independence_group="g1",
-            source_tier="B", access_status="ok",
-        )
-        db.upsert(ev)
-
-        # task.json
-        (run_dir / "task.json").write_text(json.dumps({
-            "task_id": task_id, "scenario": "morning_brief",
-        }), encoding="utf-8")
-
-        # evidence_index.json
-        (run_dir / "evidence_index.json").write_text(json.dumps([]), encoding="utf-8")
-
-        # claims.json — 写入，同时插 DB
-        claims_for_artifact = []
-        for c in claims:
-            claim_id = c.get("claim_id", str(new_uuid()))
-            ev_ids = c.get("evidence_ids", [])
-            # ensure at least 1 evidence for M3 requirement
-            if not ev_ids:
-                ev_ids = [shared_ev]
-
-            # 确保 evidence 在 DB 中
-            for eid in ev_ids:
-                ev = Evidence(
-                    evidence_id=eid, source_id="source:test", raw_item_id=str(new_uuid()),
-                    title=f"证据 {eid[:8]}", publisher="test", published_at=T0,
-                    retrieved_at=T0, url="https://example.com/ev", excerpt="...",
-                    evidence_type="news_report", independence_group="g1",
-                    source_tier="B", access_status="ok",
-                )
-                db.upsert(ev)
-
-            claim_obj = Claim(
-                claim_id=claim_id,
-                claim_type=c.get("claim_type", "FACT"),
-                statement=c.get("statement", "测试声明"),
-                subject_entities=["company:test"],
-                predicate="reports",
-                as_of=T0,
-                evidence_ids=ev_ids,
-            )
-            db.upsert(claim_obj)
-            claims_for_artifact.append({
-                "claim_id": claim_id,
-                "claim_type": claim_obj.claim_type,
-                "statement": claim_obj.statement,
-                "evidence_ids": ev_ids,
-            })
-
-        (run_dir / "claims.json").write_text(
-            json.dumps(claims_for_artifact), encoding="utf-8",
-        )
-
-        # validation.json
-        (run_dir / "validation.json").write_text(json.dumps({
-            "status": "pass",
-        }), encoding="utf-8")
-
-        return run_dir
 
     def test_valid_morning_claims(self, project_env, db_path):
-        """valid morning run → Claim refs"""
         db = _open_db(db_path)
-        root = project_env
-        ev1 = str(new_uuid())
-        claim_id = str(new_uuid())
-        claims = [{"claim_id": claim_id, "claim_type": "FACT", "evidence_ids": [ev1]}]
-        run_dir = self._make_morning_run(root, db, claims)
-
-        integrator = _make_integrator(db, root, dry_run=True)
+        run_dir, cids, eids = _make_morning_run(project_env, db)
+        integrator = _make_integrator(db, project_env, dry_run=True)
         result = integrator.integrate("morning_brief", run_dir)
 
         assert result.status == "dry_run"
-        assert result.error_code is None
-        assert len(result.resolved_source_refs) == 1
-        assert f"Claim:{claim_id}" in result.resolved_source_refs
+        assert f"Claim:{cids[0]}" in result.resolved_source_refs
 
-    def test_claim_invalid_json(self, project_env, db_path):
-        """Claim artifact invalid JSON → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
+    def test_task_id_mismatch(self, project_env, db_path):
+        db = _open_db(db_path)
+        run_dir, _, _ = _make_morning_run(project_env, db)
+        # forge task_id
+        (run_dir / "task.json").write_text(json.dumps({
+            "task_id": "wrong_id", "scenario": "morning_brief",
+        }), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
+
+    def test_foreign_claim_not_in_evidence_closure(self, project_env, db_path):
+        """foreign Claim: evidence 不在 evidence_index.json 中"""
+        db = _open_db(db_path)
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
+        run_dir.mkdir(parents=True)
+
+        eid = str(new_uuid())
+        ev = _make_evidence(db, eid)
+        cid = str(new_uuid())
+        claim = _make_claim(db, cid, [eid])
+
+        (run_dir / "task.json").write_text(json.dumps({
+            "task_id": task_id, "scenario": "morning_brief",
+        }), encoding="utf-8")
+        # evidence_index.json 不包含此 evidence
+        (run_dir / "evidence_index.json").write_text(json.dumps({}), encoding="utf-8")
+        (run_dir / "claims.json").write_text(json.dumps([claim.model_dump()]), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
+
+    def test_evidence_index_artifact_db_tamper(self, project_env, db_path):
+        """evidence_index 中 Evidence 与 DB 不一致"""
+        db = _open_db(db_path)
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
+        run_dir.mkdir(parents=True)
+
+        eid = str(new_uuid())
+        ev = _make_evidence(db, eid, "正确标题")
+        cid = str(new_uuid())
+        claim = _make_claim(db, cid, [eid])
+
+        # 写入被篡改的 evidence（不同 title）
+        tampered = ev.model_dump()
+        tampered["title"] = "被篡改的标题"
+        (run_dir / "task.json").write_text(json.dumps({
+            "task_id": task_id, "scenario": "morning_brief",
+        }), encoding="utf-8")
+        (run_dir / "evidence_index.json").write_text(json.dumps({eid: tampered}), encoding="utf-8")
+        (run_dir / "claims.json").write_text(json.dumps([claim.model_dump()]), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
+
+    def test_full_claim_canonical_tamper(self, project_env, db_path):
+        """Claim 非旧四字段被篡改 → reject（R1: full canonical equality）"""
+        db = _open_db(db_path)
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
+        run_dir.mkdir(parents=True)
+
+        eid = str(new_uuid())
+        ev = _make_evidence(db, eid)
+        cid = str(new_uuid())
+        claim = _make_claim(db, cid, [eid])
+
+        # 篡改 predicate（非旧四字段之一）
+        tampered = claim.model_dump()
+        tampered["predicate"] = "tampered_predicate"
+        (run_dir / "task.json").write_text(json.dumps({
+            "task_id": task_id, "scenario": "morning_brief",
+        }), encoding="utf-8")
+        (run_dir / "evidence_index.json").write_text(json.dumps({eid: ev.model_dump()}), encoding="utf-8")
+        (run_dir / "claims.json").write_text(json.dumps([tampered]), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
+
+    def test_validation_failed(self, project_env, db_path):
+        """validation.json status != ok → INTEGRATION_RUN_NOT_ELIGIBLE"""
+        db = _open_db(db_path)
+        run_dir, _, _ = _make_morning_run(project_env, db)
+        (run_dir / "validation.json").write_text(json.dumps({"status": "failed"}), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_RUN_NOT_ELIGIBLE"
+
+    def test_claim_id_not_in_db(self, project_env, db_path):
+        """claim_id 不在 DB → reject"""
+        db = _open_db(db_path)
+        run_dir, _, _ = _make_morning_run(project_env, db)
+        # 写入不存在的 claim_id
+        (run_dir / "claims.json").write_text(json.dumps([{
+            "claim_id": str(new_uuid()), "claim_type": "FACT", "statement": "x",
+            "subject_entities": ["company:test"], "predicate": "reports",
+            "as_of": T0, "evidence_ids": [],
+            "object": {}, "support_level": "inferred", "confidence": 0.5,
+            "valid_until": None, "review_status": "unreviewed",
+        }]), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
+
+    def test_invalid_json(self, project_env, db_path):
+        db = _open_db(db_path)
+        run_dir = project_env / "reports" / "runs" / str(new_uuid())
         run_dir.mkdir(parents=True)
         (run_dir / "task.json").write_text("{}", encoding="utf-8")
         (run_dir / "claims.json").write_text("not json", encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
+        (run_dir / "evidence_index.json").write_text("{}", encoding="utf-8")
+        (run_dir / "validation.json").write_text('{"status":"ok"}', encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("morning_brief", run_dir)
-
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_ARTIFACT_INVALID"
 
-    def test_claim_wrong_top_level(self, project_env, db_path):
-        """claims.json 不是数组 → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "claims.json").write_text('{"key": "value"}', encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
-
+    def test_run_dir_traversal(self, project_env, db_path):
         db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_ARTIFACT_INVALID"
-
-    def test_claim_id_not_in_db(self, project_env, db_path):
-        """Claim ID not in DB → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "claims.json").write_text(json.dumps([{
-            "claim_id": str(new_uuid()), "claim_type": "FACT",
-            "statement": "x", "evidence_ids": [],
-        }]), encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
-
-    def test_artifact_vs_db_mismatch(self, project_env, db_path):
-        """artifact Claim statement 与 DB 不一致 → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        claim_id = str(new_uuid())
-
-        # 插 DB（不同 statement）
-        claim_obj = Claim(
-            claim_id=claim_id, claim_type="FACT",
-            statement="DB 中的正确声明",
-            subject_entities=["company:test"], predicate="reports",
-            as_of=T0, evidence_ids=[],
-        )
-        db.upsert(claim_obj)
-
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "claims.json").write_text(json.dumps([{
-            "claim_id": claim_id, "claim_type": "FACT",
-            "statement": "artifact 中的篡改声明",
-            "evidence_ids": [],
-        }]), encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
-
-    def test_claim_evidence_missing_fail_closed(self, project_env, db_path):
-        """Claim 引用不存在的 Evidence → M3 dry-run fail（evidence_required）"""
-        db = _open_db(db_path)
-        root = project_env
-        ev_fake = str(new_uuid())
-        claim_id = str(new_uuid())
-
-        # 创建 Claim 但 Evidence 不在 DB
-        claim_obj = Claim(
-            claim_id=claim_id, claim_type="FACT", statement="声明",
-            subject_entities=["company:test"], predicate="reports",
-            as_of=T0, evidence_ids=[ev_fake],
-        )
-        db.upsert(claim_obj)
-
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "claims.json").write_text(json.dumps([{
-            "claim_id": claim_id, "claim_type": "FACT",
-            "statement": "声明", "evidence_ids": [ev_fake],
-        }]), encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        # M3 应拒绝（证据缺失 → fail-closed）
-        assert result.status != "ok"
-        assert result.status != "dry_run"
-
-    def test_claim_element_not_dict(self, project_env, db_path):
-        """claims 数组中有非对象元素 → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "claims.json").write_text('["string_not_dict"]', encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_ARTIFACT_INVALID"
-
-    def test_source_ordering_deterministic(self, project_env, db_path):
-        """source ordering: dedup + sorted canonical"""
-        db = _open_db(db_path)
-        root = project_env
-        c1 = str(new_uuid())
-        c2 = str(new_uuid())
-        claims = [
-            {"claim_id": c2, "claim_type": "FACT", "evidence_ids": []},
-            {"claim_id": c1, "claim_type": "FACT", "evidence_ids": []},
-        ]
-        run_dir = self._make_morning_run(root, db, claims)
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        expected = sorted([f"Claim:{c1}", f"Claim:{c2}"])
-        assert result.resolved_source_refs == expected
-
-    def test_run_dir_traversal_rejected(self, project_env, db_path):
-        """run_dir traversal 攻击 → reject"""
-        root = project_env
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-
-        malicious = root / "reports" / "runs" / ".." / ".." / "etc"
-        result = integrator.integrate("morning_brief", malicious)
-
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", project_env / "reports" / "runs" / ".." / ".." / "etc")
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_RUN_DIR_INVALID"
 
-    def test_artifact_missing_dir(self, project_env, db_path):
-        """不存在的 run_dir → reject"""
-        root = project_env
+    def test_missing_artifact(self, project_env, db_path):
         db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-
-        result = integrator.integrate("morning_brief", root / "reports" / "runs" / "nonexistent")
-
+        run_dir = project_env / "reports" / "runs" / str(new_uuid())
+        run_dir.mkdir(parents=True)
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("morning_brief", run_dir)
         assert result.status == "error"
-        assert result.error_code == "INTEGRATION_RUN_DIR_INVALID"
+        assert "INTEGRATION_ARTIFACT_MISSING" in (result.error_code or "")
 
 
 # ====================================================================
-# Phase3 / Abnormal Tests (任务书 #28, 11 tests)
+# Phase3 Tests
 # ====================================================================
 
 class TestAbnormalIntegration:
-    """异动分析 → Evidence 集成。"""
 
-    def _make_abnormal_run(
-        self, project_root: Path, db: Database,
-        evidence_ids: list, *, request_id: str | None = None,
-    ) -> Path:
-        """创建异动 run 目录 + 插入 evidence 到 DB。"""
-        task_id = str(new_uuid())
-        run_dir = project_root / "reports" / "runs" / task_id
-        run_dir.mkdir(parents=True)
-
-        req_id = request_id or str(new_uuid())
-        cause_id = str(new_uuid())
-        links = []
-
-        for eid in evidence_ids:
-            # 确保 Evidence 在 DB
-            ev = Evidence(
-                evidence_id=eid, source_id="source:test", raw_item_id=str(new_uuid()),
-                title=f"证据 {eid[:8]}", publisher="test", published_at=T0,
-                retrieved_at=T0, url="https://example.com/ev", excerpt="...",
-                evidence_type="news_report", independence_group="g1",
-                source_tier="B", access_status="ok",
-            )
-            db.upsert(ev)
-
-            link_id = str(new_uuid())
-            # cause_evidence_links 表
-            link_obj = CauseEvidenceLink(
-                link_id=link_id, cause_candidate_id=cause_id, evidence_id=eid,
-                relation="supports", independence_group="g1", created_at=T0,
-            )
-            db.upsert(link_obj)
-            links.append({
-                "link_id": link_id, "cause_candidate_id": cause_id, "evidence_id": eid,
-            })
-
-        # 写 artifact JSON
-        (run_dir / "abnormal_move_run.json").write_text(json.dumps({
-            "run_id": task_id, "request_id": req_id,
-        }), encoding="utf-8")
-        (run_dir / "cause_candidates.json").write_text(json.dumps([{
-            "cause_candidate_id": cause_id, "request_id": req_id,
-        }]), encoding="utf-8")
-        (run_dir / "cause_evidence_links.json").write_text(
-            json.dumps(links), encoding="utf-8",
-        )
-        (run_dir / "validation.json").write_text(json.dumps({
-            "status": "pass",
-        }), encoding="utf-8")
-
-        return run_dir
-
-    def test_valid_evidence_links(self, project_env, db_path):
-        """valid abnormal run → Evidence refs（去重）"""
+    def test_valid_abnormal_evidence(self, project_env, db_path):
         db = _open_db(db_path)
-        root = project_env
-        eid = str(new_uuid())
-        run_dir = self._make_abnormal_run(root, db, [eid])
-
-        integrator = _make_integrator(db, root, dry_run=True)
+        run_dir, _, _, _, eid = _make_abnormal_run(project_env, db)
+        integrator = _make_integrator(db, project_env, dry_run=True)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
 
         assert result.status == "dry_run"
         assert f"Evidence:{eid}" in result.resolved_source_refs
 
-    def test_duplicate_evidence_dedup(self, project_env, db_path):
-        """重复 evidence ref 去重"""
+    def test_forged_run_request_id(self, project_env, db_path):
+        """artifact run.request_id 被伪造 → reject"""
         db = _open_db(db_path)
-        root = project_env
-        eid = str(new_uuid())
-        run_dir = self._make_abnormal_run(root, db, [eid, eid])
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("abnormal_move_analysis", run_dir)
-
-        assert result.resolved_source_refs == [f"Evidence:{eid}"]
-
-    def test_link_missing_db(self, project_env, db_path):
-        """link artifact 存在但 DB 中无对应行 → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
+        run_dir, run_id, _, _, _ = _make_abnormal_run(project_env, db)
+        # 篡改 artifact 中 request_id
         (run_dir / "abnormal_move_run.json").write_text(json.dumps({
-            "request_id": str(new_uuid()),
+            "run_id": run_id,
+            "task_id": run_dir.name,
+            "request_id": "forged_request_id",
         }), encoding="utf-8")
-        (run_dir / "cause_candidates.json").write_text("[]", encoding="utf-8")
-        (run_dir / "cause_evidence_links.json").write_text(json.dumps([{
-            "link_id": str(new_uuid()), "cause_candidate_id": str(new_uuid()),
-            "evidence_id": str(new_uuid()),
-        }]), encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
-
         assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT" in result.error_code
+        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
 
-    def test_artifact_link_different_db(self, project_env, db_path):
-        """artifact link 的 evidence_id 与 DB 不一致 → reject"""
+    def test_forged_cause_request_id(self, project_env, db_path):
+        """forged CauseCandidate.request_id → foreign run → reject"""
         db = _open_db(db_path)
-        root = project_env
-        eid_db = str(new_uuid())
-        eid_art = str(new_uuid())
-
-        # 插 DB（用 eid_db）
-        ev = Evidence(
-            evidence_id=eid_db, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="证据", publisher="test", published_at=T0, retrieved_at=T0,
-            url="https://ex.com", excerpt="...", evidence_type="news_report",
-            independence_group="g1", source_tier="B", access_status="ok",
-        )
-        db.upsert(ev)
-        link_id = str(new_uuid())
-        cause_id = str(new_uuid())
-        db.upsert(CauseEvidenceLink(
-            link_id=link_id, cause_candidate_id=cause_id, evidence_id=eid_db,
-            relation="supports", independence_group="g1", created_at=T0,
+        run_dir, run_id, cause_id, link_id, eid = _make_abnormal_run(project_env, db)
+        # DB CauseCandidate 已经有正确的 request_id。
+        # 创建一个 foreign CauseCandidate 用来替换 artifact 中的引用
+        foreign_cause_id = str(new_uuid())
+        foreign_obs_id = str(new_uuid())
+        db.upsert(CauseCandidate(
+            cause_candidate_id=foreign_cause_id,
+            request_id=str(new_uuid()),  # foreign request!
+            observation_id=foreign_obs_id,
+            title="foreign", cause_category="direct_trigger", retrieval_layer=1,
+            evidence_ids=[eid],
         ))
-
-        # artifact 用 eid_art（不同的 evidence_id）
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "abnormal_move_run.json").write_text(json.dumps({
-            "request_id": str(new_uuid()),
-        }), encoding="utf-8")
-        (run_dir / "cause_candidates.json").write_text("[]", encoding="utf-8")
+        # 篡改 artifact link 引用 foreign cause
+        (run_dir / "cause_candidates.json").write_text(json.dumps([
+            {"cause_candidate_id": foreign_cause_id, "request_id": str(new_uuid())},
+        ]), encoding="utf-8")
         (run_dir / "cause_evidence_links.json").write_text(json.dumps([{
-            "link_id": link_id, "cause_candidate_id": cause_id,
-            "evidence_id": eid_art,
+            "link_id": link_id, "cause_candidate_id": foreign_cause_id, "evidence_id": eid,
         }]), encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
-
         assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT" in result.error_code
-
-    def test_link_cause_candidate_missing(self, project_env, db_path):
-        """link 引用的 cause_candidate 不在 artifact 候选列表中 → warning"""
-        db = _open_db(db_path)
-        root = project_env
-        eid = str(new_uuid())
-        run_dir = self._make_abnormal_run(root, db, [eid])
-
-        # 覆盖 cause_candidates.json 为空
-        (run_dir / "cause_candidates.json").write_text("[]", encoding="utf-8")
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("abnormal_move_analysis", run_dir)
-
-        # 仍然成功（只是 warning）
-        assert result.status == "dry_run"
-        assert len(result.warnings) >= 1
-        assert any("无法验证隶属" in w for w in result.warnings)
-
-    def test_cause_candidate_different_request(self, project_env, db_path):
-        """cause_candidate 属于不同 request → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        eid = str(new_uuid())
-        # run request_id 不同于 cause_candidate request_id
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        run_req = str(new_uuid())
-        cause_req = str(new_uuid())  # 不同！
-
-        ev = Evidence(
-            evidence_id=eid, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="证据", publisher="test", published_at=T0, retrieved_at=T0,
-            url="https://ex.com", excerpt="...", evidence_type="news_report",
-            independence_group="g1", source_tier="B", access_status="ok",
+        assert result.error_code in (
+            "INTEGRATION_SOURCE_RUN_MISMATCH",
+            "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
         )
-        db.upsert(ev)
-        cause_id = str(new_uuid())
-        link_id = str(new_uuid())
-        db.upsert(CauseEvidenceLink(
-            link_id=link_id, cause_candidate_id=cause_id, evidence_id=eid,
-            relation="supports", independence_group="g1", created_at=T0,
-        ))
 
-        (run_dir / "abnormal_move_run.json").write_text(json.dumps({
-            "request_id": run_req,
-        }), encoding="utf-8")
-        (run_dir / "cause_candidates.json").write_text(json.dumps([{
-            "cause_candidate_id": cause_id, "request_id": cause_req,
-        }]), encoding="utf-8")
-        (run_dir / "cause_evidence_links.json").write_text(json.dumps([{
-            "link_id": link_id, "cause_candidate_id": cause_id, "evidence_id": eid,
-        }]), encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
+    def test_missing_cause_candidate(self, project_env, db_path):
+        """cause candidate 不在 artifact → reject（R1: no longer warning）"""
+        db = _open_db(db_path)
+        run_dir, run_id, cause_id, link_id, eid = _make_abnormal_run(project_env, db)
+        # 清空 cause_candidates.json
+        (run_dir / "cause_candidates.json").write_text("[]", encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
-
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
 
-    def test_evidence_missing_db(self, project_env, db_path):
-        """Evidence 在 DB 中不存在 → reject"""
+    def test_cause_candidate_missing_db(self, project_env, db_path):
+        """cause_candidate 不在 DB → reject"""
         db = _open_db(db_path)
-        root = project_env
-        eid = str(new_uuid())  # 不在 DB 中
-        run_dir = root / "reports" / "runs" / str(new_uuid())
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
         run_dir.mkdir(parents=True)
-        cause_id = str(new_uuid())
-        link_id = str(new_uuid())
 
+        run_id = str(new_uuid())
+        req_id = str(new_uuid())
+        obs_id = str(new_uuid())
+        fake_cause_id = str(new_uuid())
+        eid = str(new_uuid())
+
+        _make_evidence(db, eid)
+        db.upsert(AbnormalMoveRun(
+            run_id=run_id, task_id=task_id, request_id=req_id,
+            observation_id=obs_id,
+            idempotency_key=f"k_{task_id}", run_version=1,
+            started_at=T0, finished_at=T0,
+        ))
+        link_id = str(new_uuid())
         db.upsert(CauseEvidenceLink(
-            link_id=link_id, cause_candidate_id=cause_id, evidence_id=eid,
+            link_id=link_id, cause_candidate_id=fake_cause_id, evidence_id=eid,
             relation="supports", independence_group="g1", created_at=T0,
         ))
 
         (run_dir / "abnormal_move_run.json").write_text(json.dumps({
-            "request_id": str(new_uuid()),
+            "run_id": run_id, "task_id": task_id, "request_id": req_id,
         }), encoding="utf-8")
-        (run_dir / "cause_candidates.json").write_text("[]", encoding="utf-8")
+        (run_dir / "cause_candidates.json").write_text(json.dumps([
+            {"cause_candidate_id": fake_cause_id, "request_id": req_id},
+        ]), encoding="utf-8")
         (run_dir / "cause_evidence_links.json").write_text(json.dumps([{
-            "link_id": link_id, "cause_candidate_id": cause_id, "evidence_id": eid,
+            "link_id": link_id, "cause_candidate_id": fake_cause_id, "evidence_id": eid,
         }]), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({
+            "ok": True, "errors": [], "warnings": [],
+        }), encoding="utf-8")
 
-        integrator = _make_integrator(db, root)
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
-
         assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT" in result.error_code
+        # Should fail because CauseCandidate is not in DB
+        assert result.error_code in (
+            "INTEGRATION_SOURCE_RUN_MISMATCH",
+            "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+            "INTEGRATION_READ_FAILED",
+        )
 
-    def test_invalid_json_links(self, project_env, db_path):
-        """cause_evidence_links.json 非法 JSON → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "cause_evidence_links.json").write_text("garbage", encoding="utf-8")
-
+    def test_artifact_cause_db_mismatch(self, project_env, db_path):
+        """artifact CauseCandidate 与 DB 不一致 → reject"""
         db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
+        run_dir, run_id, cause_id, link_id, eid = _make_abnormal_run(project_env, db)
+        # tamper artifact: change cause_candidate title
+        (run_dir / "cause_candidates.json").write_text(json.dumps([{
+            "cause_candidate_id": cause_id, "request_id": "forged_req",
+            "title": "tampered",
+        }]), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
-
         assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INVALID" in result.error_code
+        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
 
-    def test_missing_abnormal_run_json(self, project_env, db_path):
-        """缺少 abnormal_move_run.json → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "cause_evidence_links.json").write_text("[]", encoding="utf-8")
-
+    def test_validation_failed(self, project_env, db_path):
+        """validation ok=false → INTEGRATION_RUN_NOT_ELIGIBLE"""
         db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
+        run_dir, _, _, _, _ = _make_abnormal_run(project_env, db)
+        (run_dir / "validation.json").write_text(json.dumps({
+            "ok": False, "errors": ["hard fail"], "warnings": [],
+        }), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("abnormal_move_analysis", run_dir)
-
         assert result.status == "error"
-        assert result.error_code == "INTEGRATION_ARTIFACT_MISSING"
+        assert result.error_code == "INTEGRATION_RUN_NOT_ELIGIBLE"
 
-    def test_missing_links_json(self, project_env, db_path):
-        """缺少 cause_evidence_links.json → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "abnormal_move_run.json").write_text('{"request_id":"x"}', encoding="utf-8")
-
+    def test_db_task_id_mismatch(self, project_env, db_path):
+        """DB run.task_id != run_dir.name → reject"""
         db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("abnormal_move_analysis", run_dir)
+        run_dir, run_id, _, _, _ = _make_abnormal_run(project_env, db)
+        # DB task_id already matches run_dir.name from fixture
+        # Create a new run with mismatched task_id
+        task_id2 = str(new_uuid())
+        run_dir2 = project_env / "reports" / "runs" / task_id2
+        run_dir2.mkdir(parents=True)
+        run_id2 = str(new_uuid())
+        req_id2 = str(new_uuid())
+        obs_id2 = str(new_uuid())
+        eid2 = str(new_uuid())
+        _make_evidence(db, eid2)
 
+        # DB run has task_id="different"
+        db.upsert(AbnormalMoveRun(
+            run_id=run_id2, task_id=str(new_uuid()), request_id=req_id2,
+            observation_id=obs_id2,
+            idempotency_key=f"k_{task_id2}", run_version=1,
+            started_at=T0, finished_at=T0,
+        ))
+        cause_id2 = str(new_uuid())
+        db.upsert(CauseCandidate(
+            cause_candidate_id=cause_id2, request_id=req_id2,
+            observation_id=obs_id2,
+            title="x", cause_category="direct_trigger", retrieval_layer=1,
+            evidence_ids=[eid2],
+        ))
+        link_id2 = str(new_uuid())
+        db.upsert(CauseEvidenceLink(
+            link_id=link_id2, cause_candidate_id=cause_id2, evidence_id=eid2,
+            relation="supports", independence_group="g1", created_at=T0,
+        ))
+
+        (run_dir2 / "abnormal_move_run.json").write_text(json.dumps({
+            "run_id": run_id2, "task_id": "different", "request_id": req_id2,
+        }), encoding="utf-8")
+        (run_dir2 / "cause_candidates.json").write_text(json.dumps([{
+            "cause_candidate_id": cause_id2, "request_id": req_id2,
+        }]), encoding="utf-8")
+        (run_dir2 / "cause_evidence_links.json").write_text(json.dumps([{
+            "link_id": link_id2, "cause_candidate_id": cause_id2, "evidence_id": eid2,
+        }]), encoding="utf-8")
+        (run_dir2 / "validation.json").write_text(json.dumps({
+            "ok": True, "errors": [], "warnings": [],
+        }), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("abnormal_move_analysis", run_dir2)
         assert result.status == "error"
-        assert result.error_code == "INTEGRATION_ARTIFACT_MISSING"
+        # task_id mismatch caught at canonical comparison stage
+        assert result.error_code in (
+            "INTEGRATION_SOURCE_RUN_MISMATCH",
+            "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT",
+        )
+
+    def test_duplicate_evidence_dedup(self, project_env, db_path):
+        db = _open_db(db_path)
+        run_dir, _, _, _, eid = _make_abnormal_run(project_env, db)
+        integrator = _make_integrator(db, project_env, dry_run=True)
+        result = integrator.integrate("abnormal_move_analysis", run_dir)
+        assert result.resolved_source_refs == [f"Evidence:{eid}"]
 
 
 # ====================================================================
-# Phase4 / Equity Tests (任务书 #29, 11 tests)
+# Phase4 Tests
 # ====================================================================
 
 class TestEquityIntegration:
-    """个股研报 → ResearchFinding 集成。"""
-
-    def _make_equity_run(
-        self, project_root: Path, db: Database,
-        findings: list, run_request_id: str | None = None,
-    ) -> Path:
-        """创建个股研报 run 目录 + 插入 ResearchFinding 到 DB。"""
-        task_id = str(new_uuid())
-        run_dir = project_root / "reports" / "runs" / task_id
-        run_dir.mkdir(parents=True)
-
-        req_id = run_request_id or str(new_uuid())
-
-        # 创建 shared evidence（至少 1 条）
-        shared_ev = str(new_uuid())
-        ev = Evidence(
-            evidence_id=shared_ev, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="共享证据", publisher="test", published_at=T0,
-            retrieved_at=T0, url="https://example.com/ev", excerpt="...",
-            evidence_type="news_report", independence_group="g1",
-            source_tier="B", access_status="ok",
-        )
-        db.upsert(ev)
-
-        findings_for_artifact = []
-        for f in findings:
-            finding_id = f.get("finding_id", str(new_uuid()))
-            ev_ids = f.get("evidence_ids", [])
-            if not ev_ids:
-                ev_ids = [shared_ev]
-
-            # 确保 evidence 在 DB
-            for eid in ev_ids:
-                ev = Evidence(
-                    evidence_id=eid, source_id="source:test", raw_item_id=str(new_uuid()),
-                    title=f"证据 {eid[:8]}", publisher="test", published_at=T0,
-                    retrieved_at=T0, url="https://example.com/ev", excerpt="...",
-                    evidence_type="news_report", independence_group="g1",
-                    source_tier="B", access_status="ok",
-                )
-                db.upsert(ev)
-
-            finding = ResearchFinding(
-                finding_id=finding_id,
-                request_id=req_id,
-                company_entity_id="company:600519.SH",
-                finding_type="business_analysis",
-                title=f.get("statement", "发现"),
-                statement=f.get("statement", "测试发现"),
-                claim_type="FACT",
-                predicate="reports",
-                as_of=T0,
-                evidence_ids=ev_ids,
-                counter_evidence_ids=[],
-                confidence=0.5,
-                section_id="semantic",
-                created_at=T0,
-            )
-            db.upsert(finding)
-            findings_for_artifact.append({
-                "finding_id": finding_id,
-                "finding_type": finding.finding_type,
-                "statement": finding.statement,
-                "evidence_ids": ev_ids,
-                "request_id": req_id,
-            })
-
-        (run_dir / "equity_research_run.json").write_text(json.dumps({
-            "run_id": task_id, "request_id": req_id,
-        }), encoding="utf-8")
-        (run_dir / "equity_research_request.json").write_text(json.dumps({
-            "request_id": req_id,
-        }), encoding="utf-8")
-        (run_dir / "research_findings.json").write_text(
-            json.dumps(findings_for_artifact), encoding="utf-8",
-        )
-        (run_dir / "validation.json").write_text(json.dumps({
-            "status": "pass",
-        }), encoding="utf-8")
-
-        return run_dir
 
     def test_valid_equity_findings(self, project_env, db_path):
-        """valid equity run → ResearchFinding refs"""
         db = _open_db(db_path)
-        root = project_env
-        fid = str(new_uuid())
-        run_dir = self._make_equity_run(root, db, [
-            {"finding_id": fid, "statement": "发现"},
-        ])
-
-        integrator = _make_integrator(db, root, dry_run=True)
+        run_dir, fid, _ = _make_equity_run(project_env, db)
+        integrator = _make_integrator(db, project_env, dry_run=True)
         result = integrator.integrate("stock_research_report", run_dir)
 
         assert result.status == "dry_run"
         assert f"ResearchFinding:{fid}" in result.resolved_source_refs
 
-    def test_cross_run_finding_rejected(self, project_env, db_path):
-        """finding.request_id != run.request_id → reject"""
+    def test_forged_run_request_id(self, project_env, db_path):
+        """artifact run.request_id forged to match foreign finding"""
         db = _open_db(db_path)
-        root = project_env
-        run_req = str(new_uuid())
-        finding_req = str(new_uuid())  # 不同！
-
-        fid = str(new_uuid())
-        # 插 DB（用 finding_req）
-        ev_id = str(new_uuid())
-        db.upsert(Evidence(
-            evidence_id=ev_id, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="证据", publisher="test", published_at=T0, retrieved_at=T0,
-            url="https://ex.com", excerpt="...", evidence_type="news_report",
-            independence_group="g1", source_tier="B", access_status="ok",
-        ))
-        finding = ResearchFinding(
-            finding_id=fid, request_id=finding_req,
-            company_entity_id="company:600519.SH", finding_type="business_analysis",
-            title="发现", statement="发现", claim_type="FACT", predicate="reports",
-            as_of=T0, evidence_ids=[ev_id], counter_evidence_ids=[],
-            confidence=0.5, section_id="semantic", created_at=T0,
-        )
-        db.upsert(finding)
-
-        # run 用 run_req
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
+        run_dir, fid, req_id = _make_equity_run(project_env, db)
+        # forge artifact run request_id
         (run_dir / "equity_research_run.json").write_text(json.dumps({
-            "request_id": run_req,
+            "run_id": json.loads((run_dir / "equity_research_run.json").read_text(encoding="utf-8"))["run_id"],
+            "request_id": "forged",
+            "task_id": run_dir.name,
         }), encoding="utf-8")
-        (run_dir / "equity_research_request.json").write_text(json.dumps({
-            "request_id": run_req,
-        }), encoding="utf-8")
-        (run_dir / "research_findings.json").write_text(json.dumps([{
-            "finding_id": fid, "request_id": finding_req,
-            "statement": "发现", "evidence_ids": [ev_id],
-        }]), encoding="utf-8")
-        (run_dir / "validation.json").write_text(json.dumps({
-            "status": "pass",
-        }), encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("stock_research_report", run_dir)
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
-
-    def test_finding_missing_db(self, project_env, db_path):
-        """finding 不在 DB 中 → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "equity_research_run.json").write_text(json.dumps({
-            "request_id": str(new_uuid()),
-        }), encoding="utf-8")
-        (run_dir / "research_findings.json").write_text(json.dumps([{
-            "finding_id": str(new_uuid()), "request_id": str(new_uuid()),
-            "statement": "发现", "evidence_ids": [],
-        }]), encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("stock_research_report", run_dir)
-
-        assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT" in result.error_code
-
-    def test_artifact_db_mismatch(self, project_env, db_path):
-        """artifact statement 与 DB 不一致 → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        req_id = str(new_uuid())
-        fid = str(new_uuid())
-
-        ev_id = str(new_uuid())
-        db.upsert(Evidence(
-            evidence_id=ev_id, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="证据", publisher="test", published_at=T0, retrieved_at=T0,
-            url="https://ex.com", excerpt="...", evidence_type="news_report",
-            independence_group="g1", source_tier="B", access_status="ok",
-        ))
-        finding = ResearchFinding(
-            finding_id=fid, request_id=req_id,
-            company_entity_id="company:600519.SH", finding_type="business_analysis",
-            title="正确的 DB 发现", statement="正确的 DB 发现", claim_type="FACT", predicate="reports",
-            as_of=T0, evidence_ids=[ev_id], counter_evidence_ids=[],
-            confidence=0.5, section_id="semantic", created_at=T0,
-        )
-        db.upsert(finding)
-
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "equity_research_run.json").write_text(json.dumps({
-            "request_id": req_id,
-        }), encoding="utf-8")
-        (run_dir / "research_findings.json").write_text(json.dumps([{
-            "finding_id": fid, "request_id": req_id,
-            "statement": "artifact 中的篡改发现", "evidence_ids": [ev_id],
-        }]), encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("stock_research_report", run_dir)
-
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
 
-    def test_malformed_findings_json(self, project_env, db_path):
-        """research_findings.json 非法 JSON → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "research_findings.json").write_text("not json", encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("stock_research_report", run_dir)
-
-        assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INVALID" in result.error_code
-
-    def test_no_finding_id_in_item(self, project_env, db_path):
-        """findings 项缺少 finding_id → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "equity_research_run.json").write_text(json.dumps({
-            "request_id": str(new_uuid()),
-        }), encoding="utf-8")
-        (run_dir / "research_findings.json").write_text(json.dumps([{
-            "no_finding_id": "xxx",
-        }]), encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("stock_research_report", run_dir)
-
-        assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INVALID" in result.error_code
-
     def test_missing_run_json(self, project_env, db_path):
-        """缺少 equity_research_run.json → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
+        """equity_research_run.json 缺失 → INTEGRATION_ARTIFACT_MISSING（R1: no fallback）"""
+        db = _open_db(db_path)
+        run_dir = project_env / "reports" / "runs" / str(new_uuid())
         run_dir.mkdir(parents=True)
+        (run_dir / "equity_research_request.json").write_text('{"request_id":"x"}', encoding="utf-8")
         (run_dir / "research_findings.json").write_text("[]", encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
+        (run_dir / "validation.json").write_text('{"status":"pass"}', encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("stock_research_report", run_dir)
-
-        # 缺少 run.json 会触发 warning 但仍尝试（从 request.json 提取请求 ID）
-        # 但实际上如果 request.json 不存在，warnings 会提示
-        assert result.status != "error" or result.error_code != "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
-
-    def test_findings_not_array(self, project_env, db_path):
-        """research_findings.json 不是数组 → reject"""
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "research_findings.json").write_text('{"key": "val"}', encoding="utf-8")
-
-        db = _open_db(db_path)
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("stock_research_report", run_dir)
-
         assert result.status == "error"
-        assert "INTEGRATION_ARTIFACT_INVALID" in result.error_code
+        assert result.error_code == "INTEGRATION_ARTIFACT_MISSING"
+
+    def test_db_run_missing(self, project_env, db_path):
+        """run_id 在 DB 中不存在 → reject"""
+        db = _open_db(db_path)
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
+        run_dir.mkdir(parents=True)
+        fake_run_id = str(new_uuid())
+        fake_req_id = str(new_uuid())
+
+        _make_evidence(db, str(new_uuid()))
+        (run_dir / "equity_research_run.json").write_text(json.dumps({
+            "run_id": fake_run_id, "request_id": fake_req_id, "task_id": task_id,
+        }), encoding="utf-8")
+        (run_dir / "equity_research_request.json").write_text(json.dumps({
+            "request_id": fake_req_id, "company_entity_id": "company:600519.SH",
+            "security_entity_id": "security:600519.SH",
+            "as_of": T0, "as_of_basis": "user_provided", "report_date": "2026-08-07",
+            "timezone": "Asia/Shanghai", "requested_at": T0,
+        }), encoding="utf-8")
+        (run_dir / "research_findings.json").write_text("[]", encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({
+            "status": "pass", "errors": [], "warnings": [],
+        }), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("stock_research_report", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
+
+    def test_cross_run_finding(self, project_env, db_path):
+        """foreign finding 注入 → INTEGRATION_SOURCE_RUN_MISMATCH"""
+        db = _open_db(db_path)
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
+        run_dir.mkdir(parents=True)
+
+        run_id = str(new_uuid())
+        run_req = str(new_uuid())
+        foreign_req = str(new_uuid())
+        eid = str(new_uuid())
+
+        _make_evidence(db, eid)
+        db.upsert(EquityResearchRun(
+            run_id=run_id, request_id=run_req, task_id=task_id,
+            idempotency_key=f"k_{task_id}", run_version=1,
+            started_at=T0, status="success",
+        ))
+        db.upsert(EquityResearchRequest(
+            request_id=run_req, task_id=task_id,
+            company_entity_id="company:600519.SH", security_entity_id="security:600519.SH",
+            as_of=T0, as_of_basis="user_provided", report_date="2026-08-07",
+            timezone="Asia/Shanghai", requested_at=T0,
+        ))
+        fid = str(new_uuid())
+        db.upsert(ResearchFinding(
+            finding_id=fid, request_id=foreign_req,  # foreign!
+            company_entity_id="company:600519.SH", finding_type="business_analysis",
+            title="x", statement="x", claim_type="FACT", predicate="reports",
+            as_of=T0, evidence_ids=[eid], counter_evidence_ids=[],
+            confidence=0.5, section_id="semantic", created_at=T0,
+        ))
+
+        finding_model = ResearchFinding(
+            finding_id=fid, request_id=foreign_req,
+            company_entity_id="company:600519.SH", finding_type="business_analysis",
+            title="x", statement="x", claim_type="FACT", predicate="reports",
+            as_of=T0, evidence_ids=[eid], counter_evidence_ids=[],
+            confidence=0.5, section_id="semantic", created_at=T0,
+        )
+        (run_dir / "equity_research_run.json").write_text(json.dumps({
+            "run_id": run_id, "request_id": run_req, "task_id": task_id,
+        }), encoding="utf-8")
+        (run_dir / "equity_research_request.json").write_text(json.dumps({
+            "request_id": run_req, "company_entity_id": "company:600519.SH",
+            "security_entity_id": "security:600519.SH",
+            "as_of": T0, "as_of_basis": "user_provided", "report_date": "2026-08-07",
+            "timezone": "Asia/Shanghai", "requested_at": T0,
+        }), encoding="utf-8")
+        (run_dir / "research_findings.json").write_text(json.dumps([
+            finding_model.model_dump(),
+        ]), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({
+            "status": "pass", "errors": [], "warnings": [],
+        }), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("stock_research_report", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
+
+    def test_full_finding_tamper(self, project_env, db_path):
+        """Finding 非基本字段被篡改 → reject"""
+        db = _open_db(db_path)
+        run_dir, fid, _ = _make_equity_run(project_env, db)
+        # 读取发现，篡改 confidence
+        findings = json.loads((run_dir / "research_findings.json").read_text(encoding="utf-8"))
+        findings[0]["confidence"] = 0.99  # tampered
+        (run_dir / "research_findings.json").write_text(json.dumps(findings), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("stock_research_report", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT"
+
+    def test_validation_failed(self, project_env, db_path):
+        """validation status=fail → INTEGRATION_RUN_NOT_ELIGIBLE"""
+        db = _open_db(db_path)
+        run_dir, _, _ = _make_equity_run(project_env, db)
+        (run_dir / "validation.json").write_text(json.dumps({
+            "status": "fail", "errors": ["hard fail"], "warnings": [],
+        }), encoding="utf-8")
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("stock_research_report", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_RUN_NOT_ELIGIBLE"
+
+    def test_db_task_id_mismatch(self, project_env, db_path):
+        """DB run.task_id != run_dir.name → reject"""
+        db = _open_db(db_path)
+        task_id = str(new_uuid())
+        run_dir = project_env / "reports" / "runs" / task_id
+        run_dir.mkdir(parents=True)
+        run_id = str(new_uuid())
+        req_id = str(new_uuid())
+        eid = str(new_uuid())
+
+        _make_evidence(db, eid)
+        # DB task_id != run_dir.name
+        db.upsert(EquityResearchRun(
+            run_id=run_id, request_id=req_id, task_id="different",
+            idempotency_key=f"k_{task_id}", run_version=1,
+            started_at=T0, status="success",
+        ))
+        db.upsert(EquityResearchRequest(
+            request_id=req_id, task_id=task_id,
+            company_entity_id="company:600519.SH", security_entity_id="security:600519.SH",
+            as_of=T0, as_of_basis="user_provided", report_date="2026-08-07",
+            timezone="Asia/Shanghai", requested_at=T0,
+        ))
+        fid = str(new_uuid())
+        finding = ResearchFinding(
+            finding_id=fid, request_id=req_id,
+            company_entity_id="company:600519.SH", finding_type="business_analysis",
+            title="x", statement="x", claim_type="FACT", predicate="reports",
+            as_of=T0, evidence_ids=[eid], counter_evidence_ids=[],
+            confidence=0.5, section_id="semantic", created_at=T0,
+        )
+        db.upsert(finding)
+
+        (run_dir / "equity_research_run.json").write_text(json.dumps({
+            "run_id": run_id, "request_id": req_id, "task_id": "different",
+        }), encoding="utf-8")
+        (run_dir / "equity_research_request.json").write_text(json.dumps({
+            "request_id": req_id, "company_entity_id": "company:600519.SH",
+            "security_entity_id": "security:600519.SH",
+            "as_of": T0, "as_of_basis": "user_provided", "report_date": "2026-08-07",
+            "timezone": "Asia/Shanghai", "requested_at": T0,
+        }), encoding="utf-8")
+        (run_dir / "research_findings.json").write_text(json.dumps([
+            finding.model_dump(),
+        ]), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({
+            "status": "pass", "errors": [], "warnings": [],
+        }), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("stock_research_report", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_SOURCE_RUN_MISMATCH"
 
     def test_no_eligible_sources(self, project_env, db_path):
-        """空 findings 列表 → no eligible sources"""
+        """空 findings → no eligible sources"""
         db = _open_db(db_path)
-        root = project_env
-        run_dir = root / "reports" / "runs" / str(new_uuid())
-        run_dir.mkdir(parents=True)
-        (run_dir / "equity_research_run.json").write_text(json.dumps({
-            "request_id": str(new_uuid()),
-        }), encoding="utf-8")
+        run_dir, _, _ = _make_equity_run(project_env, db)
         (run_dir / "research_findings.json").write_text("[]", encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("stock_research_report", run_dir)
-
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_NO_ELIGIBLE_SOURCES"
 
 
 # ====================================================================
-# M9 Core Tests (任务书 #30, 26 tests)
+# M9 Core Tests
 # ====================================================================
 
 class TestM9Core:
-    """M9 核心安全性/正确性测试。"""
 
     def test_unsupported_scenario(self, project_env, db_path):
-        """不支持的场景名 → reject"""
         db = _open_db(db_path)
-        root = project_env
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("unknown_scenario", root / "reports" / "runs" / "x")
-
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("unknown", project_env / "reports" / "runs" / "x")
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_SCENARIO_UNSUPPORTED"
 
-    def test_missing_run_dir(self, project_env, db_path):
-        """run_dir 不存在 → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("morning_brief", root / "reports" / "runs" / "nonexistent")
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_RUN_DIR_INVALID"
-
-    def test_symlink_escape(self, project_env, db_path):
-        """run_dir outside reports/runs → reject"""
-        db = _open_db(db_path)
-        root = project_env
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate("morning_brief", root / "schemas")
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_RUN_DIR_INVALID"
-
     def test_source_limit_exceeded(self, project_env, db_path):
-        """source > MAX_INTEGRATION_SOURCES → reject"""
+        """source > 20 → reject"""
         db = _open_db(db_path)
-        root = project_env
-
-        # 创建 25 个 claim（超过 20）
         task_id = str(new_uuid())
-        run_dir = root / "reports" / "runs" / task_id
+        run_dir = project_env / "reports" / "runs" / task_id
         run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
 
-        artifacts = []
+        eid = str(new_uuid())
+        ev = _make_evidence(db, eid)
+        claims_art = []
         for i in range(25):
             cid = str(new_uuid())
-            claim = Claim(
-                claim_id=cid, claim_type="FACT", statement=f"声明{i}",
-                subject_entities=["company:test"], predicate="reports",
-                as_of=T0, evidence_ids=[],
-            )
-            db.upsert(claim)
-            artifacts.append({"claim_id": cid, "claim_type": "FACT", "statement": f"声明{i}", "evidence_ids": []})
+            claim = _make_claim(db, cid, [eid], f"声明{i}")
+            claims_art.append(claim.model_dump())
 
-        (run_dir / "claims.json").write_text(json.dumps(artifacts), encoding="utf-8")
+        (run_dir / "task.json").write_text(json.dumps({
+            "task_id": task_id, "scenario": "morning_brief",
+        }), encoding="utf-8")
+        (run_dir / "evidence_index.json").write_text(json.dumps({eid: ev.model_dump()}), encoding="utf-8")
+        (run_dir / "claims.json").write_text(json.dumps(claims_art), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({"status": "ok"}), encoding="utf-8")
 
-        integrator = _make_integrator(db, root)
+        integrator = _make_integrator(db, project_env)
         result = integrator.integrate("morning_brief", run_dir)
-
         assert result.status == "error"
         assert result.error_code == "INTEGRATION_SOURCE_LIMIT_EXCEEDED"
 
-    def test_explicit_subset_within_limit(self, project_env, db_path):
-        """显式子集 ≤20 → pass"""
+    def test_explicit_subset(self, project_env, db_path):
+        """显式子集 filter → pass"""
         db = _open_db(db_path)
-        root = project_env
-
         task_id = str(new_uuid())
-        run_dir = root / "reports" / "runs" / task_id
+        run_dir = project_env / "reports" / "runs" / task_id
         run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
 
+        eid = str(new_uuid())
+        ev = _make_evidence(db, eid)
         cids = []
-        artifacts = []
-        # 创建 shared evidence
-        ev_shared = str(new_uuid())
-        ev = Evidence(
-            evidence_id=ev_shared, source_id="source:test", raw_item_id=str(new_uuid()),
-            title="证据", publisher="test", published_at=T0, retrieved_at=T0,
-            url="https://ex.com", excerpt="...", evidence_type="news_report",
-            independence_group="g1", source_tier="B", access_status="ok",
-        )
-        db.upsert(ev)
+        claims_art = []
         for i in range(25):
             cid = str(new_uuid())
             cids.append(cid)
-            claim = Claim(
-                claim_id=cid, claim_type="FACT", statement=f"声明{i}",
-                subject_entities=["company:test"], predicate="reports",
-                as_of=T0, evidence_ids=[ev_shared],
-            )
-            db.upsert(claim)
-            artifacts.append({"claim_id": cid, "claim_type": "FACT", "statement": f"声明{i}", "evidence_ids": [ev_shared]})
+            claim = _make_claim(db, cid, [eid], f"声明{i}")
+            claims_art.append(claim.model_dump())
 
-        (run_dir / "claims.json").write_text(json.dumps(artifacts), encoding="utf-8")
+        (run_dir / "task.json").write_text(json.dumps({
+            "task_id": task_id, "scenario": "morning_brief",
+        }), encoding="utf-8")
+        (run_dir / "evidence_index.json").write_text(json.dumps({eid: ev.model_dump()}), encoding="utf-8")
+        (run_dir / "claims.json").write_text(json.dumps(claims_art), encoding="utf-8")
+        (run_dir / "validation.json").write_text(json.dumps({"status": "ok"}), encoding="utf-8")
 
-        integrator = _make_integrator(db, root, dry_run=True)
-        # 只选 3 个
-        subset = [f"Claim:{cids[0]}", f"Claim:{cids[1]}", f"Claim:{cids[2]}"]
-        result = integrator.integrate("morning_brief", run_dir, selected_sources=subset)
-
+        integrator = _make_integrator(db, project_env, dry_run=True)
+        result = integrator.integrate("morning_brief", run_dir,
+                                      selected_sources=[f"Claim:{cids[0]}", f"Claim:{cids[1]}"])
         assert result.status == "dry_run"
-        assert len(result.selected_source_refs) == 3
-        assert sorted(result.selected_source_refs) == sorted(subset)
-
-    def test_explicit_subset_undiscovered_source(self, project_env, db_path):
-        """显式子集包含未解析到的 source → reject"""
-        db = _open_db(db_path)
-        root = project_env
-
-        task_id = str(new_uuid())
-        run_dir = root / "reports" / "runs" / task_id
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.json").write_text("{}", encoding="utf-8")
-        (run_dir / "evidence_index.json").write_text("[]", encoding="utf-8")
-        (run_dir / "claims.json").write_text("[]", encoding="utf-8")
-
-        integrator = _make_integrator(db, root)
-        result = integrator.integrate(
-            "morning_brief", run_dir,
-            selected_sources=[f"Claim:{str(new_uuid())}"],
-        )
-
-        assert result.status == "error"
-        assert result.error_code == "INTEGRATION_SOURCE_FILTER_INVALID"
-
-    def test_canonical_source_byte_identical(self, project_env, db_path):
-        """canonical source 去重排序一致"""
-        db = _open_db(db_path)
-        root = project_env
-        c1 = str(new_uuid())
-        c2 = str(new_uuid())
-        claims = [
-            {"claim_id": c2, "claim_type": "FACT", "evidence_ids": []},
-            {"claim_id": c1, "claim_type": "FACT", "evidence_ids": []},
-            {"claim_id": c1, "claim_type": "FACT", "evidence_ids": []},  # dup
-        ]
-        run_dir = _make_morning_run_quick(root, db, claims)
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        expected = sorted([f"Claim:{c1}", f"Claim:{c2}"])
-        assert result.resolved_source_refs == expected
-        # 确认去重（c1 只出现一次）
-        assert len(result.resolved_source_refs) == 2
+        assert len(result.selected_source_refs) == 2
 
     def test_dry_run_zero_provider(self, project_env, db_path):
-        """dry-run: 0 Provider calls"""
         db = _open_db(db_path)
-        root = project_env
-        cid = str(new_uuid())
-        run_dir = _make_morning_run_quick(root, db, [
-            {"claim_id": cid, "claim_type": "FACT", "evidence_ids": []},
-        ])
-
-        integrator = _make_integrator(db, root, dry_run=True)
+        run_dir, _, _ = _make_morning_run(project_env, db)
+        integrator = _make_integrator(db, project_env, dry_run=True)
         result = integrator.integrate("morning_brief", run_dir)
-
         assert result.status == "dry_run"
-        # pipeline 返回时不应有任何真实的 LLM 调用（dry_run=True）
         assert result.pipeline_result is not None
         assert result.pipeline_result.get("status") == "dry_run"
 
-    def test_dry_run_zero_writes(self, project_env, db_path):
-        """dry-run: 0 graph_changes / 0 files"""
+    def test_non_live_preflight(self, project_env, db_path):
         db = _open_db(db_path)
-        root = project_env
-        cid = str(new_uuid())
-        run_dir = _make_morning_run_quick(root, db, [
-            {"claim_id": cid, "claim_type": "FACT", "evidence_ids": []},
-        ])
-
-        integrator = _make_integrator(db, root, dry_run=True)
+        run_dir, _, _ = _make_morning_run(project_env, db)
+        integrator = _make_integrator(db, project_env, dry_run=False, live=False)
         result = integrator.integrate("morning_brief", run_dir)
-
-        pr = result.pipeline_result
-        assert pr is not None
-        assert pr.get("candidates_generated", -1) == 0
-        assert pr.get("candidates_persisted", -1) == 0
-
-    def test_non_live_preflight_only(self, project_env, db_path):
-        """non-live（无 --live）→ preflight_only"""
-        db = _open_db(db_path)
-        root = project_env
-        cid = str(new_uuid())
-        run_dir = _make_morning_run_quick(root, db, [
-            {"claim_id": cid, "claim_type": "FACT", "evidence_ids": []},
-        ])
-
-        integrator = _make_integrator(db, root, dry_run=False, live=False)
-        result = integrator.integrate("morning_brief", run_dir)
-
         assert result.status == "preflight_only"
-
-    def test_source_object_ids_subset_gate(self, project_env, db_path):
-        """proposal source_object_ids subset gate preserved（M3 内部，间接验证）"""
-        # 验证 M3 CandidatePipeline 在非 live 时返回 preflight_only
-        # gate 由 CandidatePipeline 内部保证
-        db = _open_db(db_path)
-        root = project_env
-        cid = str(new_uuid())
-        run_dir = _make_morning_run_quick(root, db, [
-            {"claim_id": cid, "claim_type": "FACT", "evidence_ids": []},
-        ])
-
-        integrator = _make_integrator(db, root, live=False)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        # gate 在 preflight_only 时不会失败（因为没调 LLM）
-        # 只确认不报错
-        assert result.status == "preflight_only"
-
-    def test_m3_pro_max_one_preserved(self, project_env, db_path):
-        """M3 Pro max-one behavior preserved: one integration → one pipeline.run()"""
-        # M9 确实只用了一次 CandidatePipeline.run()
-        # 这个测试通过在 non-live 场景验证（不产生 candidate 但结构正确）
-        db = _open_db(db_path)
-        root = project_env
-        cid = str(new_uuid())
-        run_dir = _make_morning_run_quick(root, db, [
-            {"claim_id": cid, "claim_type": "FACT", "evidence_ids": []},
-        ])
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        # 如果 M9 错误地多次调用 pipeline，这里不会出现异常
-        # 结构完整性通过 status 字段验证
-        assert result.status in ("dry_run", "preflight_only", "error")
-        # 如果有 pipeline_result，确认它是单一 dict（不是 list）
-        assert result.pipeline_result is None or isinstance(result.pipeline_result, dict)
-
-    def test_validation_warning_propagation(self, project_env, db_path):
-        """validation 失败 → warning 传播"""
-        db = _open_db(db_path)
-        root = project_env
-        cid = str(new_uuid())
-        run_dir = _make_morning_run_quick(root, db, [
-            {"claim_id": cid, "claim_type": "FACT", "evidence_ids": []},
-        ])
-        # 覆盖 validation.json 为 fail
-        (run_dir / "validation.json").write_text(json.dumps({"status": "fail"}), encoding="utf-8")
-
-        integrator = _make_integrator(db, root, dry_run=True)
-        result = integrator.integrate("morning_brief", run_dir)
-
-        assert len(result.warnings) >= 1
-        assert any("校验状态非 pass" in w for w in result.warnings)

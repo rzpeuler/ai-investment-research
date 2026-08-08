@@ -1451,7 +1451,22 @@ def knowledge_integrate(scenario, run_dir, sources, db_path,
     try:
         provider = None
         if live and not dry_run:
-            provider = create_provider(root, provider_id=provider_id, live=live)
+            if not provider_id:
+                click.echo(_json.dumps({
+                    "status": "error",
+                    "error_code": "INTEGRATION_PROVIDER_ERROR",
+                    "errors": ["--live 要求显式 --provider（如 deepseek）"],
+                }, ensure_ascii=False, sort_keys=True))
+                raise SystemExit(1)
+            try:
+                provider = create_provider(root, provider_id=provider_id, live=live)
+            except (ValueError, Exception) as exc:
+                click.echo(_json.dumps({
+                    "status": "error",
+                    "error_code": "INTEGRATION_PROVIDER_ERROR",
+                    "errors": [f"Provider 创建失败: {exc}"],
+                }, ensure_ascii=False, sort_keys=True))
+                raise SystemExit(1) from None
 
         integrator = ScenarioCandidateIntegrator(
             db=db,

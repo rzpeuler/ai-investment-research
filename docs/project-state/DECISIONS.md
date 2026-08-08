@@ -1386,3 +1386,45 @@ db_version:
 21. same-run circularity 无（Graph→Research 不实现，candidate ≠ active
     graph 不回流当前 run）。
 22. M9 completion ≠ Phase5 PASS。M10 仍 NOT_AUTHORIZED。
+
+### 39.9 M9-R1 Run Authority Closure（2026-08-09）
+
+> R1 关闭 run authority 与 cross-run integrity 缺口。不新增 Decision #40。
+
+**Run artifact authority 原则**:
+- run artifacts = locator / consistency proof only
+- SQLite persisted run/source objects = authority
+- cross-run ownership: fail closed
+- unverifiable ownership: reject, never warning-and-continue
+- failed scenario validation: `INTEGRATION_RUN_NOT_ELIGIBLE`
+
+**晨报 binding**:
+- `task.json` 必须验证 `run_dir.name == task_id`，否则 `INTEGRATION_SOURCE_RUN_MISMATCH`
+- `evidence_index.json` 为 `{evidence_id: Evidence.model_dump()}` dict（非数组）
+- 每个 Claim 进行完整 canonical equality（非仅旧四字段）与 DB 比对
+- `claim.evidence_ids ⊆ evidence_index keys`，否则 `INTEGRATION_SOURCE_RUN_MISMATCH`
+- `validation.json.status == "ok"`，否则 `INTEGRATION_RUN_NOT_ELIGIBLE`
+
+**Phase3 binding**:
+- SQLite `AbnormalMoveRun` = authority（不是 artifact JSON）
+- 权威 `run_request_id = DB run.request_id`
+- `DB CauseCandidate.request_id == authoritative run_request_id`
+- CauseCandidate 不在 artifact → reject（非 warning）
+- 完整链: SQLite AbnormalMoveRun → CauseCandidate → CauseEvidenceLink → Evidence
+- `validation.json.ok is True`，否则 `INTEGRATION_RUN_NOT_ELIGIBLE`
+
+**Phase4 binding**:
+- SQLite `EquityResearchRun`/`EquityResearchRequest` = authority
+- `DB run.task_id == run_dir.name`，否则 `INTEGRATION_SOURCE_RUN_MISMATCH`
+- `DB request.request_id == DB run.request_id`
+- 每个 ResearchFinding 完整 canonical equality
+- `DB finding.request_id == authoritative run.request_id`
+- 允许 validation: `pass` / `pass_with_warnings`
+- `equity_research_run.json` 缺失 → `INTEGRATION_ARTIFACT_MISSING`（无 fallback）
+
+**Live CLI provider fail-closed**:
+- `--live` 无 `--provider` → `INTEGRATION_PROVIDER_ERROR`（structured JSON，无 traceback）
+- invalid provider → 同上
+
+**不变**: M3 source whitelist 不变，Schema 55 不变，DB v6 不变，Phase2/3/4 行为不变，
+Graph→Research 不实现，JSON mirror 不实现。
