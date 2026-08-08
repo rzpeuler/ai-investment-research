@@ -2,11 +2,11 @@
 
 **TASKBOOK_STATUS: APPROVED**
 **IMPLEMENTATION_STATUS: IN_PROGRESS**
-**COMPLETED_MILESTONE: M5_HUMAN_REVIEW_WORKFLOW**
-**NEXT_MILESTONE: M6_DETERMINISTIC_APPLY_ENGINE**
+**COMPLETED_MILESTONE: M7_VERSION_LIFECYCLE_HISTORY**
+**NEXT_MILESTONE: M8_QUERY_KNOWLEDGE_CONTEXT**
 **NEXT_MILESTONE_AUTHORIZATION: AUTHORIZED**
 
-> M1 PASS（SHA `b097996`）。M2 PASS（SHA `565d500`）。M3 PASS（SHA `242e039`）。M4 PASS（SHA `20b7a15`）。M5 PASS（SHA `92649a7`，Offline CI `31251491357`，1725 passed / 5 skipped / 0 xfail，55/55 schemas）。M6 已由用户于 2026-08-08 明确授权。
+> M1 PASS（SHA `b097996`）。M2 PASS（SHA `565d500`）。M3 PASS（SHA `242e039`）。M4 PASS（SHA `20b7a15`）。M5 PASS（SHA `92649a7`，Offline CI `31251491357`，1725 passed / 5 skipped / 0 xfail，55/55 schemas）。M6 PASS（SHA `480b209`，Offline CI `31257395650`，1809 passed / 5 skipped / 0 xfail，55/55 schemas）。M7 PASS（SHA `651e9a1`，Offline CI `31262745492`，1911 passed / 5 skipped / 0 xfail，55/55 schemas）。M8 已由用户于 2026-08-08 明确授权。
 
 **任务书创建基线：**
 
@@ -1368,6 +1368,10 @@ candidate hash
 
 **执行模型：DeepSeek V4 Pro**
 
+> M6 实现状态（2026-08-09）：**PASS**。
+> 独立验收 SHA `480b209`，Offline CI `31257395650`，
+> 1809 passed / 5 skipped / 0 xfail / 55/55 schemas。PR 5B #5 DRAFT。
+
 这是 Phase 5 高风险核心。
 
 必须：
@@ -1399,6 +1403,11 @@ conflict-aware
 
 **执行模型：Flash，Pro 审查时间语义**
 
+> M7 实现状态（2026-08-09）：**PASS**（独立架构验收 SHA `651e9a1`，
+> Offline CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，
+> DB v6 不变（无 Schema/migration 变更））。
+> 契约冻结见 DECISIONS.md #37。M8 已授权，M9-M10 NOT_AUTHORIZED。
+
 实现：
 
 ```text
@@ -1419,6 +1428,27 @@ history query
 # 35. M8：Query + knowledge_context_builder
 
 **执行模型：Flash**
+
+> M8 实现状态（2026-08-08）：**PASS**（独立架构验收）。
+>
+> ```text
+> Independent accepted SHA:
+> eac18e26fd9696094d3bfe5edbe662c84731c106
+>
+> Offline CI:
+> 31269460005
+>
+> Tests:
+> 2009 passed / 5 skipped / 0 xfail
+>
+> Schemas:
+> 55/55
+>
+> DB:
+> v6
+> ```
+>
+> 契约冻结见 DECISIONS.md #38。M9-M10 NOT_AUTHORIZED。
 
 实现：
 

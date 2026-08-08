@@ -1006,5 +1006,377 @@ def knowledge_review_import(file_path, db_path, dry_run) -> None:
         db.close()
 
 
+@knowledge_group.command("apply")
+@click.option(
+    "--change-id", "change_id", required=True,
+    help="original reviewed GraphChange ID（UUID），不是默认 replacement ID。"
+)
+@click.option(
+    "--review-id", "review_id", default=None,
+    help="显式 GraphReview ID（同一 candidate 多条审核时必须提供）。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="完整预检（load→Schema-first→review selection→hash→replacement→M4→"
+         "target→version→idempotency），零 DB 写入、零文件写入。",
+)
+@click.option(
+    "--applied-at", "applied_at", default=None,
+    help="显式 ISO 8601 时间；未提供则 capture now_iso() once（不重复读 wall clock）。",
+)
+def knowledge_apply(change_id, review_id, db_path, dry_run, applied_at) -> None:
+    """M6 Deterministic Apply：将已批准人工审核确定性应用到图谱。
+
+    只支持 add_node / add_edge（modify/retire → CHANGE_TYPE_REQUIRES_M7）。
+    零 LLM / 零 Provider / 零 network。
+    幂等：重复 apply 返回 IDEMPOTENT_NOOP（不重复写 audit）。
+    """
+    from research_os.knowledge.apply_engine import ApplyEngine
+    from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+
+        engine = ApplyEngine(db, candidate_repo, graph_repo, validator)
+
+        result = engine.apply(
+            change_id,
+            review_id=review_id,
+            applied_at=applied_at,
+            dry_run=dry_run,
+        )
+
+        output = {
+            "status": result.status,
+            "original_graph_change_id": result.original_graph_change_id,
+            "effective_graph_change_id": result.effective_graph_change_id,
+            "review_id": result.review_id,
+            "application_id": result.application_id,
+            "idempotency_key": result.idempotency_key,
+            "target_kind": result.target_kind,
+            "target_id": result.target_id,
+            "target_version": result.target_version,
+            "applied_at": result.applied_at,
+            "dry_run": result.dry_run,
+            "error_code": result.error_code,
+            "warnings": list(result.warnings),
+        }
+        if result.errors:
+            output["errors"] = list(result.errors)
+
+        click.echo(json.dumps(output, ensure_ascii=False, sort_keys=True))
+
+        if result.status == "APPLY_REJECTED":
+            raise SystemExit(1)
+
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
+@knowledge_group.command("history")
+@click.option(
+    "--node-id", "node_id", default=None,
+    help="节点 identity（与 --edge-id 二选一）。",
+)
+@click.option(
+    "--edge-id", "edge_id", default=None,
+    help="边 identity（与 --node-id 二选一）。",
+)
+@click.option(
+    "--as-of", "as_of", default=None,
+    help="显式 ISO 8601 时间（可选）。未提供时只输出完整 history，不计算 resolved。"
+         "禁止默认 now()。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+def knowledge_history(node_id, edge_id, db_path, as_of) -> None:
+    """M7 Deterministic History：identity-scoped history / as_of resolution。
+
+    零 LLM / 零 Provider / 零 network。
+    exactly one of --node-id / --edge-id；错误 → non-zero exit + structured
+    JSON + explicit error_code（无 traceback）。
+    """
+    from research_os.knowledge.history import HistoryService, HistoryError
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.storage import Database
+
+    if (node_id is None) == (edge_id is None):
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "HISTORY_IDENTITY_REQUIRED",
+            "errors": ["必须且只能提供一个：--node-id 或 --edge-id"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    root = _project_root()
+    db_full = root / db_path
+    if not db_full.exists():
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "HISTORY_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1)
+
+    db = Database.open_read_only(db_full)
+    try:
+        graph_repo = GraphRepository(db)
+        history = HistoryService(db, graph_repo)
+        if node_id is not None:
+            result = history.get_node_history(node_id, as_of=as_of)
+        else:
+            result = history.get_edge_history(edge_id, as_of=as_of)
+    except HistoryError as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": exc.error_code,
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    except Exception as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "HISTORY_READ_FAILED",
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    finally:
+        db.close()
+
+    click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
+
+
+@knowledge_group.command("query")
+@click.option(
+    "--node-id", "node_id", default=None,
+    help="节点 identity（与 --edge-id 二选一）。",
+)
+@click.option(
+    "--edge-id", "edge_id", default=None,
+    help="边 identity（与 --node-id 二选一）。",
+)
+@click.option(
+    "--as-of", "as_of", default=None,
+    help="显式 ISO 8601 时间（必填；禁止默认 now()）。",
+)
+@click.option(
+    "--depth", "depth", default=None, type=int,
+    help="遍历深度 0|1|2（仅 --node-id；--edge-id 为 direct query，禁止 >0）。",
+)
+@click.option(
+    "--relation", "relations", multiple=True,
+    help="relation 过滤（可重复；仅 18 个正式 relation）。",
+)
+@click.option(
+    "--direction", "direction", default="both", show_default=True,
+    help="outgoing|incoming|both。",
+)
+@click.option(
+    "--assertion-type", "assertion_types", multiple=True,
+    help="GOVERNANCE|FACT|MODEL_INFERENCE（可重复）。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+def knowledge_query(node_id, edge_id, as_of, depth, relations,
+                    direction, assertion_types, db_path) -> None:
+    """M8 Deterministic Query：direct node/edge + depth-limited traversal。
+
+    零 LLM / 零 Provider / 零 network。只读。
+    --node-id 可配 --depth（0|1|2）；--edge-id 为 direct edge query。
+    as_of 必填。
+    """
+    from research_os.knowledge.query import GraphQueryService, QueryError
+    from research_os.storage import Database
+
+    if (node_id is None) == (edge_id is None):
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_IDENTITY_REQUIRED",
+            "errors": ["必须且只能提供一个：--node-id 或 --edge-id"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    if as_of is None:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_AS_OF_REQUIRED",
+            "errors": ["--as-of 必填（禁止默认 now()）"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    if edge_id is not None and depth is not None and depth > 0:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_DEPTH_EXCEEDED",
+            "errors": ["--edge-id 是 direct edge query，禁止 --depth > 0"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    root = _project_root()
+    db_full = root / db_path
+    if not db_full.exists():
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1)
+
+    db = Database.open_read_only(db_full)
+    try:
+        svc = GraphQueryService(db)
+        if edge_id is not None:
+            result = svc.get_edge(edge_id, as_of)
+        elif depth is None:
+            result = svc.get_node(node_id, as_of)
+        else:
+            result = svc.query_graph(
+                node_id, as_of, max_depth=depth,
+                relation_filters=list(relations) or None,
+                direction=direction,
+                assertion_types=list(assertion_types) or None,
+            )
+    except QueryError as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": exc.error_code,
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    except Exception as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_READ_FAILED",
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    finally:
+        db.close()
+
+    click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
+
+
+@knowledge_group.command("context")
+@click.option(
+    "--node-id", "node_id", required=True,
+    help="节点 identity（context 只接受 node root）。",
+)
+@click.option(
+    "--as-of", "as_of", default=None,
+    help="显式 ISO 8601 时间（必填；禁止默认 now()）。",
+)
+@click.option(
+    "--depth", "depth", default=1, type=int, show_default=True,
+    help="遍历深度 0|1|2。",
+)
+@click.option(
+    "--relation", "relations", multiple=True,
+    help="relation 过滤（可重复；仅 18 个正式 relation）。",
+)
+@click.option(
+    "--direction", "direction", default="both", show_default=True,
+    help="outgoing|incoming|both。",
+)
+@click.option(
+    "--assertion-type", "assertion_types", multiple=True,
+    help="GOVERNANCE|FACT|MODEL_INFERENCE（可重复）。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+def knowledge_context(node_id, as_of, depth, relations,
+                      direction, assertion_types, db_path) -> None:
+    """M8 Deterministic Knowledge Context：graph + Evidence 同一 read snapshot。
+
+    零 LLM / 零 Provider / 零 network。只读。
+    """
+    from research_os.knowledge.context_builder import KnowledgeContextBuilder
+    from research_os.knowledge.query import GraphQueryService, QueryError
+    from research_os.storage import Database
+
+    if as_of is None:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_AS_OF_REQUIRED",
+            "errors": ["--as-of 必填（禁止默认 now()）"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    root = _project_root()
+    db_full = root / db_path
+    if not db_full.exists():
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1)
+
+    db = Database.open_read_only(db_full)
+    try:
+        svc = GraphQueryService(db)
+        builder = KnowledgeContextBuilder(svc)
+        result = builder.build(
+            node_id, as_of, max_depth=depth,
+            relation_filters=list(relations) or None,
+            direction=direction,
+            assertion_types=list(assertion_types) or None,
+        )
+    except QueryError as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": exc.error_code,
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    except Exception as exc:
+        click.echo(json.dumps({
+            "status": "error",
+            "error_code": "QUERY_READ_FAILED",
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    finally:
+        db.close()
+
+    click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
+
+
 if __name__ == "__main__":
     cli()

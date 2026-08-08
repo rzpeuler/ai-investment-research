@@ -312,6 +312,246 @@ class GraphRepository:
         ).fetchone()
         return json.loads(row["payload"]) if row else None
 
+    # ---- application (M6) ----
+
+    def get_application_by_idempotency_key(self, idempotency_key: str) -> Optional[Dict]:
+        """按 idempotency_key 读取 GraphApplication 全部列（strict read）。
+
+        JSON parse failure 直接上抛（M6 strict read path 禁止 fail-open，
+        由 engine 转 APPLICATION_INTEGRITY_CONFLICT / APPLICATION_READ_FAILED）。
+
+        Returns:
+            {
+                "application_id": ...,
+                "graph_change_id": ...,
+                "review_id": ...,
+                "idempotency_key": ...,
+                "payload": {...},
+                "applied_at": ...,
+            }
+            或 None（不存在）。
+        """
+        row = self._db._conn.execute(
+            "SELECT application_id, graph_change_id, review_id, "
+            "idempotency_key, payload, applied_at "
+            "FROM graph_applications WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "application_id": row["application_id"],
+            "graph_change_id": row["graph_change_id"],
+            "review_id": row["review_id"],
+            "idempotency_key": row["idempotency_key"],
+            "payload": json.loads(row["payload"]),
+            "applied_at": row["applied_at"],
+        }
+
+    def get_application_by_identity(self, application_id: str,
+                                    idempotency_key: str) -> Optional[Dict]:
+        """按双 deterministic identity 查找 GraphApplication（M6 安全路径）。
+
+        语义：
+        - 0 rows → None（无 previous application）
+        - 1 row → 返回全列 + parsed payload
+        - >1 logically conflicting rows（application_id 命中 row A、
+          idempotency_key 命中 row B）→ raise ValueError
+          （APPLICATION_DUAL_IDENTITY_CONFLICT，audit corruption，
+           不得任选其一；由 engine 转 APPLICATION_INTEGRITY_CONFLICT）
+
+        正常 DB 中 application_id 为 PRIMARY KEY、idempotency_key 为 UNIQUE，
+        双命中不同行只能来自 SQL 篡改。JSON parse failure 直接上抛。
+
+        Returns:
+            全列 dict 或 None。
+        Raises:
+            ValueError: 双 identity 命中不同行 / JSON parse failure。
+        """
+        rows = self._db._conn.execute(
+            "SELECT application_id, graph_change_id, review_id, "
+            "idempotency_key, payload, applied_at "
+            "FROM graph_applications "
+            "WHERE application_id = ? OR idempotency_key = ?",
+            (application_id, idempotency_key),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise ValueError(
+                f"APPLICATION_DUAL_IDENTITY_CONFLICT: application_id={application_id} "
+                f"与 idempotency_key={idempotency_key} 命中不同行（audit corruption）"
+            )
+        row = rows[0]
+        return {
+            "application_id": row["application_id"],
+            "graph_change_id": row["graph_change_id"],
+            "review_id": row["review_id"],
+            "idempotency_key": row["idempotency_key"],
+            "payload": json.loads(row["payload"]),
+            "applied_at": row["applied_at"],
+        }
+
+    def get_application(self, application_id: str) -> Optional[Dict]:
+        """按 application_id 读取 GraphApplication payload。"""
+        row = self._db._conn.execute(
+            "SELECT payload FROM graph_applications WHERE application_id = ?",
+            (application_id,),
+        ).fetchone()
+        return json.loads(row["payload"]) if row else None
+
+    def get_graph_change_type(
+        self,
+        graph_change_id: str,
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> Optional[str]:
+        """strict read：GraphChange.change_type（M7 origin integrity / retire 判定共享）。
+
+        - missing → None
+        - DB error / invalid JSON / 顶层非 dict / 无 change_type 字段
+          → raise ValueError（strict read 语义，调用方转
+          HISTORY_ORIGIN_INTEGRITY_CONFLICT / INCIDENT_EDGE_CHECK_FAILED 等）
+
+        仅读取 change_type 一个字段；完整 schema-first 校验由
+        HistoryService._check_origin 负责（本 helper 供 apply 侧判定
+        latest edge 是否 retire tombstone 等轻量用途）。
+        """
+        dbc = conn or self._db._conn
+        try:
+            row = dbc.execute(
+                "SELECT payload FROM graph_changes WHERE graph_change_id = ?",
+                (graph_change_id,),
+            ).fetchone()
+        except Exception as e:
+            raise ValueError(
+                f"GRAPH_CHANGE_READ_FAILED: DB error reading {graph_change_id}: {e}"
+            ) from e
+        if row is None:
+            return None
+        try:
+            gc_dict = json.loads(row["payload"])
+        except Exception as e:
+            raise ValueError(
+                f"GRAPH_CHANGE_PAYLOAD_INVALID: {graph_change_id} invalid JSON: {e}"
+            ) from e
+        if not isinstance(gc_dict, dict):
+            raise ValueError(
+                f"GRAPH_CHANGE_PAYLOAD_INVALID: {graph_change_id} payload 顶层非 object"
+            )
+        ct = gc_dict.get("change_type")
+        if not isinstance(ct, str) or not ct:
+            raise ValueError(
+                f"GRAPH_CHANGE_PAYLOAD_INVALID: {graph_change_id} 缺少 change_type"
+            )
+        return ct
+
+    def append_application(
+        self,
+        application_id: str,
+        graph_change_id: str,
+        review_id: str,
+        idempotency_key: str,
+        payload: Dict[str, Any],
+        applied_at: str,
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> str:
+        """追加 GraphApplication（INSERT ONLY，完整 immutable contract）。
+
+        - 已有同 application_id 或同 idempotency_key：
+          只有 all columns same（application_id / graph_change_id / review_id /
+          idempotency_key / applied_at）AND canonical payload same
+          才返回 idempotent_noop；
+          否则 IMMUTABLE_APPLICATION_CONFLICT（不得覆盖）。
+        - 不得仅比较 payload。
+
+        Args:
+            application_id: UUID5 确定性 application ID。
+            graph_change_id: effective GraphChange ID（实际被 applied 的）。
+            review_id: 关联 GraphReview ID。
+            idempotency_key: sha256(canonical intent)。
+            payload: GraphApplication internal audit payload dict。
+            applied_at: ISO 时间。
+            conn: 可选外部连接（用于批量事务）。
+
+        Returns:
+            "inserted" / "idempotent_noop"
+
+        Raises:
+            ValueError: 不可变冲突。
+        """
+        canonical_payload = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+        def _row_matches(row) -> bool:
+            """all columns + canonical payload 全部一致才算幂等。"""
+            return (
+                row["application_id"] == application_id
+                and row["graph_change_id"] == graph_change_id
+                and row["review_id"] == review_id
+                and row["idempotency_key"] == idempotency_key
+                and row["applied_at"] == applied_at
+                and row["payload"] == canonical_payload
+            )
+
+        def _do(conn):
+            existing = conn.execute(
+                "SELECT application_id, graph_change_id, review_id, "
+                "idempotency_key, payload, applied_at "
+                "FROM graph_applications WHERE application_id = ? OR idempotency_key = ?",
+                (application_id, idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if _row_matches(existing):
+                    return "idempotent_noop"
+                raise ValueError(
+                    f"IMMUTABLE_APPLICATION_CONFLICT: application_id={application_id} "
+                    f"/ idempotency_key={idempotency_key} 已存在但 columns/payload 不同"
+                )
+            conn.execute(
+                """INSERT INTO graph_applications (
+                    application_id, graph_change_id, review_id,
+                    idempotency_key, payload, applied_at
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    application_id,
+                    graph_change_id,
+                    review_id,
+                    idempotency_key,
+                    canonical_payload,
+                    applied_at,
+                ),
+            )
+            return "inserted"
+
+        if conn is not None:
+            return _do(conn)
+        with self._db.transaction() as tx_conn:
+            return _do(tx_conn)
+
+    def get_latest_node_version(self, node_id: str) -> Optional[int]:
+        """返回 node_id 的最新版本号（无则 None）。"""
+        row = self._db._conn.execute(
+            "SELECT MAX(version) AS mv FROM graph_nodes WHERE node_id = ?",
+            (node_id,),
+        ).fetchone()
+        if row is None or row["mv"] is None:
+            return None
+        return int(row["mv"])
+
+    def get_latest_edge_version(self, edge_id: str) -> Optional[int]:
+        """返回 edge_id 的最新版本号（无则 None）。"""
+        row = self._db._conn.execute(
+            "SELECT MAX(version) AS mv FROM graph_edges WHERE edge_id = ?",
+            (edge_id,),
+        ).fetchone()
+        if row is None or row["mv"] is None:
+            return None
+        return int(row["mv"])
+
     # ========== seed ==========
 
     def seed_ontology(

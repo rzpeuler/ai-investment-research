@@ -510,3 +510,784 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 - 任何 GUI 或 Web 界面
 - 批量审批
 - M7-M10 全部未授权
+
+## 36. Phase 5 M6 Deterministic Apply Engine 语义冻结（2026-08-08）
+
+> 本决定在 M6 实现启动时冻结，经用户明确授权。M6 完成不自动授权 M7。
+>
+> **基线**: PR5A 已 merge（master=`4b0b8f7`），M5_ACCEPTED_SHA=`92649a7`，
+> M5_CI=`31251491357`（1725 passed / 5 skipped / 0 xfail / 55/55 schemas），
+> DB v6。PR5B branch：`phase5/graph-apply-query`（M6-M8）。
+
+### 36.1 范围与运行时
+
+1. **M6 只 apply `add_node` / `add_edge`**。`modify_attribute` / `retire_edge` /
+   `retire_node` 必须返回 `APPLY_REJECTED` + `CHANGE_TYPE_REQUIRES_M7`，0 writes。
+   M7 正式负责 modify / retire / superseded / expired / history。禁止提前实现 M7。
+2. **运行时 ZERO LLM / ZERO Provider / ZERO network**。review selection、
+   candidate hash、version、conflict、stale detection、apply decision、DB write、
+   idempotency 全部确定性代码，严禁模型参与。
+3. **M6 不新增 Schema、不新增 migration、不修改 006 migration、DB 保持 v6**。
+   使用已有 `graph_applications` 表（application_id / graph_change_id /
+   review_id / idempotency_key / payload / applied_at）。
+4. **M6 不实现 JSON mirror export**（knowledge/graph/nodes|edges|history
+   主动 export 属于 M7/M8）。SQLite 权威 apply + GraphApplication audit。
+
+### 36.2 输入语义
+
+5. **`--change-id` 是 original reviewed GraphChange ID**，不是默认 replacement ID。
+   - `approved`：`effective_graph_change_id = original graph_change_id`
+   - `approved_with_changes`：`effective_graph_change_id =
+     GraphReview.resulting_graph_change_id`
+6. **GraphReview selection（禁止自动策略）**：
+   - 有 `--review-id`：加载精确 review，必须 `review.graph_change_id ==
+     --change-id`，否则 `REVIEW_NOT_FOUND` / `REVIEW_CHANGE_MISMATCH`。
+   - 无 `--review-id`：读取该 original GraphChange 的全部 GraphReview。
+     0 条 → `REVIEW_REQUIRED`；恰 1 条 → 使用；>1 条 distinct →
+     `AMBIGUOUS_REVIEW_SELECTION`（用户必须显式 `--review-id`）。
+   - 禁止 latest wins / approved wins / highest timestamp wins / first row wins。
+7. **Review 必须 Schema-first**：raw `graph_review.schema` → GraphReview →
+   model_dump → `graph_review.schema`。任何 DB/JSON/Schema/Pydantic 失败 →
+   `APPLY_REJECTED`，不得 silent pass。
+8. **Decision gate**：仅 `approved` / `approved_with_changes` 允许继续；
+   `deferred` / `rejected` → `APPLY_REJECTED` + `NON_APPLICABLE_REVIEW_DECISION`，
+   0 writes。
+9. **Original GraphChange 必须 Schema-first**：raw `graph_change.schema` →
+   GraphChange → model_dump → `graph_change.schema`。任何失败 →
+   `APPLY_REJECTED`。不得从 Markdown 重建（Markdown 在 M6 NOT AUTHORITATIVE）。
+
+### 36.3 approved 路径
+
+10. `decision = approved` 必须 `review_patch == []` 且
+    `resulting_graph_change_id == null`（GraphReview Schema + M6 再确认）。
+    effective GraphChange = original。执行
+    `validator.validate_apply_preflight(original_gc, review, as_of=applied_at)`，
+    必须 `structural_ok=true`、`review_eligible=true`、`apply_eligible=true`，
+    否则 `APPLY_REJECTED`。
+
+### 36.4 approved_with_changes 路径
+
+11. `decision = approved_with_changes` 必须 `review_patch >= 1` 且
+    `resulting_graph_change_id != null`。
+12. **Deterministic linkage**：`expected_resulting_id =
+    UUID5(DNS, "graph-review-result:" + review_id)`；必须
+    `review.resulting_graph_change_id == expected_resulting_id`，否则
+    `REPLACEMENT_ID_MISMATCH`。
+13. **Replacement 重新构造验证**：不得只相信 persisted replacement，不得复制
+    第二套 patch/replacement 算法。将 M5 deterministic replacement 构造提取为
+    纯 helper `build_replacement_graph_change(original_graph_change, graph_review)`
+    （pure / deterministic / zero write / zero LLM），M5 `review_import` 同样
+    调用该 helper（M5 既有测试语义不变）。
+    M6 必须：`expected replacement canonical payload == persisted replacement
+    canonical payload`，否则 `REPLACEMENT_TAMPERED` + `APPLY_REJECTED`。
+    禁止只检查 ID。
+14. **Validator 组合门**：
+    - 先 `validate_review(original_gc, review, as_of=applied_at)`：必须
+      `structural_ok=true`、`review_eligible=true`；任何 KGV-019 stale-review
+      issue 必须 `APPLY_REJECTED`（即使 review_eligible=true 也不能忽略）。
+    - 再 `validate_candidate(replacement_gc, as_of=applied_at)`：必须
+      `structural_ok=true`、`review_eligible=true`、`apply_eligible=true`。
+    - 理由：approved_with_changes 允许 patch 消除 original 的 candidate-level
+      apply blocker（conflicts / new_evidence_ids / evidence_ids / confidence /
+      validity 等），但 KGV-019 baseline stale 不能靠 patch 绕过。
+
+### 36.5 candidate hash 唯一 authority
+
+15. `review.candidate_hash` 必须由
+    `KnowledgeValidator.compute_candidate_hash(original_gc)` 验证；
+    effective GraphChange 的 hash 同样使用该方法。M6 禁止第二套 hash。
+
+### 36.6 apply-time transformation
+
+16. M6 不 UPDATE candidate / GraphReview。只从 effective candidate 构造 approved
+    core object：
+    - **Node**：复制 effective `node.model_dump()`，只改变
+      `review_status = approved`、`last_reviewed_at = GraphReview.reviewed_at`；
+      保持 node_id / node_type / name / aliases / description / status /
+      valid_from / valid_to / evidence_ids / version / origin_kind /
+      originating_graph_change_id / created_at。
+      `add_node` 额外要求 `status = active`，否则 `ADD_NODE_NOT_ACTIVE`。
+    - **Edge**：复制 effective `edge.model_dump()`，只改变
+      `review_status = approved`、`last_reviewed_at = GraphReview.reviewed_at`；
+      保持 edge_id / source_node_id / relation / target_node_id / attributes /
+      assertion_type / valid_from / valid_to / confidence / evidence_ids /
+      version / originating_graph_change_id / created_at。
+      `MODEL_INFERENCE` apply 后仍必须是 `MODEL_INFERENCE`，不得升级为 FACT。
+17. **applied_at 只属于 graph_applications audit**：不得写入 valid_from /
+    valid_to / created_at / Evidence.published_at / GraphReview.reviewed_at。
+    `created_at` 保留 candidate/effective 值；`last_reviewed_at` 使用
+    `GraphReview.reviewed_at`（不是 applied_at）。必须 `applied_at >=
+    reviewed_at`，首次 apply 违反 → `APPLY_TIME_INVALID`。
+18. **Core object 也必须 Schema-first**：raw `graph_node`/`graph_edge` schema →
+    GraphNode/GraphEdge → model_dump → schema，通过后才允许 persistence。
+19. **M6 不修改 GraphChange 状态**：apply 成功后 `graph_changes.payload`
+    byte-for-byte immutable；不把 `review_status` UPDATE 成 approved/applied，
+    不修改 reviewed_at。GraphReview 是审核 audit，GraphApplication 是 apply
+    audit，GraphChange candidate 永久保留原样。
+
+### 36.7 GraphApplication audit + idempotency
+
+20. **GraphApplication internal payload**（本轮不新增 Schema）：
+    `application_id / original_graph_change_id / effective_graph_change_id /
+    review_id / decision / review_candidate_hash / effective_candidate_hash /
+    target_kind / target_id / target_version / applied_at / status`
+    （`status = applied`；`target_kind` ∈ node|edge）。
+    `graph_applications.graph_change_id` 列保存 `effective_graph_change_id`
+    （实际被 applied 的 GraphChange）；original ID 保留在 payload。
+21. **Idempotency intent**：
+    `original_graph_change_id / effective_graph_change_id / review_id /
+    effective_candidate_hash / target_kind / target_id / target_version`；
+    canonical = `json.dumps(intent, ensure_ascii=False, sort_keys=True,
+    separators=(",", ":"))`；
+    `idempotency_key = sha256(canonical intent)`；
+    `application_id = UUID5(DNS, "graph-application:" + idempotency_key)`。
+    禁止随机 UUID；禁止把 applied_at 放进 idempotency key（否则重复 apply
+    因 wall clock 改变失去幂等）。
+22. **GraphRepository 专用方法** `get_application_by_idempotency_key()` /
+    `append_application()`；禁止 generic DB upsert。`append_application()`
+    INSERT ONLY：同 application_id/idempotency_key + 同 payload →
+    idempotent_noop；同 key/ID 异 payload → `IMMUTABLE_APPLICATION_CONFLICT`，
+    不得覆盖。
+23. **Idempotent replay 必须优先识别**（重复 apply 时 target 已存在，若先跑
+    KGV duplicate/stale 会错误 reject）：
+    1. load/Schema original candidate；
+    2. resolve/Schema review；
+    3. resolve/verify effective candidate；
+    4. 计算 deterministic idempotency key；
+    5. strict lookup existing GraphApplication；
+    6. 若存在：验证 application audit integrity + target approved node/edge
+       version 存在 + persisted target canonical payload 与 expected 一致；
+    7. 全部一致 → `IDEMPOTENT_NOOP`（返回已有 application_id/applied_at），
+       不重新 apply；若 application 存在但 target missing / payload 不同 /
+       wrong version → `APPLICATION_INTEGRITY_CONFLICT`，不得冒充幂等。
+24. **TOCTOU 防护**：新 apply 必须在事务内完成（SQLite write lock）：
+    `BEGIN IMMEDIATE`（或仓库中等价 deterministic immediate transaction
+    helper）→ 事务内 recheck idempotency → rerun current-state M4 validation →
+    recheck target/version → append approved node/edge → append GraphApplication
+    → COMMIT；任一步失败 ROLLBACK ALL。新增 `Database.immediate_transaction()`
+    只做最小事务 helper，不改变其他 transaction 语义。
+25. **Repository 禁止 fail-open**：strict read path 不得用
+    `except Exception: return []` 判定 review/edge/application 缺失；
+    DB error → `APPLY_REJECTED`，不是 empty state。
+
+### 36.8 dry-run 与结果
+
+26. `knowledge apply --dry-run` 执行完整预检（load candidate → Schema-first →
+    review selection → review Schema-first → hash → replacement verification →
+    M4 validation → effective validation → target build → version/current graph
+    preflight → application idempotency preflight），但
+    graph_nodes/graph_edges/graph_reviews/graph_changes/graph_applications
+    delta = 0、files delta = 0；CLI dry-run 使用 `Database.open_read_only()`
+    进一步硬化零写；不得 mkdir。
+27. **ApplyResult**（frozen dataclass）：`status / original_graph_change_id /
+    effective_graph_change_id / review_id / application_id / idempotency_key /
+    target_kind / target_id / target_version / applied_at / dry_run / errors /
+    warnings`。状态至少 `applied` / `idempotent_noop` / `dry_run` /
+    `APPLY_REJECTED`；内部 error code 明确，不用模糊 failed。
+28. **CLI**：`research knowledge apply --change-id <uuid>`（支持
+    `--review-id <uuid>` optional deterministic disambiguation、
+    `--db <path>`、`--dry-run`、`--applied-at <iso>`）。
+    `--applied-at` 未提供时 `capture now_iso() once`（不得多次读取 wall clock）。
+    成功输出 deterministic JSON（status / original_graph_change_id /
+    effective_graph_change_id / review_id / application_id / idempotency_key /
+    target_kind / target_id / target_version / applied_at / dry_run / warnings）；
+    失败 non-zero exit + `status=APPLY_REJECTED` + `error_code` + errors，
+    不得 silent failure。
+
+### 36.8a M6-R1 Apply Safety Closure 补充（2026-08-08）
+
+> M6 尚未验收，直接补充本决定；不另立 Decision #37。
+
+29. **immediate_transaction 语义**：
+    - COMMIT 失败必须异常传播（ApplyEngine 不得返回 applied）；不得
+      `except OperationalError: pass` 吞掉 COMMIT/ROLLBACK 失败。
+    - 进入 BEGIN IMMEDIATE 前若调用者已有活动事务（`conn.in_transaction`），
+      不得自动 commit 清场——raise `ACTIVE_TRANSACTION_CONFLICT`
+      （RuntimeError），由 ApplyEngine 转 `APPLY_REJECTED`。
+    - 异常退出执行 ROLLBACK；若 rollback 自己失败，不得把原始业务异常变成
+      成功——保留原始异常并附加 rollback context。
+30. **SQLite 线程保护**：恢复 sqlite3 默认 `check_same_thread=True`
+    （全局不削弱跨线程误用防护）。并发测试改为每个 worker thread
+    在自己的线程内创建 Database connection（仍为 same SQLite file +
+    two independent connections + BEGIN IMMEDIATE）。
+31. **strict reads**：M6 不得依赖 `candidate_repo.get_candidate()`
+    处理安全关键读取。新增 `_load_graph_change_strict()`（直接
+    SELECT payload FROM graph_changes → DB error/missing/invalid JSON/
+    Schema 失败全部映射结构化 code：CANDIDATE_READ_FAILED /
+    CANDIDATE_NOT_FOUND / CANDIDATE_PAYLOAD_INVALID /
+    CANDIDATE_SCHEMA_INVALID；replacement 用 REPLACEMENT_* 对应 code）。
+    review selection 的 SQL error / JSON decode / malformed payload 全部
+    fail-closed（REVIEW_READ_FAILED / REVIEW_PAYLOAD_INVALID）；>1 reviews
+    时 ambiguity message 直接使用 DB review_id column 稳定排序，不解析 payload。
+    target/version strict read 的 DB error / invalid JSON → 结构化拒绝，
+    ApplyEngine public API 不得直接 crash。
+32. **ApplyResult.error_code**：`error_code: str | None`；所有拒绝路径
+    `status=APPLY_REJECTED` + 精确机械 code（如 REVIEW_REQUIRED /
+    AMBIGUOUS_REVIEW_SELECTION / CANDIDATE_HASH_MISMATCH / STALE_REVIEW /
+    APPLICATION_INTEGRITY_CONFLICT / APPLY_TIME_INVALID /
+    CHANGE_TYPE_REQUIRES_M7），成功为 null；`errors` 保存人类可读信息。
+    调用方不再从字符串 prefix 反解析 code。
+33. **事务内 revalidation 保留 error code**：事务内 gate 失败使用内部 signal
+    `_InTxnRejected(ApplyResult)`，ROLLBACK 后返回原始 ApplyResult
+    （保留 STALE_REVIEW / M4_APPLY_PREFLIGHT_FAILED /
+    M4_REPLACEMENT_VALIDATION_FAILED 等精确 code）；
+    target/application immutable conflict 映射精确 code
+    （TARGET_VERSION_CONFLICT / VERSION_VIOLATION / VERSION_GAP /
+    APPLICATION_INTEGRITY_CONFLICT）。
+34. **GraphApplication replay 验证完整 audit**：
+    - `get_application_by_idempotency_key()` 返回全部列
+      （application_id / graph_change_id / review_id / idempotency_key /
+      payload / applied_at）；JSON parse failure 上抛，由 engine 转
+      `APPLICATION_INTEGRITY_CONFLICT` / `APPLICATION_READ_FAILED`。
+    - replay 时用 stored applied_at 构造 expected payload，canonical
+      全对象相等；DB columns 全部与 deterministic 值一致
+      （application_id == deterministic app_id、
+      graph_change_id == effective_graph_change_id、
+      review_id == review.review_id、
+      idempotency_key == deterministic idem_key、
+      applied_at == expected_payload.applied_at）；
+      再验证 target 存在 / version 精确 / canonical payload 精确。
+      任一不一致 → `APPLICATION_INTEGRITY_CONFLICT`。不得只检查少数字段。
+    - `append_application()` 完整 immutable：application_id 或
+      idempotency_key 已存在时，只有 all columns same AND canonical
+      payload same 才 idempotent_noop，否则
+      `IMMUTABLE_APPLICATION_CONFLICT`；不得仅比较 payload。
+35. **approved_with_changes effective Evidence review-time closure**：
+    人工 review 发生在 `review.reviewed_at`，因此 effective replacement
+    的全部 Evidence 必须证明 `published_at <= reviewed_at` 且
+    `retrieved_at <= reviewed_at`，而不是只要求 `<= applied_at`。
+    实现：保留 original `validate_review(original, review, ...)` + KGV-019
+    stale gate；effective replacement 的 `validate_candidate(effective_gc,
+    as_of=review.reviewed_at)` 用于 review-time information cutoff；
+    复用 M4 KGV-007 的 review-time Evidence 逻辑（只读 helper
+    `evidence_review_time_closure()`，不改 KGV-007 语义、不改现有 M4
+    results）。时间攻击（review 后 SQL mutation evidence 时间）→
+    `EVIDENCE_RETRIEVED_AFTER_REVIEW` 拒绝。
+
+### 36.8b M6-R2 Final Integrity Closure 补充（2026-08-09）
+
+> M6 尚未验收，继续补充本决定；不另立 Decision #37。
+
+36. **review valid-JSON wrong-type fail-closed**：`--review-id` 显式路径与
+    implicit single-review 路径的 payload 必须 `JSON decode → top-level 必须
+    object（dict）→ GraphReview Schema-first`。合法 JSON 但顶层非 dict
+    （`[]` / `"foo"` / `123`）→ `APPLY_REJECTED` + `REVIEW_PAYLOAD_INVALID`，
+    不得 public API exception / traceback。显式路径同时读取
+    `review_id, graph_change_id, payload` 三列，用 DB `graph_change_id`
+    column 做 association precheck（`REVIEW_CHANGE_MISMATCH`），payload
+    最终仍必须 Schema-first。
+37. **GraphApplication 双 deterministic identity**：replay lookup 必须同时
+    绑定 deterministic `application_id` 与 `idempotency_key`。M6 安全路径
+    使用 `get_application_by_identity(application_id, idempotency_key)`：
+    0 rows → 无 previous application；1 row → 返回全列 + parsed payload；
+    application_id 命中 row A、idempotency_key 命中 row B（>1 rows，正常
+    DB 因 application_id PRIMARY KEY + idempotency_key UNIQUE 不可能自然
+    出现，只能来自 SQL 篡改）→ `APPLICATION_INTEGRITY_CONFLICT`，不得任选
+    其一。tampering either identity 必须可发现并拒绝（idempotency_key
+    column 篡改为另一个合法 sha256 → `APPLICATION_INTEGRITY_CONFLICT`，
+    不得 idempotent_noop / M4_* / applied）。保留
+    `get_application_by_idempotency_key()` 仅供兼容，安全路径一律双 identity。
+38. **COMMIT failure rollback cleanup**：COMMIT 失败必须捕获原始异常 →
+    若 `conn.in_transaction` 则 attempt ROLLBACK → 传播原始 commit 失败；
+    若 rollback 也失败，raise chained RuntimeError 同时保留 commit failure +
+    rollback failure context。ApplyEngine 必须 never return applied；且
+    rollback 成功后 `conn.in_transaction == False`、pending writes == 0。
+    不重新吞异常。
+39. **persisted GraphReview JSON top-level 必须 object**：任何字段访问
+    （`.get()` 等）之前先验证 payload 顶层是 dict，否则
+    `REVIEW_PAYLOAD_INVALID`。
+40. **ADD_NODE_NOT_ACTIVE 是 first-class ApplyResult.error_code**：
+    add_node 且 node.status != active → `APPLY_REJECTED` +
+    `ADD_NODE_NOT_ACTIVE`（内部 `_TargetBuildError` 携带 code，apply 映射
+    结构化 error_code）；调用方不得从 errors 字符串反解析。该拒绝零
+    graph_nodes / graph_applications delta。
+
+### 36.9 M6 严格不实现
+
+- M7：modify_attribute / retire_node / retire_edge apply、superseded、expired、
+  closing previous valid_to、history query
+- JSON mirror export、knowledge context builder（M8）
+- 自动批准、自动应用
+- M7-M10 全部未授权
+
+---
+
+## 37. Phase 5 M7 Version Lifecycle & History Contract（2026-08-08）
+
+> 本决定在 M7 实现启动时冻结，经用户明确授权（M6_ACCEPTED_SHA=`480b209`）。
+> M7 不修改 M4 KGV-001—019 含义；可增加独立 deterministic lifecycle/history
+> validation，但不得偷偷改变现有 KGV results。
+
+### 37.1 范围与运行时
+
+1. **M7 正式实现**：`modify_attribute` / `retire_node` / `retire_edge` apply、
+   version lifecycle、superseded / expired / retired 派生语义、
+   identity-scoped history query、deterministic as_of resolution。
+2. **运行时 ZERO LLM / ZERO Provider / ZERO network**（apply 与 history 均不得
+   调用模型）。LLM 仍只允许存在于 M3 GraphChangeProposal semantic proposal
+   阶段。
+3. **M7 不新增 Schema、不新增 migration、不修改 006 migration、DB 保持 v6**。
+   现有 `version / status / valid_from / valid_to / originating_graph_change_id /
+   GraphApplication` 足够表达 M7。
+4. **任何 M7 change 都必须经过 M5 Human Review + M6/M7 Apply Engine**；
+   candidate 永不直接进入 active graph。
+
+### 37.2 一级红线：旧版本物理不可变
+
+5. **graph_nodes / graph_edges 全部 INSERT ONLY**。M7 严禁为 superseded /
+   expired / closing valid_to / retired 去 UPDATE vN payload / status /
+   valid_to / 任何 vN column。vN 是否 superseded/expired 由 deterministic
+   history semantics 派生，绝不回写。
+
+### 37.3 时间模型：双时间禁止混用
+
+6. **业务有效时间**（valid_from / valid_to）与**审核/系统 audit 时间**
+   （created_at / reviewed_at / applied_at）严格区分。严禁：
+   reviewed_at → 自动填 valid_from；applied_at → 自动填 valid_from；
+   created_at → 自动关闭 valid_to；now() → 自动退休时间；file mtime → 业务时间。
+7. **业务 transition time 缺失 → REJECT**，绝不用系统时间兜底。
+   - v1 add：valid_from = null 仍允许（history 中 null = unbounded past）。
+   - vN+1 modify：valid_from != null（= transition_at），不得隐式生成；
+     predecessor.valid_from 非 null 时 successor.valid_from > predecessor.valid_from，
+     否则 `TRANSITION_TIME_NOT_MONOTONIC`。
+   - retire：valid_from == valid_to == retire_at（tombstone），均非 null，
+     否则 `RETIRE_TIME_INVALID`。
+
+### 37.4 history interval 与派生状态
+
+8. **半开区间** `[effective_from, effective_to)`：
+   `effective_to = min(vN.valid_to, vN+1.valid_from)`（只有其一 / 均 null 对应
+   单边 / +∞）。`effective_from != null and effective_to != null and
+   effective_from > effective_to` → fail-closed `HISTORY_INTERVAL_INVALID`。
+   as_of < successor.valid_from → predecessor 仍可能有效；
+   as_of == successor.valid_from → successor 接管。
+9. **superseded / expired / retired 全部 derived**，不 UPDATE 旧对象：
+   - superseded：存在 successor 且 as_of >= successor.valid_from
+   - expired：无已生效 successor 且 valid_to != null 且 as_of >= valid_to
+     （允许 v1.valid_to=T1 < v2.valid_from=T2 的 knowledge gap，不得填平）
+   - retired：retire tombstone（node status=retired / edge 通过
+     origin GraphChange.change_type == retire_edge 判定）且 as_of >= retire_at；
+     禁止仅凭 valid_from == valid_to 猜测 retire
+10. **M7 ordinary write 的 persisted status**：add_node → active；
+    modify_attribute → active；retire_node → retired。不得把旧 Node payload
+    改写为 superseded / expired（这两个只存在于 history-derived 语义）。
+
+### 37.5 modify_attribute 合同
+
+11. **Node**：target 必须是 latest persisted；current_knowledge canonical ==
+    latest payload（复用 KGV-019）；effective candidate 必须 same node_id /
+    same node_type、version = latest+1、status = active、valid_from = explicit
+    transition_at。identity（node_id/node_type）改变 → `IMMUTABLE_IDENTITY_CHANGED`。
+    允许业务变化只限 name / aliases / description / valid_to + evidence 追加。
+    禁止借 modify 做 active → retired/superseded/expired（retire 必须走
+    retire_node）。无真实业务字段变化（仅 version/created_at/review fields/
+    evidence_ids/valid_from 变化）→ `NO_EFFECTIVE_CHANGE`。
+12. **Edge**：target 必须 resolve 为唯一 edge identity（KGV-015）；edge_id /
+    source_node_id / relation / target_node_id / assertion_type 全部 immutable
+    （特别禁止 MODEL_INFERENCE ↔ FACT 通过 modify 偷换 epistemic class）；
+    允许 attributes / confidence / valid_to + evidence 追加。
+13. **active-at-transition**：modify 不能复活失效对象。latest.status == active
+    且 predecessor.valid_to >= transition_at，否则 `MODIFY_TARGET_NOT_ACTIVE`。
+    不实现 reactivate / restore / unretire。
+14. **Evidence history preservation**：old evidence_ids ⊆ new evidence_ids，
+    否则 `EVIDENCE_HISTORY_LOSS`。
+
+### 37.6 retire 合同
+
+15. **retire_edge**：新 version 必须 edge_id / source / relation / target /
+    assertion_type / attributes / confidence 全部 unchanged，version=N+1，
+    valid_from == valid_to == retire_at，evidence_ids = stable union。
+    任何业务修改 → `RETIRE_PAYLOAD_MUTATION`；latest 已 expired/retired →
+    `RETIRE_TARGET_NOT_ACTIVE`。
+16. **retire_node**：新 version 必须 same node_id / node_type / name / aliases /
+    description，status=retired，version=N+1，valid_from == valid_to == retire_at，
+    evidence_ids = stable union。业务修改 → `RETIRE_PAYLOAD_MUTATION`；
+    latest.status != active 或 valid_to < retire_at → `RETIRE_TARGET_NOT_ACTIVE`。
+17. **incident-edge guard**：retire_node 在 retire_at 扫描
+    source/target == node_id 的全部 edge identity，用 M7 history semantics
+    （HistoryService.resolve_edge_as_of）判断是否 active。任一 active →
+    `ACTIVE_INCIDENT_EDGES`（0 writes，禁止 cascade；必须先行 retire incident
+    edges）。edge 在 retire_at 前已 expired/retired 不阻塞。任何 incident-edge
+    DB error / invalid JSON / invalid Schema / broken chain → fail-closed
+    （`INCIDENT_EDGE_CHECK_FAILED`），不得当作“没有 active edge”。
+18. **重复完全相同 apply 仍由 GraphApplication replay → idempotent_noop**。
+
+### 37.7 apply 流程与事务
+
+19. modify/retire apply 仍必须：preflight → BEGIN IMMEDIATE → 事务内重读 latest →
+    rerun M4 gates → rerun M7 lifecycle gates → rerun incident-edge guard →
+    append vN+1 → append GraphApplication → COMMIT。任何失败 ROLLBACK ALL
+    （不得产生 new version without application / application without version）。
+20. **并发**：两个 candidate 同时基于 vN modify，最多一个生成 vN+1；
+    另一条 STALE / VERSION conflict / deterministic rejection。
+    绝不产生两个不同 payload 的 vN+1。
+21. **GraphApplication contract 不变**：M7 modify/retire 使用与 M6 完全相同的
+    application_id / original_graph_change_id / effective_graph_change_id /
+    review_id / decision / review_candidate_hash / effective_candidate_hash /
+    target_kind / target_id / target_version / applied_at / status 以及
+    deterministic idempotency_key / application_id 算法。禁止复制或修改
+    candidate hash / replacement / review ID / idempotency 算法。
+
+### 37.8 History Service
+
+22. **职责单一** `knowledge/history.py`：get_node_history / get_edge_history /
+    resolve_node_as_of / resolve_edge_as_of（single identity，非 M8 graph query）。
+23. **strict read**：每行 JSON decode → top-level dict → JSON Schema → Pydantic →
+    model_dump → JSON Schema，并核对 DB columns 与 payload 一致
+    （node 至少 node_id/version/node_type/name/status/review_status/origin_kind/
+    created_at/valid_from/valid_to/last_reviewed_at/originating_graph_change_id）。
+    不一致 → `HISTORY_INTEGRITY_CONFLICT`（不得只信一边）。
+24. **version-chain integrity**：完整 identity history 必须 version 从 1 开始、
+    1..N contiguous；缺号/重复/invalid payload/retrograde → fail-closed。
+    错误码至少：HISTORY_READ_FAILED / HISTORY_PAYLOAD_INVALID /
+    HISTORY_SCHEMA_INVALID / HISTORY_INTEGRITY_CONFLICT / HISTORY_VERSION_GAP /
+    HISTORY_INTERVAL_INVALID。
+25. **origin integrity**：origin_kind=graph_change 或
+    originating_graph_change_id != null 时严格读取对应 GraphChange（exists /
+    Schema valid / identity matches / version matches / change_type compatible）。
+    retire derived status 必须通过 origin GraphChange.change_type 判定。
+    缺失/损坏/不匹配 → `HISTORY_ORIGIN_INTEGRITY_CONFLICT`。
+    Governance seed 继续允许 originating_graph_change_id = null。
+26. **as_of resolver**：as_of 必须显式提供、合法 ISO，禁止默认 now()。
+    未提供 as_of 的 history 调用只输出完整 history（resolved=null）。
+    future successor.valid_from > as_of 不得影响 as_of 时点解析。
+27. **输出 deterministic JSON**（kind / identity / as_of / versions[] /
+    resolved{version, derived_status, is_active, payload}），version ordered，
+    无 wall-clock、无 LLM。不新增 Schema。
+
+### 37.9 M7-R1 Lifecycle Closure 补充（2026-08-08）
+
+> M7 尚未验收，继续补充本决定；不另立 Decision #38。
+
+28. **M7 Proposal lifecycle gate（单一 helper）**：`modify_attribute` 的
+    proposal `candidate_node/candidate_edge.valid_from` 必须非 null 且合法
+    ISO（缺失 → `PROPOSAL_REJECTED` + `TRANSITION_TIME_MISSING`，非法 →
+    `TRANSITION_TIME_INVALID`）；`retire_node/retire_edge` 必须
+    valid_from != null、valid_to != null、valid_from == valid_to、均合法
+    ISO（否则 `PROPOSAL_REJECTED` + `RETIRE_TIME_INVALID`）。该检查必须
+    发生在 GraphChange candidate persist / Markdown render / Human review
+    之前；失败 → `graph_changes delta = 0`、candidate files delta = 0。
+    CandidatePipeline 与 GraphChangeBuilder 共用同一个
+    `validate_proposal_lifecycle_times()`（禁止两套规则）；builder 自身
+    也调用（defense-in-depth，绕过 pipeline 直接 build 也必须拒绝）。
+29. **retrograde retire**：retire 前 predecessor 必须已开始生效。
+    `retire_at < predecessor.valid_from`（predecessor.valid_from 非 null）
+    → `APPLY_REJECTED` + `RETIRE_TARGET_NOT_ACTIVE`（node 与 edge 相同；
+    事务外 preflight 与 BEGIN IMMEDIATE 内 revalidation 共用 gate）。
+    `retire_at == predecessor.valid_from` 保持既有语义，不改为拒绝。
+30. **Node retired lifecycle 双向证明**：graph_change-origin node 的
+    `payload.status == retired` 必须同时满足
+    `origin GraphChange.change_type == retire_node`；反之亦然
+    （origin retire_node 而 status != retired 也是损坏）。任一方向不匹配 →
+    `HISTORY_ORIGIN_INTEGRITY_CONFLICT`。add_node / modify_attribute
+    不得产生 retired lifecycle version；Governance seed 保持既有规则
+    （node origin_kind=governance_seed、edge assertion_type=GOVERNANCE 的
+    null originating_graph_change_id 是合法 seed，tombstone 判定按非
+    retire 处理，不触发 fail-closed）。
+    Edge 的 retired 判定继续只凭
+    `origin GraphChange.change_type == retire_edge`（modify_attribute
+    edge 即使 valid_from == valid_to 也不得误判 retired）。
+31. **history cross-version retrograde**：vN+1.valid_from < vN.valid_from
+    （跨版本时间倒退）→ 半开区间派生 `HISTORY_INTERVAL_INVALID`
+    fail-closed，不得选择其中一个版本继续返回。
+
+### 37.10 M7 严格不实现
+
+- M8：knowledge_context_builder、depth traversal、relation filtering、
+  full graph search、multi-hop traversal
+- Phase 2/3/4 integration
+- M9/M10
+- reactivate / restore / unretire
+- 自动批准、自动应用
+
+---
+
+## 38. Phase 5 M8 Query & Knowledge Context Contract（2026-08-08）
+
+> 本决定在 M8 实现启动时冻结，经用户明确授权（M7_ACCEPTED_SHA=`651e9a1`，
+> M7_OFFLINE_CI=`31262745492`，M7_TESTS=1911 passed / 5 skipped / 0 xfail，
+> SCHEMAS=55，DB v6）。M8 完成不自动授权 M9。
+
+### 38.1 范围与运行时
+
+1. **M8 唯一范围**：single node query、single edge query、historical as_of、
+   depth-limited graph traversal（depth ≤ 2）、knowledge_context_builder、
+   deterministic CLI。M8 是 **READ ONLY**：不写 graph、不生成 GraphChange、
+   不 review、不 apply、不修改 Phase2/3/4 pipeline、不实现 M9。
+2. **运行时 ZERO LLM / ZERO Provider / ZERO network**。query/context 全部确定性代码。
+3. **M8 不新增 Schema、不新增 migration、不修改 006 migration、DB 保持 v6、
+   Schema count 保持 55**。`KnowledgeContext` 使用 frozen dataclass /
+   deterministic dict，不持久化，不新增 `knowledge_context.schema.json`。
+
+### 38.2 as_of 语义（BUSINESS VALIDITY TIME）
+
+4. **M8 `as_of` 完全继承 M7 业务有效时间语义**（valid_from / valid_to /
+   半开区间 / derived lifecycle）。它是 **BUSINESS VALIDITY TIME**，不是
+   system knowledge-time / review time / apply time / retrieval time。
+5. **禁止**在 M8 增加 `created_at <= as_of`、`reviewed_at <= as_of`、
+   `applied_at <= as_of`、`retrieved_at <= as_of` 过滤。M8 只能声称
+   "按 Graph validity time 在 as_of 下解析出的有效状态"，不得声称
+   "系统当时已知的全部知识"。
+6. **`KnowledgeContext.limitations` 必须始终包含 `BUSINESS_VALIDITY_TIME_ONLY`**
+   （message: "as_of resolves business validity, not historical
+   system-knowledge availability."）。
+7. **M8 所有 public query/context `as_of` 必填**，禁止 now()/now_iso()/today/
+   wall-clock fallback。错误：`QUERY_AS_OF_REQUIRED` / `QUERY_AS_OF_INVALID`。
+   M7 history 命令允许不带 as_of 查看完整 history；M8 query/context 不允许。
+
+### 38.3 HistoryService 唯一 authority 与 read snapshot
+
+8. **M8 禁止复制第二套** version selection / effective interval / superseded /
+   expired / retired / not_yet_valid 算法。必须委托
+   `HistoryService.resolve_node_as_of` / `resolve_edge_as_of`。
+9. **允许对 M7 HistoryService 的唯一功能性调整**：给
+   `get_node_history` / `get_edge_history` / `resolve_node_as_of` /
+   `resolve_edge_as_of` 统一增加 optional `conn` 参数（默认 None 时现有
+   M7 行为字节/语义不变），目的仅为 M8 shared read snapshot。禁止重写
+   resolve 算法、修改半开区间、修改 tombstone 语义、修改 origin integrity。
+   全部现有 M7 tests 必须原样通过。
+10. **一次 M8 public query/context call = 一个 SQLite 连接 + 显式 BEGIN +
+    全部 graph/history/evidence SELECT + 关闭 read transaction（ROLLBACK）**。
+    若进入时 `conn.in_transaction == True` → `QUERY_ACTIVE_TRANSACTION_CONFLICT`，
+    不得 commit/rollback 调用者事务。read snapshot cleanup 失败必须传播
+    结构化 query failure，不得 silent success。
+11. **KnowledgeContext 的 graph 与 Evidence 必须在同一 snapshot 内 strict load**，
+    禁止 snapshot A 查 graph、snapshot B 查 Evidence 的混合状态。
+
+### 38.4 traversal 语义
+
+12. **depth ∈ {0,1,2}，edge-hop**：depth 0 = root only；depth 1 = root +
+    direct active incident edges + direct neighbor nodes；depth 2 = 再扩一层。
+    root depth = 0；一条 edge 增加一跳。`max_depth > 2` → `QUERY_DEPTH_EXCEEDED`
+    （即使 caller 显式要求也不开放）；负数/非法 → `QUERY_DEPTH_INVALID`。
+13. **resolve-then-traverse 是唯一合法查询模型**：edge identity discovery →
+    resolve edge as_of → only if active → resolve endpoints as_of → endpoint
+    integrity → traversal。禁止 latest/current row → traversal → 事后按 as_of
+    过滤。
+14. **inactive root 不是 corruption**：root 存在但 derived_status != active →
+    返回 root、不扩展 traversal（nodes=[root]、edges=[]），加入 deterministic
+    limitation `ROOT_INACTIVE_NO_TRAVERSAL`。不是 QUERY failure。
+15. **active edge endpoint contract**：参与 traversal 的 edge 必须
+    `is_active == true`，且 source/target endpoint 在同一 as_of 存在且
+    `is_active == true`；否则 `QUERY_ENDPOINT_MISSING` / `QUERY_ENDPOINT_INACTIVE`
+    整查询失败。禁止 skip broken edge。
+16. **incident-edge identity discovery 双源**：不得只信 denormalized
+    source/target columns。第一版 discovery = denormalized columns
+    UNION valid JSON payload 中的 source_node_id/target_node_id（用
+    `json_valid()` 安全 guard，不得让 `json_extract` 抛未捕获异常）。
+    每个候选 edge identity 必须走完整 HistoryService strict resolution。
+    column/payload 单边篡改 → edge identity 仍被发现 → strict history 检出
+    mismatch → `QUERY_INTEGRITY_CONFLICT`。不得为性能绕过。
+17. **duplicate / ambiguous logical edge**：同一 as_of 下两个 active edge_id
+    对应同一 logical triple (source, relation, target) →
+    `QUERY_AMBIGUOUS_EDGE_IDENTITY` 整查询失败。不得任选/latest wins/silent
+    dedup。同一 edge_id 的 historical versions resolve 后只算一个 active
+    logical edge。
+18. **cycle 与多路径**：节点按 node_id 去重、边按 edge_id 去重；多路径到达
+    同一节点只输出一次并记录最小 depth；已访问节点不再次扩展，但新的合法
+    edge identity 仍可进入 edge 集合（A→B→A 不无限循环）。
+19. **direction**：`outgoing` / `incoming` / `both`（默认 both），非法 →
+    `QUERY_FILTER_INVALID`。direction 只影响 traversal expansion。
+20. **relation_filters**：只允许正式 18 relations；None/空 = 不过滤；非法 →
+    `QUERY_FILTER_INVALID`。**assertion_types**：GOVERNANCE / FACT /
+    MODEL_INFERENCE；None = 三类全部；GOVERNANCE 默认参与 traversal（ontology
+    BELONGS_TO 骨架本就是图结构），但输出必须与 FACT 分离。
+21. **node_type filter 本轮不做**。
+
+### 38.5 输出与 epistemic 边界
+
+22. **QueryGraphResult**（deterministic dataclass）：`as_of / root /
+    max_depth / query_parameters / nodes / edges / epistemic / evidence_ids /
+    limitations / conflicts`。node wrapper 至少 `depth / node_id / version /
+    derived_status / is_active / payload`；edge wrapper 至少 `depth / edge_id /
+    version / derived_status / is_active / payload`。不得修改
+    GraphNode/GraphEdge persisted models。
+23. **epistemic partition**：顶层 `epistemic: {governance: [edge_id...],
+    facts: [edge_id...], model_inferences: [edge_id...]}`。每个 edge 自身仍带
+    authoritative `assertion_type`。禁止 MODEL_INFERENCE → facts、
+    GOVERNANCE → facts。MODEL_INFERENCE 默认允许进入 query/context，但独立
+    分区 + 显式标签 + 保留 confidence + 保留 evidence_ids。
+24. **M8 不输出 path 作为知识结论**：不生成 paths / causal chains /
+    "A benefits from B" / "A harmed by B"（除非就是已存在的 edge relation）。
+    知识图路径不是自动因果证明。`KnowledgeContext.limitations` 必须包含
+    `PATHS_NOT_CAUSAL`。
+25. **结果 hard limits**：`MAX_NODES=200`、`MAX_EDGES=500`、
+    `MAX_EVIDENCE=1000`。达到上限 → `QUERY_RESULT_LIMIT_EXCEEDED` 整查询失败
+    （禁止 silent truncation / partial context）。CLI 不开放参数提高上限。
+
+### 38.6 KnowledgeContext 与 Evidence lineage
+
+26. **KnowledgeContextBuilder** 复用 GraphQueryService，禁止第二套 traversal。
+    结构：`root / as_of / max_depth / query_parameters / nodes / edges /
+    epistemic{governance, facts, model_inferences} / evidence / evidence_ids /
+    limitations / conflicts`。禁止加入 target price / rating / buy-sell /
+    position advice / automatic recommendation / generated investment
+    conclusion——Context 是结构化知识输入，不是研究报告。
+27. **Evidence strict read**：对全部唯一 node.evidence_ids + edge.evidence_ids
+    strict load（JSON decode → top-level dict → evidence Schema → Pydantic →
+    model_dump → Schema），至少核对 DB evidence_id == payload.evidence_id
+    （存在 denormalized columns 一并核对）。缺失 →
+    `QUERY_EVIDENCE_MISSING`；非法 → `QUERY_EVIDENCE_INVALID`；column 冲突 →
+    `QUERY_EVIDENCE_INTEGRITY_CONFLICT`。
+28. **Evidence summary 不含 excerpt**：至少输出 evidence_id / source_id /
+    raw_item_id / title / publisher / published_at / retrieved_at / url /
+    evidence_type / independence_group / source_tier / access_status。
+    不默认跟读 RawItem/Source payload，但保留 source_id / raw_item_id 供
+    lineage。
+29. **历史 as_of 下 Evidence 不按 retrieved_at 重新过滤**：graph version 的
+    evidence_ids 是 immutable graph-version provenance snapshot；M8 只 strict
+    resolve，不得新增 `retrieved_at <= as_of` 过滤/拒绝。Evidence 时间字段
+    仍完整输出供调用者判断。
+30. **Governance Evidence 特例**：governance seed edge/node 允许
+    evidence_ids=[] 且 originating_graph_change_id=null，合法；不得误报
+    `QUERY_EVIDENCE_MISSING`。FACT/MODEL_INFERENCE 继续服从既有 Schema/KGV。
+31. **conflicts 字段**：M8 v1 `conflicts = []`（unresolved blocking
+    GraphChange conflicts 在 apply 前已被 M4/M6 阻止进入 active graph；M8 不
+    重新发明 semantic conflict detector）。数据库结构损坏属于 `QUERY_*`
+    failure，不是 conflicts 内容。
+32. **limitations 字段**：deterministic 对象列表 `{code, message}`；始终
+    包含 `BUSINESS_VALIDITY_TIME_ONLY`、`PATHS_NOT_CAUSAL`；按条件加入
+    `ROOT_INACTIVE_NO_TRAVERSAL`、`MODEL_INFERENCE_PRESENT`、`DEPTH_BOUNDED`。
+    不得由 LLM 写 limitation。
+
+### 38.7 确定性排序与错误契约
+
+33. **deterministic ordering**：nodes `(depth, node_id)`；edges
+    `(depth, source_node_id, relation, target_node_id, edge_id)`；evidence
+    `evidence_id`；epistemic edge ID lists 使用最终 edge deterministic order；
+    limitations/conflicts `(code, message)`。所有输出 explicit sort。禁止
+    依赖 SQLite unspecified order / set iteration / dict insertion accident /
+    rowid / random / wall clock。CLI 输出 `json.dumps(..., ensure_ascii=False,
+    sort_keys=True)`。
+34. **QueryError(error_code, message) 统一 public failure contract**：
+    public query/context 不得泄漏 HistoryError / JSONDecodeError / sqlite3.Error /
+    KeyError / ValueError 作为未结构化 traceback。HistoryError 必须映射到
+    QUERY namespace：
+    `HISTORY_READ_FAILED→QUERY_READ_FAILED`；
+    `HISTORY_PAYLOAD_INVALID / HISTORY_SCHEMA_INVALID→QUERY_NODE_PAYLOAD_INVALID`
+    或 `QUERY_EDGE_PAYLOAD_INVALID`；`HISTORY_INTEGRITY_CONFLICT→QUERY_INTEGRITY_CONFLICT`；
+    `HISTORY_VERSION_GAP→QUERY_VERSION_GAP`；`HISTORY_INTERVAL_INVALID→QUERY_INTERVAL_INVALID`；
+    `HISTORY_ORIGIN_INTEGRITY_CONFLICT→QUERY_ORIGIN_INTEGRITY_CONFLICT`；
+    `HISTORY_AS_OF_REQUIRED→QUERY_AS_OF_REQUIRED`；`HISTORY_AS_OF_INVALID→QUERY_AS_OF_INVALID`。
+35. **其他机械 error codes**：`QUERY_NODE_NOT_FOUND / QUERY_EDGE_NOT_FOUND /
+    QUERY_ROOT_NOT_FOUND / QUERY_ENDPOINT_MISSING / QUERY_ENDPOINT_INACTIVE /
+    QUERY_AMBIGUOUS_EDGE_IDENTITY / QUERY_DEPTH_INVALID / QUERY_DEPTH_EXCEEDED /
+    QUERY_FILTER_INVALID / QUERY_RESULT_LIMIT_EXCEEDED /
+    QUERY_EVIDENCE_MISSING / QUERY_EVIDENCE_INVALID /
+    QUERY_EVIDENCE_INTEGRITY_CONFLICT / QUERY_ACTIVE_TRANSACTION_CONFLICT /
+    QUERY_READ_FAILED`。不得让 caller 从 message 字符串反解析 error code。
+36. **fail-closed 边界**：对查询实际发现/遍历的 graph identities，任何 bad
+    JSON / bad Schema / DB-payload mismatch / broken version chain / broken
+    origin GraphChange / missing endpoint / inactive endpoint / ambiguous
+    edge / bad Evidence / SQL error → 整查询失败。禁止 silent skip / partial
+    result / 空结果冒充成功。但合法生命周期状态（expired / retired /
+    not_yet_valid / knowledge gap）不是 corruption。
+
+### 38.8 最小 public Query API 与 CLI
+
+37. **冻结第一版 API**：
+    `get_node(node_id, as_of)`、`get_edge(edge_id, as_of)`、
+    `query_graph(root_node_id, as_of, *, max_depth=1, relation_filters=None,
+    direction="both", assertion_types=None)`。
+    不实现 arbitrary graph DSL / pattern matching / multi-root query /
+    fuzzy node search / full graph export / path ranking / causal path
+    inference。
+38. **get_node / get_edge 是 inspection API**：对象存在时即使 derived_status
+    ∈ {expired, retired, not_yet_valid} 也返回 M7 resolved result 并明确
+    derived_status / is_active / version / payload；不得因 inactive 伪装成
+    NOT_FOUND。真正不存在 → `QUERY_NODE_NOT_FOUND` / `QUERY_EDGE_NOT_FOUND`。
+39. **CLI**：`research knowledge query --node-id <id> --as-of <iso>
+    [--depth 0|1|2] [--relation <REL>]... [--direction outgoing|incoming|both]
+    [--assertion-type GOVERNANCE|FACT|MODEL_INFERENCE]... [--db <path>]`；
+    `--edge-id` 是 direct edge query，禁止 `--depth > 0`；node/edge exactly
+    one；as_of 必填。`research knowledge context --node-id <id> --as-of <iso>
+    [同 query 参数]`，context 只接受 node root。全部使用
+    `Database.open_read_only()`；错误 non-zero exit + structured JSON
+    （status=error / error_code / errors，无 traceback）；成功 deterministic
+    JSON。禁止 GraphML / Graphviz / Markdown knowledge report / fuzzy search /
+    multi-root / arbitrary SQL / arbitrary graph DSL / --depth > 2。
+
+### 38.9 M8 严格不实现
+
+- M9 Phase2/3/4 → GraphChange candidate integration
+- M10 E2E acceptance
+- Phase2/3/4 pipeline 修改、晨报/异动/研报注入 context
+- 写 graph、自动批准、自动应用
+- 新 Schema / 新 migration
+- reactivate / restore / unretire
+
+### 38.10 治理未决项（主控裁决，2026-08-08）
+
+> 正式 taskbook 第 20 节存在 deterministic JSON mirror 要求
+> （`knowledge/graph/nodes/`、`knowledge/graph/edges/`、`knowledge/history/`），
+> M0-M7 未实现，M8 明确不做 full graph export。
+
+- **PHASE5_UNRESOLVED_REQUIREMENT: DETERMINISTIC_JSON_MIRROR**（unresolved /
+  deferred pending later explicit governance decision）。
+- 本轮 M8：不实现 JSON mirror、不新增 export CLI、不新增 Schema/migration、
+  不扩大 M8 scope、不因此阻塞 query / KnowledgeContext 实现。
+- Decision #38 及任何 docs **不得声称该 Phase5 要求已完成**；如需记录只能
+  标记为 unresolved/deferred。不得自行决定永久取消或归入 M9/M10。
+- 最终 Pro review 若再次发现此项，报告为已知治理未决项，不作为擅自扩展
+  M8 的理由。
+
+### 38.11 M8-R1 Query Integrity Closure（2026-08-08）
+
+> 主控授权 M8-R1（BASE_SHA `0962a04`，Offline CI `31268060847`，1993 passed）。
+> 只关闭 query integrity 缺口，不改变 M8 已通过语义；M9-M10 仍 NOT_AUTHORIZED。
+
+- **public query Evidence strict validation**：`get_node` / `get_edge` /
+  `query_graph` / `KnowledgeContextBuilder.build` 在各自 public call 的同一
+  read snapshot 内，对最终返回对象引用的全部 unique evidence_ids 做 strict
+  validation。删除被引用 Evidence → `QUERY_EVIDENCE_MISSING`（不只 context
+  发现）。Governance `evidence_ids=[]` 继续合法。QueryGraphResult 只返回
+  evidence_ids（strict validate 后丢弃 summaries），Context 才返回 summaries。
+- **Evidence strict-read 单一权威**：loader 归属 GraphQueryService
+  （`_strict_read_evidence` / `_validate_evidence_refs`），
+  KnowledgeContextBuilder 委托，禁止第二套 loader。链保持
+  JSON→dict→evidence Schema→Evidence Pydantic→model_dump→Schema→
+  DB identity/denormalized columns 核对；不深读 RawItem/Source。
+- **MAX_EVIDENCE=1000 属于 query contract**：任何 public query 的最终
+  unique evidence IDs > 1000 → `QUERY_RESULT_LIMIT_EXCEEDED` 整查询失败
+  （含 query_graph 与 direct node/edge 单对象），不得 silent truncate。
+- **logical triple ambiguity 先于 user semantic filters**：discovery 命中 →
+  resolve as_of → inactive lifecycle skip → active：endpoint integrity 检查
+  + logical triple ownership 检查 → 然后才应用 direction/relation/assertion
+  等 semantic filters。relation/direction/assertion filters 不得隐藏 active
+  logical identity / endpoint corruption（`QUERY_AMBIGUOUS_EDGE_IDENTITY` /
+  `QUERY_ENDPOINT_MISSING` / `QUERY_ENDPOINT_INACTIVE` 先于 filter 触发）。
+  合法 filter 结果语义不变。
+- **canonical filter ordering**：`relation_filters` 与 `assertion_types` 是
+  集合语义，validation 后返回 canonical sorted unique tuple（caller 输入
+  顺序不影响结果）；`direction` 是单值不变。置换顺序输入 → identical
+  QueryGraphResult.to_dict() / identical CLI JSON bytes。
+
+### 38.12 M8 Independent Acceptance（2026-08-08）
+
+> M8 独立架构验收记录（PR5B closeout）。不新增 Decision #39。
+
+```text
+M8 independently accepted.
+
+accepted_sha:
+eac18e26fd9696094d3bfe5edbe662c84731c106
+
+offline_ci:
+31269460005
+
+tests:
+2009 passed / 5 skipped / 0 xfail
+
+schemas:
+55/55
+
+db_version:
+6
+```
+
+- **M8 scope complete.**
+- **M9-M10 remain NOT_AUTHORIZED.**
+- PHASE5_UNRESOLVED_REQUIREMENT: DETERMINISTIC_JSON_MIRROR 保持
+  UNRESOLVED / DEFERRED / NOT_IMPLEMENTED / NOT_CANCELLED /
+  NOT_ASSIGNED_TO_M9 / NOT_ASSIGNED_TO_M10（#38.10 不变）。
+  M8 PASS 不构成对 taskbook §20 JSON mirror 的满足声明。

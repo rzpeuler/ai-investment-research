@@ -15,11 +15,13 @@
   - M3 GraphChange Candidate Pipeline：PASS（SHA `242e039`，M3 CI `31240709634`：1480 passed / 5 skipped / 55/55 schemas）
   - M4 Knowledge Validator：PASS（SHA `20b7a15`，M4 CI `31241777234`：1611 passed / 5 skipped / 55/55 schemas）
   - M5 Human Review Workflow：PASS（SHA `92649a7`，M5 CI `31251491357`：1725 passed / 5 skipped / 0 xfail / 55/55 schemas）
-  - M6 Deterministic Apply Engine：AUTHORIZED / IN_PROGRESS
-  - M7-M10：NOT_AUTHORIZED
+  - M6 Deterministic Apply Engine：PASS（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
+  - M7 Supersede / Expire / History：PASS（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
+  - M8 Query + Knowledge Context Builder：PASS（SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
+  - M9-M10：NOT_AUTHORIZED
 
-Phase 5 正式任务书已由用户批准。M1、M2、M3、M4、M5 已通过独立架构验收。M6 已由用户明确授权实施。
-**M6 完成不自动授权 M7。** M7 须用户另行明确授权。
+Phase 5 正式任务书已由用户批准。M1、M2、M3、M4、M5、M6、M7、M8 已通过独立架构验收。
+**M7 验收通过不自动授权 M8。** M8 已由用户于 2026-08-08 另行明确授权并通过独立验收。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
@@ -42,18 +44,31 @@ Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施�
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前允许：**M6 only**。
+当前准入：**PR5B CLOSEOUT**（不是 M9 AUTHORIZED）。
 
-M7 要求：M6 完成 + Offline CI PASS + 独立验收 + 用户另行明确授权。
-不得预授权 M7。
+PR5B closeout 冻结流程（完成前禁止提前创建 PR5C）：
+
+```text
+PR5B 必须完成 closeout
+→ 独立复核
+→ 用户明确批准 merge
+→ squash merge PR5B
+→ 验证新的 master SHA
+→ 才可从 master 创建 phase5/pipeline-integration
+```
+
+M9-M10 仍 NOT_AUTHORIZED。
 
 ```
-当前允许：
-完成 M6 Deterministic Apply Engine 实现与验收。
+当前状态：
+M6 PASS（SHA 480b209，CI 31257395650）。
+M7 PASS（SHA 651e9a1，CI 31262745492）。
+M8 PASS（SHA eac18e2，CI 31269460005，2009 passed / 5 skipped / 0 xfail，
+        55/55 schemas，DB v6）。
+PR5B closeout in progress（PR #5 DRAFT）。
 
 禁止：
-M7 apply of modify/retire/supersede/expire
-以及 M7-M10。
+M9 / M10 / PR5C 创建 / merge PR5B。
 ```
 
 ## Phase 4 独立验收记录

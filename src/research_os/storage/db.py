@@ -132,12 +132,73 @@ class _Transaction:
         return False
 
 
+class _ImmediateTransaction:
+    """BEGIN IMMEDIATE 事务上下文管理器（SQLite write lock，消除 TOCTOU）。
+
+    用于 M6 Apply Engine：事务开始即获取写锁，事务内 rerun preflight/
+    validation 后再写入，任一步失败整体 ROLLBACK。
+
+    语义（M6-R1 冻结）：
+    - 进入时若调用者已有活动事务（conn.in_transaction 为 True），
+      不得自动 commit 清场——raise ACTIVE_TRANSACTION_CONFLICT（RuntimeError），
+      由调用方转 APPLY_REJECTED。
+    - 正常退出：COMMIT 任何失败必须异常传播（调用方不得返回成功）。
+    - 异常退出：执行 ROLLBACK；若 rollback 自己失败，不得把原始业务异常
+      变成成功——保留原始异常并附加 rollback context。
+    """
+
+    def __init__(self, db: "Database"):
+        self._db = db
+
+    def __enter__(self) -> sqlite3.Connection:
+        conn = self._db._conn
+        if conn.in_transaction:
+            raise RuntimeError(
+                "ACTIVE_TRANSACTION_CONFLICT: immediate_transaction() 不得自动提交"
+                "调用者已有事务（M6 不得擅自 commit 调用者已有 work）"
+            )
+        conn.execute("BEGIN IMMEDIATE")
+        return conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        conn = self._db._conn
+        if exc_type is not None:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error as rollback_err:
+                # rollback 失败：保留原始业务异常并附加 rollback context，
+                # 绝不能 silent success
+                raise RuntimeError(
+                    f"ROLLBACK failed after {exc_type.__name__}: {exc_val}"
+                ) from rollback_err
+            return False  # 原始业务异常继续传播
+        # 正常退出：COMMIT 任何失败必须传播（调用方不得返回 applied），
+        # 且先尝试 ROLLBACK cleanup——不留活动事务/挂起写入。
+        try:
+            conn.execute("COMMIT")
+        except sqlite3.Error as commit_err:
+            if conn.in_transaction:
+                try:
+                    conn.execute("ROLLBACK")
+                except sqlite3.Error as rollback_err:
+                    # 保留 commit failure + rollback failure context
+                    raise RuntimeError(
+                        f"COMMIT failed ({commit_err}) and ROLLBACK cleanup "
+                        f"failed ({rollback_err})"
+                    ) from commit_err
+            # 传播原始 commit 异常
+            raise
+        return False
+
+
 class Database:
     """轻量 SQLite 封装：连接管理 + 迁移 + 对象级 upsert/query。"""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # 保持 sqlite3 默认线程保护（check_same_thread=True）：
+        # 生产路径为单线程同步 CLI 契约，全局不削弱跨线程误用防护。
         self._conn = sqlite3.connect(str(self.path))
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -448,6 +509,23 @@ class Database:
                 # commit on normal exit, rollback on exception
         """
         return _Transaction(self)
+
+    def immediate_transaction(self):
+        """开始一个 BEGIN IMMEDIATE 事务上下文管理器（SQLite write lock）。
+
+        与 `transaction()` 的区别：立即获取写锁，消除
+        "事务外 preflight → 他人写入 → 事务内写入" 的 TOCTOU 窗口。
+        用于 M6 Apply Engine 的确定性 apply 写入。
+
+        Usage:
+            with db.immediate_transaction() as conn:
+                conn.execute(...)
+                # COMMIT on normal exit, ROLLBACK on exception
+
+        Note:
+            单连接模型下不得与 transaction() 嵌套使用。
+        """
+        return _ImmediateTransaction(self)
 
     def close(self) -> None:
         self._conn.close()
