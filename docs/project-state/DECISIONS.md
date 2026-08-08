@@ -510,3 +510,194 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 - 任何 GUI 或 Web 界面
 - 批量审批
 - M7-M10 全部未授权
+
+## 36. Phase 5 M6 Deterministic Apply Engine 语义冻结（2026-08-08）
+
+> 本决定在 M6 实现启动时冻结，经用户明确授权。M6 完成不自动授权 M7。
+>
+> **基线**: PR5A 已 merge（master=`4b0b8f7`），M5_ACCEPTED_SHA=`92649a7`，
+> M5_CI=`31251491357`（1725 passed / 5 skipped / 0 xfail / 55/55 schemas），
+> DB v6。PR5B branch：`phase5/graph-apply-query`（M6-M8）。
+
+### 36.1 范围与运行时
+
+1. **M6 只 apply `add_node` / `add_edge`**。`modify_attribute` / `retire_edge` /
+   `retire_node` 必须返回 `APPLY_REJECTED` + `CHANGE_TYPE_REQUIRES_M7`，0 writes。
+   M7 正式负责 modify / retire / superseded / expired / history。禁止提前实现 M7。
+2. **运行时 ZERO LLM / ZERO Provider / ZERO network**。review selection、
+   candidate hash、version、conflict、stale detection、apply decision、DB write、
+   idempotency 全部确定性代码，严禁模型参与。
+3. **M6 不新增 Schema、不新增 migration、不修改 006 migration、DB 保持 v6**。
+   使用已有 `graph_applications` 表（application_id / graph_change_id /
+   review_id / idempotency_key / payload / applied_at）。
+4. **M6 不实现 JSON mirror export**（knowledge/graph/nodes|edges|history
+   主动 export 属于 M7/M8）。SQLite 权威 apply + GraphApplication audit。
+
+### 36.2 输入语义
+
+5. **`--change-id` 是 original reviewed GraphChange ID**，不是默认 replacement ID。
+   - `approved`：`effective_graph_change_id = original graph_change_id`
+   - `approved_with_changes`：`effective_graph_change_id =
+     GraphReview.resulting_graph_change_id`
+6. **GraphReview selection（禁止自动策略）**：
+   - 有 `--review-id`：加载精确 review，必须 `review.graph_change_id ==
+     --change-id`，否则 `REVIEW_NOT_FOUND` / `REVIEW_CHANGE_MISMATCH`。
+   - 无 `--review-id`：读取该 original GraphChange 的全部 GraphReview。
+     0 条 → `REVIEW_REQUIRED`；恰 1 条 → 使用；>1 条 distinct →
+     `AMBIGUOUS_REVIEW_SELECTION`（用户必须显式 `--review-id`）。
+   - 禁止 latest wins / approved wins / highest timestamp wins / first row wins。
+7. **Review 必须 Schema-first**：raw `graph_review.schema` → GraphReview →
+   model_dump → `graph_review.schema`。任何 DB/JSON/Schema/Pydantic 失败 →
+   `APPLY_REJECTED`，不得 silent pass。
+8. **Decision gate**：仅 `approved` / `approved_with_changes` 允许继续；
+   `deferred` / `rejected` → `APPLY_REJECTED` + `NON_APPLICABLE_REVIEW_DECISION`，
+   0 writes。
+9. **Original GraphChange 必须 Schema-first**：raw `graph_change.schema` →
+   GraphChange → model_dump → `graph_change.schema`。任何失败 →
+   `APPLY_REJECTED`。不得从 Markdown 重建（Markdown 在 M6 NOT AUTHORITATIVE）。
+
+### 36.3 approved 路径
+
+10. `decision = approved` 必须 `review_patch == []` 且
+    `resulting_graph_change_id == null`（GraphReview Schema + M6 再确认）。
+    effective GraphChange = original。执行
+    `validator.validate_apply_preflight(original_gc, review, as_of=applied_at)`，
+    必须 `structural_ok=true`、`review_eligible=true`、`apply_eligible=true`，
+    否则 `APPLY_REJECTED`。
+
+### 36.4 approved_with_changes 路径
+
+11. `decision = approved_with_changes` 必须 `review_patch >= 1` 且
+    `resulting_graph_change_id != null`。
+12. **Deterministic linkage**：`expected_resulting_id =
+    UUID5(DNS, "graph-review-result:" + review_id)`；必须
+    `review.resulting_graph_change_id == expected_resulting_id`，否则
+    `REPLACEMENT_ID_MISMATCH`。
+13. **Replacement 重新构造验证**：不得只相信 persisted replacement，不得复制
+    第二套 patch/replacement 算法。将 M5 deterministic replacement 构造提取为
+    纯 helper `build_replacement_graph_change(original_graph_change, graph_review)`
+    （pure / deterministic / zero write / zero LLM），M5 `review_import` 同样
+    调用该 helper（M5 既有测试语义不变）。
+    M6 必须：`expected replacement canonical payload == persisted replacement
+    canonical payload`，否则 `REPLACEMENT_TAMPERED` + `APPLY_REJECTED`。
+    禁止只检查 ID。
+14. **Validator 组合门**：
+    - 先 `validate_review(original_gc, review, as_of=applied_at)`：必须
+      `structural_ok=true`、`review_eligible=true`；任何 KGV-019 stale-review
+      issue 必须 `APPLY_REJECTED`（即使 review_eligible=true 也不能忽略）。
+    - 再 `validate_candidate(replacement_gc, as_of=applied_at)`：必须
+      `structural_ok=true`、`review_eligible=true`、`apply_eligible=true`。
+    - 理由：approved_with_changes 允许 patch 消除 original 的 candidate-level
+      apply blocker（conflicts / new_evidence_ids / evidence_ids / confidence /
+      validity 等），但 KGV-019 baseline stale 不能靠 patch 绕过。
+
+### 36.5 candidate hash 唯一 authority
+
+15. `review.candidate_hash` 必须由
+    `KnowledgeValidator.compute_candidate_hash(original_gc)` 验证；
+    effective GraphChange 的 hash 同样使用该方法。M6 禁止第二套 hash。
+
+### 36.6 apply-time transformation
+
+16. M6 不 UPDATE candidate / GraphReview。只从 effective candidate 构造 approved
+    core object：
+    - **Node**：复制 effective `node.model_dump()`，只改变
+      `review_status = approved`、`last_reviewed_at = GraphReview.reviewed_at`；
+      保持 node_id / node_type / name / aliases / description / status /
+      valid_from / valid_to / evidence_ids / version / origin_kind /
+      originating_graph_change_id / created_at。
+      `add_node` 额外要求 `status = active`，否则 `ADD_NODE_NOT_ACTIVE`。
+    - **Edge**：复制 effective `edge.model_dump()`，只改变
+      `review_status = approved`、`last_reviewed_at = GraphReview.reviewed_at`；
+      保持 edge_id / source_node_id / relation / target_node_id / attributes /
+      assertion_type / valid_from / valid_to / confidence / evidence_ids /
+      version / originating_graph_change_id / created_at。
+      `MODEL_INFERENCE` apply 后仍必须是 `MODEL_INFERENCE`，不得升级为 FACT。
+17. **applied_at 只属于 graph_applications audit**：不得写入 valid_from /
+    valid_to / created_at / Evidence.published_at / GraphReview.reviewed_at。
+    `created_at` 保留 candidate/effective 值；`last_reviewed_at` 使用
+    `GraphReview.reviewed_at`（不是 applied_at）。必须 `applied_at >=
+    reviewed_at`，首次 apply 违反 → `APPLY_TIME_INVALID`。
+18. **Core object 也必须 Schema-first**：raw `graph_node`/`graph_edge` schema →
+    GraphNode/GraphEdge → model_dump → schema，通过后才允许 persistence。
+19. **M6 不修改 GraphChange 状态**：apply 成功后 `graph_changes.payload`
+    byte-for-byte immutable；不把 `review_status` UPDATE 成 approved/applied，
+    不修改 reviewed_at。GraphReview 是审核 audit，GraphApplication 是 apply
+    audit，GraphChange candidate 永久保留原样。
+
+### 36.7 GraphApplication audit + idempotency
+
+20. **GraphApplication internal payload**（本轮不新增 Schema）：
+    `application_id / original_graph_change_id / effective_graph_change_id /
+    review_id / decision / review_candidate_hash / effective_candidate_hash /
+    target_kind / target_id / target_version / applied_at / status`
+    （`status = applied`；`target_kind` ∈ node|edge）。
+    `graph_applications.graph_change_id` 列保存 `effective_graph_change_id`
+    （实际被 applied 的 GraphChange）；original ID 保留在 payload。
+21. **Idempotency intent**：
+    `original_graph_change_id / effective_graph_change_id / review_id /
+    effective_candidate_hash / target_kind / target_id / target_version`；
+    canonical = `json.dumps(intent, ensure_ascii=False, sort_keys=True,
+    separators=(",", ":"))`；
+    `idempotency_key = sha256(canonical intent)`；
+    `application_id = UUID5(DNS, "graph-application:" + idempotency_key)`。
+    禁止随机 UUID；禁止把 applied_at 放进 idempotency key（否则重复 apply
+    因 wall clock 改变失去幂等）。
+22. **GraphRepository 专用方法** `get_application_by_idempotency_key()` /
+    `append_application()`；禁止 generic DB upsert。`append_application()`
+    INSERT ONLY：同 application_id/idempotency_key + 同 payload →
+    idempotent_noop；同 key/ID 异 payload → `IMMUTABLE_APPLICATION_CONFLICT`，
+    不得覆盖。
+23. **Idempotent replay 必须优先识别**（重复 apply 时 target 已存在，若先跑
+    KGV duplicate/stale 会错误 reject）：
+    1. load/Schema original candidate；
+    2. resolve/Schema review；
+    3. resolve/verify effective candidate；
+    4. 计算 deterministic idempotency key；
+    5. strict lookup existing GraphApplication；
+    6. 若存在：验证 application audit integrity + target approved node/edge
+       version 存在 + persisted target canonical payload 与 expected 一致；
+    7. 全部一致 → `IDEMPOTENT_NOOP`（返回已有 application_id/applied_at），
+       不重新 apply；若 application 存在但 target missing / payload 不同 /
+       wrong version → `APPLICATION_INTEGRITY_CONFLICT`，不得冒充幂等。
+24. **TOCTOU 防护**：新 apply 必须在事务内完成（SQLite write lock）：
+    `BEGIN IMMEDIATE`（或仓库中等价 deterministic immediate transaction
+    helper）→ 事务内 recheck idempotency → rerun current-state M4 validation →
+    recheck target/version → append approved node/edge → append GraphApplication
+    → COMMIT；任一步失败 ROLLBACK ALL。新增 `Database.immediate_transaction()`
+    只做最小事务 helper，不改变其他 transaction 语义。
+25. **Repository 禁止 fail-open**：strict read path 不得用
+    `except Exception: return []` 判定 review/edge/application 缺失；
+    DB error → `APPLY_REJECTED`，不是 empty state。
+
+### 36.8 dry-run 与结果
+
+26. `knowledge apply --dry-run` 执行完整预检（load candidate → Schema-first →
+    review selection → review Schema-first → hash → replacement verification →
+    M4 validation → effective validation → target build → version/current graph
+    preflight → application idempotency preflight），但
+    graph_nodes/graph_edges/graph_reviews/graph_changes/graph_applications
+    delta = 0、files delta = 0；CLI dry-run 使用 `Database.open_read_only()`
+    进一步硬化零写；不得 mkdir。
+27. **ApplyResult**（frozen dataclass）：`status / original_graph_change_id /
+    effective_graph_change_id / review_id / application_id / idempotency_key /
+    target_kind / target_id / target_version / applied_at / dry_run / errors /
+    warnings`。状态至少 `applied` / `idempotent_noop` / `dry_run` /
+    `APPLY_REJECTED`；内部 error code 明确，不用模糊 failed。
+28. **CLI**：`research knowledge apply --change-id <uuid>`（支持
+    `--review-id <uuid>` optional deterministic disambiguation、
+    `--db <path>`、`--dry-run`、`--applied-at <iso>`）。
+    `--applied-at` 未提供时 `capture now_iso() once`（不得多次读取 wall clock）。
+    成功输出 deterministic JSON（status / original_graph_change_id /
+    effective_graph_change_id / review_id / application_id / idempotency_key /
+    target_kind / target_id / target_version / applied_at / dry_run / warnings）；
+    失败 non-zero exit + `status=APPLY_REJECTED` + error_code + errors，
+    不得 silent failure。
+
+### 36.9 M6 严格不实现
+
+- M7：modify_attribute / retire_node / retire_edge apply、superseded、expired、
+  closing previous valid_to、history query
+- JSON mirror export、knowledge context builder（M8）
+- 自动批准、自动应用
+- M7-M10 全部未授权
