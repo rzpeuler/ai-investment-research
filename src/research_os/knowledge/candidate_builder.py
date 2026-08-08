@@ -95,7 +95,6 @@ def _stable_graph_change_id(
     proposal: GraphChangeProposal,
     current_knowledge: str,
     deterministic_conflicts: List[str],
-    supporting_evidence_ids: List[str],
     current_baseline: str,
 ) -> str:
     """确定性 GraphChange ID：
@@ -105,13 +104,10 @@ def _stable_graph_change_id(
     """
     proposal_json = _canonical_json_no_volatile(proposal)
     conflicts_json = _canonical_json(sorted(deterministic_conflicts))
-    evidence_json = _canonical_json(sorted(supporting_evidence_ids))
-
     combined = (
         proposal_json
         + current_knowledge
         + conflicts_json
-        + evidence_json
         + (current_baseline or "")
     )
     sha = _sha256_hex(combined)
@@ -184,7 +180,6 @@ class GraphChangeBuilder:
             proposal=proposal,
             current_knowledge=current_knowledge,
             deterministic_conflicts=deterministic_conflicts,
-            supporting_evidence_ids=sup_ids,
             current_baseline=current_baseline or "",
         )
 

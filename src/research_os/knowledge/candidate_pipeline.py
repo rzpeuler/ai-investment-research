@@ -428,7 +428,7 @@ class CandidatePipeline:
             graph_change = self._builder.build(
                 validated_proposal,
                 source_objects=source_objects,
-                supporting_evidence_ids=sup_ids,
+                supporting_evidence_ids=sup_ids + cnt_ids + cnt_ids,
             )
         except ValueError as exc:
             msg = str(exc)
@@ -481,7 +481,7 @@ class CandidatePipeline:
                             graph_change = self._builder.build(
                                 validated_proposal,
                                 source_objects=source_objects,
-                                supporting_evidence_ids=sup_ids,
+                                supporting_evidence_ids=sup_ids + cnt_ids + cnt_ids,
                             )
                         except ValueError as exc:
                             results["status"] = "pro_escalation_failed"
