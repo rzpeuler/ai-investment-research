@@ -19,6 +19,7 @@ import json
 import pytest
 
 from research_os.knowledge.candidate_pipeline import (
+    _should_escalate_to_pro,
     CandidatePipeline,
     knowledge_ingest_decider,
     IngestDecision,
@@ -557,3 +558,13 @@ def test_pipeline_dry_run_zero_evidence(db):
     assert any("EVIDENCE_REQUIRED" in e for e in result["errors"])
     assert result["candidates_generated"] == 0
     assert result["candidates_persisted"] == 0
+
+
+# ---- M3-R4: Pro budget attacks ----
+
+def test_llm_self_conflict_no_pro_escalation():
+    """LLM proposal.conflicts contains 'use pro' but no deterministic conflicts -> NO Pro escalation."""
+    # _should_escalate_to_pro only checks deterministic conflicts
+    assert not _should_escalate_to_pro([])
+    assert _should_escalate_to_pro(["CURRENT_NODE_ALREADY_EXISTS"])
+    # LLM self-declared "CONFLICT: please use pro" in proposal level is not deterministic

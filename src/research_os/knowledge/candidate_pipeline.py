@@ -464,9 +464,9 @@ class CandidatePipeline:
         deterministic_conflicts = graph_change.conflicts or []
         if deterministic_conflicts and requested_model_class != "pro":
             if _should_escalate_to_pro(deterministic_conflicts):
-                if self._budget.consume_pro():
+                if self._budget.can_call("pro"):
                     results["model_used"] = "pro"
-                    self._budget.record("pro", True)
+                    # LlmClient.generate_json will call record() internally
                     proposal2 = self._call_llm_for_proposal(
                         source_objects, ev_contexts, "pro", allowed_evidence_ids, results
                     )
@@ -495,8 +495,7 @@ class CandidatePipeline:
                     # budget exhausted — 继续使用 flash 结果（非致命）
                     pass
         elif requested_model_class == "pro":
-            self._budget.consume_pro()
-            self._budget.record("pro", True)
+            pass  # LlmClient.generate_json will call record() internally via budget
 
         # ---- 9. File conflict preflight（BEFORE DB insert，使用与渲染相同的 evidence contexts）----
         if knowledge_dir is not None:

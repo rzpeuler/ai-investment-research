@@ -18,6 +18,7 @@ from research_os.knowledge.candidate_sources import (
     EvidenceContext,
     is_allowed_source_type,
     load_evidence_context,
+    derive_evidence_from_sources,
     _SOURCE_MAP,
 )
 from research_os.models import (
@@ -284,3 +285,25 @@ def test_load_evidence_context_dedup(db):
     contexts, errors = load_evidence_context(db, [ev_id, ev_id])
     assert len(contexts) == 1
     assert len(errors) == 0
+
+
+# ---- M3-R4: evidence closure attacks ----
+
+def test_explicit_evidence_out_of_context_rejected(tmp_path):
+    """explicit_evidence_ids 不在 source-derived set 内 -> EVIDENCE_CONTEXT_EXPANSION_REJECTED."""
+    db = Database(tmp_path / "test.db")
+    db.initialize()
+    ev = Evidence(evidence_id="ev-out", title="Out", publisher="Pub",
+                  published_at="2026-01-01T00:00:00", source_tier="B",
+                  evidence_type="SOURCE_OPINION", excerpt="x", url="",
+                  raw_item_id="r1", source_id="s1", retrieved_at="2026-01-01T00:00:00",
+                  independence_group="g1")
+    db.upsert(ev)
+    # Source has no evidence -> source_derived is empty -> explicit fails
+    src = {"entity_id": "company:x", "entity_type": "company"}
+    with pytest.raises(ValueError, match="EVIDENCE_CONTEXT_EXPANSION_REJECTED"):
+        derive_evidence_from_sources(
+            db, {("Event", "ev1"): src},
+            explicit_evidence_ids=["ev-out"],
+        )
+    db.close()

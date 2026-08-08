@@ -304,8 +304,18 @@ def derive_evidence_from_sources(
         all_supporting.extend(sup)
         all_counter.extend(cnt)
 
-    # 合并显式证据 ID
+    # 合并显式证据 ID（必须闭合在 source-derived set 内）
     if explicit_evidence_ids:
+        source_derived = set()
+        for src_id in all_supporting + all_counter:
+            if src_id:
+                source_derived.add(src_id)
+        for eid in explicit_evidence_ids:
+            if eid not in source_derived:
+                raise ValueError(
+                    "EVIDENCE_CONTEXT_EXPANSION_REJECTED: "
+                    f"explicit_evidence_id={eid} not in source-derived evidence set"
+                )
         all_supporting.extend(explicit_evidence_ids)
 
     # 去重（保持首次出现顺序）
