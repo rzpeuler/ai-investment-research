@@ -37,7 +37,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 PASS（SHA `b097996`），M2 PASS（SHA `565d500`），M3 PASS（SHA `242e039`），M4 PASS（SHA `20b7a15`），M5 PASS（SHA `92649a7`，CI `31251491357`，1725 passed / 5 skipped / 0 xfail / 55/55 schemas），M6 PASS（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas），M7 PASS（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），M8 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE（PR 5B #5 DRAFT，1993 passed / 5 skipped / 0 xfail，DB v6 不变），M9-M10 NOT_AUTHORIZED。
+| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 PASS（SHA `b097996`），M2 PASS（SHA `565d500`），M3 PASS（SHA `242e039`），M4 PASS（SHA `20b7a15`），M5 PASS（SHA `92649a7`，CI `31251491357`，1725 passed / 5 skipped / 0 xfail / 55/55 schemas），M6 PASS（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas），M7 PASS（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），M8 PASS（SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），**PR5B closeout in progress**，M9-M10 NOT_AUTHORIZED。
 
 ## 2026-08-07 修复后的关键事实
 
@@ -88,11 +88,13 @@
 
 ## 当前准入结论
 
-M0-M7 全部通过独立验收。M7 Supersede / Expire / History 已通过独立架构验收
+M0-M8 全部通过独立验收。M7 Supersede / Expire / History 已通过独立架构验收
 （SHA `651e9a1d665f02ce16f60cbdae3caf1e0826c733`，Offline CI `31262745492`，
 1911 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
-M8 Query + Knowledge Context Builder 已实现（PR 5B #5 DRAFT，
-1993 passed / 5 skipped / 0 xfail），等待独立架构验收。
+M8 Query + Knowledge Context Builder 已通过独立架构验收
+（SHA `eac18e26fd9696094d3bfe5edbe662c84731c106`，Offline CI `31269460005`，
+2009 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
+Phase 5 当前状态：M0-M8 PASS，PR5B closeout in progress。
 M9-M10 尚未授权。不得提前实施。
 
 ## 2026-08-07 最终工程与在线验收
@@ -113,4 +115,5 @@ M4 Knowledge Validator 已通过验收（SHA `20b7a15`，CI `31241777234`，1611
 M5 Human Review Workflow 已通过验收（SHA `92649a7`，CI `31251491357`，1725 passed / 5 skipped / 0 xfail / 55/55 schemas）。
 M6 Deterministic Apply Engine 已通过独立验收（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
 M7 Supersede / Expire / History 已通过独立验收（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
-M8 Query + Knowledge Context Builder 已实现（PR 5B `phase5/graph-apply-query`，#5 DRAFT，1993 passed / 5 skipped / 0 xfail，DB v6 不变），状态 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE。M9-M10 尚未授权。不得提前实施。
+M8 Query + Knowledge Context Builder 已通过独立验收（SHA `eac18e26fd9696094d3bfe5edbe662c84731c106`，Offline CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
+Phase 5 当前状态：M0-M8 PASS，PR5B closeout in progress。M9-M10 尚未授权。不得提前实施。

@@ -1429,8 +1429,25 @@ history query
 
 **执行模型：Flash**
 
-> M8 实现状态（2026-08-09）：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE。
-> 实现于 PR 5B `phase5/graph-apply-query`（#5 DRAFT）。
+> M8 实现状态（2026-08-08）：**PASS**（独立架构验收）。
+>
+> ```text
+> Independent accepted SHA:
+> eac18e26fd9696094d3bfe5edbe662c84731c106
+>
+> Offline CI:
+> 31269460005
+>
+> Tests:
+> 2009 passed / 5 skipped / 0 xfail
+>
+> Schemas:
+> 55/55
+>
+> DB:
+> v6
+> ```
+>
 > 契约冻结见 DECISIONS.md #38。M9-M10 NOT_AUTHORIZED。
 
 实现：

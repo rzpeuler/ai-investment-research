@@ -1261,3 +1261,33 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
   集合语义，validation 后返回 canonical sorted unique tuple（caller 输入
   顺序不影响结果）；`direction` 是单值不变。置换顺序输入 → identical
   QueryGraphResult.to_dict() / identical CLI JSON bytes。
+
+### 38.12 M8 Independent Acceptance（2026-08-08）
+
+> M8 独立架构验收记录（PR5B closeout）。不新增 Decision #39。
+
+```text
+M8 independently accepted.
+
+accepted_sha:
+eac18e26fd9696094d3bfe5edbe662c84731c106
+
+offline_ci:
+31269460005
+
+tests:
+2009 passed / 5 skipped / 0 xfail
+
+schemas:
+55/55
+
+db_version:
+6
+```
+
+- **M8 scope complete.**
+- **M9-M10 remain NOT_AUTHORIZED.**
+- PHASE5_UNRESOLVED_REQUIREMENT: DETERMINISTIC_JSON_MIRROR 保持
+  UNRESOLVED / DEFERRED / NOT_IMPLEMENTED / NOT_CANCELLED /
+  NOT_ASSIGNED_TO_M9 / NOT_ASSIGNED_TO_M10（#38.10 不变）。
+  M8 PASS 不构成对 taskbook §20 JSON mirror 的满足声明。
