@@ -16,11 +16,12 @@
   - M4 Knowledge Validator：PASS（SHA `20b7a15`，M4 CI `31241777234`：1611 passed / 5 skipped / 55/55 schemas）
   - M5 Human Review Workflow：PASS（SHA `92649a7`，M5 CI `31251491357`：1725 passed / 5 skipped / 0 xfail / 55/55 schemas）
   - M6 Deterministic Apply Engine：PASS（SHA `480b209`，M6 CI `31257395650`：1809 passed / 5 skipped / 0 xfail / 55/55 schemas）
-  - M7 Supersede / Expire / History：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE（PR 5B #5 DRAFT，1879 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
-  - M8-M10：NOT_AUTHORIZED
+  - M7 Supersede / Expire / History：PASS（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
+  - M8 Query + Knowledge Context Builder：AUTHORIZED / IN_PROGRESS（PR 5B #5 DRAFT）
+  - M9-M10：NOT_AUTHORIZED
 
-Phase 5 正式任务书已由用户批准。M1、M2、M3、M4、M5、M6 已通过独立架构验收。M7 已实现，等待独立验收。
-**M7 验收通过不自动授权 M8。** M8 须用户另行明确授权。
+Phase 5 正式任务书已由用户批准。M1、M2、M3、M4、M5、M6、M7 已通过独立架构验收。
+**M7 验收通过不自动授权 M8。** M8 已由用户于 2026-08-08 另行明确授权。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
@@ -43,19 +44,18 @@ Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施�
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前允许：**M7 独立验收（等待中）**。
+当前允许：**M8 实施（IN_PROGRESS，PR 5B #5 DRAFT）**。
 
-M8 要求：M7 独立验收 PASS + Offline CI PASS + 用户另行明确授权。
-不得预授权 M8。
+M8 验收要求：M8 实现完成 + Offline CI PASS + 独立架构验收。
+M9-M10 仍不得预授权。
 
 ```
 当前状态：
-M7 Supersede / Expire / History 已实现（PR 5B #5 DRAFT），
-等待独立验收。
+M7 PASS（SHA 651e9a1，CI 31262745492）。
+M8 Query + knowledge_context_builder 已授权实施中。
 
 禁止：
-M8 query / knowledge_context_builder / depth traversal
-以及 M8-M10。
+M9 / M10。
 ```
 
 ## Phase 4 独立验收记录

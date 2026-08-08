@@ -999,3 +999,234 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 - M9/M10
 - reactivate / restore / unretire
 - 自动批准、自动应用
+
+---
+
+## 38. Phase 5 M8 Query & Knowledge Context Contract（2026-08-08）
+
+> 本决定在 M8 实现启动时冻结，经用户明确授权（M7_ACCEPTED_SHA=`651e9a1`，
+> M7_OFFLINE_CI=`31262745492`，M7_TESTS=1911 passed / 5 skipped / 0 xfail，
+> SCHEMAS=55，DB v6）。M8 完成不自动授权 M9。
+
+### 38.1 范围与运行时
+
+1. **M8 唯一范围**：single node query、single edge query、historical as_of、
+   depth-limited graph traversal（depth ≤ 2）、knowledge_context_builder、
+   deterministic CLI。M8 是 **READ ONLY**：不写 graph、不生成 GraphChange、
+   不 review、不 apply、不修改 Phase2/3/4 pipeline、不实现 M9。
+2. **运行时 ZERO LLM / ZERO Provider / ZERO network**。query/context 全部确定性代码。
+3. **M8 不新增 Schema、不新增 migration、不修改 006 migration、DB 保持 v6、
+   Schema count 保持 55**。`KnowledgeContext` 使用 frozen dataclass /
+   deterministic dict，不持久化，不新增 `knowledge_context.schema.json`。
+
+### 38.2 as_of 语义（BUSINESS VALIDITY TIME）
+
+4. **M8 `as_of` 完全继承 M7 业务有效时间语义**（valid_from / valid_to /
+   半开区间 / derived lifecycle）。它是 **BUSINESS VALIDITY TIME**，不是
+   system knowledge-time / review time / apply time / retrieval time。
+5. **禁止**在 M8 增加 `created_at <= as_of`、`reviewed_at <= as_of`、
+   `applied_at <= as_of`、`retrieved_at <= as_of` 过滤。M8 只能声称
+   "按 Graph validity time 在 as_of 下解析出的有效状态"，不得声称
+   "系统当时已知的全部知识"。
+6. **`KnowledgeContext.limitations` 必须始终包含 `BUSINESS_VALIDITY_TIME_ONLY`**
+   （message: "as_of resolves business validity, not historical
+   system-knowledge availability."）。
+7. **M8 所有 public query/context `as_of` 必填**，禁止 now()/now_iso()/today/
+   wall-clock fallback。错误：`QUERY_AS_OF_REQUIRED` / `QUERY_AS_OF_INVALID`。
+   M7 history 命令允许不带 as_of 查看完整 history；M8 query/context 不允许。
+
+### 38.3 HistoryService 唯一 authority 与 read snapshot
+
+8. **M8 禁止复制第二套** version selection / effective interval / superseded /
+   expired / retired / not_yet_valid 算法。必须委托
+   `HistoryService.resolve_node_as_of` / `resolve_edge_as_of`。
+9. **允许对 M7 HistoryService 的唯一功能性调整**：给
+   `get_node_history` / `get_edge_history` / `resolve_node_as_of` /
+   `resolve_edge_as_of` 统一增加 optional `conn` 参数（默认 None 时现有
+   M7 行为字节/语义不变），目的仅为 M8 shared read snapshot。禁止重写
+   resolve 算法、修改半开区间、修改 tombstone 语义、修改 origin integrity。
+   全部现有 M7 tests 必须原样通过。
+10. **一次 M8 public query/context call = 一个 SQLite 连接 + 显式 BEGIN +
+    全部 graph/history/evidence SELECT + 关闭 read transaction（ROLLBACK）**。
+    若进入时 `conn.in_transaction == True` → `QUERY_ACTIVE_TRANSACTION_CONFLICT`，
+    不得 commit/rollback 调用者事务。read snapshot cleanup 失败必须传播
+    结构化 query failure，不得 silent success。
+11. **KnowledgeContext 的 graph 与 Evidence 必须在同一 snapshot 内 strict load**，
+    禁止 snapshot A 查 graph、snapshot B 查 Evidence 的混合状态。
+
+### 38.4 traversal 语义
+
+12. **depth ∈ {0,1,2}，edge-hop**：depth 0 = root only；depth 1 = root +
+    direct active incident edges + direct neighbor nodes；depth 2 = 再扩一层。
+    root depth = 0；一条 edge 增加一跳。`max_depth > 2` → `QUERY_DEPTH_EXCEEDED`
+    （即使 caller 显式要求也不开放）；负数/非法 → `QUERY_DEPTH_INVALID`。
+13. **resolve-then-traverse 是唯一合法查询模型**：edge identity discovery →
+    resolve edge as_of → only if active → resolve endpoints as_of → endpoint
+    integrity → traversal。禁止 latest/current row → traversal → 事后按 as_of
+    过滤。
+14. **inactive root 不是 corruption**：root 存在但 derived_status != active →
+    返回 root、不扩展 traversal（nodes=[root]、edges=[]），加入 deterministic
+    limitation `ROOT_INACTIVE_NO_TRAVERSAL`。不是 QUERY failure。
+15. **active edge endpoint contract**：参与 traversal 的 edge 必须
+    `is_active == true`，且 source/target endpoint 在同一 as_of 存在且
+    `is_active == true`；否则 `QUERY_ENDPOINT_MISSING` / `QUERY_ENDPOINT_INACTIVE`
+    整查询失败。禁止 skip broken edge。
+16. **incident-edge identity discovery 双源**：不得只信 denormalized
+    source/target columns。第一版 discovery = denormalized columns
+    UNION valid JSON payload 中的 source_node_id/target_node_id（用
+    `json_valid()` 安全 guard，不得让 `json_extract` 抛未捕获异常）。
+    每个候选 edge identity 必须走完整 HistoryService strict resolution。
+    column/payload 单边篡改 → edge identity 仍被发现 → strict history 检出
+    mismatch → `QUERY_INTEGRITY_CONFLICT`。不得为性能绕过。
+17. **duplicate / ambiguous logical edge**：同一 as_of 下两个 active edge_id
+    对应同一 logical triple (source, relation, target) →
+    `QUERY_AMBIGUOUS_EDGE_IDENTITY` 整查询失败。不得任选/latest wins/silent
+    dedup。同一 edge_id 的 historical versions resolve 后只算一个 active
+    logical edge。
+18. **cycle 与多路径**：节点按 node_id 去重、边按 edge_id 去重；多路径到达
+    同一节点只输出一次并记录最小 depth；已访问节点不再次扩展，但新的合法
+    edge identity 仍可进入 edge 集合（A→B→A 不无限循环）。
+19. **direction**：`outgoing` / `incoming` / `both`（默认 both），非法 →
+    `QUERY_FILTER_INVALID`。direction 只影响 traversal expansion。
+20. **relation_filters**：只允许正式 18 relations；None/空 = 不过滤；非法 →
+    `QUERY_FILTER_INVALID`。**assertion_types**：GOVERNANCE / FACT /
+    MODEL_INFERENCE；None = 三类全部；GOVERNANCE 默认参与 traversal（ontology
+    BELONGS_TO 骨架本就是图结构），但输出必须与 FACT 分离。
+21. **node_type filter 本轮不做**。
+
+### 38.5 输出与 epistemic 边界
+
+22. **QueryGraphResult**（deterministic dataclass）：`as_of / root /
+    max_depth / query_parameters / nodes / edges / epistemic / evidence_ids /
+    limitations / conflicts`。node wrapper 至少 `depth / node_id / version /
+    derived_status / is_active / payload`；edge wrapper 至少 `depth / edge_id /
+    version / derived_status / is_active / payload`。不得修改
+    GraphNode/GraphEdge persisted models。
+23. **epistemic partition**：顶层 `epistemic: {governance: [edge_id...],
+    facts: [edge_id...], model_inferences: [edge_id...]}`。每个 edge 自身仍带
+    authoritative `assertion_type`。禁止 MODEL_INFERENCE → facts、
+    GOVERNANCE → facts。MODEL_INFERENCE 默认允许进入 query/context，但独立
+    分区 + 显式标签 + 保留 confidence + 保留 evidence_ids。
+24. **M8 不输出 path 作为知识结论**：不生成 paths / causal chains /
+    "A benefits from B" / "A harmed by B"（除非就是已存在的 edge relation）。
+    知识图路径不是自动因果证明。`KnowledgeContext.limitations` 必须包含
+    `PATHS_NOT_CAUSAL`。
+25. **结果 hard limits**：`MAX_NODES=200`、`MAX_EDGES=500`、
+    `MAX_EVIDENCE=1000`。达到上限 → `QUERY_RESULT_LIMIT_EXCEEDED` 整查询失败
+    （禁止 silent truncation / partial context）。CLI 不开放参数提高上限。
+
+### 38.6 KnowledgeContext 与 Evidence lineage
+
+26. **KnowledgeContextBuilder** 复用 GraphQueryService，禁止第二套 traversal。
+    结构：`root / as_of / max_depth / query_parameters / nodes / edges /
+    epistemic{governance, facts, model_inferences} / evidence / evidence_ids /
+    limitations / conflicts`。禁止加入 target price / rating / buy-sell /
+    position advice / automatic recommendation / generated investment
+    conclusion——Context 是结构化知识输入，不是研究报告。
+27. **Evidence strict read**：对全部唯一 node.evidence_ids + edge.evidence_ids
+    strict load（JSON decode → top-level dict → evidence Schema → Pydantic →
+    model_dump → Schema），至少核对 DB evidence_id == payload.evidence_id
+    （存在 denormalized columns 一并核对）。缺失 →
+    `QUERY_EVIDENCE_MISSING`；非法 → `QUERY_EVIDENCE_INVALID`；column 冲突 →
+    `QUERY_EVIDENCE_INTEGRITY_CONFLICT`。
+28. **Evidence summary 不含 excerpt**：至少输出 evidence_id / source_id /
+    raw_item_id / title / publisher / published_at / retrieved_at / url /
+    evidence_type / independence_group / source_tier / access_status。
+    不默认跟读 RawItem/Source payload，但保留 source_id / raw_item_id 供
+    lineage。
+29. **历史 as_of 下 Evidence 不按 retrieved_at 重新过滤**：graph version 的
+    evidence_ids 是 immutable graph-version provenance snapshot；M8 只 strict
+    resolve，不得新增 `retrieved_at <= as_of` 过滤/拒绝。Evidence 时间字段
+    仍完整输出供调用者判断。
+30. **Governance Evidence 特例**：governance seed edge/node 允许
+    evidence_ids=[] 且 originating_graph_change_id=null，合法；不得误报
+    `QUERY_EVIDENCE_MISSING`。FACT/MODEL_INFERENCE 继续服从既有 Schema/KGV。
+31. **conflicts 字段**：M8 v1 `conflicts = []`（unresolved blocking
+    GraphChange conflicts 在 apply 前已被 M4/M6 阻止进入 active graph；M8 不
+    重新发明 semantic conflict detector）。数据库结构损坏属于 `QUERY_*`
+    failure，不是 conflicts 内容。
+32. **limitations 字段**：deterministic 对象列表 `{code, message}`；始终
+    包含 `BUSINESS_VALIDITY_TIME_ONLY`、`PATHS_NOT_CAUSAL`；按条件加入
+    `ROOT_INACTIVE_NO_TRAVERSAL`、`MODEL_INFERENCE_PRESENT`、`DEPTH_BOUNDED`。
+    不得由 LLM 写 limitation。
+
+### 38.7 确定性排序与错误契约
+
+33. **deterministic ordering**：nodes `(depth, node_id)`；edges
+    `(depth, source_node_id, relation, target_node_id, edge_id)`；evidence
+    `evidence_id`；epistemic edge ID lists 使用最终 edge deterministic order；
+    limitations/conflicts `(code, message)`。所有输出 explicit sort。禁止
+    依赖 SQLite unspecified order / set iteration / dict insertion accident /
+    rowid / random / wall clock。CLI 输出 `json.dumps(..., ensure_ascii=False,
+    sort_keys=True)`。
+34. **QueryError(error_code, message) 统一 public failure contract**：
+    public query/context 不得泄漏 HistoryError / JSONDecodeError / sqlite3.Error /
+    KeyError / ValueError 作为未结构化 traceback。HistoryError 必须映射到
+    QUERY namespace：
+    `HISTORY_READ_FAILED→QUERY_READ_FAILED`；
+    `HISTORY_PAYLOAD_INVALID / HISTORY_SCHEMA_INVALID→QUERY_NODE_PAYLOAD_INVALID`
+    或 `QUERY_EDGE_PAYLOAD_INVALID`；`HISTORY_INTEGRITY_CONFLICT→QUERY_INTEGRITY_CONFLICT`；
+    `HISTORY_VERSION_GAP→QUERY_VERSION_GAP`；`HISTORY_INTERVAL_INVALID→QUERY_INTERVAL_INVALID`；
+    `HISTORY_ORIGIN_INTEGRITY_CONFLICT→QUERY_ORIGIN_INTEGRITY_CONFLICT`；
+    `HISTORY_AS_OF_REQUIRED→QUERY_AS_OF_REQUIRED`；`HISTORY_AS_OF_INVALID→QUERY_AS_OF_INVALID`。
+35. **其他机械 error codes**：`QUERY_NODE_NOT_FOUND / QUERY_EDGE_NOT_FOUND /
+    QUERY_ROOT_NOT_FOUND / QUERY_ENDPOINT_MISSING / QUERY_ENDPOINT_INACTIVE /
+    QUERY_AMBIGUOUS_EDGE_IDENTITY / QUERY_DEPTH_INVALID / QUERY_DEPTH_EXCEEDED /
+    QUERY_FILTER_INVALID / QUERY_RESULT_LIMIT_EXCEEDED /
+    QUERY_EVIDENCE_MISSING / QUERY_EVIDENCE_INVALID /
+    QUERY_EVIDENCE_INTEGRITY_CONFLICT / QUERY_ACTIVE_TRANSACTION_CONFLICT /
+    QUERY_READ_FAILED`。不得让 caller 从 message 字符串反解析 error code。
+36. **fail-closed 边界**：对查询实际发现/遍历的 graph identities，任何 bad
+    JSON / bad Schema / DB-payload mismatch / broken version chain / broken
+    origin GraphChange / missing endpoint / inactive endpoint / ambiguous
+    edge / bad Evidence / SQL error → 整查询失败。禁止 silent skip / partial
+    result / 空结果冒充成功。但合法生命周期状态（expired / retired /
+    not_yet_valid / knowledge gap）不是 corruption。
+
+### 38.8 最小 public Query API 与 CLI
+
+37. **冻结第一版 API**：
+    `get_node(node_id, as_of)`、`get_edge(edge_id, as_of)`、
+    `query_graph(root_node_id, as_of, *, max_depth=1, relation_filters=None,
+    direction="both", assertion_types=None)`。
+    不实现 arbitrary graph DSL / pattern matching / multi-root query /
+    fuzzy node search / full graph export / path ranking / causal path
+    inference。
+38. **get_node / get_edge 是 inspection API**：对象存在时即使 derived_status
+    ∈ {expired, retired, not_yet_valid} 也返回 M7 resolved result 并明确
+    derived_status / is_active / version / payload；不得因 inactive 伪装成
+    NOT_FOUND。真正不存在 → `QUERY_NODE_NOT_FOUND` / `QUERY_EDGE_NOT_FOUND`。
+39. **CLI**：`research knowledge query --node-id <id> --as-of <iso>
+    [--depth 0|1|2] [--relation <REL>]... [--direction outgoing|incoming|both]
+    [--assertion-type GOVERNANCE|FACT|MODEL_INFERENCE]... [--db <path>]`；
+    `--edge-id` 是 direct edge query，禁止 `--depth > 0`；node/edge exactly
+    one；as_of 必填。`research knowledge context --node-id <id> --as-of <iso>
+    [同 query 参数]`，context 只接受 node root。全部使用
+    `Database.open_read_only()`；错误 non-zero exit + structured JSON
+    （status=error / error_code / errors，无 traceback）；成功 deterministic
+    JSON。禁止 GraphML / Graphviz / Markdown knowledge report / fuzzy search /
+    multi-root / arbitrary SQL / arbitrary graph DSL / --depth > 2。
+
+### 38.9 M8 严格不实现
+
+- M9 Phase2/3/4 → GraphChange candidate integration
+- M10 E2E acceptance
+- Phase2/3/4 pipeline 修改、晨报/异动/研报注入 context
+- 写 graph、自动批准、自动应用
+- 新 Schema / 新 migration
+- reactivate / restore / unretire
+
+### 38.10 治理未决项（主控裁决，2026-08-08）
+
+> 正式 taskbook 第 20 节存在 deterministic JSON mirror 要求
+> （`knowledge/graph/nodes/`、`knowledge/graph/edges/`、`knowledge/history/`），
+> M0-M7 未实现，M8 明确不做 full graph export。
+
+- **PHASE5_UNRESOLVED_REQUIREMENT: DETERMINISTIC_JSON_MIRROR**（unresolved /
+  deferred pending later explicit governance decision）。
+- 本轮 M8：不实现 JSON mirror、不新增 export CLI、不新增 Schema/migration、
+  不扩大 M8 scope、不因此阻塞 query / KnowledgeContext 实现。
+- Decision #38 及任何 docs **不得声称该 Phase5 要求已完成**；如需记录只能
+  标记为 unresolved/deferred。不得自行决定永久取消或归入 M9/M10。
+- 最终 Pro review 若再次发现此项，报告为已知治理未决项，不作为擅自扩展
+  M8 的理由。

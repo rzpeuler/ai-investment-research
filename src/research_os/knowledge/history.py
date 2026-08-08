@@ -130,11 +130,16 @@ class HistoryService:
     # ── public API ──────────────────────────────────────────
 
     def get_node_history(self, node_id: str,
-                         as_of: Optional[str] = None) -> HistoryResult:
-        """完整 node history（version 1..N 全量）。as_of 提供时附带 resolve。"""
+                         as_of: Optional[str] = None,
+                         conn=None) -> HistoryResult:
+        """完整 node history（version 1..N 全量）。as_of 提供时附带 resolve。
+
+        conn: 可选外部连接（M8 shared read snapshot 复用）。
+              默认 None 时使用内部连接（M7 行为不变）。
+        """
         as_of = self._validate_as_of(as_of)
-        payloads = self._load_version_payloads("node", node_id, None)
-        entries = self._derive_intervals(payloads)
+        payloads = self._load_version_payloads("node", node_id, conn)
+        entries = self._derive_intervals(payloads, conn)
         if as_of is not None:
             self._attach_derived_status(entries, as_of)
         resolved = self._resolve(entries, as_of) if as_of is not None else None
@@ -142,22 +147,32 @@ class HistoryService:
                              versions=entries, resolved=resolved)
 
     def get_edge_history(self, edge_id: str,
-                         as_of: Optional[str] = None) -> HistoryResult:
-        """完整 edge history（version 1..N 全量）。as_of 提供时附带 resolve。"""
+                         as_of: Optional[str] = None,
+                         conn=None) -> HistoryResult:
+        """完整 edge history（version 1..N 全量）。as_of 提供时附带 resolve。
+
+        conn: 可选外部连接（M8 shared read snapshot 复用）。
+              默认 None 时使用内部连接（M7 行为不变）。
+        """
         as_of = self._validate_as_of(as_of)
-        payloads = self._load_version_payloads("edge", edge_id, None)
-        entries = self._derive_intervals(payloads)
+        payloads = self._load_version_payloads("edge", edge_id, conn)
+        entries = self._derive_intervals(payloads, conn)
         if as_of is not None:
             self._attach_derived_status(entries, as_of)
         resolved = self._resolve(entries, as_of) if as_of is not None else None
         return HistoryResult(kind="edge", identity=edge_id, as_of=as_of,
                              versions=entries, resolved=resolved)
 
-    def resolve_node_as_of(self, node_id: str, as_of: str) -> Dict[str, Any]:
-        """as_of 时点 node 状态（deterministic，禁止默认 now()）。"""
+    def resolve_node_as_of(self, node_id: str, as_of: str,
+                           conn=None) -> Dict[str, Any]:
+        """as_of 时点 node 状态（deterministic，禁止默认 now()）。
+
+        conn: 可选外部连接（M8 shared read snapshot 复用）。
+              默认 None 时使用内部连接（M7 行为不变）。
+        """
         as_of = self._validate_as_of(as_of, required=True)
-        payloads = self._load_version_payloads("node", node_id, None)
-        entries = self._derive_intervals(payloads)
+        payloads = self._load_version_payloads("node", node_id, conn)
+        entries = self._derive_intervals(payloads, conn)
         return self._resolve(entries, as_of)
 
     def resolve_edge_as_of(self, edge_id: str, as_of: str,
@@ -168,7 +183,7 @@ class HistoryService:
         """
         as_of = self._validate_as_of(as_of, required=True)
         payloads = self._load_version_payloads("edge", edge_id, conn)
-        entries = self._derive_intervals(payloads)
+        entries = self._derive_intervals(payloads, conn)
         return self._resolve(entries, as_of)
 
     # ── as_of ───────────────────────────────────────────────
@@ -387,11 +402,13 @@ class HistoryService:
 
     # ── interval derivation ─────────────────────────────────
 
-    def _derive_intervals(self, payloads: List[Dict[str, Any]]) -> List[VersionEntry]:
+    def _derive_intervals(self, payloads: List[Dict[str, Any]],
+                          conn=None) -> List[VersionEntry]:
         """半开区间 [effective_from, effective_to) 派生。
 
         effective_to = min(intrinsic_end, successor_end) 等规则；
         effective_from > effective_to（均非 null）→ HISTORY_INTERVAL_INVALID。
+        conn: 可选外部连接（origin change_type 读取保持同一 read snapshot）。
         """
         entries: List[VersionEntry] = []
         for i, p in enumerate(payloads):
@@ -410,7 +427,7 @@ class HistoryService:
                 )
 
             superseded_by = successor["version"] if successor is not None else None
-            is_tombstone = self._is_tombstone(p, successor)
+            is_tombstone = self._is_tombstone(p, successor, conn)
             entries.append(VersionEntry(
                 version=p["version"],
                 payload=p,
@@ -429,7 +446,7 @@ class HistoryService:
             return a
         return a if parse_iso(a) <= parse_iso(b) else b
 
-    def _is_tombstone(self, p: Dict[str, Any], successor) -> bool:
+    def _is_tombstone(self, p: Dict[str, Any], successor, conn=None) -> bool:
         """retire tombstone 判定（M7-R1 双向证明，fail-closed）。
 
         - node：
@@ -443,12 +460,13 @@ class HistoryService:
           （modify_attribute edge 即使 valid_from == valid_to 也不得误判 retired）
 
         origin 读取失败 / 缺失 → fail-closed raise（HISTORY_ORIGIN_INTEGRITY_CONFLICT）。
+        conn: 可选外部连接（保持同一 read snapshot）。
         """
         if "status" in p:  # node
             if p.get("origin_kind") == "governance_seed":
                 return p.get("status") == "retired"
             gc_id = p.get("originating_graph_change_id")
-            ct = self._read_origin_change_type(p, gc_id)
+            ct = self._read_origin_change_type(p, gc_id, conn)
             status_retired = p.get("status") == "retired"
             origin_retire = ct == "retire_node"
             if status_retired != origin_retire:
@@ -462,12 +480,16 @@ class HistoryService:
         gc_id = p.get("originating_graph_change_id")
         if gc_id is None:
             return False
-        ct = self._read_origin_change_type(p, gc_id)
+        ct = self._read_origin_change_type(p, gc_id, conn)
         return ct == "retire_edge"
 
     def _read_origin_change_type(self, p: Dict[str, Any],
-                                 gc_id: Optional[str]) -> Optional[str]:
-        """strict read origin change_type（fail-closed：缺失/失败 raise）。"""
+                                 gc_id: Optional[str],
+                                 conn=None) -> Optional[str]:
+        """strict read origin change_type（fail-closed：缺失/失败 raise）。
+
+        conn: 可选外部连接（保持同一 read snapshot）。
+        """
         if gc_id is None:
             raise HistoryError(
                 "HISTORY_ORIGIN_INTEGRITY_CONFLICT",
@@ -476,7 +498,7 @@ class HistoryService:
                 f"缺少 originating_graph_change_id（retire 判定 fail-closed）",
             )
         try:
-            ct = self._graph_repo.get_graph_change_type(gc_id)
+            ct = self._graph_repo.get_graph_change_type(gc_id, conn=conn)
         except Exception as e:
             raise HistoryError(
                 "HISTORY_ORIGIN_INTEGRITY_CONFLICT",
