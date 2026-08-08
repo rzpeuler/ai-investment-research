@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/graph_review.schema.json",
+  "title": "GraphReview",
+  "description": "人工审核审计契约。M1-R2: patch path whitelist enforced at Schema level.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["review_id","graph_change_id","decision","reviewer","reviewed_at","candidate_hash","review_patch","notes","resulting_graph_change_id"],
+  "properties": {
+    "review_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "decision": { "type": "string", "enum": ["approved","approved_with_changes","deferred","rejected"] },
+    "reviewer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reviewer_type","reviewer_id","display_name"],
+      "properties": {
+        "reviewer_type": { "type": "string", "const": "human" },
+        "reviewer_id": { "type": "string", "minLength": 1 },
+        "display_name": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+      }
+    },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "candidate_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "review_patch": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["op","path","value"],
+            "properties": {
+              "op": { "type": "string", "enum": ["add","replace"] },
+              "path": { "type": "string", "minLength": 1, "pattern": "^(/suggested_change|/impact_scope|/conflicts|/verification_points|/new_evidence_ids|/node/name|/node/aliases|/node/description|/node/status|/node/valid_from|/node/valid_to|/node/evidence_ids|/edge/attributes|/edge/valid_from|/edge/valid_to|/edge/confidence|/edge/evidence_ids)(/.*)?$" },
+              "value": {}
+            }
+          },
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["op","path"],
+            "properties": {
+              "op": { "type": "string", "enum": ["remove"] },
+              "path": { "type": "string", "minLength": 1, "pattern": "^(/suggested_change|/impact_scope|/conflicts|/verification_points|/new_evidence_ids|/node/name|/node/aliases|/node/description|/node/status|/node/valid_from|/node/valid_to|/node/evidence_ids|/edge/attributes|/edge/valid_from|/edge/valid_to|/edge/confidence|/edge/evidence_ids)(/.*)?$" }
+            }
+          }
+        ]
+      }
+    },
+    "notes": { "type": "string" },
+    "resulting_graph_change_id": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" }, { "type": "null" }] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "approved" } }, "required": ["decision"] },
+      "then": { "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "approved_with_changes" } }, "required": ["decision"] },
+      "then": { "properties": { "review_patch": { "minItems": 1 }, "resulting_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" } } }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "deferred" } }, "required": ["decision"] },
+      "then": { "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "rejected" } }, "required": ["decision"] },
+      "then": { "properties": { "review_patch": { "maxItems": 0 }, "resulting_graph_change_id": { "type": "null" } } }
+    }
+  ]
+}

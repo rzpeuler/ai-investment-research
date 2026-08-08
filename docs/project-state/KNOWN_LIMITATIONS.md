@@ -84,7 +84,12 @@
 - **深度媒体和机构信息覆盖**：仍 manual_only / not_covered（同 Phase 2/3）
 - **同行注册表覆盖**：registry/equity_peer_universe.yaml 为骨架（scoring 权重与
   门槛已定义）；具体公司关系数据按公司登记时填充
-- **无 GitHub Actions**：无远端 CI/commit status；验收依赖本地实测证据
+- **Offline CI 已上线**（`.github/workflows/offline-ci.yml`）：GitHub-hosted Ubuntu、Python 3.12；
+  trigger: PR / push to master / workflow_dispatch；permissions: contents: read；
+  不配置 DeepSeek API Key / 项目 secrets；5 个 online tests 默认 skip；
+  1133 passed / 5 skipped / 51/51 schemas / compileall PASS
+  （baseline run 31154022296，SHA `ea026f1`）；
+  在线能力仍依赖显式 live acceptance，不得由 Offline CI PASS 替代
 - **预测能力边界**：仅确定性外推与显式用户/公司指引假设；model_generated 须真实调用
 - 报告必须章节覆盖：行业位置/竞争格局/管理层治理/重大项目等章节依赖人工或语义
   模块补充，缺数据时如实写覆盖状态，不套话
@@ -107,5 +112,11 @@
 
 - 旧的跨阶段大提交已在 PR #1 通过 Squash merge 治理；当前 Phase 4.1 使用独立、单一职责
   提交序列，不改写既有历史。
-- 仓库仍无 GitHub Actions 或远端 commit status；当前证据来自本地全量回归、显式在线测试
-  和 Git 忽略目录中的脱敏验收摘要，合并前仍需要独立复核。
+- **Offline CI 已上线**：`github.com/rzpeuler/ai-investment-research/actions`；
+  workflow 位于 `.github/workflows/offline-ci.yml`；trigger: PR / push to master / workflow_dispatch；
+  permissions: contents: read；secrets: 不配置 DeepSeek API Key / 项目 secrets；
+  5 个 online tests 默认 skip；baseline run 31154022296（SHA `ea026f1`）：
+  1133 passed / 5 skipped / 51/51 schemas / compileall PASS。
+- Offline CI 限制：不验证 DeepSeek live provider / 真实 CNINFO / 外部服务；
+  branch 普通 push 不触发，PR 会触发；GHA Node.js 20 deprecation warning 为 non-blocking
+  （runner 强制使用 Node 24）；在线能力仍靠显式 live acceptance，不得由 Offline CI PASS 替代。

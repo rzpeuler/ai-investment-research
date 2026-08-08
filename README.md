@@ -53,8 +53,9 @@ RawItem/Evidence 血缘、按 Provider 实际调用计数的 Flash/Pro 预算、
 `SUCCESS`，688981.SH 在受控缺失下取得 `INSUFFICIENT_DATA`。单次输入不足或 Provider
 故障时仍必须降级，不得沿用历史成功状态。
 Schema 30→51，迁移 user_version=5。
-**Phase 5：BLOCKED**。Phase 4 完整能力已通过独立验收，但尚无 Phase 5 正式任务书和明确实施授权；
-晚报/复盘、主题挖掘、首次覆盖和自动产业图谱入库均尚未开始。
+**Phase 5：IN_PROGRESS**（M0 PASS / M1 PASS / M2 PASS / M3 AUTHORIZED / M4-M10 NOT_AUTHORIZED）。
+M3 GraphChange Candidate Pipeline 正在实施中。
+M4-M10 尚未授权，不得提前实施。
 
 ## 快速开始
 

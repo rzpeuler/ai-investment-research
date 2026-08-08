@@ -8,9 +8,9 @@ Task / Entity / RawItem / Event / Opinion / Claim / Evidence / ModuleResult / Gr
 """
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from research_os.utils.time import validate_iso
 
@@ -309,15 +309,174 @@ class ModuleResult(StrictModel):
         return _iso_validator(value)
 
 
-# ---------- GraphChange（指南 46 节） ----------
+# ---------- Phase 5 图谱枚举 ----------
+
+GraphNodeType = Literal[
+    "Industry", "IndustrySegment", "Company", "Product", "Technology",
+    "Material", "Equipment", "Application", "Policy", "Event",
+    "Metric", "PersonOrInstitution", "Report", "InvestmentTheme",
+]
+
+GraphNodeStatus = Literal["active", "superseded", "expired", "retired"]
+
+GraphRelation = Literal[
+    "BELONGS_TO", "UPSTREAM_OF", "DOWNSTREAM_OF", "SUPPLIES",
+    "PURCHASES_FROM", "PRODUCES", "USES_TECHNOLOGY", "APPLIED_IN",
+    "COMPETES_WITH", "SUBSTITUTES", "BENEFITS_FROM", "HARMED_BY",
+    "AFFECTS", "MENTIONED_IN", "SUPPORTED_BY", "CONTRADICTED_BY",
+    "HAS_METRIC", "HAS_CATALYST",
+]
+
+GraphAssertionType = Literal["GOVERNANCE", "FACT", "MODEL_INFERENCE"]
+GraphProposalAssertionType = Literal["FACT", "MODEL_INFERENCE"]
+
+GraphObjectReviewStatus = Literal["candidate", "approved"]
+
+GraphOriginKind = Literal["governance_seed", "graph_change"]
+
+GraphReviewDecision = Literal["approved", "approved_with_changes", "deferred", "rejected"]
+
+_GRAPH_UUID_PATTERN = r"^[0-9a-fA-F-]{36}$"
+
+GraphPatchOp = Literal["add", "replace", "remove"]
+
+
+def _uuid_validator(value: Optional[str]) -> Optional[str]:
+    """UUID pattern validator: null 允许，非 null 须匹配 Schema pattern。"""
+    import re
+    if value is not None and not re.fullmatch(_GRAPH_UUID_PATTERN, value):
+        raise ValueError(f"非法 UUID 格式: {value!r}")
+    return value
+
+
+# ---------- GraphNode（Phase 5 M1-R1） ----------
+
+class GraphNode(StrictModel):
+    node_id: str = Field(..., min_length=1)
+    node_type: GraphNodeType
+    name: str = Field(..., min_length=1)
+    aliases: List[str] = Field(default_factory=list)
+    description: str = ""
+    status: GraphNodeStatus = "active"
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    evidence_ids: List[str] = Field(default_factory=list)
+    version: int = Field(1, ge=1)
+    last_reviewed_at: Optional[str] = None
+    review_status: GraphObjectReviewStatus = "candidate"
+    origin_kind: GraphOriginKind = "graph_change"
+    originating_graph_change_id: Optional[str] = None
+
+    @field_validator("originating_graph_change_id")
+    @classmethod
+    def _uuid_opt(cls, value: Optional[str]) -> Optional[str]:
+        return _uuid_validator(value)
+
+    created_at: str = Field(..., description="创建时间（必传合法 ISO）")
+
+    @field_validator("created_at", "last_reviewed_at")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _validity_iso(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+    @model_validator(mode="after")
+    def _check_company_prefix(self) -> "GraphNode":
+        if self.node_type == "Company" and not self.node_id.startswith("company:"):
+            raise ValueError("Company node_id 必须以 'company:' 开头")
+        return self
+
+    @model_validator(mode="after")
+    def _check_origin_consistency(self) -> "GraphNode":
+        if self.origin_kind == "graph_change":
+            if len(self.evidence_ids) < 1:
+                raise ValueError("graph_change 要求 evidence_ids 非空")
+            if self.originating_graph_change_id is None:
+                raise ValueError("graph_change 要求 originating_graph_change_id 非 null")
+        elif self.origin_kind == "governance_seed":
+            if len(self.evidence_ids) > 0:
+                raise ValueError("governance_seed 要求 evidence_ids 为空")
+            if self.originating_graph_change_id is not None:
+                raise ValueError("governance_seed 要求 originating_graph_change_id 为 null")
+            if self.review_status != "approved":
+                raise ValueError("governance_seed 要求 review_status 为 approved")
+        return self
+
+
+# ---------- GraphEdge（Phase 5 M1-R1） ----------
+
+class GraphEdge(StrictModel):
+    edge_id: str = Field(..., min_length=1)
+    source_node_id: str = Field(..., min_length=1)
+    relation: GraphRelation
+    target_node_id: str = Field(..., min_length=1)
+    attributes: dict = Field(default_factory=dict)
+    assertion_type: GraphAssertionType = "FACT"
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    evidence_ids: List[str] = Field(default_factory=list)
+    review_status: GraphObjectReviewStatus = "candidate"
+    version: int = Field(1, ge=1)
+    originating_graph_change_id: Optional[str] = None
+
+    @field_validator("originating_graph_change_id")
+    @classmethod
+    def _uuid_opt(cls, value: Optional[str]) -> Optional[str]:
+        return _uuid_validator(value)
+
+    created_at: str = Field(..., description="创建时间（必传合法 ISO）")
+    last_reviewed_at: Optional[str] = None
+
+    @field_validator("created_at", "last_reviewed_at")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _validity_iso(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+    @model_validator(mode="after")
+    def _check_assertion_consistency(self) -> "GraphEdge":
+        if self.assertion_type in ("FACT", "MODEL_INFERENCE"):
+            if len(self.evidence_ids) < 1:
+                raise ValueError(f"{self.assertion_type} 要求 evidence_ids 非空")
+            if self.originating_graph_change_id is None:
+                raise ValueError(f"{self.assertion_type} 要求 originating_graph_change_id 非 null")
+        elif self.assertion_type == "GOVERNANCE":
+            if len(self.evidence_ids) > 0:
+                raise ValueError("GOVERNANCE 要求 evidence_ids 为空")
+            if self.originating_graph_change_id is not None:
+                raise ValueError("GOVERNANCE 要求 originating_graph_change_id 为 null")
+            if self.review_status != "approved":
+                raise ValueError("GOVERNANCE 要求 review_status 为 approved")
+        return self
+
+
+# ---------- GraphChange（M1-R1 typed node/edge） ----------
 
 class GraphChange(StrictModel):
-    graph_change_id: str
+    """GraphChange with typed node/edge fields + candidate overlay."""
+    graph_change_id: str = Field(..., pattern=_GRAPH_UUID_PATTERN)
     change_type: GraphChangeType
-    node: Optional[dict] = None
-    edge: Optional[dict] = None
+    node: Optional["GraphNode"] = None
+    edge: Optional["GraphEdge"] = None
     current_knowledge: str = ""
-    new_evidence_ids: List[str] = Field(default_factory=list)
+    new_evidence_ids: List[str] = Field(..., min_length=1)
     suggested_change: str = Field(..., min_length=1)
     impact_scope: List[str] = Field(default_factory=list)
     conflicts: List[str] = Field(default_factory=list)
@@ -337,3 +496,251 @@ class GraphChange(StrictModel):
         if value is not None:
             return _iso_validator(value)
         return value
+
+    @model_validator(mode="after")
+    def _check_payload_consistency(self) -> "GraphChange":
+        ct = self.change_type
+        node = self.node
+        edge = self.edge
+        if ct in ("add_node", "retire_node"):
+            if node is None:
+                raise ValueError(f"{ct} 要求 node 非 null")
+            if edge is not None:
+                raise ValueError(f"{ct} 要求 edge 为 null")
+        elif ct in ("add_edge", "retire_edge"):
+            if edge is None:
+                raise ValueError(f"{ct} 要求 edge 非 null")
+            if node is not None:
+                raise ValueError(f"{ct} 要求 node 为 null")
+        elif ct == "modify_attribute":
+            if (node is None and edge is None) or (node is not None and edge is not None):
+                raise ValueError("modify_attribute 要求恰好 node / edge 其中一个非 null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_candidate_overlay(self) -> "GraphChange":
+        if self.node is not None:
+            if self.node.origin_kind != "graph_change":
+                raise ValueError("GraphChange node 要求 origin_kind=graph_change")
+            if self.node.review_status != "candidate":
+                raise ValueError("GraphChange node 要求 review_status=candidate")
+            if self.node.last_reviewed_at is not None:
+                raise ValueError("GraphChange node 要求 last_reviewed_at=null")
+        if self.edge is not None:
+            if self.edge.assertion_type not in ("FACT", "MODEL_INFERENCE"):
+                raise ValueError("GraphChange edge 要求 assertion_type 为 FACT/MODEL_INFERENCE")
+            if self.edge.review_status != "candidate":
+                raise ValueError("GraphChange edge 要求 review_status=candidate")
+            if self.edge.last_reviewed_at is not None:
+                raise ValueError("GraphChange edge 要求 last_reviewed_at=null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_review_timing(self) -> "GraphChange":
+        if self.review_status == "candidate":
+            if self.reviewed_at is not None:
+                raise ValueError("candidate 要求 reviewed_at 为 null")
+        else:
+            if self.reviewed_at is None:
+                raise ValueError(f"{self.review_status} 要求 reviewed_at 非 null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_unique_evidence(self) -> "GraphChange":
+        if len(self.new_evidence_ids) != len(set(self.new_evidence_ids)):
+            raise ValueError("new_evidence_ids 要求 unique")
+        return self
+
+
+# ---------- GraphChangeProposal 辅助模型 ----------
+
+class GraphProposalNode(StrictModel):
+    existing_node_id: Optional[str] = None
+    node_type: GraphNodeType
+    name: str = Field(..., min_length=1)
+    aliases: List[str] = Field(default_factory=list)
+    description: str = ""
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+class GraphProposalEdge(StrictModel):
+    source_node_id: str = Field(..., min_length=1)
+    relation: GraphRelation
+    target_node_id: str = Field(..., min_length=1)
+    attributes: dict = Field(default_factory=dict)
+    assertion_type: GraphProposalAssertionType = "FACT"
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+    @field_validator("valid_from", "valid_to")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+# ---------- GraphChangeProposal（Phase 5 M1-R1） ----------
+
+class GraphChangeProposal(StrictModel):
+    proposal_type: GraphChangeType
+    source_object_ids: List[str] = Field(..., min_length=1)
+    candidate_node: Optional[GraphProposalNode] = None
+    candidate_edge: Optional[GraphProposalEdge] = None
+    new_evidence_ids: List[str] = Field(..., min_length=1)
+    suggested_change: str = Field(..., min_length=1)
+    impact_scope: List[str] = Field(default_factory=list)
+    conflicts: List[str] = Field(default_factory=list)
+    verification_points: List[str] = Field(default_factory=list)
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _check_payload_consistency(self) -> "GraphChangeProposal":
+        pt = self.proposal_type
+        cn = self.candidate_node
+        ce = self.candidate_edge
+        if pt == "add_node":
+            if cn is None:
+                raise ValueError("add_node 要求 candidate_node 非 null")
+            if cn.existing_node_id is not None:
+                raise ValueError("add_node 要求 existing_node_id 为 null")
+            if ce is not None:
+                raise ValueError("add_node 要求 candidate_edge 为 null")
+        elif pt == "retire_node":
+            if cn is None:
+                raise ValueError("retire_node 要求 candidate_node 非 null")
+            if cn.existing_node_id is None:
+                raise ValueError("retire_node 要求 existing_node_id 非 null")
+            if ce is not None:
+                raise ValueError("retire_node 要求 candidate_edge 为 null")
+        elif pt in ("add_edge", "retire_edge"):
+            if ce is None:
+                raise ValueError(f"{pt} 要求 candidate_edge 非 null")
+            if cn is not None:
+                raise ValueError(f"{pt} 要求 candidate_node 为 null")
+        elif pt == "modify_attribute":
+            if (cn is None and ce is None) or (cn is not None and ce is not None):
+                raise ValueError("modify_attribute 要求恰好 candidate_node / candidate_edge 一个非 null")
+            if cn is not None and cn.existing_node_id is None:
+                raise ValueError("modify_attribute with node 要求 existing_node_id 非 null")
+        return self
+
+    @model_validator(mode="after")
+    def _check_unique_ids(self) -> "GraphChangeProposal":
+        if len(self.source_object_ids) != len(set(self.source_object_ids)):
+            raise ValueError("source_object_ids 要求 unique")
+        if len(self.new_evidence_ids) != len(set(self.new_evidence_ids)):
+            raise ValueError("new_evidence_ids 要求 unique")
+        return self
+
+
+# ---------- GraphReview 辅助模型 ----------
+
+class GraphReviewer(StrictModel):
+    reviewer_type: Literal["human"] = "human"
+    reviewer_id: str = Field(..., min_length=1)
+    display_name: Optional[str] = None
+
+
+class GraphPatchValueOperation(StrictModel):
+    op: Literal["add", "replace"]
+    path: str = Field(..., min_length=1)
+    value: Any = Field(..., description="add/replace 必须显式提供 value")
+
+    @field_validator("path")
+    @classmethod
+    def _allowed_path(cls, value: str) -> str:
+        _check_patch_path(value)
+        return value
+
+
+class GraphPatchRemoveOperation(StrictModel):
+    op: Literal["remove"]
+    path: str = Field(..., min_length=1)
+
+    @field_validator("path")
+    @classmethod
+    def _allowed_path(cls, value: str) -> str:
+        _check_patch_path(value)
+        return value
+
+
+GraphPatchOperation = Union[GraphPatchValueOperation, GraphPatchRemoveOperation]
+
+
+_ALLOWED_PATCH_PATHS = {
+    "/suggested_change", "/impact_scope", "/conflicts", "/verification_points",
+    "/new_evidence_ids",
+    "/node/name", "/node/aliases", "/node/description", "/node/status",
+    "/node/valid_from", "/node/valid_to", "/node/evidence_ids",
+    "/edge/attributes", "/edge/valid_from", "/edge/valid_to",
+    "/edge/confidence", "/edge/evidence_ids",
+}
+
+
+def _check_patch_path(path: str) -> None:
+    """机械检查 patch path 是否在允许的业务路径白名单内（含子路径）。"""
+    for allowed in _ALLOWED_PATCH_PATHS:
+        if path == allowed or path.startswith(allowed + "/"):
+            return
+    raise ValueError(f"禁止的 patch 路径: {path}")
+
+
+# ---------- GraphReview（Phase 5 M1-R1） ----------
+
+class GraphReview(StrictModel):
+    review_id: str = Field(..., pattern=_GRAPH_UUID_PATTERN)
+    graph_change_id: str = Field(..., pattern=_GRAPH_UUID_PATTERN)
+    decision: GraphReviewDecision
+    reviewer: GraphReviewer
+    reviewed_at: str
+    candidate_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    review_patch: List[GraphPatchOperation] = Field(default_factory=list)
+    notes: str = ""
+    resulting_graph_change_id: Optional[str] = None
+
+    @field_validator("resulting_graph_change_id")
+    @classmethod
+    def _uuid_rid(cls, value: Optional[str]) -> Optional[str]:
+        return _uuid_validator(value)
+
+    @field_validator("reviewed_at")
+    @classmethod
+    def _iso(cls, value: str) -> str:
+        return _iso_validator(value)
+
+    @model_validator(mode="after")
+    def _check_decision_consistency(self) -> "GraphReview":
+        d = self.decision
+        patch = self.review_patch
+        rid = self.resulting_graph_change_id
+        if d == "approved":
+            if patch:
+                raise ValueError("approved 要求 review_patch 为空")
+            if rid is not None:
+                raise ValueError("approved 要求 resulting_graph_change_id 为 null")
+        elif d == "approved_with_changes":
+            if len(patch) < 1:
+                raise ValueError("approved_with_changes 要求 review_patch 至少 1 项")
+            if rid is None:
+                raise ValueError("approved_with_changes 要求 resulting_graph_change_id 非 null")
+        elif d == "deferred":
+            if patch:
+                raise ValueError("deferred 要求 review_patch 为空")
+            if rid is not None:
+                raise ValueError("deferred 要求 resulting_graph_change_id 为 null")
+        elif d == "rejected":
+            if patch:
+                raise ValueError("rejected 要求 review_patch 为空")
+            if rid is not None:
+                raise ValueError("rejected 要求 resulting_graph_change_id 为 null")
+        return self

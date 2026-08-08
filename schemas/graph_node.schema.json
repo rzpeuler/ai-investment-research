@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/graph_node.schema.json",
+  "title": "GraphNode",
+  "description": "产业图谱节点。既是 GraphChange candidate payload 也是 apply 后的正式 core graph object。node_id 必须稳定。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "node_id", "node_type", "name", "aliases", "description", "status",
+    "valid_from", "valid_to", "evidence_ids", "version", "last_reviewed_at",
+    "review_status", "origin_kind", "originating_graph_change_id", "created_at"
+  ],
+  "properties": {
+    "node_id": { "type": "string", "minLength": 1 },
+    "node_type": {
+      "type": "string",
+      "enum": ["Industry","IndustrySegment","Company","Product","Technology","Material","Equipment","Application","Policy","Event","Metric","PersonOrInstitution","Report","InvestmentTheme"]
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "description": { "type": "string" },
+    "status": { "type": "string", "enum": ["active","superseded","expired","retired"] },
+    "valid_from": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "valid_to": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "version": { "type": "integer", "minimum": 1 },
+    "last_reviewed_at": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "review_status": { "type": "string", "enum": ["candidate","approved"] },
+    "origin_kind": { "type": "string", "enum": ["governance_seed","graph_change"] },
+    "originating_graph_change_id": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" }, { "type": "null" }] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "node_type": { "const": "Company" } },
+        "required": ["node_type"]
+      },
+      "then": {
+        "properties": { "node_id": { "pattern": "^company:" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "origin_kind": { "const": "graph_change" } },
+        "required": ["origin_kind"]
+      },
+      "then": {
+        "properties": {
+          "evidence_ids": { "minItems": 1 },
+          "originating_graph_change_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "origin_kind": { "const": "governance_seed" } },
+        "required": ["origin_kind"]
+      },
+      "then": {
+        "properties": {
+          "evidence_ids": { "maxItems": 0 },
+          "originating_graph_change_id": { "type": "null" },
+          "review_status": { "const": "approved" }
+        }
+      }
+    }
+  ]
+}

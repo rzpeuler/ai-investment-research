@@ -95,8 +95,10 @@ class LlmClient:
         budget_denied_model: Optional[str] = None
         provider_name = request.provider or type(self.provider).__name__
 
+        # 如果请求明确要求 Pro，第一次就使用 Pro（不经过 Flash）
+        force_pro = request.requested_model_class == "pro"
         while True:
-            is_pro = flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS
+            is_pro = force_pro or flash_schema_failures >= MAX_FLASH_FIX_ATTEMPTS
             model_class = "pro" if is_pro else "flash"
             if (is_pro and pro_attempts >= MAX_PRO_CALLS) or (
                 not is_pro and flash_attempts >= MAX_FLASH_FIX_ATTEMPTS

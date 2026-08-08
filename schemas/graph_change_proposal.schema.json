@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/graph_change_proposal.schema.json",
+  "title": "GraphChangeProposal",
+  "description": "LLM-generated proposal. No persistence IDs/version/review fields. M1-R2: fixed modify_attribute rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["proposal_type","source_object_ids","candidate_node","candidate_edge","new_evidence_ids","suggested_change","impact_scope","conflicts","verification_points","confidence"],
+  "properties": {
+    "proposal_type": { "type": "string", "enum": ["add_node","add_edge","modify_attribute","retire_edge","retire_node"] },
+    "source_object_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "candidate_node": {
+      "anyOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["existing_node_id","node_type","name","aliases","description","valid_from","valid_to"],
+          "properties": {
+            "existing_node_id": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+            "node_type": { "type": "string", "enum": ["Industry","IndustrySegment","Company","Product","Technology","Material","Equipment","Application","Policy","Event","Metric","PersonOrInstitution","Report","InvestmentTheme"] },
+            "name": { "type": "string", "minLength": 1 },
+            "aliases": { "type": "array", "items": { "type": "string" } },
+            "description": { "type": "string" },
+            "valid_from": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+            "valid_to": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "candidate_edge": {
+      "anyOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["source_node_id","relation","target_node_id","attributes","assertion_type","valid_from","valid_to","confidence"],
+          "properties": {
+            "source_node_id": { "type": "string", "minLength": 1 },
+            "relation": { "type": "string", "enum": ["BELONGS_TO","UPSTREAM_OF","DOWNSTREAM_OF","SUPPLIES","PURCHASES_FROM","PRODUCES","USES_TECHNOLOGY","APPLIED_IN","COMPETES_WITH","SUBSTITUTES","BENEFITS_FROM","HARMED_BY","AFFECTS","MENTIONED_IN","SUPPORTED_BY","CONTRADICTED_BY","HAS_METRIC","HAS_CATALYST"] },
+            "target_node_id": { "type": "string", "minLength": 1 },
+            "attributes": { "type": "object" },
+            "assertion_type": { "type": "string", "enum": ["FACT","MODEL_INFERENCE"] },
+            "valid_from": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+            "valid_to": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+            "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "new_evidence_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "suggested_change": { "type": "string", "minLength": 1 },
+    "impact_scope": { "type": "array", "items": { "type": "string" } },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "verification_points": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "proposal_type": { "const": "add_node" } }, "required": ["proposal_type"] },
+      "then": {
+        "properties": {
+          "candidate_node": { "type": "object", "properties": { "existing_node_id": { "type": "null" } } },
+          "candidate_edge": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "proposal_type": { "const": "retire_node" } }, "required": ["proposal_type"] },
+      "then": {
+        "properties": {
+          "candidate_node": { "type": "object", "properties": { "existing_node_id": { "type": "string", "minLength": 1 } } },
+          "candidate_edge": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "proposal_type": { "enum": ["add_edge","retire_edge"] } }, "required": ["proposal_type"] },
+      "then": {
+        "properties": { "candidate_edge": { "type": "object" }, "candidate_node": { "type": "null" } }
+      }
+    },
+    {
+      "if": { "properties": { "proposal_type": { "const": "modify_attribute" } }, "required": ["proposal_type"] },
+      "then": {
+        "anyOf": [
+          {
+            "properties": {
+              "candidate_node": { "type": "object", "properties": { "existing_node_id": { "type": "string", "minLength": 1 } } },
+              "candidate_edge": { "type": "null" }
+            }
+          },
+          {
+            "properties": {
+              "candidate_node": { "type": "null" },
+              "candidate_edge": { "type": "object" }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

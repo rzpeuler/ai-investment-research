@@ -21,10 +21,10 @@ def empty_db(tmp_path):
     db.close()
 
 
-def test_fresh_migration_reaches_version_5(empty_db):
+def test_fresh_migration_reaches_version_6(empty_db):
     applied = empty_db.migrate()
-    assert empty_db.current_version() == 5
-    assert applied == ["001_initial", "002_sources", "003_market", "004_abnormal_move", "005_equity_research"]
+    assert empty_db.current_version() == 6
+    assert applied == ["001_initial", "002_sources", "003_market", "004_abnormal_move", "005_equity_research", "006_phase5_knowledge_graph"]
 
 
 def test_migration_from_v4_to_v5(tmp_path):
@@ -44,8 +44,8 @@ def test_migration_from_v4_to_v5(tmp_path):
     counts_before = {n: db.count(n) for n in sorted(old_names)}
 
     applied = db.migrate()
-    assert applied == ["005_equity_research"]
-    assert db.current_version() == 5
+    assert applied == ["005_equity_research", "006_phase5_knowledge_graph"]
+    assert db.current_version() == 6
 
     # 旧表行数和结构不变
     for n, c in counts_before.items():
@@ -109,18 +109,18 @@ def test_migration_failure_rolls_back(tmp_path, monkeypatch):
     """迁移失败必须回滚，user_version 不得增加。"""
     db = Database(tmp_path / "test.db")
     db.migrate()  # 全部应用
-    assert db.current_version() == 5
+    assert db.current_version() == 6
 
-    # 制造一个坏迁移：在 005 之后创建 006 非法 SQL
-    bad = MIGRATIONS_DIR / "006_bad.sql"
+    # 制造一个坏迁移：在 006 之后创建 007 非法 SQL
+    bad = MIGRATIONS_DIR / "007_bad.sql"
     bad.write_text("CREATE TABLE broken (", encoding="utf-8")
     try:
         # 手动模拟 migrate() 逻辑：应用失败不应改变 user_version
         with pytest.raises(Exception):
             with db._conn:
                 db._conn.executescript(bad.read_text(encoding="utf-8"))
-                db._conn.execute("PRAGMA user_version = 6")
-        assert db.current_version() == 5
+                db._conn.execute("PRAGMA user_version = 7")
+        assert db.current_version() == 6
     finally:
         bad.unlink(missing_ok=True)
     db.close()
@@ -130,7 +130,7 @@ def test_repeat_migration_is_noop(empty_db):
     empty_db.migrate()
     applied = empty_db.migrate()
     assert applied == []
-    assert empty_db.current_version() == 5
+    assert empty_db.current_version() == 6
 
 
 def test_financial_value_columns_are_text(tmp_path):

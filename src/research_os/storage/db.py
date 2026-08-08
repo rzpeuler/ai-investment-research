@@ -24,7 +24,7 @@ TABLES = {
     "Claim": "claims",
     "Evidence": "evidence",
     "ModuleResult": "module_results",
-    "GraphChange": "graph_changes",
+    # GraphChange 由 GraphChangeCandidateRepository 专用追加逻辑管理，不经过 generic upsert
     # Phase 1：来源层
     "Source": "sources",
     "SourceProbe": "source_probes",
@@ -62,6 +62,7 @@ TABLES = {
     "EquityResearchRequest": "equity_research_requests",
     "EquityResearchRun": "equity_research_runs",
     "EquityResearchResult": "equity_research_results",
+    # Phase 5：产业图谱（graph_* 表使用 GraphRepository 专用追加逻辑，不走 generic upsert）
 }
 
 # 各表主键列名（与 001_initial.sql 保持一致）
@@ -73,7 +74,7 @@ PK_COLUMNS = {
     "opinions": "opinion_id",
     "claims": "claim_id",
     "evidence": "evidence_id",
-    "graph_changes": "graph_change_id",
+    # graph_changes 由 GraphChangeCandidateRepository 专用逻辑管理，不走 generic pk 查找
     "sources": "source_id",
     "source_probes": "probe_id",
     "manual_inbox": "inbox_id",
@@ -110,7 +111,25 @@ PK_COLUMNS = {
     "equity_research_requests": "request_id",
     "equity_research_runs": "run_id",
     "equity_research_results": "result_id",
+    # Phase 5：graph_* 表使用专用 GraphRepository 追加逻辑，不走 generic pk 查找
 }
+
+
+class _Transaction:
+    """Database 的事务上下文管理器：commit on success, rollback on exception."""
+
+    def __init__(self, db: "Database"):
+        self._db = db
+
+    def __enter__(self):
+        return self._db._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self._db._conn.rollback()
+            return False  # re-raise
+        self._db._conn.commit()
+        return False
 
 
 class Database:
@@ -204,8 +223,7 @@ class Database:
         if name == "ModuleResult":
             return {"status": d["status"], "as_of": d["as_of"]}
         if name == "GraphChange":
-            return {"change_type": d["change_type"], "review_status": d["review_status"],
-                    "created_at": d["created_at"]}
+            raise ValueError("GraphChange 禁止使用 generic upsert，请使用 GraphChangeCandidateRepository")
         if name == "Source":
             return {"name": d["name"], "status": d["status"],
                     "last_verified_at": d["last_verified_at"]}
@@ -418,6 +436,18 @@ class Database:
     def count(self, table: str) -> int:
         row = self._conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
         return int(row["n"])
+
+    # ---------- 事务 ----------
+
+    def transaction(self):
+        """开始一个确定性事务上下文管理器。
+
+        Usage:
+            with db.transaction():
+                db._conn.execute(...)
+                # commit on normal exit, rollback on exception
+        """
+        return _Transaction(self)
 
     def close(self) -> None:
         self._conn.close()

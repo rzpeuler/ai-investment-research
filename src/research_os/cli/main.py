@@ -640,5 +640,371 @@ def run_equity_research(entity_code, report_date, as_of, depth, periods, peers,
     _print_scenario_outcome(outcome, dry_run=dry_run)
 
 
+# ---------- Phase 5：知识图谱 ----------
+
+@cli.group("knowledge")
+def knowledge_group() -> None:
+    """Phase 5 产业图谱管理（本体种子、查询、审核）。"""
+
+
+@knowledge_group.command("seed")
+@click.option(
+    "--ontology", "ontology_path",
+    default="knowledge/ontology/industry_graph_v1.yaml",
+    show_default=True,
+    help="本体 YAML 文件路径（相对项目根）。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="0 写入：只加载、校验和报告预期操作。",
+)
+def knowledge_seed(ontology_path, db_path, dry_run) -> None:
+    """导入产业图谱首版本体种子（确定性、幂等、零 LLM）。
+
+    第二次运行产生 0 插入（纯幂等）。
+    本体 YAML 需先通过 dry-run 验证。
+    M2 修正：全量预检查、dry-run 支持 pre-v6 DB、输出含 ontology_sha256。
+    """
+    import hashlib
+
+    from research_os.knowledge.ontology import load_ontology, OntologyLoadError
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.storage import Database
+
+    root = _project_root()
+
+    # 解析路径
+    ont_path = root / ontology_path
+    db_full = root / db_path
+
+    # ---- 加载本体（含 SHA256） ----
+    try:
+        nodes, edges, meta = load_ontology(ont_path)
+    except (FileNotFoundError, OntologyLoadError) as exc:
+        raise click.ClickException(str(exc)) from None
+
+    ontology_id = meta["ontology_id"]
+    ontology_version = meta["ontology_version"]
+    ontology_sha256 = meta["ontology_sha256"]
+    nodes_total = len(nodes)
+    edges_total = len(edges)
+
+    # ---- 数据库不存在 ----
+    if not db_full.exists():
+        if dry_run:
+            # dry-run + DB 不存在：0 写入，只报告
+            summary = {
+                "status": "dry_run",
+                "dry_run": True,
+                "ontology_id": ontology_id,
+                "ontology_version": ontology_version,
+                "ontology_sha256": ontology_sha256,
+                "nodes_total": nodes_total,
+                "edges_total": edges_total,
+                "nodes_inserted": 0,
+                "edges_inserted": 0,
+                "nodes_idempotent": 0,
+                "edges_idempotent": 0,
+                "nodes_would_insert": nodes_total,
+                "edges_would_insert": edges_total,
+                "migration_required": True,
+                "conflicts": [],
+                "db_path": str(db_full),
+            }
+            click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+            return
+        # 非 dry-run：创建 DB、迁移、继续走正常 seed 路径
+        db = Database(db_full)
+        db.initialize()
+    elif dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        repo = GraphRepository(db)
+
+        # 检查迁移状态
+        db_version = db.current_version()
+        migration_required = db_version < 6
+        if not migration_required:
+            check = db._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='graph_nodes'"
+            ).fetchone()
+            if check is None:
+                migration_required = True
+
+        # 使用 seed_ontology 方法（全量预检查）
+        summary = repo.seed_ontology(
+            nodes=nodes,
+            edges=edges,
+            ontology_id=ontology_id,
+            ontology_version=ontology_version,
+            ontology_sha256=ontology_sha256,
+            dry_run=dry_run,
+        )
+
+        # 如果数据库版号不足，标记 migration_required
+        if migration_required:
+            summary["migration_required"] = True
+
+        click.echo(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
+@knowledge_group.command("candidates")
+@click.option("--source", "sources", multiple=True, required=True,
+              help="源对象 Type:ID（可重复）。如 Event:ev_xxx Claim:cl_xxx")
+@click.option("--db", "db_path", default="data/sqlite/research.db", show_default=True,
+              help="SQLite 数据库路径（相对项目根）。")
+@click.option("--provider", "provider_id", default="deepseek", show_default=True,
+              help="LLM Provider ID。")
+@click.option("--live", is_flag=True, default=False,
+              help="发起真实 Provider 调用生成 candidate。")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="0 writes：仅执行预检，不调用 LLM，不写候选 DB/文件。")
+def knowledge_candidates(sources, db_path, provider_id, live, dry_run) -> None:
+    """从结构化源对象生成 GraphChange candidate（M3 候选管线）。
+
+    源类型支持：Event / Claim / ResearchFinding / CompetitiveFactor /
+    Catalyst / RiskFactor / BusinessSegment / CompanyProfile / Evidence。
+
+    --live 控制是否真实调用 LLM；--dry-run 控制是否写入。
+    """
+    from research_os.knowledge.candidate_pipeline import CandidatePipeline
+    from research_os.knowledge.candidate_sources import is_allowed_source_type
+    from research_os.llm.provider_factory import create_provider
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    # 解析 source 参数
+    parsed_sources = []
+    for s in sources:
+        if ":" not in s:
+            raise click.ClickException(f"source 参数格式错误（要求 Type:ID）: {s!r}")
+        st, sid = s.split(":", 1)
+        if not is_allowed_source_type(st):
+            raise click.ClickException(
+                f"不支持的源类型: {st!r}，允许: Event/Claim/ResearchFinding/"
+                f"CompetitiveFactor/Catalyst/RiskFactor/BusinessSegment/CompanyProfile/Evidence"
+            )
+        parsed_sources.append((st, sid))
+
+    # dry-run：使用 read_only 模式，零写入
+    if dry_run:
+        db = Database.open_read_only(db_full)
+        # 检查 DB 版本
+        version = db.current_version()
+        if version < 6:
+            raise click.ClickException(
+                f"数据库版本过低: {version}，要求 >=6。请先运行迁移。"
+            )
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        provider = None
+        if live and not dry_run:
+            from research_os.llm.provider_factory import create_provider as _create_prov
+            provider = _create_prov(root, provider_id=provider_id, live=live)
+        pipeline = CandidatePipeline(
+            db=db,
+            provider=provider,
+            live=live,
+            dry_run=dry_run,
+        )
+        knowledge_dir = root / "knowledge"
+        result = pipeline.run(
+            sources=parsed_sources,
+            knowledge_dir=knowledge_dir,
+        )
+        click.echo(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        if result.get("status") not in ("ok", "dry_run", "preflight_only"):
+            raise SystemExit(1)
+    finally:
+        db.close()
+
+
+@knowledge_group.command("review-export")
+@click.option(
+    "--change-id", "change_id", required=True,
+    help="GraphChange candidate 唯一 ID（UUID）。"
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="仅渲染 Markdown 并输出到 stdout，不写文件。",
+)
+def knowledge_review_export(change_id, db_path, dry_run) -> None:
+    """将 GraphChange candidate 导出为人工审阅 Markdown。
+
+    验证 candidate 存在且 review_status=candidate。
+    包含 candidate_hash、Reviewer 模板、4 个审核选项。
+    """
+    from research_os.knowledge.review_workflow import ReviewWorkflow
+    from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+
+        workflow = ReviewWorkflow(
+            db, candidate_repo, graph_repo, validator,
+            knowledge_dir=root / "knowledge",
+        )
+
+        result = workflow.review_export(change_id, dry_run=dry_run)
+
+        if result.status == "error":
+            raise click.ClickException(result.error)
+
+        # 正式 artifact workflow：输出 deterministic JSON summary
+        output = {
+            "status": result.status,
+            "graph_change_id": result.graph_change_id,
+            "candidate_hash": result.candidate_hash,
+            "markdown_path": result.markdown_path,
+        }
+        if result.error:
+            output["error"] = result.error
+        if dry_run:
+            # dry-run 保证 target path 未创建/未改变
+            if result.markdown_path:
+                output["target_path"] = result.markdown_path
+                output["file_exists"] = Path(result.markdown_path).exists()
+            output["dry_run"] = True
+        click.echo(json.dumps(output, ensure_ascii=False, sort_keys=True))
+
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
+@knowledge_group.command("review-import")
+@click.option(
+    "--file", "file_path", required=True,
+    help="填写后的审阅 Markdown 文件路径。"
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="完整预检（parse→load→verify→validate→patch→replacement build），零 DB 写入。",
+)
+def knowledge_review_import(file_path, db_path, dry_run) -> None:
+    """导入人工审阅 Markdown 并持久化。
+
+    流程：parse → load candidate → hash verify → build GraphReview →
+          M4 validate_review → patch apply → atomic persist。
+    dry-run 执行完整预检但零写入。
+    """
+    from research_os.knowledge.review_workflow import ReviewWorkflow
+    from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    # 读取 Markdown 文件
+    md_file = Path(file_path)
+    if not md_file.is_absolute():
+        md_file = root / file_path
+    if not md_file.exists():
+        raise click.ClickException(f"审阅文件不存在: {md_file}")
+
+    try:
+        md_text = md_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise click.ClickException(f"读取审阅文件失败: {exc}")
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+
+        workflow = ReviewWorkflow(db, candidate_repo, graph_repo, validator)
+
+        result = workflow.review_import(md_text, dry_run=dry_run)
+
+        output = {
+            "status": result.status,
+            "review_id": result.review_id,
+            "graph_change_id": result.graph_change_id,
+            "decision": result.decision,
+            "resulting_graph_change_id": result.resulting_graph_change_id,
+            "candidate_hash": result.candidate_hash,
+            "review_eligible": result.review_eligible,
+            "apply_eligible": result.apply_eligible,
+            "dry_run": result.dry_run,
+            "warnings": result.warnings,
+        }
+        if result.errors:
+            output["errors"] = result.errors
+
+        click.echo(json.dumps(output, ensure_ascii=False, sort_keys=True))
+
+        if result.status == "error":
+            raise SystemExit(1)
+
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()
