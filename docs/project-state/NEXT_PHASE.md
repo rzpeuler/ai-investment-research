@@ -14,11 +14,12 @@
   - M2 Persistence and ontology seed：PASS（SHA `565d500`，M2 CI `31171415215`：1351 passed / 5 skipped / 55/55 schemas）
   - M3 GraphChange Candidate Pipeline：PASS（SHA `242e039`，M3 CI `31240709634`：1480 passed / 5 skipped / 55/55 schemas）
   - M4 Knowledge Validator：PASS（SHA `20b7a15`，M4 CI `31241777234`：1611 passed / 5 skipped / 55/55 schemas）
-  - M5 Human Review Workflow：AUTHORIZED / IN_PROGRESS
-  - M6-M10：NOT_AUTHORIZED
+  - M5 Human Review Workflow：PASS（SHA `92649a7`，M5 CI `31251491357`：1725 passed / 5 skipped / 0 xfail / 55/55 schemas）
+  - M6 Deterministic Apply Engine：AUTHORIZED / IN_PROGRESS
+  - M7-M10：NOT_AUTHORIZED
 
-Phase 5 正式任务书已由用户批准。M1、M2、M3、M4 已通过独立架构验收。M5 已授权实施。
-**M5 完成不自动授权 M6。** M6 须用户另行明确授权。
+Phase 5 正式任务书已由用户批准。M1、M2、M3、M4、M5 已通过独立架构验收。M6 已由用户明确授权实施。
+**M6 完成不自动授权 M7。** M7 须用户另行明确授权。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
@@ -41,17 +42,17 @@ Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施�
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前允许：**M5 only**。
+当前允许：**M6 only**。
 
-M6 要求：M5 完成 + Offline CI PASS + 独立验收 + 用户另行明确授权。
-不得预授权 M6。
+M7 要求：M6 完成 + Offline CI PASS + 独立验收 + 用户另行明确授权。
+不得预授权 M7。
 
 ```
 当前允许：
-完成 M5 Human Review Workflow 实现与验收。
+完成 M6 Deterministic Apply Engine 实现与验收。
 
 禁止：
-M6 apply engine
+M7 apply of modify/retire/supersede/expire
 以及 M7-M10。
 ```
 
