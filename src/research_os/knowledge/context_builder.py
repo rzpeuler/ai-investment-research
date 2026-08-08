@@ -2,46 +2,28 @@
 
 零 LLM / 零 Provider / 零 network。只读（READ ONLY）。
 
-冻结语义（Decision #38.6）：
+冻结语义（Decision #38.6 / #38.11）：
 - 复用 GraphQueryService（禁止第二套 traversal）
 - graph 与 Evidence 必须在同一 read snapshot 内 strict load（禁止混合状态）
+- Evidence strict read 单一权威在 GraphQueryService（本模块委托，禁止第二套 loader）
 - KnowledgeContext = frozen dataclass / deterministic dict，不持久化，不新增 Schema
-- Evidence strict read：JSON → dict → Schema → Pydantic → dump → Schema +
-  DB primary identity / denormalized columns 核对
 - 历史 as_of 下 Evidence 不按 retrieved_at 重新过滤（immutable provenance snapshot）
 - Governance evidence_ids=[] 合法，不误报 QUERY_EVIDENCE_MISSING
 - 禁止生成投资结论（target price / rating / advice / recommendation）
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
-from research_os.models import Evidence
-from research_os.validators.schema_validator import validate_instance
-
 from research_os.knowledge.query import (
-    MAX_EVIDENCE,
+    EVIDENCE_SUMMARY_FIELDS,  # re-export（测试与 CLI 兼容引用）
     GraphQueryService,
     QueryError,
 )
 
-# Evidence summary 字段（Decision #38.6.28）：不含 excerpt
-EVIDENCE_SUMMARY_FIELDS = (
-    "evidence_id", "source_id", "raw_item_id", "title", "publisher",
-    "published_at", "retrieved_at", "url", "evidence_type",
-    "independence_group", "source_tier", "access_status",
-)
-
-# evidence 表 denormalized columns（与 001_initial.sql / M7 fixture 一致）
-_EVIDENCE_COLUMNS = (
-    ("source_id", "source_id"),
-    ("raw_item_id", "raw_item_id"),
-    ("independence_group", "independence_group"),
-    ("source_tier", "source_tier"),
-)
+__all__ = ["EVIDENCE_SUMMARY_FIELDS", "KnowledgeContext", "KnowledgeContextBuilder"]
 
 
 @dataclass(frozen=True)
@@ -117,7 +99,8 @@ class KnowledgeContextBuilder:
                 conn, root_node_id, as_of, max_depth=max_depth,
                 relation_filters=relation_filters, direction=direction,
                 assertion_types=assertion_types)
-            evidence_summaries = self._strict_load_evidence(
+            # Evidence strict read 单一权威（GraphQueryService），同一 snapshot
+            evidence_summaries = self._query._strict_read_evidence(
                 conn, qr.evidence_ids)
             evidence_ids = [s["evidence_id"] for s in evidence_summaries]
             ctx = KnowledgeContext(
@@ -142,90 +125,6 @@ class KnowledgeContextBuilder:
             self._close_snapshot(conn)
             raise QueryError(
                 "QUERY_READ_FAILED", f"context build failed: {e}") from e
-
-    # ── Evidence strict lineage（Decision #38.6.27）──────────
-
-    def _strict_load_evidence(
-            self, conn: sqlite3.Connection,
-            evidence_ids: Sequence[str]) -> List[Dict[str, Any]]:
-        """对全部唯一 evidence_ids 做 strict read（fail-closed）。"""
-        summaries: List[Dict[str, Any]] = []
-        seen: set[str] = set()
-        for eid in sorted(set(evidence_ids)):
-            if eid in seen:
-                continue
-            seen.add(eid)
-            if len(summaries) >= MAX_EVIDENCE:
-                raise QueryError(
-                    "QUERY_RESULT_LIMIT_EXCEEDED",
-                    f"evidence 超过硬上限 MAX_EVIDENCE={MAX_EVIDENCE}")
-            row = self._select_evidence_row(conn, eid)
-            if row is None:
-                raise QueryError(
-                    "QUERY_EVIDENCE_MISSING", f"Evidence {eid} 缺失")
-            try:
-                payload = json.loads(row["payload"])
-            except Exception as e:
-                raise QueryError(
-                    "QUERY_EVIDENCE_INVALID",
-                    f"Evidence {eid} payload 非法 JSON: {e}") from e
-            if not isinstance(payload, dict):
-                raise QueryError(
-                    "QUERY_EVIDENCE_INVALID",
-                    f"Evidence {eid} payload 顶层必须是 object")
-            schema_errors = validate_instance(payload, "evidence")
-            if schema_errors:
-                raise QueryError(
-                    "QUERY_EVIDENCE_INVALID",
-                    f"Evidence {eid} schema invalid: "
-                    f"{'; '.join(schema_errors)}")
-            try:
-                obj = Evidence(**payload)
-            except Exception as e:
-                raise QueryError(
-                    "QUERY_EVIDENCE_INVALID",
-                    f"Evidence {eid} Pydantic parse failed: {e}") from e
-            try:
-                dumped = obj.model_dump()
-            except Exception as e:
-                raise QueryError(
-                    "QUERY_EVIDENCE_INVALID",
-                    f"Evidence {eid} model_dump failed: {e}") from e
-            schema_errors2 = validate_instance(dumped, "evidence")
-            if schema_errors2:
-                raise QueryError(
-                    "QUERY_EVIDENCE_INVALID",
-                    f"Evidence {eid} dump schema re-validation failed: "
-                    f"{'; '.join(schema_errors2)}")
-            # DB primary identity + denormalized columns 核对（不得只信一边）
-            if dumped["evidence_id"] != row["evidence_id"]:
-                raise QueryError(
-                    "QUERY_EVIDENCE_INTEGRITY_CONFLICT",
-                    f"Evidence DB evidence_id={row['evidence_id']} 与 "
-                    f"payload evidence_id={dumped['evidence_id']} 不一致")
-            for col, key in _EVIDENCE_COLUMNS:
-                if row[col] != dumped.get(key):
-                    raise QueryError(
-                        "QUERY_EVIDENCE_INTEGRITY_CONFLICT",
-                        f"Evidence {eid} DB column {col}={row[col]!r} 与 "
-                        f"payload {key}={dumped.get(key)!r} 不一致")
-            summaries.append(
-                {k: dumped[k] for k in EVIDENCE_SUMMARY_FIELDS})
-        return summaries
-
-    @staticmethod
-    def _select_evidence_row(conn: sqlite3.Connection, eid: str):
-        try:
-            return conn.execute(
-                "SELECT evidence_id, payload, source_id, raw_item_id, "
-                "independence_group, source_tier "
-                "FROM evidence WHERE evidence_id = ?",
-                (eid,),
-            ).fetchone()
-        except sqlite3.Error as e:
-            raise QueryError(
-                "QUERY_READ_FAILED",
-                f"Evidence {eid} strict read failed: {e}") from e
 
     # ── snapshot helper（与 GraphQueryService 同一契约）──────
 

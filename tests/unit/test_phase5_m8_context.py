@@ -377,7 +377,7 @@ class TestEvidenceAttacks:
         assert ei.value.error_code == "QUERY_EVIDENCE_INTEGRITY_CONFLICT"
 
     def test_max_evidence_exceeded(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("research_os.knowledge.context_builder.MAX_EVIDENCE", 1)
+        monkeypatch.setattr("research_os.knowledge.query.MAX_EVIDENCE", 1)
         db, _ = _setup_db(tmp_path)
         _insert_evidence(db, EVIDENCE_UUID2)
         _insert_node(db, "company:a",
@@ -411,7 +411,8 @@ class TestContextSnapshot:
                 "WHERE evidence_id = ?", (EVIDENCE_UUID,))
             db_w._conn.commit()
             # 同一 snapshot 内 Evidence strict load：看到旧 title（混合状态被阻止）
-            summaries = builder._strict_load_evidence(conn, qr.evidence_ids)
+            summaries = builder._query._strict_read_evidence(
+                conn, qr.evidence_ids)
             assert summaries[0]["title"] == "证据-11111111"
         finally:
             conn.execute("ROLLBACK")

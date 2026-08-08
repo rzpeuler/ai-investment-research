@@ -1230,3 +1230,34 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
   标记为 unresolved/deferred。不得自行决定永久取消或归入 M9/M10。
 - 最终 Pro review 若再次发现此项，报告为已知治理未决项，不作为擅自扩展
   M8 的理由。
+
+### 38.11 M8-R1 Query Integrity Closure（2026-08-08）
+
+> 主控授权 M8-R1（BASE_SHA `0962a04`，Offline CI `31268060847`，1993 passed）。
+> 只关闭 query integrity 缺口，不改变 M8 已通过语义；M9-M10 仍 NOT_AUTHORIZED。
+
+- **public query Evidence strict validation**：`get_node` / `get_edge` /
+  `query_graph` / `KnowledgeContextBuilder.build` 在各自 public call 的同一
+  read snapshot 内，对最终返回对象引用的全部 unique evidence_ids 做 strict
+  validation。删除被引用 Evidence → `QUERY_EVIDENCE_MISSING`（不只 context
+  发现）。Governance `evidence_ids=[]` 继续合法。QueryGraphResult 只返回
+  evidence_ids（strict validate 后丢弃 summaries），Context 才返回 summaries。
+- **Evidence strict-read 单一权威**：loader 归属 GraphQueryService
+  （`_strict_read_evidence` / `_validate_evidence_refs`），
+  KnowledgeContextBuilder 委托，禁止第二套 loader。链保持
+  JSON→dict→evidence Schema→Evidence Pydantic→model_dump→Schema→
+  DB identity/denormalized columns 核对；不深读 RawItem/Source。
+- **MAX_EVIDENCE=1000 属于 query contract**：任何 public query 的最终
+  unique evidence IDs > 1000 → `QUERY_RESULT_LIMIT_EXCEEDED` 整查询失败
+  （含 query_graph 与 direct node/edge 单对象），不得 silent truncate。
+- **logical triple ambiguity 先于 user semantic filters**：discovery 命中 →
+  resolve as_of → inactive lifecycle skip → active：endpoint integrity 检查
+  + logical triple ownership 检查 → 然后才应用 direction/relation/assertion
+  等 semantic filters。relation/direction/assertion filters 不得隐藏 active
+  logical identity / endpoint corruption（`QUERY_AMBIGUOUS_EDGE_IDENTITY` /
+  `QUERY_ENDPOINT_MISSING` / `QUERY_ENDPOINT_INACTIVE` 先于 filter 触发）。
+  合法 filter 结果语义不变。
+- **canonical filter ordering**：`relation_filters` 与 `assertion_types` 是
+  集合语义，validation 后返回 canonical sorted unique tuple（caller 输入
+  顺序不影响结果）；`direction` 是单值不变。置换顺序输入 → identical
+  QueryGraphResult.to_dict() / identical CLI JSON bytes。

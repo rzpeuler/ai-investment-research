@@ -1026,3 +1026,271 @@ class TestHistoryConnRegression:
         rd = history.resolve_edge_as_of("edge:ab", T3)
         rc = history.resolve_edge_as_of("edge:ab", T3, conn=db._conn)
         assert rd == rc
+
+
+# ── M8-R1：public query Evidence fail-closed（Decision #38.11）─────────────
+
+EVIDENCE_UUID2 = "44444444-4444-4444-4444-444444444444"
+
+
+class TestEvidenceQueryFailClosed:
+    def _mk_ab(self, db, edge_evidence=None, node_evidence=None):
+        _insert_node(db, _node("company:a", 1, gc_id=str(uuid.uuid4()),
+                               evidence_ids=node_evidence or [EVIDENCE_UUID]), 1)
+        _insert_node(db, _node("company:b", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("edge:ab", "company:a", "SUPPLIES", "company:b", 1,
+                               gc_id=str(uuid.uuid4()),
+                               evidence_ids=edge_evidence or [EVIDENCE_UUID]), 1)
+
+    def test_get_node_evidence_missing(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        self._mk_ab(db)
+        db._conn.execute(
+            "DELETE FROM evidence WHERE evidence_id = ?", (EVIDENCE_UUID,))
+        db._conn.commit()
+        with pytest.raises(QueryError) as ei:
+            _service(db).get_node("company:a", T2)
+        assert ei.value.error_code == "QUERY_EVIDENCE_MISSING"
+
+    def test_get_edge_evidence_missing(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        self._mk_ab(db)
+        db._conn.execute(
+            "DELETE FROM evidence WHERE evidence_id = ?", (EVIDENCE_UUID,))
+        db._conn.commit()
+        with pytest.raises(QueryError) as ei:
+            _service(db).get_edge("edge:ab", T2)
+        assert ei.value.error_code == "QUERY_EVIDENCE_MISSING"
+
+    def test_query_graph_evidence_missing(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        _mk_chain(db)
+        db._conn.execute(
+            "DELETE FROM evidence WHERE evidence_id = ?", (EVIDENCE_UUID,))
+        db._conn.commit()
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T2, max_depth=2)
+        assert ei.value.error_code == "QUERY_EVIDENCE_MISSING"
+
+    def test_query_graph_evidence_malformed(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        _mk_chain(db)
+        db._conn.execute(
+            "UPDATE evidence SET payload = ? WHERE evidence_id = ?",
+            ("{broken", EVIDENCE_UUID))
+        db._conn.commit()
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T2, max_depth=2)
+        assert ei.value.error_code == "QUERY_EVIDENCE_INVALID"
+
+    def test_query_graph_evidence_column_conflict(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        _mk_chain(db)
+        db._conn.execute(
+            "UPDATE evidence SET source_tier = 'S' WHERE evidence_id = ?",
+            (EVIDENCE_UUID,))  # column S vs payload B
+        db._conn.commit()
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T2, max_depth=2)
+        assert ei.value.error_code == "QUERY_EVIDENCE_INTEGRITY_CONFLICT"
+
+    def test_governance_query_empty_evidence_ok(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        _insert_node(db, _gov_node("industry:semi", name="半导体"), 1)
+        _insert_node(db, _gov_node("industry:ai-hardware", name="AI硬件"), 1)
+        _insert_edge(db, _gov_edge("edge:gov-1", "industry:semi",
+                                   "BELONGS_TO", "industry:ai-hardware"), 1)
+        svc = _service(db)
+        r = svc.query_graph("industry:semi", T2, max_depth=1)
+        assert r.evidence_ids == []
+        assert r.epistemic["governance"] == ["edge:gov-1"]
+
+    def test_query_graph_max_evidence(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("research_os.knowledge.query.MAX_EVIDENCE", 1)
+        db, _ = _setup_db(tmp_path)
+        self._mk_ab(db, edge_evidence=[EVIDENCE_UUID, EVIDENCE_UUID2],
+                    node_evidence=[EVIDENCE_UUID])
+        # node a 引用 2 个 unique evidence_ids（node+edge 去重后 = 2）
+        _insert_evidence2(db)
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T2, max_depth=1)
+        assert ei.value.error_code == "QUERY_RESULT_LIMIT_EXCEEDED"
+
+    def test_direct_node_max_evidence(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("research_os.knowledge.query.MAX_EVIDENCE", 1)
+        db, _ = _setup_db(tmp_path)
+        _insert_evidence2(db)
+        _insert_node(db, _node("company:a", 1, gc_id=str(uuid.uuid4()),
+                               evidence_ids=[EVIDENCE_UUID, EVIDENCE_UUID2]), 1)
+        with pytest.raises(QueryError) as ei:
+            _service(db).get_node("company:a", T2)
+        assert ei.value.error_code == "QUERY_RESULT_LIMIT_EXCEEDED"
+
+    def test_duplicate_triple_not_hidden_by_assertion_filter(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        _insert_node(db, _node("company:a", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_node(db, _node("company:b", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("edge:ab-fact", "company:a", "SUPPLIES",
+                               "company:b", 1, assertion_type="FACT",
+                               gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("edge:ab-mi", "company:a", "SUPPLIES",
+                               "company:b", 1,
+                               assertion_type="MODEL_INFERENCE",
+                               gc_id=str(uuid.uuid4())), 1)
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T2, max_depth=1,
+                                     assertion_types=["FACT"])
+        assert ei.value.error_code == "QUERY_AMBIGUOUS_EDGE_IDENTITY"
+
+    def test_duplicate_triple_not_hidden_by_relation_filter(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        _insert_node(db, _node("company:a", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_node(db, _node("company:b", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("edge:ab-1", "company:a", "SUPPLIES",
+                               "company:b", 1,
+                               gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("edge:ab-2", "company:a", "SUPPLIES",
+                               "company:b", 1,
+                               gc_id=str(uuid.uuid4())), 1)
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T2, max_depth=1,
+                                     relation_filters=["SUPPLIES"])
+        assert ei.value.error_code == "QUERY_AMBIGUOUS_EDGE_IDENTITY"
+
+    def test_filter_hidden_endpoint_corruption(self, tmp_path):
+        # active edge 引用 retired endpoint 不能被 semantic filter 隐藏
+        db, _ = _setup_db(tmp_path)
+        _insert_node(db, _node("company:a", 1, gc_id=str(uuid.uuid4())), 1)
+        gc_b1 = str(uuid.uuid4())
+        _insert_node(db, _node("company:b", 1, gc_id=gc_b1), 1)
+        gc_b2 = str(uuid.uuid4())
+        _insert_node(db, _node("company:b", 2, status="retired",
+                               valid_from=T2, valid_to=T2, gc_id=gc_b2), 2,
+                     change_type="retire_node")
+        _insert_edge(db, _edge("edge:ab", "company:a", "SUPPLIES", "company:b", 1,
+                               gc_id=str(uuid.uuid4())), 1)
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T3, max_depth=1,
+                                     assertion_types=["FACT"])
+        assert ei.value.error_code == "QUERY_ENDPOINT_INACTIVE"
+
+    def test_inactive_root_evidence_still_validated(self, tmp_path):
+        # inactive root early-return 不得跳过 evidence strict validate
+        db, _ = _setup_db(tmp_path)
+        gc1 = str(uuid.uuid4())
+        _insert_node(db, _node("company:a", 1, gc_id=gc1), 1)
+        gc2 = str(uuid.uuid4())
+        _insert_node(db, _node("company:a", 2, status="retired",
+                               valid_from=T2, valid_to=T2, gc_id=gc2), 2,
+                     change_type="retire_node")
+        db._conn.execute(
+            "DELETE FROM evidence WHERE evidence_id = ?", (EVIDENCE_UUID,))
+        db._conn.commit()
+        with pytest.raises(QueryError) as ei:
+            _service(db).query_graph("company:a", T3, max_depth=1)
+        assert ei.value.error_code == "QUERY_EVIDENCE_MISSING"
+
+
+def _insert_evidence2(db):
+    ev = Evidence(
+        evidence_id=EVIDENCE_UUID2,
+        source_id=SOURCE_UUID,
+        raw_item_id=RAW_ITEM_UUID,
+        title="测试证据2",
+        publisher="测试发布者",
+        published_at="2026-08-01T10:00:00+08:00",
+        retrieved_at="2026-08-02T10:00:00+08:00",
+        url="https://example.com",
+        excerpt="测试摘录2",
+        evidence_type="news_report",
+        independence_group="group-1",
+        source_tier="B",
+        access_status="ok",
+    )
+    db._conn.execute(
+        "INSERT OR IGNORE INTO evidence (evidence_id, payload, source_id, raw_item_id, independence_group, source_tier) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (EVIDENCE_UUID2, _canonical(ev.model_dump()), SOURCE_UUID,
+         RAW_ITEM_UUID, "group-1", "B"),
+    )
+    db._conn.commit()
+
+
+# ── M8-R1：canonical filters（Decision #38.11）─────────────────────────────
+
+class TestCanonicalFilters:
+    def _graph(self, db):
+        _insert_node(db, _node("company:a", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_node(db, _node("company:b", 1, gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("e1", "company:a", "SUPPLIES", "company:b", 1,
+                               gc_id=str(uuid.uuid4())), 1)
+        _insert_edge(db, _edge("e2", "company:a", "COMPETES_WITH", "company:b", 1,
+                               gc_id=str(uuid.uuid4())), 1)
+
+    def _json(self, r) -> str:
+        return json.dumps(r.to_dict(), ensure_ascii=False, sort_keys=True)
+
+    def test_permuted_relation_filters_identical(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        self._graph(db)
+        svc = _service(db)
+        r1 = svc.query_graph("company:a", T2, max_depth=1,
+                             relation_filters=["SUPPLIES", "COMPETES_WITH"])
+        r2 = svc.query_graph("company:a", T2, max_depth=1,
+                             relation_filters=["COMPETES_WITH", "SUPPLIES"])
+        assert self._json(r1) == self._json(r2)
+        # canonical 回显：sorted
+        assert r1.query_parameters["relation_filters"] == \
+            ["COMPETES_WITH", "SUPPLIES"]
+
+    def test_permuted_assertion_types_identical(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        self._graph(db)
+        svc = _service(db)
+        r1 = svc.query_graph("company:a", T2, max_depth=1,
+                             assertion_types=["FACT", "MODEL_INFERENCE"])
+        r2 = svc.query_graph("company:a", T2, max_depth=1,
+                             assertion_types=["MODEL_INFERENCE", "FACT"])
+        assert self._json(r1) == self._json(r2)
+
+    def test_duplicate_filters_dedup(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        self._graph(db)
+        svc = _service(db)
+        r = svc.query_graph("company:a", T2, max_depth=1,
+                            relation_filters=["SUPPLIES", "SUPPLIES"])
+        assert r.query_parameters["relation_filters"] == ["SUPPLIES"]
+
+
+# ── M8-R1：query_graph Evidence 同 snapshot concurrency（任务书 §7）──────
+
+class TestQueryEvidenceSnapshot:
+    def test_query_graph_evidence_same_snapshot(self, tmp_path, monkeypatch):
+        db, db_path = _setup_db(tmp_path)
+        _mk_chain(db)
+        db.close()
+
+        db_r = Database(db_path)
+        db_w = Database(db_path)
+        svc = GraphQueryService(db_r)
+        original = svc._strict_read_evidence
+
+        def wrap(conn, evidence_ids):
+            # 首次 evidence validation 前，writer 删除 evidence（同一时刻提交）
+            db_w._conn.execute(
+                "DELETE FROM evidence WHERE evidence_id = ?", (EVIDENCE_UUID,))
+            db_w._conn.commit()
+            return original(conn, evidence_ids)
+
+        monkeypatch.setattr(svc, "_strict_read_evidence", wrap)
+        # 当前 query 保持旧 snapshot：evidence 校验通过
+        r = svc.query_graph("company:a", T2, max_depth=1)
+        assert r.evidence_ids == [EVIDENCE_UUID]
+        db_r.close()
+        db_w.close()
+        # 新 query（新 snapshot）：evidence 缺失 → fail-closed
+        db_r2 = Database(db_path)
+        with pytest.raises(QueryError) as ei:
+            GraphQueryService(db_r2).query_graph("company:a", T2, max_depth=1)
+        assert ei.value.error_code == "QUERY_EVIDENCE_MISSING"
+        db_r2.close()
