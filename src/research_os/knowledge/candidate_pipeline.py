@@ -529,7 +529,8 @@ class CandidatePipeline:
                 file_path = renderer.render_to_file(graph_change, ev_contexts)
                 results["markdown_path"] = file_path
             except ValueError as exc:
-                results["errors"].append(f"Markdown render: {exc}")
+                results["status"] = "file_write_failed"
+            results["errors"].append(f"Markdown render: {exc}")
 
         results["candidates"].append({
             "graph_change_id": graph_change.graph_change_id,

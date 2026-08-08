@@ -159,6 +159,8 @@ class GraphChangeBuilder:
                     )
                     # 检查是否已有同 entity 的节点（baseline lookup）
                     existing_node_info = self._get_latest_node(resolved_entity_id)
+                    if existing_node_info is not None:
+                        add_node_existing_conflict = f"CURRENT_NODE_ALREADY_EXISTS: node_id={resolved_entity_id}"
 
         # ---- 2. 证据闭包 ---- 必须从 source-derived set，拒绝外部证据
         sup_ids = supporting_evidence_ids or proposal.new_evidence_ids
@@ -166,6 +168,10 @@ class GraphChangeBuilder:
 
         # ---- 3. 确定性冲突（proposal.conflicts + builder conflicts，stable dedup+order）----
         builder_conflicts = self.check_conflicts(proposal)
+        # add add_node existing conflict if detected
+        if ct == "add_node" and existing_node_info is not None:
+            add_conflict = f"CURRENT_NODE_ALREADY_EXISTS: node_id={resolved_entity_id}"
+            builder_conflicts.append(add_conflict)
         deterministic_conflicts = self._merge_conflicts(
             proposal.conflicts or [], builder_conflicts
         )
