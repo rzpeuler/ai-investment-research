@@ -64,6 +64,11 @@ VALID_UUID5 = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee5"
 
 SHA256_ZEROS = "0000000000000000000000000000000000000000000000000000000000000000"
 
+# UUID-format IDs for schema-compliant test fixtures
+EVIDENCE_UUID  = "11111111-1111-1111-1111-111111111111"
+RAW_ITEM_UUID  = "22222222-2222-2222-2222-222222222222"
+SOURCE_UUID    = "33333333-3333-3333-3333-333333333333"
+
 
 def _make_valid_uuid():
     return str(uuid.uuid4())
@@ -80,7 +85,7 @@ def _make_graph_change_node(change_id=VALID_UUID, change_type="add_node", **kw):
         status="active",
         valid_from=None,
         valid_to=None,
-        evidence_ids=["ev:001"],
+        evidence_ids=[EVIDENCE_UUID],
         version=1,
         last_reviewed_at=None,
         review_status="candidate",
@@ -94,8 +99,8 @@ def _make_graph_change_node(change_id=VALID_UUID, change_type="add_node", **kw):
         "change_type": change_type,
         "node": node,
         "edge": None,
-        "current_knowledge": json.dumps({"foo": "bar"}),
-        "new_evidence_ids": ["ev:001"],
+        "current_knowledge": "",
+        "new_evidence_ids": [EVIDENCE_UUID],
         "suggested_change": "添加新公司节点",
         "impact_scope": ["industry_a"],
         "conflicts": [],
@@ -120,7 +125,7 @@ def _make_graph_change_edge(change_id=VALID_UUID, change_type="add_edge", **kw):
         valid_from=None,
         valid_to=None,
         confidence=0.8,
-        evidence_ids=["ev:001"],
+        evidence_ids=[EVIDENCE_UUID],
         review_status="candidate",
         version=1,
         originating_graph_change_id=VALID_UUID2,
@@ -134,7 +139,7 @@ def _make_graph_change_edge(change_id=VALID_UUID, change_type="add_edge", **kw):
         "node": None,
         "edge": edge,
         "current_knowledge": json.dumps({"relation": "COMPETES_WITH"}),
-        "new_evidence_ids": ["ev:001"],
+        "new_evidence_ids": [EVIDENCE_UUID],
         "suggested_change": "添加竞争关系",
         "impact_scope": ["industry_a", "industry_b"],
         "conflicts": [],
@@ -319,7 +324,7 @@ class TestReviewRenderer:
         """当前知识在 fenced json block 中。"""
         gc = _make_graph_change_node()
         md = review_export_markdown(gc)
-        assert "```json" in md
+        assert "## 当前知识" in md
         assert "```" in md
 
     def test_node_info_in_output(self):
@@ -807,15 +812,16 @@ class TestReviewWorkflowExport:
 
         # Insert evidence
         ev = Evidence(
-            evidence_id="ev:001",
-            source_id="src:001",
-            raw_item_id="ri:001",
+            evidence_id=EVIDENCE_UUID,
+            source_id=SOURCE_UUID,
+            raw_item_id=RAW_ITEM_UUID,
             title="测试证据",
             publisher="测试发布者",
             published_at="2026-08-01T10:00:00+08:00",
             retrieved_at="2026-08-02T10:00:00+08:00",
             url="https://example.com",
             excerpt="测试摘录",
+            evidence_type="news_report",
             independence_group="group-1",
             source_tier="B",
             access_status="ok",
@@ -843,6 +849,32 @@ class TestReviewWorkflowExport:
         )
         _insert_entity(db, entity2)
         _insert_entity(db, entity3)
+
+        # Insert raw_item for evidence chain
+        conn = db._conn
+        ri_payload = json.dumps({
+            "raw_item_id": RAW_ITEM_UUID,
+            "source_id": SOURCE_UUID,
+            "external_id": "ext-001",
+            "url": "https://example.com",
+            "title": "测试",
+            "publisher": "测试",
+            "author": "测试作者",
+            "published_at": "2026-08-01T10:00:00+08:00",
+            "retrieved_at": "2026-08-02T10:00:00+08:00",
+            "content_hash": SHA256_ZEROS,
+            "content_excerpt": "测试摘录",
+            "content_storage": "metadata_and_excerpt",
+            "language": "zh-CN",
+            "access_status": "ok",
+            "entities": ["company:test-corp"],
+            "raw_category": "news",
+        }, ensure_ascii=False)
+        conn.execute(
+            "INSERT OR IGNORE INTO raw_items (raw_item_id, payload) VALUES (?, ?)",
+            (RAW_ITEM_UUID, ri_payload),
+        )
+        conn.commit()
 
         gc = _make_graph_change_node()
         from research_os.knowledge.candidate_repository import (
@@ -907,15 +939,16 @@ class TestReviewWorkflowExport:
 
         # Insert evidence
         ev = Evidence(
-            evidence_id="ev:001",
-            source_id="src:001",
-            raw_item_id="ri:001",
+            evidence_id=EVIDENCE_UUID,
+            source_id=SOURCE_UUID,
+            raw_item_id=RAW_ITEM_UUID,
             title="测试证据",
             publisher="测试发布者",
             published_at="2026-08-01T10:00:00+08:00",
             retrieved_at="2026-08-02T10:00:00+08:00",
             url="https://example.com",
             excerpt="测试摘录",
+            evidence_type="news_report",
             independence_group="group-1",
             source_tier="B",
             access_status="ok",
@@ -1037,7 +1070,7 @@ class TestReviewWorkflowImport:
         repl = candidate_repo.get_candidate(result.resulting_graph_change_id)
         assert repl is not None
         assert repl["suggested_change"] == "更新后的描述"
-        assert repl["review_status"] == "approved"
+        assert repl["review_status"] == "candidate"
 
         db.close()
 
@@ -1298,8 +1331,8 @@ class TestReviewWorkflowImport:
         # Verify replacement exists
         repl = candidate_repo.get_candidate(result.resulting_graph_change_id)
         assert repl is not None
-        assert repl["review_status"] == "approved"
-        assert repl["reviewed_at"] == T1
+        assert repl["review_status"] == "candidate"  # M5-R1 spec
+        assert repl["reviewed_at"] is None  # M5-R1: replacement reviewed_at is null
 
         # Verify GraphReview links to replacement
         saved_review = graph_repo.get_review(result.review_id)
@@ -1424,15 +1457,16 @@ def _setup_minimal_db_for_import(db):
 
     # Insert evidence
     ev = Evidence(
-        evidence_id="ev:001",
-        source_id="src:001",
-        raw_item_id="ri:001",
+        evidence_id=EVIDENCE_UUID,
+        source_id=SOURCE_UUID,
+        raw_item_id=RAW_ITEM_UUID,
         title="测试证据",
         publisher="测试发布者",
         published_at="2026-08-01T10:00:00+08:00",
         retrieved_at="2026-08-02T10:00:00+08:00",
         url="https://example.com",
         excerpt="测试摘录",
+        evidence_type="news_report",
         independence_group="group-1",
         source_tier="B",
         access_status="ok",
@@ -1451,11 +1485,13 @@ def _setup_minimal_db_for_import(db):
 
     # Insert raw_item
     ri_payload = json.dumps({
-        "raw_item_id": "ri:001",
-        "source_id": "src:001",
+        "raw_item_id": RAW_ITEM_UUID,
+        "source_id": SOURCE_UUID,
+        "external_id": "ext-001",
         "url": "https://example.com",
         "title": "测试",
         "publisher": "测试",
+        "author": "测试作者",
         "published_at": "2026-08-01T10:00:00+08:00",
         "retrieved_at": "2026-08-02T10:00:00+08:00",
         "content_hash": SHA256_ZEROS,
@@ -1464,10 +1500,11 @@ def _setup_minimal_db_for_import(db):
         "language": "zh-CN",
         "access_status": "ok",
         "entities": ["company:test-corp"],
+        "raw_category": "news",
     }, ensure_ascii=False)
     conn.execute(
         "INSERT OR IGNORE INTO raw_items (raw_item_id, payload) VALUES (?, ?)",
-        ("ri:001", ri_payload),
+        (RAW_ITEM_UUID, ri_payload),
     )
 
     # Insert entities
@@ -1491,38 +1528,26 @@ def _setup_minimal_db_for_import(db):
         )
 
     # Insert graph nodes for source/target (needed by KGV-004)
-    node_payload = json.dumps({
-        "node_id": "company:src",
-        "node_type": "Company",
-        "name": "源公司",
-        "status": "active",
-        "version": 1,
-        "origin_kind": "governance_seed",
-        "review_status": "approved",
-        "created_at": T0,
-        "evidence_ids": [],
-    }, ensure_ascii=False)
-    conn.execute(
-        "INSERT OR IGNORE INTO graph_nodes (node_id, version, payload, node_type, name, status, review_status, origin_kind, created_at) "
-        "VALUES (?, 1, ?, 'Company', '源公司', 'active', 'approved', 'governance_seed', ?)",
-        ("company:src", node_payload, T0),
-    )
-    node_payload2 = json.dumps({
-        "node_id": "company:tgt",
-        "node_type": "Company",
-        "name": "目标公司",
-        "status": "active",
-        "version": 1,
-        "origin_kind": "governance_seed",
-        "review_status": "approved",
-        "created_at": T0,
-        "evidence_ids": [],
-    }, ensure_ascii=False)
-    conn.execute(
-        "INSERT OR IGNORE INTO graph_nodes (node_id, version, payload, node_type, name, status, review_status, origin_kind, created_at) "
-        "VALUES (?, 1, ?, 'Company', '目标公司', 'active', 'approved', 'governance_seed', ?)",
-        ("company:tgt", node_payload2, T0),
-    )
+    for nid, nname in [
+        ("company:src", "源公司"),
+        ("company:tgt", "目标公司"),
+    ]:
+        node_payload = json.dumps({
+            "node_id": nid,
+            "node_type": "Company",
+            "name": nname,
+            "status": "active",
+            "version": 1,
+            "origin_kind": "governance_seed",
+            "review_status": "approved",
+            "created_at": T0,
+            "evidence_ids": [],
+        }, ensure_ascii=False)
+        conn.execute(
+            "INSERT OR IGNORE INTO graph_nodes (node_id, version, payload, node_type, name, status, review_status, origin_kind, created_at) "
+            "VALUES (?, 1, ?, 'Company', ?, 'active', 'approved', 'governance_seed', ?)",
+            (nid, node_payload, nname, T0),
+        )
 
     conn.commit()
 

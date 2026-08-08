@@ -288,6 +288,8 @@ class ImportResult:
     decision: str = ""
     resulting_graph_change_id: Optional[str] = None
     dry_run: bool = False
+    review_eligible: bool = False
+    apply_eligible: bool = False
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
@@ -528,19 +530,30 @@ class ReviewWorkflow:
         # 6. M4 validate_review
         as_of = parsed.reviewed_at or gc.created_at
         validation_result = self._validator.validate_review(gc, review, as_of)
-        if not validation_result.apply_eligible and parsed.decision in (
-            "approved", "approved_with_changes"
-        ):
+
+        # M5 import gate: only block on review_eligible=false (structural/review issues).
+        # apply_eligible issues (conflicts, stale baseline) do NOT block import —
+        # they are reported as warnings. See M5-R1 spec item #7.
+        if not validation_result.review_eligible:
             issue_msgs = [f"{i.rule_id}: {i.message}" for i in validation_result.issues
-                          if i.blocks_apply]
+                          if i.blocks_review]
             return ImportResult(
                 status="error",
                 review_id=review_id,
                 graph_change_id=parsed.graph_change_id,
                 decision=parsed.decision,
                 dry_run=dry_run,
-                errors=[f"M4 validation failed for apply: {'; '.join(issue_msgs)}"],
+                review_eligible=False,
+                apply_eligible=validation_result.apply_eligible,
+                errors=[f"M4 validation failed: {'; '.join(issue_msgs)}"],
             )
+
+        # Collect apply-blocking issues as warnings
+        if not validation_result.apply_eligible:
+            apply_warnings = [f"{i.rule_id}: {i.message}" for i in validation_result.issues
+                              if i.blocks_apply]
+            if apply_warnings:
+                warnings.append(f"M4 apply not eligible: {'; '.join(apply_warnings)}")
 
         # 7. Patch apply（仅 approved_with_changes）
         replacement_gc: Optional[GraphChange] = None
@@ -549,22 +562,29 @@ class ReviewWorkflow:
                 gc_dict = copy.deepcopy(candidate_dict)
                 patched = apply_json_patch(gc_dict, parsed.review_patch)
 
-                # 更新 review 相关字段
+                # Replacement is a NEW candidate (M5-R1 item #5):
+                # - graph_change_id = replacement_id (UUID5 from review_id)
+                # - review_status = "candidate" (NOT "approved")
+                # - reviewed_at = null
+                # - created_at = review.reviewed_at
                 patched["graph_change_id"] = resulting_gc_id
-                patched["review_status"] = "approved"
-                patched["reviewed_at"] = parsed.reviewed_at
-                # originating_graph_change_id 指向原 candidate
-                patched.setdefault("originating_graph_change_id", None)
+                patched["review_status"] = "candidate"
+                patched["reviewed_at"] = None
+                patched["created_at"] = parsed.reviewed_at
 
-                # 更新 node/edge review 状态
+                # Node/edge: originating_graph_change_id = replacement_id,
+                # created_at = reviewed_at, review_status = "candidate",
+                # last_reviewed_at = null
                 if patched.get("node"):
-                    patched["node"]["review_status"] = "approved"
-                    patched["node"]["last_reviewed_at"] = parsed.reviewed_at
+                    patched["node"]["review_status"] = "candidate"
+                    patched["node"]["last_reviewed_at"] = None
                     patched["node"]["originating_graph_change_id"] = resulting_gc_id
+                    patched["node"]["created_at"] = parsed.reviewed_at
                 if patched.get("edge"):
-                    patched["edge"]["review_status"] = "approved"
-                    patched["edge"]["last_reviewed_at"] = parsed.reviewed_at
+                    patched["edge"]["review_status"] = "candidate"
+                    patched["edge"]["last_reviewed_at"] = None
                     patched["edge"]["originating_graph_change_id"] = resulting_gc_id
+                    patched["edge"]["created_at"] = parsed.reviewed_at
 
                 replacement_gc = GraphChange(**patched)
             except Exception as e:
