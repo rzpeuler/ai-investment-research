@@ -39,7 +39,7 @@ from research_os.utils.time import now_iso
 _PROTECTED_NODE_TYPES = {"Industry", "IndustrySegment"}
 
 # ---- 认知受限的 Claim 类型：不允许独立支撑 FACT edge ----
-_EPISTEMIC_RESTRICTED_CLAIM_TYPES = {"SOURCE_OPINION", "HYPOTHESIS"}
+_EPISTEMIC_RESTRICTED_CLAIM_TYPES = {"SOURCE_OPINION", "HYPOTHESIS", "MODEL_INFERENCE"}
 
 # ---- GraphNodeType → Entity.entity_type 映射 ----
 _NODE_TYPE_TO_ENTITY_TYPE: Dict[str, str] = {
@@ -294,7 +294,7 @@ class GraphChangeBuilder:
         """
         if source_objects is None:
             return
-        if proposal.proposal_type not in ("add_edge",):
+        if proposal.proposal_type not in ("add_edge", "modify_attribute"):
             return
 
         ce = proposal.candidate_edge
