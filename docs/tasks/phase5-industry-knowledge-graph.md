@@ -1368,6 +1368,10 @@ candidate hash
 
 **执行模型：DeepSeek V4 Pro**
 
+> M6 实现状态（2026-08-08）：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE。
+> 实现于 PR 5B `phase5/graph-apply-query`（#5 DRAFT）。全量 1776 passed /
+> 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变。契约冻结见 DECISIONS.md #36。
+
 这是 Phase 5 高风险核心。
 
 必须：
