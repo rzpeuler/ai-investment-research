@@ -428,7 +428,7 @@ class CandidatePipeline:
             graph_change = self._builder.build(
                 validated_proposal,
                 source_objects=source_objects,
-                supporting_evidence_ids=sup_ids + cnt_ids + cnt_ids,
+                supporting_evidence_ids=list(dict.fromkeys(sup_ids + cnt_ids)),
             )
         except ValueError as exc:
             msg = str(exc)
@@ -461,7 +461,9 @@ class CandidatePipeline:
             return results
 
         # ---- 8. 冲突检测 → Pro escalation（共享 budget）----
-        deterministic_conflicts = graph_change.conflicts or []
+        # 使用 builder 确定性冲突（不含 LLM proposal.conflicts）
+        builder_deterministic = self._builder.check_conflicts(validated_proposal)
+        deterministic_conflicts = builder_deterministic
         if deterministic_conflicts and requested_model_class != "pro":
             if _should_escalate_to_pro(deterministic_conflicts):
                 if self._budget.can_call("pro"):
@@ -481,7 +483,7 @@ class CandidatePipeline:
                             graph_change = self._builder.build(
                                 validated_proposal,
                                 source_objects=source_objects,
-                                supporting_evidence_ids=sup_ids + cnt_ids + cnt_ids,
+                                supporting_evidence_ids=list(dict.fromkeys(sup_ids + cnt_ids)),
                             )
                         except ValueError as exc:
                             results["status"] = "pro_escalation_failed"
