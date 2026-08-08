@@ -869,6 +869,22 @@ class TestJSONPatchApplier:
         with pytest.raises(ValueError, match="不支持的操作"):
             apply_json_patch(gc_dict, patch)
 
+    def test_block_negative_array_index(self):
+        """负数组索引被拒绝（RFC6901 仅允许 add 的 \"-\"）。"""
+        gc = _make_graph_change_node(conflicts=["c1", "c2"])
+        gc_dict = gc.model_dump()
+        patch = [{"op": "remove", "path": "/conflicts/-1"}]
+        with pytest.raises((ValueError, KeyError), match="negative"):
+            apply_json_patch(gc_dict, patch)
+
+    def test_add_negative_array_index(self):
+        """add 到负数组索引被拒绝。"""
+        gc = _make_graph_change_node(impact_scope=["a", "b"])
+        gc_dict = gc.model_dump()
+        patch = [{"op": "add", "path": "/impact_scope/-1", "value": "x"}]
+        with pytest.raises((ValueError, KeyError), match="negative"):
+            apply_json_patch(gc_dict, patch)
+
     def test_whitelist_covers_all_schema_paths(self):
         """白名单覆盖 Schema 中定义的所有允许路径。"""
         schema_paths = {
@@ -2073,6 +2089,37 @@ class TestReviewExportFile:
 
         assert result.status == "REVIEW_EXPORT_FILE_CONFLICT"
         assert target.read_text(encoding="utf-8") == notes_content  # 未被覆盖
+
+        db.close()
+
+    def test_export_human_edit_unquoted_reviewer_conflict(self, tmp_path):
+        """无引号 reviewer_id（YAML 合法写法）同样触发 conflict。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        target = knowledge_dir / "candidates" / f"{gc.graph_change_id}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        human_content = (
+            "# 图谱变更候选\n\n"
+            "## GraphChange ID\n\n"
+            f"- **graph_change_id**: `{gc.graph_change_id}`\n\n"
+            "## 审核选项\n\n"
+            "- [ ] 批准\n- [ ] 修改后批准\n- [ ] 暂缓\n- [ ] 拒绝\n\n"
+            "## Reviewer\n\n```yaml\nreviewer_type: human\n"
+            "reviewer_id: reviewer-001\n"
+            'reviewed_at: "2026-08-08T15:00:00+08:00"\n```\n\n'
+            "## Approved Patch\n\n_（仅\"修改后批准\"时填写 JSON Patch 数组）_\n"
+        )
+        target.write_text(human_content, encoding="utf-8")
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "REVIEW_EXPORT_FILE_CONFLICT"
+        assert target.read_text(encoding="utf-8") == human_content
 
         db.close()
 
