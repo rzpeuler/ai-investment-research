@@ -35,7 +35,53 @@ from research_os.models import (
 )
 from research_os.storage.db import Database
 from research_os.validators.schema_validator import validate_instance
-from research_os.utils.time import now_iso
+from research_os.utils.time import now_iso, parse_iso
+
+
+def validate_proposal_lifecycle_times(
+    proposal: GraphChangeProposal,
+) -> Optional[str]:
+    """M7-R1：proposal 生命周期时间确定性校验（单一 authority）。
+
+    CandidatePipeline 与 GraphChangeBuilder 共用，禁止复制两套规则。
+
+    - modify_attribute：candidate_node/candidate_edge.valid_from 必须非 null
+      且合法 ISO → 缺失 `TRANSITION_TIME_MISSING` / 非法 `TRANSITION_TIME_INVALID`
+    - retire_node / retire_edge：candidate_*.valid_from / valid_to 必须非 null、
+      valid_from == valid_to（= retire_at）、均合法 ISO
+      → 否则 `RETIRE_TIME_INVALID`
+    - add_node / add_edge：不要求生命周期时间
+
+    Returns:
+        None（通过）或 error code 字符串。
+    """
+    pt = proposal.proposal_type
+    if pt == "modify_attribute":
+        target = proposal.candidate_node or proposal.candidate_edge
+        if target is None or target.valid_from is None:
+            return "TRANSITION_TIME_MISSING"
+        try:
+            parse_iso(target.valid_from)
+        except ValueError:
+            return "TRANSITION_TIME_INVALID"
+        return None
+    if pt in ("retire_node", "retire_edge"):
+        target = (
+            proposal.candidate_node
+            if pt == "retire_node"
+            else proposal.candidate_edge
+        )
+        if target is None or target.valid_from is None or target.valid_to is None:
+            return "RETIRE_TIME_INVALID"
+        if target.valid_from != target.valid_to:
+            return "RETIRE_TIME_INVALID"
+        try:
+            parse_iso(target.valid_from)
+            parse_iso(target.valid_to)
+        except ValueError:
+            return "RETIRE_TIME_INVALID"
+        return None
+    return None  # add_node / add_edge 不要求
 
 # ---- 受保护的节点类型（只允许 governance seed）----
 _PROTECTED_NODE_TYPES = {"Industry", "IndustrySegment"}
@@ -173,8 +219,14 @@ class GraphChangeBuilder:
 
         Raises:
             ValueError: 实体解析失败、本体突变阻止、认知门禁拒绝、
-                       证据闭包违规、冲突检测触发。
+                       证据闭包违规、冲突检测触发、生命周期时间不完整。
         """
+        # ---- 0. M7-R1 lifecycle time gate（defense-in-depth：绕过 pipeline
+        #      直接调用 builder 也必须拒绝不完整生命周期时间）----
+        lifecycle_err = validate_proposal_lifecycle_times(proposal)
+        if lifecycle_err is not None:
+            raise ValueError(f"PROPOSAL_REJECTED: {lifecycle_err}")
+
         # ---- 1. 实体身份解析（先于 gc_id 计算，影响 current_knowledge）----
         self._check_ontology_protection(proposal)
         self._check_epistemic_gate(proposal, source_objects)

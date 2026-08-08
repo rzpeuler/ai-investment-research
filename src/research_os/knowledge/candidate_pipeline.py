@@ -33,6 +33,7 @@ from research_os.knowledge.candidate_builder import (
     GraphChangeBuilder,
     BuildResult,
     check_evidence_gate,
+    validate_proposal_lifecycle_times,
 )
 from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
 from research_os.knowledge.candidate_renderer import CandidateRenderer
@@ -422,6 +423,15 @@ class CandidatePipeline:
             results["status"] = "proposal_gate_failed"
             results["errors"].extend(gate_errors)
             return results
+
+        # ---- 6b. M7-R1 proposal lifecycle time gate（发生在 candidate
+        #      persist / Markdown render / Human review 之前；与 builder
+        #      共用 validate_proposal_lifecycle_times 单一规则）----
+        lifecycle_err = validate_proposal_lifecycle_times(validated_proposal)
+        if lifecycle_err is not None:
+            results["status"] = "proposal_rejected"
+            results["errors"].append(f"PROPOSAL_REJECTED: {lifecycle_err}")
+            return results  # 0 DB writes / 0 candidate files
 
         # ---- 7. Build + conflict detection ----
         # 使用 source-derived only 的 supporting evidence IDs（闭包）

@@ -430,29 +430,64 @@ class HistoryService:
         return a if parse_iso(a) <= parse_iso(b) else b
 
     def _is_tombstone(self, p: Dict[str, Any], successor) -> bool:
-        """retire tombstone：node status=retired / edge origin change_type==retire_edge。
+        """retire tombstone 判定（M7-R1 双向证明，fail-closed）。
 
-        edge origin 读取失败 → fail-closed（raise HistoryError，
-        HISTORY_ORIGIN_INTEGRITY_CONFLICT），绝不把已 retired 判定为非 tombstone。
+        - node：
+          - governance_seed origin：status == retired（seed 保持既有规则）
+          - graph_change origin：双向证明
+            status == retired ⟺ origin GraphChange.change_type == retire_node
+            任一方向不匹配 → HISTORY_ORIGIN_INTEGRITY_CONFLICT
+            （add_node / modify_attribute 不得产生 retired lifecycle version；
+              origin retire_node 而 status != retired 也是损坏）
+        - edge：origin GraphChange.change_type == retire_edge
+          （modify_attribute edge 即使 valid_from == valid_to 也不得误判 retired）
+
+        origin 读取失败 / 缺失 → fail-closed raise（HISTORY_ORIGIN_INTEGRITY_CONFLICT）。
         """
-        if "status" in p:
-            return p.get("status") == "retired"
+        if "status" in p:  # node
+            if p.get("origin_kind") == "governance_seed":
+                return p.get("status") == "retired"
+            gc_id = p.get("originating_graph_change_id")
+            ct = self._read_origin_change_type(p, gc_id)
+            status_retired = p.get("status") == "retired"
+            origin_retire = ct == "retire_node"
+            if status_retired != origin_retire:
+                raise HistoryError(
+                    "HISTORY_ORIGIN_INTEGRITY_CONFLICT",
+                    f"node {p.get('node_id')} v{p.get('version')} lifecycle "
+                    f"origin 不匹配：status={p.get('status')} vs "
+                    f"origin change_type={ct}（retired 必须双向一致）",
+                )
+            return status_retired
         gc_id = p.get("originating_graph_change_id")
         if gc_id is None:
             return False
+        ct = self._read_origin_change_type(p, gc_id)
+        return ct == "retire_edge"
+
+    def _read_origin_change_type(self, p: Dict[str, Any],
+                                 gc_id: Optional[str]) -> Optional[str]:
+        """strict read origin change_type（fail-closed：缺失/失败 raise）。"""
+        if gc_id is None:
+            raise HistoryError(
+                "HISTORY_ORIGIN_INTEGRITY_CONFLICT",
+                f"{'node' if 'status' in p else 'edge'} "
+                f"{p.get('node_id') or p.get('edge_id')} "
+                f"缺少 originating_graph_change_id（retire 判定 fail-closed）",
+            )
         try:
             ct = self._graph_repo.get_graph_change_type(gc_id)
         except Exception as e:
             raise HistoryError(
                 "HISTORY_ORIGIN_INTEGRITY_CONFLICT",
-                f"edge origin GraphChange {gc_id} 读取失败（retire 判定 fail-closed）: {e}",
+                f"origin GraphChange {gc_id} 读取失败（retire 判定 fail-closed）: {e}",
             ) from e
         if ct is None:
             raise HistoryError(
                 "HISTORY_ORIGIN_INTEGRITY_CONFLICT",
-                f"edge origin GraphChange {gc_id} 缺失（retire 判定 fail-closed）",
+                f"origin GraphChange {gc_id} 缺失（retire 判定 fail-closed）",
             )
-        return ct == "retire_edge"
+        return ct
 
     # ── derived status / resolve ────────────────────────────
 

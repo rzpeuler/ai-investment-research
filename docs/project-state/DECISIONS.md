@@ -812,7 +812,7 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 
 ---
 
-## 37. Phase 5 M7 Version Lifecycle & History Contract（2026-08-09）
+## 37. Phase 5 M7 Version Lifecycle & History Contract（2026-08-08）
 
 > 本决定在 M7 实现启动时冻结，经用户明确授权（M6_ACCEPTED_SHA=`480b209`）。
 > M7 不修改 M4 KGV-001—019 含义；可增加独立 deterministic lifecycle/history
@@ -955,7 +955,43 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
     resolved{version, derived_status, is_active, payload}），version ordered，
     无 wall-clock、无 LLM。不新增 Schema。
 
-### 37.9 M7 严格不实现
+### 37.9 M7-R1 Lifecycle Closure 补充（2026-08-08）
+
+> M7 尚未验收，继续补充本决定；不另立 Decision #38。
+
+28. **M7 Proposal lifecycle gate（单一 helper）**：`modify_attribute` 的
+    proposal `candidate_node/candidate_edge.valid_from` 必须非 null 且合法
+    ISO（缺失 → `PROPOSAL_REJECTED` + `TRANSITION_TIME_MISSING`，非法 →
+    `TRANSITION_TIME_INVALID`）；`retire_node/retire_edge` 必须
+    valid_from != null、valid_to != null、valid_from == valid_to、均合法
+    ISO（否则 `PROPOSAL_REJECTED` + `RETIRE_TIME_INVALID`）。该检查必须
+    发生在 GraphChange candidate persist / Markdown render / Human review
+    之前；失败 → `graph_changes delta = 0`、candidate files delta = 0。
+    CandidatePipeline 与 GraphChangeBuilder 共用同一个
+    `validate_proposal_lifecycle_times()`（禁止两套规则）；builder 自身
+    也调用（defense-in-depth，绕过 pipeline 直接 build 也必须拒绝）。
+29. **retrograde retire**：retire 前 predecessor 必须已开始生效。
+    `retire_at < predecessor.valid_from`（predecessor.valid_from 非 null）
+    → `APPLY_REJECTED` + `RETIRE_TARGET_NOT_ACTIVE`（node 与 edge 相同；
+    事务外 preflight 与 BEGIN IMMEDIATE 内 revalidation 共用 gate）。
+    `retire_at == predecessor.valid_from` 保持既有语义，不改为拒绝。
+30. **Node retired lifecycle 双向证明**：graph_change-origin node 的
+    `payload.status == retired` 必须同时满足
+    `origin GraphChange.change_type == retire_node`；反之亦然
+    （origin retire_node 而 status != retired 也是损坏）。任一方向不匹配 →
+    `HISTORY_ORIGIN_INTEGRITY_CONFLICT`。add_node / modify_attribute
+    不得产生 retired lifecycle version；Governance seed 保持既有规则
+    （node origin_kind=governance_seed、edge assertion_type=GOVERNANCE 的
+    null originating_graph_change_id 是合法 seed，tombstone 判定按非
+    retire 处理，不触发 fail-closed）。
+    Edge 的 retired 判定继续只凭
+    `origin GraphChange.change_type == retire_edge`（modify_attribute
+    edge 即使 valid_from == valid_to 也不得误判 retired）。
+31. **history cross-version retrograde**：vN+1.valid_from < vN.valid_from
+    （跨版本时间倒退）→ 半开区间派生 `HISTORY_INTERVAL_INVALID`
+    fail-closed，不得选择其中一个版本继续返回。
+
+### 37.10 M7 严格不实现
 
 - M8：knowledge_context_builder、depth traversal、relation filtering、
   full graph search、multi-hop traversal

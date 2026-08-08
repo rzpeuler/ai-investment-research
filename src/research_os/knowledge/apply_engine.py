@@ -993,6 +993,13 @@ class ApplyEngine:
             return ("RETIRE_TARGET_NOT_ACTIVE",
                     f"latest 在 retire_at={vf} 前已 expired"
                     f"（valid_to={latest.get('valid_to')}）")
+        # M7-R1 retrograde retire：predecessor 尚未开始生效
+        # （retire_at < predecessor.valid_from；== 保持既有语义，不改为拒绝）
+        if latest.get("valid_from") is not None \
+                and vf_dt < parse_iso(latest["valid_from"]):
+            return ("RETIRE_TARGET_NOT_ACTIVE",
+                    f"retire_at={vf} < predecessor.valid_from="
+                    f"{latest.get('valid_from')}（predecessor 尚未生效）")
         # incident-edge guard
         return self._incident_edge_guard(latest.get("node_id"), vf, dbc)
 
@@ -1029,6 +1036,13 @@ class ApplyEngine:
         if self._is_retired_edge(latest, dbc):
             return ("RETIRE_TARGET_NOT_ACTIVE",
                     f"latest edge {latest.get('edge_id')} 已 retired（second retire 拒绝）")
+        # M7-R1 retrograde retire：predecessor 尚未开始生效
+        # （retire_at < predecessor.valid_from；== 保持既有语义，不改为拒绝）
+        if latest.get("valid_from") is not None \
+                and vf_dt < parse_iso(latest["valid_from"]):
+            return ("RETIRE_TARGET_NOT_ACTIVE",
+                    f"retire_at={vf} < predecessor.valid_from="
+                    f"{latest.get('valid_from')}（predecessor 尚未生效）")
         return None
 
     def _is_retired_edge(self, payload: dict, dbc) -> bool:
