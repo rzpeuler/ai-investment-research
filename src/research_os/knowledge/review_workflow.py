@@ -332,6 +332,91 @@ def _apply_remove(obj: dict, pointer: str) -> None:
         del current[idx]
 
 
+# ── Replacement 确定性构造（M5 + M6 唯一实现） ────────────────
+
+def build_replacement_graph_change(
+    original_graph_change: GraphChange,
+    graph_review: GraphReview,
+) -> GraphChange:
+    """从 original GraphChange + GraphReview.review_patch 确定性构造 replacement。
+
+    纯函数：pure / deterministic / zero write / zero LLM。
+    M5 `review_import` 与 M6 Apply Engine 共用（唯一实现，禁止第二套算法）。
+
+    Replacement 保持 candidate-shaped：
+    - graph_change_id = GraphReview.resulting_graph_change_id
+    - review_status = "candidate"（NOT "approved"）
+    - reviewed_at = null
+    - created_at = GraphReview.reviewed_at
+    - node/edge: originating_graph_change_id = resulting id、
+      created_at = reviewed_at、review_status = "candidate"、
+      last_reviewed_at = null
+
+    完成完整 Schema-first（raw graph_change.schema → GraphChange →
+    model_dump → graph_change.schema）。
+
+    Raises:
+        ValueError: 决策不是 approved_with_changes / patch 为空 /
+            resulting_graph_change_id 缺失 / patch 应用失败 / Schema 失败。
+    """
+    if graph_review.decision != "approved_with_changes":
+        raise ValueError(
+            f"build_replacement_graph_change 要求 approved_with_changes，"
+            f"got {graph_review.decision}"
+        )
+    if not graph_review.review_patch:
+        raise ValueError("approved_with_changes 要求非空 review_patch")
+    if graph_review.resulting_graph_change_id is None:
+        raise ValueError("approved_with_changes 要求 resulting_graph_change_id 非空")
+
+    resulting_gc_id = graph_review.resulting_graph_change_id
+    patch_ops = [
+        op.model_dump() if hasattr(op, "model_dump") else op
+        for op in graph_review.review_patch
+    ]
+
+    gc_dict = original_graph_change.model_dump()
+    patched = apply_json_patch(gc_dict, patch_ops)
+
+    # Replacement 是 NEW candidate（candidate-shaped）
+    patched["graph_change_id"] = resulting_gc_id
+    patched["review_status"] = "candidate"
+    patched["reviewed_at"] = None
+    patched["created_at"] = graph_review.reviewed_at
+
+    # Node/edge: originating_graph_change_id = replacement id,
+    # created_at = reviewed_at, review_status = "candidate", last_reviewed_at = null
+    if patched.get("node"):
+        patched["node"]["review_status"] = "candidate"
+        patched["node"]["last_reviewed_at"] = None
+        patched["node"]["originating_graph_change_id"] = resulting_gc_id
+        patched["node"]["created_at"] = graph_review.reviewed_at
+    if patched.get("edge"):
+        patched["edge"]["review_status"] = "candidate"
+        patched["edge"]["last_reviewed_at"] = None
+        patched["edge"]["originating_graph_change_id"] = resulting_gc_id
+        patched["edge"]["created_at"] = graph_review.reviewed_at
+
+    # Schema-first
+    schema_errors = validate_instance(patched, "graph_change")
+    if schema_errors:
+        raise ValueError(
+            f"Replacement GraphChange schema invalid: {'; '.join(schema_errors)}"
+        )
+    try:
+        replacement_gc = GraphChange(**patched)
+    except Exception as e:
+        raise ValueError(f"Replacement GraphChange Pydantic parse failed: {e}") from e
+    dumped = replacement_gc.model_dump()
+    schema_errors2 = validate_instance(dumped, "graph_change")
+    if schema_errors2:
+        raise ValueError(
+            f"Replacement GraphChange dump schema re-validation failed: "
+            f"{'; '.join(schema_errors2)}"
+        )
+    return replacement_gc
+
+
 # ── Import / Export 结果 ──────────────────────────────────────
 
 @dataclass
@@ -835,7 +920,7 @@ class ReviewWorkflow:
             if apply_warnings:
                 warnings.append(f"M4 apply not eligible: {'; '.join(apply_warnings)}")
 
-        # 7. Patch apply（仅 approved_with_changes）
+        # 7. Patch apply（仅 approved_with_changes）——使用唯一确定性 helper
         replacement_gc: Optional[GraphChange] = None
         expected_replacement_canonical: Optional[str] = None
         if parsed.decision == "approved_with_changes":
@@ -850,45 +935,7 @@ class ReviewWorkflow:
                     errors=["approved_with_changes 要求非空 review_patch"],
                 )
             try:
-                gc_dict = copy.deepcopy(candidate_dict)
-                patched = apply_json_patch(gc_dict, parsed.review_patch)
-
-                # Replacement 是 NEW candidate（candidate-shaped）：
-                # - graph_change_id = resulting_graph_change_id
-                # - review_status = "candidate"（NOT "approved"）
-                # - reviewed_at = null
-                # - created_at = GraphReview.reviewed_at
-                patched["graph_change_id"] = resulting_gc_id
-                patched["review_status"] = "candidate"
-                patched["reviewed_at"] = None
-                patched["created_at"] = parsed.reviewed_at
-
-                # Node/edge: originating_graph_change_id = replacement id,
-                # created_at = reviewed_at, review_status = "candidate",
-                # last_reviewed_at = null
-                if patched.get("node"):
-                    patched["node"]["review_status"] = "candidate"
-                    patched["node"]["last_reviewed_at"] = None
-                    patched["node"]["originating_graph_change_id"] = resulting_gc_id
-                    patched["node"]["created_at"] = parsed.reviewed_at
-                if patched.get("edge"):
-                    patched["edge"]["review_status"] = "candidate"
-                    patched["edge"]["last_reviewed_at"] = None
-                    patched["edge"]["originating_graph_change_id"] = resulting_gc_id
-                    patched["edge"]["created_at"] = parsed.reviewed_at
-
-                # Replacement Schema-first
-                replacement_gc, repl_err = self._schema_first_graph_change(patched)
-                if repl_err:
-                    return ImportResult(
-                        status="error",
-                        review_id=review_id,
-                        graph_change_id=parsed.graph_change_id,
-                        decision=parsed.decision,
-                        dry_run=dry_run,
-                        candidate_hash=parsed.candidate_hash,
-                        errors=[f"Replacement invalid: {repl_err}"],
-                    )
+                replacement_gc = build_replacement_graph_change(gc, review)
             except Exception as e:
                 return ImportResult(
                     status="error",
@@ -897,7 +944,7 @@ class ReviewWorkflow:
                     decision=parsed.decision,
                     dry_run=dry_run,
                     candidate_hash=parsed.candidate_hash,
-                    errors=[f"Patch apply failed: {e}"],
+                    errors=[f"Replacement build failed: {e}"],
                 )
 
             # 8. M4 validate_candidate on replacement

@@ -132,13 +132,47 @@ class _Transaction:
         return False
 
 
+class _ImmediateTransaction:
+    """BEGIN IMMEDIATE 事务上下文管理器（SQLite write lock，消除 TOCTOU）。
+
+    用于 M6 Apply Engine：事务开始即获取写锁，事务内 rerun preflight/
+    validation 后再写入，任一步失败整体 ROLLBACK。
+    """
+
+    def __init__(self, db: "Database"):
+        self._db = db
+
+    def __enter__(self) -> sqlite3.Connection:
+        conn = self._db._conn
+        # 结束任何隐式活动事务（python commit() 无活动事务时是 no-op）
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        return conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        conn = self._db._conn
+        try:
+            if exc_type is not None:
+                conn.execute("ROLLBACK")
+            else:
+                conn.execute("COMMIT")
+        except sqlite3.OperationalError:
+            # 事务已被外部终止（例如连接错误），无需再次回滚
+            pass
+        return False
+
+
 class Database:
     """轻量 SQLite 封装：连接管理 + 迁移 + 对象级 upsert/query。"""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path))
+        # check_same_thread=False：生产路径为本地单用户同步 CLI 契约（单线程）；
+        # 放宽仅用于满足 M6 双连接并发测试中"主线程 setup、工作线程 apply"的
+        # 跨线程使用模式（SQLite WAL + busy timeout 保证连接级安全）。
+        # 生产代码不得在多个线程中同时使用同一 Database 连接执行写操作。
+        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -152,7 +186,7 @@ class Database:
         instance = cls.__new__(cls)
         instance.path = resolved
         uri = resolved.as_uri() + "?mode=ro"
-        instance._conn = sqlite3.connect(uri, uri=True)
+        instance._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
         instance._conn.row_factory = sqlite3.Row
         instance._conn.execute("PRAGMA foreign_keys=ON")
         return instance
@@ -448,6 +482,23 @@ class Database:
                 # commit on normal exit, rollback on exception
         """
         return _Transaction(self)
+
+    def immediate_transaction(self):
+        """开始一个 BEGIN IMMEDIATE 事务上下文管理器（SQLite write lock）。
+
+        与 `transaction()` 的区别：立即获取写锁，消除
+        "事务外 preflight → 他人写入 → 事务内写入" 的 TOCTOU 窗口。
+        用于 M6 Apply Engine 的确定性 apply 写入。
+
+        Usage:
+            with db.immediate_transaction() as conn:
+                conn.execute(...)
+                # COMMIT on normal exit, ROLLBACK on exception
+
+        Note:
+            单连接模型下不得与 transaction() 嵌套使用。
+        """
+        return _ImmediateTransaction(self)
 
     def close(self) -> None:
         self._conn.close()

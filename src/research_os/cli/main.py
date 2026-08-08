@@ -1006,5 +1006,96 @@ def knowledge_review_import(file_path, db_path, dry_run) -> None:
         db.close()
 
 
+@knowledge_group.command("apply")
+@click.option(
+    "--change-id", "change_id", required=True,
+    help="original reviewed GraphChange ID（UUID），不是默认 replacement ID。"
+)
+@click.option(
+    "--review-id", "review_id", default=None,
+    help="显式 GraphReview ID（同一 candidate 多条审核时必须提供）。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="完整预检（load→Schema-first→review selection→hash→replacement→M4→"
+         "target→version→idempotency），零 DB 写入、零文件写入。",
+)
+@click.option(
+    "--applied-at", "applied_at", default=None,
+    help="显式 ISO 8601 时间；未提供则 capture now_iso() once（不重复读 wall clock）。",
+)
+def knowledge_apply(change_id, review_id, db_path, dry_run, applied_at) -> None:
+    """M6 Deterministic Apply：将已批准人工审核确定性应用到图谱。
+
+    只支持 add_node / add_edge（modify/retire → CHANGE_TYPE_REQUIRES_M7）。
+    零 LLM / 零 Provider / 零 network。
+    幂等：重复 apply 返回 IDEMPOTENT_NOOP（不重复写 audit）。
+    """
+    from research_os.knowledge.apply_engine import ApplyEngine
+    from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+
+        engine = ApplyEngine(db, candidate_repo, graph_repo, validator)
+
+        result = engine.apply(
+            change_id,
+            review_id=review_id,
+            applied_at=applied_at,
+            dry_run=dry_run,
+        )
+
+        output = {
+            "status": result.status,
+            "original_graph_change_id": result.original_graph_change_id,
+            "effective_graph_change_id": result.effective_graph_change_id,
+            "review_id": result.review_id,
+            "application_id": result.application_id,
+            "idempotency_key": result.idempotency_key,
+            "target_kind": result.target_kind,
+            "target_id": result.target_id,
+            "target_version": result.target_version,
+            "applied_at": result.applied_at,
+            "dry_run": result.dry_run,
+            "warnings": list(result.warnings),
+        }
+        if result.errors:
+            output["errors"] = list(result.errors)
+
+        click.echo(json.dumps(output, ensure_ascii=False, sort_keys=True))
+
+        if result.status == "APPLY_REJECTED":
+            raise SystemExit(1)
+
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()

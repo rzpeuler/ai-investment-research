@@ -312,6 +312,129 @@ class GraphRepository:
         ).fetchone()
         return json.loads(row["payload"]) if row else None
 
+    # ---- application (M6) ----
+
+    def get_application_by_idempotency_key(self, idempotency_key: str) -> Optional[Dict]:
+        """按 idempotency_key 读取 GraphApplication（strict read）。
+
+        DB error 直接上抛（M6 strict read path 禁止 fail-open）。
+
+        Returns:
+            {"application_id": ..., "payload": {...}, "applied_at": ...}
+            或 None（不存在）。
+        """
+        row = self._db._conn.execute(
+            "SELECT application_id, payload, applied_at FROM graph_applications "
+            "WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "application_id": row["application_id"],
+            "payload": json.loads(row["payload"]),
+            "applied_at": row["applied_at"],
+        }
+
+    def get_application(self, application_id: str) -> Optional[Dict]:
+        """按 application_id 读取 GraphApplication payload。"""
+        row = self._db._conn.execute(
+            "SELECT payload FROM graph_applications WHERE application_id = ?",
+            (application_id,),
+        ).fetchone()
+        return json.loads(row["payload"]) if row else None
+
+    def append_application(
+        self,
+        application_id: str,
+        graph_change_id: str,
+        review_id: str,
+        idempotency_key: str,
+        payload: Dict[str, Any],
+        applied_at: str,
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> str:
+        """追加 GraphApplication（INSERT ONLY，幂等 + 不可变冲突）。
+
+        - 同 idempotency_key + 同 payload → idempotent_noop
+        - 同 idempotency_key + 异 payload → IMMUTABLE_APPLICATION_CONFLICT
+          （不得覆盖）
+
+        Args:
+            application_id: UUID5 确定性 application ID。
+            graph_change_id: effective GraphChange ID（实际被 applied 的）。
+            review_id: 关联 GraphReview ID。
+            idempotency_key: sha256(canonical intent)。
+            payload: GraphApplication internal audit payload dict。
+            applied_at: ISO 时间。
+            conn: 可选外部连接（用于批量事务）。
+
+        Returns:
+            "inserted" / "idempotent_noop"
+
+        Raises:
+            ValueError: Schema 校验失败 / 不可变冲突。
+        """
+        canonical_payload = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+        def _do(conn):
+            existing = conn.execute(
+                "SELECT payload FROM graph_applications WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+            if existing is not None:
+                if existing["payload"] == canonical_payload:
+                    return "idempotent_noop"
+                raise ValueError(
+                    f"IMMUTABLE_APPLICATION_CONFLICT: idempotency_key={idempotency_key} "
+                    f"already exists with different payload"
+                )
+            conn.execute(
+                """INSERT INTO graph_applications (
+                    application_id, graph_change_id, review_id,
+                    idempotency_key, payload, applied_at
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    application_id,
+                    graph_change_id,
+                    review_id,
+                    idempotency_key,
+                    canonical_payload,
+                    applied_at,
+                ),
+            )
+            return "inserted"
+
+        if conn is not None:
+            return _do(conn)
+        with self._db.transaction() as tx_conn:
+            return _do(tx_conn)
+
+    def get_latest_node_version(self, node_id: str) -> Optional[int]:
+        """返回 node_id 的最新版本号（无则 None）。"""
+        row = self._db._conn.execute(
+            "SELECT MAX(version) AS mv FROM graph_nodes WHERE node_id = ?",
+            (node_id,),
+        ).fetchone()
+        if row is None or row["mv"] is None:
+            return None
+        return int(row["mv"])
+
+    def get_latest_edge_version(self, edge_id: str) -> Optional[int]:
+        """返回 edge_id 的最新版本号（无则 None）。"""
+        row = self._db._conn.execute(
+            "SELECT MAX(version) AS mv FROM graph_edges WHERE edge_id = ?",
+            (edge_id,),
+        ).fetchone()
+        if row is None or row["mv"] is None:
+            return None
+        return int(row["mv"])
+
     # ========== seed ==========
 
     def seed_ontology(
