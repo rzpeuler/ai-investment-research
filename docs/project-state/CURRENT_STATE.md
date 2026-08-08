@@ -37,7 +37,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 PASS（SHA `b097996`），M2 PASS（SHA `565d500`），M3 PASS（SHA `242e039`），M4-R1 AUTHORIZED / IN_PROGRESS，M5-M10 NOT_AUTHORIZED。
+| Phase 5 | IN_PROGRESS | M0 PASS（SHA `df358da`），M1 PASS（SHA `b097996`），M2 PASS（SHA `565d500`），M3 PASS（SHA `242e039`），M4 PASS（SHA `20b7a15`），M5 AUTHORIZED / IN_PROGRESS，M6-M10 NOT_AUTHORIZED。
 
 ## 2026-08-07 修复后的关键事实
 
@@ -109,4 +109,5 @@ M1 Graph Contracts 已通过独立架构验收（SHA `b097996`，CI `31165533237
 M2 Persistence and ontology seed 已完成（graph_nodes/graph_edges/graph_reviews 迁移、
 GraphRepository 版本化持久层、本体种子导入）。
 M3 GraphChange Candidate Pipeline 已通过验收（SHA `242e039`，CI `31240709634`，1480 passed / 5 skipped / 55/55 schemas）。
-M4 Knowledge Validator 已授权实施。M5-M10 尚未授权。不得提前实施。
+M4 Knowledge Validator 已通过验收（SHA `20b7a15`，CI `31241777234`，1611 passed / 5 skipped / 55/55 schemas）。
+M5 Human Review Workflow 已授权实施。M6-M10 尚未授权。不得提前实施。

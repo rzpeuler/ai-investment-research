@@ -398,3 +398,60 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 
 11. **M3 不实现 M4（Knowledge Validator）、M5（Human Review）、M6（Apply Engine）**。
     M4-M10 全部未授权。
+
+## 35. Phase 5 M5 Human Review Workflow 语义冻结（2026-08-08）
+
+> 本决定在 M5 实现启动时冻结。M5 完成不自动授权 M6。
+>
+> **基线**: M4_ACCEPTED_SHA=20b7a15, M4_TESTS=1611/5 skipped, M4_SCHEMAS=55, DB v6
+
+### M5 核心能力
+
+1. **review_export**: 将 GraphChange candidate 渲染为冻结 13-heading Markdown 审阅文件，包含 candidate_hash、Reviewer 模板、4 个审核选项 checkbox。
+2. **review_parser**: 解析填写后的 Markdown，fenced-block 内容不解析为 heading/checkbox；13 个冻结标题严格顺序且必须出现一次。
+3. **JSON Patch 应用器**: 受限 RFC6902（add/replace/remove）；路径白名单由 graph_review.schema.json 定义；阻止 identity/type/version/relation/system 字段修改。
+4. **ReviewWorkflow**: 协调 export/import 全流程；deterministic GraphReview ID（UUID5）；approved_with_changes 通过 patch 应用生成 deterministic replacement GraphChange（UUID5）；approved/deferred/rejected 仅持久化 GraphReview。
+5. **原子持久化**: 单事务内完成 GraphReview + replacement GraphChange（如适用）写入。
+6. **幂等回放**: 相同输入重复执行产生相同结果，不创建重复记录。
+
+### 冻结 Markdown 格式（13 headings）
+
+```
+# 图谱变更候选
+## GraphChange ID  (含 candidate_hash)
+## 变更类型
+## 当前知识
+## 新证据
+## 建议变更
+## 影响范围
+## 冲突信息
+## 验证节点
+## 审核选项     (4 checkboxes: 批准/修改后批准/暂缓/拒绝)
+## Reviewer      (template)
+## Review Notes
+## Approved Patch
+```
+
+### 关键实现决策
+
+- **GraphReview ID**: `uuid5(NAMESPACE_URL, "graph_review:" + sha256(canonical GraphChange))` — 确定性，基于候选内容。
+- **Replacement GraphChange ID**: `uuid5(NAMESPACE_URL, "replacement:" + review_id)` — 确定性，基于审核记录。
+- **review_import 流程**: parse → load GraphChange → hash verify → build GraphReview → M4 validate_review → patch apply（如适用）→ replacement build → M4 validate_candidate → atomic persist。
+- **review_export 流程**: load candidate → verify review_status=candidate → schema-first → compute hash → render Markdown。
+- **Approved/Deferred/Rejected**: 持久化 GraphReview 但不修改原 candidate。
+- **Approved_with_changes**: 持久化 GraphReview + 确定性 replacement GraphChange（review_status=approved, reviewed_at 显式, originating_graph_change_id=原 candidate ID）。
+- **Dry-run**: 完整预检（parse → load → verify → validate → patch → replacement build），零 DB 写入。
+
+### 不变性保证
+
+- 原始 GraphChange candidate 永不修改（INSERT ONLY，不可变）。
+- Replacement GraphChange 的 originating_graph_change_id 指向原始 candidate，确保溯源链完整。
+- GraphReview 的 result_graph_change_id 指向 replacement（仅 approved_with_changes 时非 null）。
+
+### M5 严格不实现
+
+- M6 Apply Engine（将 approved replacement 写入 graph_nodes/graph_edges）
+- 自动批准、自动应用
+- 任何 GUI 或 Web 界面
+- 批量审批
+- M7-M10 全部未授权
