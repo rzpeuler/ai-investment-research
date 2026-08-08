@@ -886,14 +886,32 @@ def knowledge_review_export(change_id, db_path, dry_run) -> None:
         graph_repo = GraphRepository(db)
         validator = KnowledgeValidator(db, graph_repo)
 
-        workflow = ReviewWorkflow(db, candidate_repo, graph_repo, validator)
+        workflow = ReviewWorkflow(
+            db, candidate_repo, graph_repo, validator,
+            knowledge_dir=root / "knowledge",
+        )
 
         result = workflow.review_export(change_id, dry_run=dry_run)
 
         if result.status == "error":
             raise click.ClickException(result.error)
 
-        click.echo(result.markdown)
+        # 正式 artifact workflow：输出 deterministic JSON summary
+        output = {
+            "status": result.status,
+            "graph_change_id": result.graph_change_id,
+            "candidate_hash": result.candidate_hash,
+            "markdown_path": result.markdown_path,
+        }
+        if result.error:
+            output["error"] = result.error
+        if dry_run:
+            # dry-run 保证 target path 未创建/未改变
+            if result.markdown_path:
+                output["target_path"] = result.markdown_path
+                output["file_exists"] = Path(result.markdown_path).exists()
+            output["dry_run"] = True
+        click.echo(json.dumps(output, ensure_ascii=False, sort_keys=True))
 
     except Exception as exc:
         raise click.ClickException(str(exc)) from None
@@ -968,6 +986,9 @@ def knowledge_review_import(file_path, db_path, dry_run) -> None:
             "graph_change_id": result.graph_change_id,
             "decision": result.decision,
             "resulting_graph_change_id": result.resulting_graph_change_id,
+            "candidate_hash": result.candidate_hash,
+            "review_eligible": result.review_eligible,
+            "apply_eligible": result.apply_eligible,
             "dry_run": result.dry_run,
             "warnings": result.warnings,
         }

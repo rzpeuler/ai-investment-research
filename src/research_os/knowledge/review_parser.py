@@ -99,11 +99,17 @@ def _find_headings(text: str) -> List[dict]:
 
 
 def _extract_between(text: str, start_heading: str, end_heading: Optional[str]) -> str:
-    """提取两个标题之间的文本内容（不含标题行本身）。"""
-    lines = text.split("\n")
+    """提取两个标题之间的文本内容（不含标题行本身）。
+
+    fenced-aware：在 fence 移除后的 clean 文本上定位标题行号，
+    再从原始文本按相同行号提取内容（_strip_fenced_blocks 保留行数，
+    因此两个文本行号一一对应）。fence 内的假标题不会被当作 section 边界。
+    """
+    clean_lines = _strip_fenced_blocks(text).split("\n")
+    raw_lines = text.split("\n")
     start_idx = None
     end_idx = None
-    for i, line in enumerate(lines):
+    for i, line in enumerate(clean_lines):
         stripped = line.strip()
         if stripped == start_heading and start_idx is None:
             start_idx = i + 1  # 从标题下一行开始
@@ -113,8 +119,8 @@ def _extract_between(text: str, start_heading: str, end_heading: Optional[str]) 
     if start_idx is None:
         return ""
     if end_idx is not None:
-        return "\n".join(lines[start_idx:end_idx]).strip()
-    return "\n".join(lines[start_idx:]).strip()
+        return "\n".join(raw_lines[start_idx:end_idx]).strip()
+    return "\n".join(raw_lines[start_idx:]).strip()
 
 
 def _extract_yaml_key(section: str, key: str) -> Optional[str]:
@@ -124,6 +130,8 @@ def _extract_yaml_key(section: str, key: str) -> Optional[str]:
       key: value
       key: "value"
       key: 'value'
+      key: "value"  # 行尾注释（注释被剥离，引号内 # 保留）
+      key: value   # 行尾注释
     """
     for line in section.split("\n"):
         stripped = line.strip()
@@ -131,11 +139,18 @@ def _extract_yaml_key(section: str, key: str) -> Optional[str]:
             continue
         if stripped.startswith(f"{key}:"):
             val = stripped[len(key) + 1:].strip()
-            # 去除引号
-            if val.startswith('"') and val.endswith('"'):
-                val = val[1:-1]
-            elif val.startswith("'") and val.endswith("'"):
-                val = val[1:-1]
+            # 去除引号（引号值内允许含 #，不剥离）
+            if val.startswith('"'):
+                end = val.find('"', 1)
+                val = val[1:end] if end != -1 else val[1:]
+            elif val.startswith("'"):
+                end = val.find("'", 1)
+                val = val[1:end] if end != -1 else val[1:]
+            else:
+                # 无引号值：剥离行尾 YAML 注释（" #" 起）
+                comment_idx = val.find(" #")
+                if comment_idx != -1:
+                    val = val[:comment_idx].strip()
             return val if val else ""
     return None
 
@@ -143,16 +158,36 @@ def _extract_yaml_key(section: str, key: str) -> Optional[str]:
 def _check_fenced_block_integrity(text: str) -> List[str]:
     """检查 fenced blocks 是否配对关闭。"""
     errors = []
-    fence_count = 0
     in_fence = False
     for line in text.split("\n"):
         stripped = line.strip()
         if stripped.startswith("```"):
             in_fence = not in_fence
-            fence_count += 1
     if in_fence:
         errors.append("未闭合的 fenced block（```）")
     return errors
+
+
+# 冻结占位符（Approved Patch section 中允许的非空内容）
+_FROZEN_PATCH_PLACEHOLDERS = {
+    "_（仅\"修改后批准\"时填写 JSON Patch 数组）_",  # M5 review template
+    "_（审核通过后在此填写 JSON Patch）_",            # M3 candidate template
+}
+
+
+def _is_frozen_patch_placeholder(content: str) -> bool:
+    """Approved Patch 内容是否为冻结占位符（允许）。"""
+    return content.strip() in _FROZEN_PATCH_PLACEHOLDERS
+
+
+def _normalize_display_name(value: Optional[str]) -> Optional[str]:
+    """display_name 规范化："" / null / <OPTIONAL_OR_NULL> → None，其余原样。"""
+    if value is None:
+        return None
+    stripped = value.strip()
+    if stripped == "" or stripped == "null" or stripped == "<OPTIONAL_OR_NULL>":
+        return None
+    return value
 
 
 def parse_review_markdown(md_text: str) -> ParsedReview:
@@ -243,11 +278,12 @@ def parse_review_markdown(md_text: str) -> ParsedReview:
         if not _SHA256_RE.match(candidate_hash):
             errors.append(f"candidate_hash 格式非法: {candidate_hash}")
 
-    # 5. 提取审核选项（checkbox）
+    # 5. 提取审核选项（checkbox）——fenced-aware：fence 内 fake checkbox 不得计数
     review_section = _extract_between(md_text, "## 审核选项", "## Reviewer")
+    review_section_clean = _strip_fenced_blocks(review_section)
 
     checked_decisions = []
-    for line in review_section.split("\n"):
+    for line in review_section_clean.split("\n"):
         stripped = line.strip()
         for label, dec in _DECISION_LABELS.items():
             # 检查 [x] 或 [X]
@@ -327,19 +363,15 @@ def parse_review_markdown(md_text: str) -> ParsedReview:
             except json.JSONDecodeError as e:
                 errors.append(f"Approved Patch JSON 解析失败: {e}")
     elif decision in ("approved", "deferred", "rejected"):
-        # 这些决策不应有 patch
-        if patch_section and not patch_section.startswith("_"):
-            # 可能有注释或空内容，尝试解析 JSON 看看
-            stripped_patch = patch_section.strip()
-            if stripped_patch and not stripped_patch.startswith("_"):
-                try:
-                    patch_data = json.loads(stripped_patch)
-                    if isinstance(patch_data, list) and len(patch_data) > 0:
-                        errors.append(
-                            f"决策为\"{decision}\"但提供了非空 Approved Patch"
-                        )
-                except json.JSONDecodeError:
-                    pass  # 非 JSON，可能是注释文本，忽略
+        # 这些决策的 Approved Patch 只允许空 / 空白 / 冻结占位符。
+        # 任何其他内容（natural language、{}、[]、malformed JSON、
+        # non-empty JSON array、fenced arbitrary content）均 INVALID_REVIEW。
+        patch_content = patch_section.strip()
+        if patch_content and not _is_frozen_patch_placeholder(patch_content):
+            errors.append(
+                f"决策为\"{decision}\"但 Approved Patch 非空"
+                "（只允许空内容或冻结占位符）"
+            )
 
     return ParsedReview(
         graph_change_id=graph_change_id,
@@ -347,7 +379,7 @@ def parse_review_markdown(md_text: str) -> ParsedReview:
         decision=decision,
         reviewer_id=reviewer_id or "",
         reviewer_type=reviewer_type or "human",
-        display_name=display_name,
+        display_name=_normalize_display_name(display_name),
         reviewed_at=reviewed_at or "",
         review_notes=review_notes,
         review_patch=review_patch,

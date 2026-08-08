@@ -432,21 +432,76 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 ## Approved Patch
 ```
 
-### 关键实现决策
+### 关键实现决策（M5-R2 冻结修正）
 
-- **GraphReview ID**: `uuid5(NAMESPACE_URL, "graph_review:" + sha256(canonical GraphChange))` — 确定性，基于候选内容。
-- **Replacement GraphChange ID**: `uuid5(NAMESPACE_URL, "replacement:" + review_id)` — 确定性，基于审核记录。
-- **review_import 流程**: parse → load GraphChange → hash verify → build GraphReview → M4 validate_review → patch apply（如适用）→ replacement build → M4 validate_candidate → atomic persist。
-- **review_export 流程**: load candidate → verify review_status=candidate → schema-first → compute hash → render Markdown。
-- **Approved/Deferred/Rejected**: 持久化 GraphReview 但不修改原 candidate。
-- **Approved_with_changes**: 持久化 GraphReview + 确定性 replacement GraphChange（review_status=approved, reviewed_at 显式, originating_graph_change_id=原 candidate ID）。
-- **Dry-run**: 完整预检（parse → load → verify → validate → patch → replacement build），零 DB 写入。
+> 本节由 M5-R2 Final Contract Gate 修正。旧记录（review ID 只基于 candidate、
+> `replacement:` 前缀、replacement review_status=approved）是未验收实现期写入的
+> 错误 M5 语义，已被删除，不另立模糊决策覆盖。
+
+- **GraphReview ID（review-intent 绑定）**:
+  `UUID5(DNS, "graph-review:" + sha256(canonical review intent))`。
+  review intent 为完整人工审核意图：
+  `graph_change_id / decision / reviewer / reviewed_at / candidate_hash /
+  review_patch / notes`；reviewer 使用完整 deterministic representation
+  （reviewer_type / reviewer_id / display_name）。
+  canonical intent = `json.dumps(intent, ensure_ascii=False, sort_keys=True,
+  separators=(",", ":"))`。
+  同一 candidate 的不同 decision / reviewer / reviewed_at / notes / patch
+  产生不同 review_id，形成不同 audit records。
+- **Replacement GraphChange ID（冻结协议）**:
+  `UUID5(DNS, "graph-review-result:" + review_id)`。
+  删除旧前缀 `"replacement:" + review_id`。
+- **approved_with_changes replacement 保持 candidate-shaped**:
+  replacement GraphChange 顶层 `graph_change_id = resulting_graph_change_id`、
+  `review_status = candidate`、`reviewed_at = null`、
+  `created_at = GraphReview.reviewed_at`；
+  node/edge：`originating_graph_change_id = resulting_graph_change_id`、
+  `created_at = GraphReview.reviewed_at`、`review_status = candidate`、
+  `last_reviewed_at = null`。
+  禁止修改 change_type / current_knowledge / node_id / node_type / version /
+  origin_kind / edge_id / source_node_id / relation / target_node_id /
+  assertion_type。禁止给 GraphChange 顶层添加 originating_graph_change_id。
+  原 candidate 永远 immutable。
+- **candidate hash 唯一 authority**:
+  `KnowledgeValidator.compute_candidate_hash()`（M4）。M5 业务代码与测试不得
+  持有第二套 candidate hash 算法；review-import 重算 hash 同样调用该方法。
+- **review_import 流程**: parse → load GraphChange（Schema-first）→ hash verify
+  → build GraphReview（Schema-first: raw → graph_review.schema → Pydantic →
+  model_dump → graph_review.schema）→ M4 validate_review → patch apply（如适用）
+  → replacement build（Schema-first）→ M4 validate_candidate → atomic persist
+  （approved_with_changes：单事务写入 replacement + GraphReview，all or nothing）。
+- **review_export 流程**: load persisted candidate → raw Schema → Pydantic →
+  dump Schema → candidate hash（M4 authority）→ Evidence load/validate
+  （fail-closed，任何 missing/invalid 均 ERROR）→ render Markdown →
+  file conflict preflight → deterministic write
+  （`knowledge/candidates/{graph_change_id}.md`）。
+  文件不存在 → 写入；bytes 相同 → idempotent_noop；M3 untouched template →
+  deterministic upgrade；已有人类 edit → `REVIEW_EXPORT_FILE_CONFLICT` 不覆盖。
+  dry-run 执行完整预检但 0 file writes / 0 mkdir。
+- **Approved/Deferred/Rejected**: 持久化 GraphReview 但不修改原 candidate；
+  Approved Patch 只允许空 / 空白 / 冻结占位符，任何其他内容均 INVALID_REVIEW。
+- **Approved_with_changes**: 持久化 GraphReview + 确定性 replacement
+  GraphChange（candidate-shaped，见上）。
+- **ImportResult eligibility**: ok / dry_run / idempotent_noop 全部报告真实
+  `candidate_hash` / `review_eligible` / `apply_eligible`。
+  `review_eligible=true` 且 `apply_eligible=false`（conflict / stale /
+  deferred / rejected）仍可持久化合法人工审核记录——apply_eligible 不是
+  review-import 门禁，M6 才决定能否 apply。
+- **approved_with_changes 幂等回放**: 同一 review 重复 import 时 GraphReview
+  idempotent_noop，但必须确认 replacement GraphChange 存在且 canonical
+  payload 与预期一致；缺失 → `REPLACEMENT_MISSING`，payload 不同 →
+  `IMMUTABLE_CANDIDATE_CONFLICT`，均不返回幂等成功。
+- **Dry-run**: 完整预检（parse → load → verify → validate → patch →
+  replacement build），零 DB 写入。
 
 ### 不变性保证
 
 - 原始 GraphChange candidate 永不修改（INSERT ONLY，不可变）。
-- Replacement GraphChange 的 originating_graph_change_id 指向原始 candidate，确保溯源链完整。
-- GraphReview 的 result_graph_change_id 指向 replacement（仅 approved_with_changes 时非 null）。
+- Replacement 的 node/edge 的 `originating_graph_change_id` 指向 replacement
+  GraphChange ID（= resulting_graph_change_id）。溯源链为：
+  original candidate → GraphReview（resulting_graph_change_id）→ replacement。
+- GraphReview 的 resulting_graph_change_id 指向 replacement
+  （仅 approved_with_changes 时非 null）。
 
 ### M5 严格不实现
 

@@ -30,10 +30,10 @@ from research_os.models import (
     GraphPatchValueOperation, GraphPatchRemoveOperation,
     Evidence, Entity,
 )
+from research_os.knowledge.knowledge_validator import KnowledgeValidator
 from research_os.knowledge.review_renderer import (
     review_export_markdown,
     _FROZEN_REVIEW_HEADINGS,
-    _compute_candidate_hash,
 )
 from research_os.knowledge.review_parser import (
     parse_review_markdown,
@@ -47,9 +47,14 @@ from research_os.knowledge.review_workflow import (
     apply_json_patch,
     _make_review_id,
     _make_replacement_gc_id,
+    compute_review_id,
     _ALLOWED_PATCH_PATHS,
     _BLOCKED_SYSTEM_FIELDS,
 )
+
+# candidate hash 唯一 authority（M4）——测试不得使用第二套实现
+def _candidate_hash(gc: GraphChange) -> str:
+    return KnowledgeValidator.compute_candidate_hash(gc)
 
 # ── Fixtures ──────────────────────────────────────────────────
 
@@ -161,7 +166,7 @@ def _build_review_markdown(
     patch=None,
 ):
     """Build a filled review Markdown from a GraphChange."""
-    candidate_hash = _compute_candidate_hash(gc)
+    candidate_hash = _candidate_hash(gc)
     gc_dump = gc.model_dump()
 
     sections = []
@@ -284,10 +289,10 @@ class TestReviewRenderer:
         assert f"`{VALID_UUID}`" in md
 
     def test_candidate_hash_in_output(self):
-        """输出包含 candidate_hash（64 hex）。"""
+        """输出包含 candidate_hash（64 hex，M4 authority）。"""
         gc = _make_graph_change_node()
         md = review_export_markdown(gc)
-        candidate_hash = _compute_candidate_hash(gc)
+        candidate_hash = _candidate_hash(gc)
         assert candidate_hash in md
         assert len(candidate_hash) == 64
 
@@ -353,14 +358,14 @@ class TestReviewRenderer:
         assert md1 == md2
 
     def test_different_gc_different_hash(self):
-        """不同 candidate 产生不同 hash。"""
+        """不同 candidate 产生不同 hash（M4 authority）。"""
         gc1 = _make_graph_change_node(change_id=VALID_UUID)
         gc2 = _make_graph_change_node(
             change_id=VALID_UUID3,
             suggested_change="不同的变更",
         )
-        h1 = _compute_candidate_hash(gc1)
-        h2 = _compute_candidate_hash(gc2)
+        h1 = _candidate_hash(gc1)
+        h2 = _candidate_hash(gc2)
         assert h1 != h2
 
     def test_verification_points_as_checkboxes(self):
@@ -474,9 +479,8 @@ class TestReviewParser:
         """无效 candidate_hash（非 64 hex）是错误。"""
         gc = _make_graph_change_node()
         md, _ = _build_review_markdown(gc, decision="批准")
-        md = md.replace(SHA256_ZEROS, "short")
         # Need a valid hash first
-        h = _compute_candidate_hash(gc)
+        h = _candidate_hash(gc)
         md = md.replace(h, "deadbeef")
         parsed = parse_review_markdown(md)
         assert not parsed.is_valid
@@ -519,15 +523,130 @@ class TestReviewParser:
         assert parsed.is_valid  # 真实标题仍存在
 
     def test_unclosed_fence_is_error(self):
-        """未闭合的 fenced block 是错误。"""
+        """未闭合的 fenced block 被真实拒绝。"""
         gc = _make_graph_change_node()
         md, _ = _build_review_markdown(gc, decision="批准")
-        md = md.replace("```\n\n## 建议变更", "## 建议变更")  # Remove closing fence
-        # This creates an unclosed fence
-        md_unclosed = md + "\n```\n"  # Add extra fence to make it unclosed
-        # Actually let's just create a simpler test case
-        # Remove the closing ``` after current_knowledge
-        pass  # Fence checking is done before heading extraction
+        # 移除 current_knowledge 的关闭 ```（保留 opening），制造未闭合 fence
+        md_unclosed = md.replace(
+            "```json\n" + gc.model_dump().get("current_knowledge", "") + "\n```",
+            "```json\n" + gc.model_dump().get("current_knowledge", ""),
+        )
+        # 确认确实构造出未闭合状态
+        assert md_unclosed.count("```") % 2 == 1
+        parsed = parse_review_markdown(md_unclosed)
+        assert not parsed.is_valid
+        assert any("未闭合" in e for e in parsed.errors)
+
+    def test_fenced_fake_checkboxes_ignored(self):
+        """fenced block 内的 fake checkbox 不计入审核选项。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="暂缓")
+        # 在审核选项 section 中插入 fenced block，内含两个 checked fake 选项
+        md_fenced = md.replace(
+            "- [ ] 批准\n- [ ] 修改后批准\n- [ ] 暂缓\n- [ ] 拒绝",
+            "```json\n- [x] 批准\n- [x] 拒绝\n```\n"
+            "- [ ] 批准\n- [ ] 修改后批准\n- [x] 暂缓\n- [ ] 拒绝",
+        )
+        parsed = parse_review_markdown(md_fenced)
+        assert parsed.is_valid
+        assert parsed.decision == "deferred"  # fence 内 fake checked 均不计
+
+    def test_approved_natural_language_patch_rejected(self):
+        """approved + natural-language patch → INVALID_REVIEW。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准")
+        # 将 Approved Patch 占位符替换为自然语言
+        md = md.replace(
+            "_（仅\"修改后批准\"时填写 JSON Patch 数组）_",
+            "这个 patch 建议把名称改成某某公司",
+        )
+        parsed = parse_review_markdown(md)
+        assert not parsed.is_valid
+        assert any("Approved Patch" in e for e in parsed.errors)
+
+    def test_deferred_malformed_json_rejected(self):
+        """deferred + malformed JSON → INVALID_REVIEW。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="暂缓")
+        md = md.replace(
+            "_（仅\"修改后批准\"时填写 JSON Patch 数组）_",
+            '{"op": "replace", "path": "/suggested_change", "value": "x"',
+        )
+        parsed = parse_review_markdown(md)
+        assert not parsed.is_valid
+        assert any("Approved Patch" in e for e in parsed.errors)
+
+    def test_rejected_empty_json_object_rejected(self):
+        """rejected + {} → INVALID_REVIEW。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="拒绝")
+        md = md.replace(
+            "_（仅\"修改后批准\"时填写 JSON Patch 数组）_",
+            "{}",
+        )
+        parsed = parse_review_markdown(md)
+        assert not parsed.is_valid
+        assert any("Approved Patch" in e for e in parsed.errors)
+
+    def test_rejected_empty_json_array_rejected(self):
+        """rejected + [] → INVALID_REVIEW。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="拒绝")
+        md = md.replace(
+            "_（仅\"修改后批准\"时填写 JSON Patch 数组）_",
+            "[]",
+        )
+        parsed = parse_review_markdown(md)
+        assert not parsed.is_valid
+        assert any("Approved Patch" in e for e in parsed.errors)
+
+    def test_approved_fenced_arbitrary_content_rejected(self):
+        """approved + fenced arbitrary content → INVALID_REVIEW。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准")
+        md = md.replace(
+            "_（仅\"修改后批准\"时填写 JSON Patch 数组）_",
+            "```text\nhello arbitrary content\n```",
+        )
+        parsed = parse_review_markdown(md)
+        assert not parsed.is_valid
+        assert any("Approved Patch" in e for e in parsed.errors)
+
+    def test_display_name_empty_normalized_to_none(self):
+        """display_name 为空字符串 → None。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准", reviewer_id="r1")
+        md = md.replace('display_name: ""', 'display_name: ""')
+        parsed = parse_review_markdown(md)
+        assert parsed.is_valid
+        assert parsed.display_name is None
+
+    def test_display_name_null_normalized_to_none(self):
+        """display_name 为 null → None。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准", reviewer_id="r1")
+        md = md.replace('display_name: ""', "display_name: null")
+        parsed = parse_review_markdown(md)
+        assert parsed.is_valid
+        assert parsed.display_name is None
+
+    def test_display_name_placeholder_normalized_to_none(self):
+        """display_name 为 <OPTIONAL_OR_NULL> → None。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准", reviewer_id="r1")
+        md = md.replace('display_name: ""', "display_name: <OPTIONAL_OR_NULL>")
+        parsed = parse_review_markdown(md)
+        assert parsed.is_valid
+        assert parsed.display_name is None
+
+    def test_display_name_real_value_kept(self):
+        """display_name 为实际文本 → 原样保留。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准", reviewer_id="r1")
+        md = md.replace('display_name: ""', 'display_name: "张三"')
+        parsed = parse_review_markdown(md)
+        assert parsed.is_valid
+        assert parsed.display_name == "张三"
 
     def test_approved_without_patch_is_error(self):
         """修改后批准但未提供 patch 是错误。"""
@@ -568,6 +687,43 @@ class TestReviewParser:
         assert "# heading" not in result
         assert "before" in result
         assert "after" in result
+
+    def test_fenced_fake_headings_before_real_rejected(self):
+        """fence 内假标题（出现在真实标题之前）不干扰 section 定位。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准")
+        # current_knowledge 的 JSON fence 内包含整行假标题
+        md_fenced = md.replace(
+            "```json\n" + gc.model_dump().get("current_knowledge", "") + "\n```",
+            "```json\n## 审核选项\n## Reviewer\n```",
+        )
+        parsed = parse_review_markdown(md_fenced)
+        assert parsed.is_valid
+        assert parsed.decision == "approved"
+
+    def test_yaml_inline_comment_stripped(self):
+        """YAML 行尾注释被剥离，不影响 reviewer_id。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准", reviewer_id="alice")
+        md = md.replace(
+            'reviewer_id: "alice"',
+            'reviewer_id: "alice"  # 这是行尾注释',
+        )
+        parsed = parse_review_markdown(md)
+        assert parsed.is_valid
+        assert parsed.reviewer_id == "alice"
+
+    def test_yaml_unquoted_value_with_comment(self):
+        """无引号 YAML 值 + 行尾注释：值提取正确。"""
+        gc = _make_graph_change_node()
+        md, _ = _build_review_markdown(gc, decision="批准")
+        md = md.replace(
+            'reviewer_id: "reviewer-001"',
+            "reviewer_id: reviewer-001  # comment",
+        )
+        parsed = parse_review_markdown(md)
+        assert parsed.is_valid
+        assert parsed.reviewer_id == "reviewer-001"
 
     def test_approved_with_changes_patch_json_array(self):
         """修改后批准的 patch 是合法 JSON 数组。"""
@@ -735,29 +891,111 @@ class TestJSONPatchApplier:
 
 
 # ═══════════════════════════════════════════════════════════════
-# Tests: Deterministic IDs
+# Tests: Deterministic IDs (review-intent 绑定)
 # ═══════════════════════════════════════════════════════════════
 
+def _review_intent(
+    gc,
+    decision="approved",
+    reviewer_id="reviewer-001",
+    display_name=None,
+    reviewed_at=T1,
+    notes="",
+    patch=None,
+):
+    """构造规范 review intent（reviewer 使用完整 deterministic representation）。"""
+    return {
+        "graph_change_id": gc.graph_change_id,
+        "decision": decision,
+        "reviewer": {
+            "reviewer_type": "human",
+            "reviewer_id": reviewer_id,
+            "display_name": display_name,
+        },
+        "reviewed_at": reviewed_at,
+        "candidate_hash": _candidate_hash(gc),
+        "review_patch": patch or [],
+        "notes": notes,
+    }
+
+
 class TestDeterministicIDs:
-    """UUID5 确定性 ID 测试。"""
+    """UUID5 确定性 ID 测试（review-intent 绑定）。"""
 
     def test_review_id_deterministic(self):
-        """相同 candidate 产生相同 review_id。"""
+        """相同 exact review 产生相同 review_id。"""
         gc1 = _make_graph_change_node()
         gc2 = _make_graph_change_node()  # 相同参数
-        id1 = _make_review_id(gc1)
-        id2 = _make_review_id(gc2)
+        id1 = _make_review_id(_review_intent(gc1))
+        id2 = _make_review_id(_review_intent(gc2))
         assert id1 == id2
 
     def test_review_id_different_candidates(self):
-        """不同 candidate 产生不同 review_id。"""
+        """不同 candidate（不同 graph_change_id）产生不同 review_id。"""
         gc1 = _make_graph_change_node(change_id=VALID_UUID)
         gc2 = _make_graph_change_node(
             change_id=VALID_UUID3, suggested_change="不同"
         )
-        id1 = _make_review_id(gc1)
-        id2 = _make_review_id(gc2)
+        id1 = _make_review_id(_review_intent(gc1))
+        id2 = _make_review_id(_review_intent(gc2))
         assert id1 != id2
+
+    def test_review_id_different_decision(self):
+        """same candidate + different decision → different review_id。"""
+        gc = _make_graph_change_node()
+        id1 = _make_review_id(_review_intent(gc, decision="approved"))
+        id2 = _make_review_id(_review_intent(gc, decision="rejected"))
+        assert id1 != id2
+
+    def test_review_id_different_reviewer(self):
+        """same candidate + different reviewer → different review_id。"""
+        gc = _make_graph_change_node()
+        id1 = _make_review_id(_review_intent(gc, reviewer_id="reviewer-A"))
+        id2 = _make_review_id(_review_intent(gc, reviewer_id="reviewer-B"))
+        assert id1 != id2
+
+    def test_review_id_different_display_name(self):
+        """same candidate + different reviewer display_name → different review_id。"""
+        gc = _make_graph_change_node()
+        id1 = _make_review_id(_review_intent(gc, display_name="张三"))
+        id2 = _make_review_id(_review_intent(gc, display_name="李四"))
+        assert id1 != id2
+
+    def test_review_id_different_reviewed_at(self):
+        """same candidate + different reviewed_at → different review_id。"""
+        gc = _make_graph_change_node()
+        id1 = _make_review_id(_review_intent(gc, reviewed_at=T1))
+        id2 = _make_review_id(_review_intent(gc, reviewed_at="2026-08-09T10:00:00+08:00"))
+        assert id1 != id2
+
+    def test_review_id_different_notes(self):
+        """same candidate + different notes → different review_id。"""
+        gc = _make_graph_change_node()
+        id1 = _make_review_id(_review_intent(gc, notes="同意"))
+        id2 = _make_review_id(_review_intent(gc, notes="有疑问"))
+        assert id1 != id2
+
+    def test_review_id_different_patch(self):
+        """same candidate + different patch → different review_id。"""
+        gc = _make_graph_change_node()
+        p1 = [{"op": "replace", "path": "/suggested_change", "value": "A"}]
+        p2 = [{"op": "replace", "path": "/suggested_change", "value": "B"}]
+        id1 = _make_review_id(_review_intent(
+            gc, decision="approved_with_changes", patch=p1))
+        id2 = _make_review_id(_review_intent(
+            gc, decision="approved_with_changes", patch=p2))
+        assert id1 != id2
+
+    def test_review_id_protocol_exact(self):
+        """review_id 协议：UUID5(DNS, "graph-review:" + sha256(canonical intent))。"""
+        gc = _make_graph_change_node()
+        intent = _review_intent(gc)
+        canonical = json.dumps(intent, ensure_ascii=False, sort_keys=True,
+                               separators=(",", ":"))
+        intent_sha = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        expected = str(uuid.uuid5(uuid.NAMESPACE_DNS, "graph-review:" + intent_sha))
+        assert _make_review_id(intent) == expected
+        assert compute_review_id(intent) == expected
 
     def test_replacement_gc_id_deterministic(self):
         """相同 review_id 产生相同 replacement ID。"""
@@ -776,16 +1014,22 @@ class TestDeterministicIDs:
         )
         assert id1 != id2
 
+    def test_replacement_id_protocol_exact(self):
+        """replacement 协议：UUID5(DNS, "graph-review-result:" + review_id)。"""
+        rid = "11111111-1111-1111-1111-111111111111"
+        expected = str(uuid.uuid5(uuid.NAMESPACE_DNS, "graph-review-result:" + rid))
+        assert _make_replacement_gc_id(rid) == expected
+
     def test_review_id_is_uuid_format(self):
         """review_id 是合法 UUID 格式。"""
         gc = _make_graph_change_node()
-        rid = _make_review_id(gc)
+        rid = _make_review_id(_review_intent(gc))
         assert len(rid) == 36
         assert rid.count("-") == 4
 
     def test_replacement_id_is_uuid_format(self):
         """replacement ID 是合法 UUID 格式。"""
-        rid = _make_review_id(_make_graph_change_node())
+        rid = _make_review_id(_review_intent(_make_graph_change_node()))
         rep_id = _make_replacement_gc_id(rid)
         assert len(rep_id) == 36
         assert rep_id.count("-") == 4
@@ -871,8 +1115,10 @@ class TestReviewWorkflowExport:
             "raw_category": "news",
         }, ensure_ascii=False)
         conn.execute(
-            "INSERT OR IGNORE INTO raw_items (raw_item_id, payload) VALUES (?, ?)",
-            (RAW_ITEM_UUID, ri_payload),
+            "INSERT OR IGNORE INTO raw_items "
+            "(raw_item_id, payload, source_id, content_hash, access_status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (RAW_ITEM_UUID, ri_payload, SOURCE_UUID, SHA256_ZEROS, "ok"),
         )
         conn.commit()
 
@@ -1372,6 +1618,509 @@ class TestReviewWorkflowImport:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Tests: ImportResult eligibility + replay integrity
+# ═══════════════════════════════════════════════════════════════
+
+def _setup_import_components(db):
+    """构造 import 所需的 repos/validator/workflow。"""
+    from research_os.knowledge.candidate_repository import (
+        GraphChangeCandidateRepository,
+    )
+    from research_os.knowledge.repository import GraphRepository
+
+    candidate_repo = GraphChangeCandidateRepository(db)
+    graph_repo = GraphRepository(db)
+    validator = KnowledgeValidator(db, graph_repo)
+    workflow = ReviewWorkflow(db, candidate_repo, graph_repo, validator)
+    return candidate_repo, graph_repo, validator, workflow
+
+
+class TestImportEligibilityAndReplay:
+    """ImportResult 真实 eligibility + approved_with_changes replay 完整性。"""
+
+    def test_import_ok_reports_real_eligibility(self, tmp_path):
+        """正常 approved：review_eligible=true, apply_eligible=true。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md, _ = _build_review_markdown(gc, decision="批准")
+        result = workflow.review_import(md)
+
+        assert result.status == "ok"
+        assert result.candidate_hash == _candidate_hash(gc)
+        assert result.review_eligible is True
+        assert result.apply_eligible is True
+
+        db.close()
+
+    def test_dry_run_reports_real_eligibility(self, tmp_path):
+        """dry-run：review_eligible=true, apply_eligible=true。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md, _ = _build_review_markdown(gc, decision="批准")
+        result = workflow.review_import(md, dry_run=True)
+
+        assert result.status == "dry_run"
+        assert result.candidate_hash == _candidate_hash(gc)
+        assert result.review_eligible is True
+        assert result.apply_eligible is True
+
+        db.close()
+
+    def test_idempotent_reports_real_eligibility(self, tmp_path):
+        """幂等回放：review_eligible=true, apply_eligible=true。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md, _ = _build_review_markdown(gc, decision="批准")
+        r1 = workflow.review_import(md)
+        assert r1.status == "ok"
+        r2 = workflow.review_import(md)
+
+        assert r2.status == "idempotent_noop"
+        assert r2.review_id == r1.review_id
+        assert r2.candidate_hash == _candidate_hash(gc)
+        assert r2.review_eligible is True
+        assert r2.apply_eligible is True
+
+        db.close()
+
+    def test_approved_conflict_review_persists_apply_ineligible(self, tmp_path):
+        """approved + conflict：review 持久化，apply_eligible=false。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node(conflicts=["冲突数据源：源A vs 源B"])
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md, _ = _build_review_markdown(gc, decision="批准")
+        result = workflow.review_import(md)
+
+        assert result.status == "ok"
+        assert result.review_eligible is True
+        assert result.apply_eligible is False
+
+        # 合法人工审核历史保留
+        saved = graph_repo.get_review(result.review_id)
+        assert saved is not None
+        assert saved["decision"] == "approved"
+
+        db.close()
+
+    def test_deferred_apply_ineligible_review_eligible(self, tmp_path):
+        """deferred：review 持久化，review_eligible=true, apply_eligible=false。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md, _ = _build_review_markdown(gc, decision="暂缓")
+        result = workflow.review_import(md)
+
+        assert result.status == "ok"
+        assert result.review_eligible is True
+        assert result.apply_eligible is False
+
+        db.close()
+
+    def test_same_candidate_two_reviews_coexist(self, tmp_path):
+        """same candidate 两个不同审核 → 两条 audit records。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md_a, _ = _build_review_markdown(gc, decision="批准", reviewer_id="reviewer-A")
+        ra = workflow.review_import(md_a)
+        assert ra.status == "ok"
+
+        md_b, _ = _build_review_markdown(gc, decision="拒绝", reviewer_id="reviewer-B")
+        rb = workflow.review_import(md_b)
+        assert rb.status == "ok"
+
+        assert ra.review_id != rb.review_id
+
+        rows = db._conn.execute(
+            "SELECT review_id, decision FROM graph_reviews WHERE graph_change_id = ?",
+            (gc.graph_change_id,),
+        ).fetchall()
+        assert len(rows) == 2
+        assert {r["decision"] for r in rows} == {"approved", "rejected"}
+
+        db.close()
+
+    def test_exact_review_replay_idempotent(self, tmp_path):
+        """exact review replay → idempotent，不产生重复记录。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        md, _ = _build_review_markdown(gc, decision="批准")
+        r1 = workflow.review_import(md)
+        assert r1.status == "ok"
+        r2 = workflow.review_import(md)
+        assert r2.status == "idempotent_noop"
+
+        count = _count_table(db, "graph_reviews")
+        assert count == 1
+
+        db.close()
+
+    def test_replay_missing_replacement_rejected(self, tmp_path):
+        """approved_with_changes replay + replacement 缺失 → REPLACEMENT_MISSING。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        patch = [{"op": "replace", "path": "/suggested_change", "value": "更新"}]
+        md, _ = _build_review_markdown(gc, decision="修改后批准", patch=patch)
+
+        r1 = workflow.review_import(md)
+        assert r1.status == "ok"
+
+        # 攻击：删除 replacement
+        db._conn.execute(
+            "DELETE FROM graph_changes WHERE graph_change_id = ?",
+            (r1.resulting_graph_change_id,),
+        )
+        db._conn.commit()
+
+        r2 = workflow.review_import(md)
+        assert r2.status == "error"
+        assert any("REPLACEMENT_MISSING" in e for e in r2.errors)
+
+        db.close()
+
+    def test_replay_conflicting_replacement_rejected(self, tmp_path):
+        """approved_with_changes replay + replacement payload 不同 → IMMUTABLE_CANDIDATE_CONFLICT。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+
+        gc = _make_graph_change_node()
+        candidate_repo, graph_repo, validator, workflow = _setup_import_components(db)
+        candidate_repo.append_candidate(gc)
+
+        patch = [{"op": "replace", "path": "/suggested_change", "value": "更新"}]
+        md, _ = _build_review_markdown(gc, decision="修改后批准", patch=patch)
+
+        r1 = workflow.review_import(md)
+        assert r1.status == "ok"
+
+        # 攻击：篡改 replacement payload
+        repl = candidate_repo.get_candidate(r1.resulting_graph_change_id)
+        assert repl is not None
+        repl["suggested_change"] = "被篡改的内容"
+        tampered = json.dumps(repl, ensure_ascii=False, sort_keys=True,
+                              separators=(",", ":"))
+        db._conn.execute(
+            "UPDATE graph_changes SET payload = ? WHERE graph_change_id = ?",
+            (tampered, r1.resulting_graph_change_id),
+        )
+        db._conn.commit()
+
+        r2 = workflow.review_import(md)
+        assert r2.status == "error"
+        assert any("IMMUTABLE_CANDIDATE_CONFLICT" in e for e in r2.errors)
+
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# Tests: review-export artifact file
+# ═══════════════════════════════════════════════════════════════
+
+class TestReviewExportFile:
+    """review-export 真实写入 knowledge/candidates/{id}.md。"""
+
+    def _make_workflow(self, tmp_path, knowledge_dir=None):
+        from research_os.storage import Database
+        from research_os.knowledge.candidate_repository import (
+            GraphChangeCandidateRepository,
+        )
+        from research_os.knowledge.repository import GraphRepository
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        db.initialize()
+        _setup_minimal_db_for_import(db)
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+        workflow = ReviewWorkflow(db, candidate_repo, graph_repo, validator,
+                                  knowledge_dir=knowledge_dir)
+        return db, candidate_repo, workflow, db_path
+
+    def test_export_creates_file(self, tmp_path):
+        """review-export 创建 artifact 文件。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "ok"
+        assert result.candidate_hash == _candidate_hash(gc)
+        path = Path(result.markdown_path)
+        assert path.exists()
+        assert path.name == f"{gc.graph_change_id}.md"
+        assert path.read_text(encoding="utf-8") == result.markdown
+        assert "- **candidate_hash**:" in result.markdown
+
+        db.close()
+
+    def test_export_idempotent(self, tmp_path):
+        """相同 export 幂等（idempotent_noop，文件 bytes 不变）。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        r1 = workflow.review_export(gc.graph_change_id)
+        assert r1.status == "ok"
+        path = Path(r1.markdown_path)
+        before = path.read_bytes()
+
+        r2 = workflow.review_export(gc.graph_change_id)
+        assert r2.status == "idempotent_noop"
+        assert r2.markdown_path == r1.markdown_path
+        assert path.read_bytes() == before
+
+        db.close()
+
+    def test_export_dry_run_zero_file(self, tmp_path):
+        """dry-run：0 file writes / 0 mkdir，target 路径正确。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        result = workflow.review_export(gc.graph_change_id, dry_run=True)
+
+        assert result.status == "dry_run"
+        assert result.candidate_hash == _candidate_hash(gc)
+        target = Path(result.markdown_path)
+        assert target == knowledge_dir / "candidates" / f"{gc.graph_change_id}.md"
+        assert not target.exists()
+        assert not (knowledge_dir / "candidates").exists()
+
+        db.close()
+
+    def test_export_m3_template_upgrade(self, tmp_path):
+        """已存在 M3 untouched candidate template → deterministic upgrade。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        target = knowledge_dir / "candidates" / f"{gc.graph_change_id}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # M3 candidate template：无 candidate_hash、Reviewer=_（待审核）_
+        m3_content = (
+            "# 图谱变更候选\n\n"
+            "## GraphChange ID\n\n"
+            f"- **graph_change_id**: `{gc.graph_change_id}`\n\n"
+            "## 变更类型\n\n"
+            f"- **change_type**: `{gc.change_type}`\n\n"
+            "## 当前知识\n\n_（无当前知识——此为新节点/边）_\n\n"
+            "## 新证据\n\n_（无证据上下文）_\n\n"
+            "## 建议变更\n\n"
+            f"{gc.suggested_change}\n\n"
+            "## 影响范围\n\n- industry_a\n\n"
+            "## 冲突信息\n\n_（无冲突）_\n\n"
+            "## 验证节点\n\n- [ ] 验证公司注册信息\n\n"
+            "## 审核选项\n\n- [ ] 批准\n- [ ] 修改后批准\n- [ ] 暂缓\n- [ ] 拒绝\n\n"
+            "## Reviewer\n\n_（待审核）_\n\n"
+            "## Review Notes\n\n_（待填写）_\n\n"
+            "## Approved Patch\n\n_（审核通过后在此填写 JSON Patch）_\n\n"
+            "---\n*渲染时间: --*"
+        )
+        target.write_text(m3_content, encoding="utf-8")
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "ok"
+        upgraded = target.read_text(encoding="utf-8")
+        assert upgraded == result.markdown
+        assert "- **candidate_hash**:" in upgraded  # 升级为 M5 review artifact
+
+        db.close()
+
+    def test_export_human_edit_conflict(self, tmp_path):
+        """已有人类 edit → REVIEW_EXPORT_FILE_CONFLICT，不得覆盖。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        target = knowledge_dir / "candidates" / f"{gc.graph_change_id}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # 人类已勾选审核选项
+        human_content = (
+            "# 图谱变更候选\n\n"
+            "## GraphChange ID\n\n"
+            f"- **graph_change_id**: `{gc.graph_change_id}`\n\n"
+            "## 审核选项\n\n"
+            "- [x] 批准\n- [ ] 修改后批准\n- [ ] 暂缓\n- [ ] 拒绝\n\n"
+            "## Reviewer\n\n```yaml\nreviewer_type: human\n"
+            'reviewer_id: "reviewer-001"\n'
+            'reviewed_at: "2026-08-08T15:00:00+08:00"\n```\n\n'
+            "## Approved Patch\n\n_（仅\"修改后批准\"时填写 JSON Patch 数组）_\n"
+        )
+        target.write_text(human_content, encoding="utf-8")
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "REVIEW_EXPORT_FILE_CONFLICT"
+        assert target.read_text(encoding="utf-8") == human_content  # 未被覆盖
+
+        db.close()
+
+    def test_export_human_edit_notes_only_conflict(self, tmp_path):
+        """人工仅填写 Review Notes（未勾 checkbox）→ 同样不得覆盖。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        target = knowledge_dir / "candidates" / f"{gc.graph_change_id}.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        notes_content = (
+            "# 图谱变更候选\n\n"
+            "## GraphChange ID\n\n"
+            f"- **graph_change_id**: `{gc.graph_change_id}`\n\n"
+            "## 审核选项\n\n"
+            "- [ ] 批准\n- [ ] 修改后批准\n- [ ] 暂缓\n- [ ] 拒绝\n\n"
+            "## Review Notes\n\n"
+            "我认真核对了证据，认为该节点描述需要再补充。\n\n"
+            "## Approved Patch\n\n_（仅\"修改后批准\"时填写 JSON Patch 数组）_\n"
+        )
+        target.write_text(notes_content, encoding="utf-8")
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "REVIEW_EXPORT_FILE_CONFLICT"
+        assert target.read_text(encoding="utf-8") == notes_content  # 未被覆盖
+
+        db.close()
+
+    def test_export_evidence_missing_fails(self, tmp_path):
+        """Evidence missing → review-export ERROR（fail-closed）。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        # candidate 引用不存在的 evidence
+        gc = _make_graph_change_node()
+        gc_dict = gc.model_dump()
+        gc_dict["new_evidence_ids"] = ["missing-evidence-id-00000000"]
+        gc_dict["node"]["evidence_ids"] = ["missing-evidence-id-00000000"]
+        candidate_repo.append_candidate(GraphChange(**gc_dict))
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "error"
+        assert "Evidence missing" in result.error
+
+        db.close()
+
+    def test_export_evidence_invalid_json_fails(self, tmp_path):
+        """Evidence invalid JSON → review-export ERROR（fail-closed）。"""
+        knowledge_dir = tmp_path / "knowledge"
+        db, candidate_repo, workflow, _ = self._make_workflow(
+            tmp_path, knowledge_dir=knowledge_dir
+        )
+        gc = _make_graph_change_node()
+        candidate_repo.append_candidate(gc)
+
+        # 攻击：损坏 evidence payload
+        db._conn.execute(
+            "UPDATE evidence SET payload = ? WHERE evidence_id = ?",
+            ("{this is not json", EVIDENCE_UUID),
+        )
+        db._conn.commit()
+
+        result = workflow.review_export(gc.graph_change_id)
+
+        assert result.status == "error"
+        assert "invalid JSON" in result.error
+
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
 # Tests: review_eligible vs apply_eligible
 # ═══════════════════════════════════════════════════════════════
 
@@ -1503,8 +2252,10 @@ def _setup_minimal_db_for_import(db):
         "raw_category": "news",
     }, ensure_ascii=False)
     conn.execute(
-        "INSERT OR IGNORE INTO raw_items (raw_item_id, payload) VALUES (?, ?)",
-        (RAW_ITEM_UUID, ri_payload),
+        "INSERT OR IGNORE INTO raw_items "
+        "(raw_item_id, payload, source_id, content_hash, access_status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (RAW_ITEM_UUID, ri_payload, SOURCE_UUID, SHA256_ZEROS, "ok"),
     )
 
     # Insert entities

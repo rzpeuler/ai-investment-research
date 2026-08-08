@@ -38,6 +38,11 @@ reports/themes/
 reports/earnings/
 knowledge/inbox/
 knowledge/candidates/
+
+# Agent/工具自身状态（严禁进入 Git：工作区 metadata、会话 metadata、IDE metadata）
+.reasonix/
+reasonix.toml
+desktop-topic-*.json
 knowledge/wiki/
 knowledge/history/
 knowledge/graph/

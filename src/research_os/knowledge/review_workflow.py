@@ -1,60 +1,119 @@
 """M5 Review Workflow：人工审核导入/导出协调器。
 
 核心流程：
-- review_export: load candidate → hash → render Markdown
-- review_import: parse → load → verify → validate → patch → persist
-- JSON Patch applier: 受限 RFC6902，路径白名单
-- Deterministic IDs: UUID5 确定性生成
-- 原子持久化: 单事务内完成全部写入
-- 幂等回放: 相同输入重复执行产生相同结果
+- review_export: load persisted candidate → Schema-first → hash (M4 authority)
+  → Evidence fail-closed load → render → file conflict preflight → deterministic write
+  （artifact 路径：knowledge/candidates/{graph_change_id}.md，不创建第二个 reviews/ 目录）
+- review_import: parse → load → verify → Schema-first GraphReview → M4 validate_review
+  → patch apply（如适用）→ replacement build → M4 validate_candidate → atomic persist
+- JSON Patch applier: 受限 RFC6902（add/replace/remove），路径白名单
+- Deterministic IDs:
+  - GraphReview ID = UUID5(DNS, "graph-review:" + sha256(canonical review intent))
+  - Replacement GraphChange ID = UUID5(DNS, "graph-review-result:" + review_id)
+- 原子持久化: 单事务内完成 GraphReview + replacement GraphChange（如适用）写入
+- 幂等回放: 相同输入重复执行产生相同结果，不创建重复记录
+- review intent 绑定：同一 candidate 的不同 decision/reviewer/reviewed_at/notes/patch
+  产生不同 review_id，形成不同 audit records
 """
 from __future__ import annotations
 
 import copy
 import hashlib
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from research_os.models import (
+    Evidence,
     GraphChange, GraphReview, GraphReviewer,
-    GraphPatchValueOperation, GraphPatchRemoveOperation,
 )
-from research_os.validators.schema_validator import validate_model, validate_instance
+from research_os.validators.schema_validator import validate_instance
 from research_os.knowledge.review_renderer import review_export_markdown
-from research_os.knowledge.review_parser import parse_review_markdown, ParsedReview
+from research_os.knowledge.review_parser import (
+    parse_review_markdown,
+    _strip_fenced_blocks, _extract_between, _is_frozen_patch_placeholder,
+)
 
-# ── UUID5 namespace ──────────────────────────────────────────
-_NAMESPACE_URL = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # standard DNS namespace
+# ── UUID5 namespace（冻结协议） ──────────────────────────────
+# review ID 与 replacement ID 均使用标准 DNS namespace。
+_NAMESPACE_DNS = uuid.NAMESPACE_DNS
 
 
 def _make_deterministic_id(seed: str) -> str:
     """UUID5 确定性 ID 生成。"""
-    return str(uuid.uuid5(_NAMESPACE_URL, seed))
+    return str(uuid.uuid5(_NAMESPACE_DNS, seed))
 
 
-def _make_review_id(graph_change: GraphChange) -> str:
-    """GraphReview 确定性 ID。
+def _build_review_intent(
+    graph_change_id: str,
+    decision: str,
+    reviewer: GraphReviewer,
+    reviewed_at: str,
+    candidate_hash: str,
+    review_patch: List[dict],
+    notes: str,
+) -> dict:
+    """构造规范 review intent。
 
-    uuid5(NAMESPACE_URL, "graph_review:" + sha256(canonical GraphChange))
+    reviewer 使用完整 deterministic representation：
+    reviewer_type / reviewer_id / display_name。
     """
-    canonical = json.dumps(
-        graph_change.model_dump(),
+    return {
+        "graph_change_id": graph_change_id,
+        "decision": decision,
+        "reviewer": {
+            "reviewer_type": reviewer.reviewer_type,
+            "reviewer_id": reviewer.reviewer_id,
+            "display_name": reviewer.display_name,
+        },
+        "reviewed_at": reviewed_at,
+        "candidate_hash": candidate_hash,
+        "review_patch": review_patch,
+        "notes": notes,
+    }
+
+
+def compute_review_id(review_intent: dict) -> str:
+    """GraphReview 确定性 ID（冻结协议，review-intent 绑定）。
+
+    canonical_intent = json.dumps(intent, ensure_ascii=False, sort_keys=True,
+                                  separators=(",", ":"))
+    intent_sha256 = sha256(canonical_intent)
+    review_id = UUID5(DNS, "graph-review:" + intent_sha256)
+
+    要求：
+    - same exact review → same review_id
+    - same candidate + different decision/reviewer/reviewed_at/notes/patch
+      → different review_id
+    """
+    canonical_intent = json.dumps(
+        review_intent,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
-    content_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    return _make_deterministic_id(f"graph_review:{content_hash}")
+    intent_sha256 = hashlib.sha256(canonical_intent.encode("utf-8")).hexdigest()
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, "graph-review:" + intent_sha256))
+
+
+def _make_review_id(review_intent: dict) -> str:
+    """别名：compute_review_id（review-intent 绑定，删除旧的 candidate-only ID）。"""
+    return compute_review_id(review_intent)
 
 
 def _make_replacement_gc_id(review_id: str) -> str:
-    """Replacement GraphChange 确定性 ID。
+    """Replacement GraphChange 确定性 ID（冻结协议）。
 
-    uuid5(NAMESPACE_URL, "replacement:" + review_id)
+    resulting_graph_change_id = UUID5(DNS, "graph-review-result:" + review_id)
+
+    要求：
+    - same exact review → same replacement ID
+    - different review → different replacement ID
     """
-    return _make_deterministic_id(f"replacement:{review_id}")
+    return _make_deterministic_id(f"graph-review-result:{review_id}")
 
 
 # ── JSON Patch applier ────────────────────────────────────────
@@ -97,6 +156,10 @@ def _resolve_pointer(obj: dict, pointer: str) -> Any:
                 raise KeyError(
                     f"pointer {pointer}: invalid array index {part}"
                 )
+            if idx < 0:
+                raise KeyError(
+                    f"pointer {pointer}: negative array index {idx} not allowed"
+                )
             if idx >= len(current):
                 raise KeyError(
                     f"pointer {pointer}: index {idx} out of range (len={len(current)})"
@@ -119,7 +182,6 @@ def _check_path_allowed(path: str) -> bool:
 
 def _check_system_field(path: str) -> Optional[str]:
     """检查 path 是否指向阻止的系统字段。返回被阻止的字段名或 None。"""
-    # 规范化 pointer
     parts = [p for p in path.strip("/").split("/") if p]
     for part in parts:
         if part in _BLOCKED_SYSTEM_FIELDS:
@@ -183,7 +245,6 @@ def _apply_add(obj: dict, pointer: str, value: Any) -> None:
     parts = pointer.strip("/").split("/")
     parts = [p.replace("~1", "/").replace("~0", "~") for p in parts]
 
-    # 遍历到倒数第二个部分
     current = obj
     for part in parts[:-1]:
         if isinstance(current, dict):
@@ -195,6 +256,8 @@ def _apply_add(obj: dict, pointer: str, value: Any) -> None:
                 idx = int(part)
             except ValueError:
                 raise ValueError(f"add: invalid array index {part}")
+            if idx < 0:
+                raise ValueError(f"add: negative array index {idx} not allowed")
             if idx >= len(current):
                 raise ValueError(f"add: index {idx} out of range")
             current = current[idx]
@@ -212,6 +275,8 @@ def _apply_add(obj: dict, pointer: str, value: Any) -> None:
                 idx = int(final)
             except ValueError:
                 raise ValueError(f"add: invalid array index {final}")
+            if idx < 0:
+                raise ValueError(f"add: negative array index {idx} not allowed")
             if idx > len(current):
                 raise ValueError(f"add: index {idx} out of range (len={len(current)})")
             current.insert(idx, value)
@@ -272,10 +337,11 @@ def _apply_remove(obj: dict, pointer: str) -> None:
 @dataclass
 class ExportResult:
     """review_export 返回结果。"""
-    status: str  # "ok" / "error"
+    status: str  # "ok" / "idempotent_noop" / "dry_run" / "error" / "REVIEW_EXPORT_FILE_CONFLICT"
     graph_change_id: str = ""
     candidate_hash: str = ""
     markdown: str = ""
+    markdown_path: str = ""
     error: str = ""
 
 
@@ -288,6 +354,7 @@ class ImportResult:
     decision: str = ""
     resulting_graph_change_id: Optional[str] = None
     dry_run: bool = False
+    candidate_hash: str = ""
     review_eligible: bool = False
     apply_eligible: bool = False
     errors: List[str] = field(default_factory=list)
@@ -299,7 +366,8 @@ class ImportResult:
 class ReviewWorkflow:
     """M5 人工审核工作流协调器。"""
 
-    def __init__(self, db, candidate_repo, graph_repo, validator):
+    def __init__(self, db, candidate_repo, graph_repo, validator,
+                 knowledge_dir: Optional[Path] = None):
         """初始化。
 
         Args:
@@ -307,24 +375,194 @@ class ReviewWorkflow:
             candidate_repo: GraphChangeCandidateRepository 实例。
             graph_repo: GraphRepository 实例。
             validator: KnowledgeValidator 实例。
+            knowledge_dir: 项目 knowledge/ 目录（artifact 写入目标）；
+                None 时 review_export 只返回 Markdown 不写文件。
         """
         self._db = db
         self._candidate_repo = candidate_repo
         self._graph_repo = graph_repo
         self._validator = validator
+        self._knowledge_dir = Path(knowledge_dir) if knowledge_dir is not None else None
+
+    # ── Schema-first helpers ─────────────────────────────────
+
+    @staticmethod
+    def _schema_first_graph_change(candidate_dict: dict
+                                   ) -> Tuple[Optional[GraphChange], Optional[str]]:
+        """Persisted GraphChange Schema-first：
+        raw graph_change.schema → GraphChange → model_dump → graph_change.schema。
+
+        Returns (model_or_None, error_or_None)。
+        """
+        schema_errors = validate_instance(candidate_dict, "graph_change")
+        if schema_errors:
+            return None, f"GraphChange schema invalid: {'; '.join(schema_errors)}"
+        try:
+            gc = GraphChange(**candidate_dict)
+        except Exception as e:
+            return None, f"GraphChange Pydantic parse failed: {e}"
+        try:
+            dumped = gc.model_dump()
+        except Exception as e:
+            return None, f"GraphChange model_dump failed: {e}"
+        schema_errors2 = validate_instance(dumped, "graph_change")
+        if schema_errors2:
+            return None, f"GraphChange dump schema re-validation failed: {'; '.join(schema_errors2)}"
+        return gc, None
+
+    @staticmethod
+    def _schema_first_graph_review(review_raw: dict
+                                   ) -> Tuple[Optional[GraphReview], Optional[str]]:
+        """GraphReview Schema-first：
+        raw graph_review.schema → GraphReview → model_dump → graph_review.schema。
+
+        Returns (model_or_None, error_or_None)。
+        """
+        schema_errors = validate_instance(review_raw, "graph_review")
+        if schema_errors:
+            return None, f"GraphReview schema invalid: {'; '.join(schema_errors)}"
+        try:
+            review = GraphReview(**review_raw)
+        except Exception as e:
+            return None, f"GraphReview Pydantic parse failed: {e}"
+        try:
+            dumped = review.model_dump()
+        except Exception as e:
+            return None, f"GraphReview model_dump failed: {e}"
+        schema_errors2 = validate_instance(dumped, "graph_review")
+        if schema_errors2:
+            return None, f"GraphReview dump schema re-validation failed: {'; '.join(schema_errors2)}"
+        return review, None
+
+    # ── Evidence fail-closed ─────────────────────────────────
+
+    def _load_evidence_fail_closed(self, gc: GraphChange
+                                   ) -> Tuple[Optional[List[dict]], Optional[str]]:
+        """加载 candidate 引用的全部 Evidence（fail-closed）。
+
+        每条 Evidence 必须：
+        - 存在（DB 行）
+        - payload JSON 可解析
+        - evidence.schema valid
+        - Pydantic valid
+        - model_dump schema valid
+
+        任何 missing / DB failure / invalid JSON / invalid Schema → (None, error)。
+        禁止生成偷偷缺少 Evidence 的人工审核文件。
+        """
+        all_evidence_ids = set(gc.new_evidence_ids)
+        if gc.node is not None:
+            all_evidence_ids.update(gc.node.evidence_ids)
+        if gc.edge is not None:
+            all_evidence_ids.update(gc.edge.evidence_ids)
+
+        records: List[dict] = []
+        for eid in sorted(all_evidence_ids):
+            try:
+                row = self._db._conn.execute(
+                    "SELECT payload FROM evidence WHERE evidence_id = ?",
+                    (eid,),
+                ).fetchone()
+            except Exception as e:
+                return None, f"Evidence DB failure for {eid}: {e}"
+            if row is None:
+                return None, f"Evidence missing: {eid}"
+            try:
+                payload = json.loads(row["payload"])
+            except Exception as e:
+                return None, f"Evidence {eid} invalid JSON: {e}"
+            schema_errors = validate_instance(payload, "evidence")
+            if schema_errors:
+                return None, f"Evidence {eid} schema invalid: {'; '.join(schema_errors)}"
+            try:
+                ev = Evidence(**payload)
+            except Exception as e:
+                return None, f"Evidence {eid} Pydantic parse failed: {e}"
+            try:
+                dumped = ev.model_dump()
+            except Exception as e:
+                return None, f"Evidence {eid} model_dump failed: {e}"
+            schema_errors2 = validate_instance(dumped, "evidence")
+            if schema_errors2:
+                return None, f"Evidence {eid} dump schema invalid: {'; '.join(schema_errors2)}"
+            records.append(dumped)
+        return records, None
+
+    # ── human-edit 检测（review-export 文件冲突） ────────────
+
+    @staticmethod
+    def _detect_human_edit(md_text: str) -> bool:
+        """检测审阅文件是否已有人工填写内容。
+
+        任一检测命中 → True（不得覆盖）：
+        - 任何审核 checkbox 已选中（- [x] / - [X]，fenced 外）
+        - reviewer_id 已填写真实值（带引号或无引号）
+        - reviewed_at 已填写真实值（带引号或无引号）
+        - Approved Patch 已填写人工内容（非冻结占位符）
+        - Review Notes 已填写人工内容（非冻结占位符）
+        """
+        # 1. checkbox 已选中（fenced-aware）
+        clean = _strip_fenced_blocks(md_text)
+        for line in clean.split("\n"):
+            if re.match(r"-\s*\[[xX]\]", line.strip()):
+                return True
+        # 2. reviewer_id 真实值（支持带引号 / 无引号两种 YAML 写法）
+        m = re.search(r"reviewer_id:\s*(?:\"([^\"]*)\"|(\S+))", md_text)
+        if m and ((m.group(1) or "").strip() or (m.group(2) or "").strip()):
+            return True
+        # 3. reviewed_at 真实值
+        m = re.search(r"reviewed_at:\s*(?:\"([^\"]*)\"|(\S+))", md_text)
+        if m and ((m.group(1) or "").strip() or (m.group(2) or "").strip()):
+            return True
+        # 4. Approved Patch 人工内容
+        patch_section = _extract_between(md_text, "## Approved Patch", None)
+        if "---" in patch_section:
+            patch_section = patch_section.split("---")[0]
+        content = patch_section.strip()
+        if content and not _is_frozen_patch_placeholder(content):
+            return True
+        # 5. Review Notes 人工内容（防覆盖人工填写但未勾选 checkbox 的笔记）
+        notes_section = _extract_between(md_text, "## Review Notes", "## Approved Patch")
+        notes_content = notes_section.strip()
+        if notes_content and notes_content not in (
+            "_（请在此填写审核意见）_",  # M5 review template 占位符
+            "_（待填写）_",              # M3 candidate template 占位符
+        ):
+            return True
+        return False
 
     # ── export ────────────────────────────────────────────────
+
+    def _export_target_path(self, graph_change_id: str) -> Optional[Path]:
+        """artifact 目标路径：knowledge/candidates/{graph_change_id}.md。"""
+        if self._knowledge_dir is None:
+            return None
+        return self._knowledge_dir / "candidates" / f"{graph_change_id}.md"
 
     def review_export(
         self,
         graph_change_id: str,
         dry_run: bool = False,
     ) -> ExportResult:
-        """导出 GraphChange candidate 为审阅 Markdown。
+        """导出 GraphChange candidate 为审阅 Markdown artifact。
+
+        非 dry-run 流程：
+        load persisted GraphChange → raw Schema → Pydantic → dump Schema
+        → candidate hash（M4 authority）→ Evidence load/validate（fail-closed）
+        → render → file conflict preflight → deterministic write。
+
+        文件冲突：
+        - 不存在 → 正常写入（status=ok）
+        - 已存在且 bytes 完全相同 → idempotent_noop
+        - 已存在 M3 untouched candidate template → deterministic upgrade（status=ok）
+        - 已有人类 edit → REVIEW_EXPORT_FILE_CONFLICT（不得覆盖）
+
+        dry-run：执行完整 preflight（load/Schema/hash/Evidence/render/path/conflict），
+        0 file writes，0 mkdir。
 
         Args:
             graph_change_id: 候选 GraphChange ID。
-            dry_run: 不写文件，仅返回 Markdown。
+            dry_run: 不写文件，仅预检。
 
         Returns:
             ExportResult
@@ -338,14 +576,13 @@ class ReviewWorkflow:
                 error=f"Candidate not found: {graph_change_id}",
             )
 
-        # 2. Parse to GraphChange model
-        try:
-            gc = GraphChange(**candidate_dict)
-        except Exception as e:
+        # 2. Schema-first validate
+        gc, err = self._schema_first_graph_change(candidate_dict)
+        if err:
             return ExportResult(
                 status="error",
                 graph_change_id=graph_change_id,
-                error=f"Failed to parse candidate: {e}",
+                error=err,
             )
 
         # 3. Verify review_status=candidate
@@ -356,46 +593,82 @@ class ReviewWorkflow:
                 error=f"GraphChange review_status is '{gc.review_status}', not 'candidate'",
             )
 
-        # 4. Schema-first validate
-        schema_errors = validate_instance(gc.model_dump(), "graph_change")
-        if schema_errors:
+        # 4. Compute candidate hash（M4 authority）
+        candidate_hash = self._validator.compute_candidate_hash(gc)
+
+        # 5. Load evidence（fail-closed）
+        evidence_records, ev_err = self._load_evidence_fail_closed(gc)
+        if ev_err:
             return ExportResult(
                 status="error",
                 graph_change_id=graph_change_id,
-                error=f"Schema validation failed: {'; '.join(schema_errors)}",
+                candidate_hash=candidate_hash,
+                error=ev_err,
             )
 
-        # 5. Compute candidate hash
-        canonical = json.dumps(
-            gc.model_dump(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        candidate_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        # 6. Render Markdown
+        markdown = review_export_markdown(gc, evidence_records, candidate_hash)
 
-        # 6. Load evidence records
-        evidence_records = []
-        all_evidence_ids = set(gc.new_evidence_ids)
-        if gc.node is not None:
-            all_evidence_ids.update(gc.node.evidence_ids)
-        if gc.edge is not None:
-            all_evidence_ids.update(gc.edge.evidence_ids)
+        # 7. Target path + file conflict preflight
+        target_path = self._export_target_path(graph_change_id)
 
-        for eid in sorted(all_evidence_ids):
-            try:
-                row = self._db._conn.execute(
-                    "SELECT payload FROM evidence WHERE evidence_id = ?",
-                    (eid,),
-                ).fetchone()
-                if row:
-                    evidence_records.append(json.loads(row["payload"]))
-            except Exception:
-                pass
+        if target_path is not None and target_path.exists():
+            existing = target_path.read_text(encoding="utf-8")
+            if existing == markdown:
+                # 已存在且 bytes 完全相同
+                if dry_run:
+                    return ExportResult(
+                        status="dry_run",
+                        graph_change_id=graph_change_id,
+                        candidate_hash=candidate_hash,
+                        markdown=markdown,
+                        markdown_path=str(target_path),
+                    )
+                return ExportResult(
+                    status="idempotent_noop",
+                    graph_change_id=graph_change_id,
+                    candidate_hash=candidate_hash,
+                    markdown=markdown,
+                    markdown_path=str(target_path),
+                )
+            if self._detect_human_edit(existing):
+                # 已有人类 edit，不得覆盖
+                return ExportResult(
+                    status="REVIEW_EXPORT_FILE_CONFLICT",
+                    graph_change_id=graph_change_id,
+                    candidate_hash=candidate_hash,
+                    markdown=markdown,
+                    markdown_path=str(target_path),
+                    error=(
+                        f"REVIEW_EXPORT_FILE_CONFLICT: {target_path.name} "
+                        f"已包含人工审核内容，拒绝覆盖"
+                    ),
+                )
+            # 已存在 M3 untouched candidate template → deterministic upgrade（继续写入）
 
-        # 7. Render Markdown
-        markdown = review_export_markdown(gc, evidence_records)
+        # 8. dry-run：预检完成，0 writes / 0 mkdir
+        if dry_run:
+            return ExportResult(
+                status="dry_run",
+                graph_change_id=graph_change_id,
+                candidate_hash=candidate_hash,
+                markdown=markdown,
+                markdown_path=str(target_path) if target_path is not None else "",
+            )
 
+        # 9. Deterministic write
+        if target_path is not None:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(markdown, encoding="utf-8")
+            return ExportResult(
+                status="ok",
+                graph_change_id=graph_change_id,
+                candidate_hash=candidate_hash,
+                markdown=markdown,
+                markdown_path=str(target_path),
+            )
+
+        # 无 knowledge_dir：仅返回 Markdown（兼容旧调用，不写文件）
         return ExportResult(
             status="ok",
             graph_change_id=graph_change_id,
@@ -412,9 +685,14 @@ class ReviewWorkflow:
     ) -> ImportResult:
         """导入人工审阅 Markdown 并持久化。
 
-        流程: parse → load GraphChange → hash verify → build GraphReview →
-              M4 validate_review → patch apply（如适用）→
-              replacement build → M4 validate_candidate → atomic persist
+        流程: parse → load GraphChange（Schema-first）→ hash verify →
+              build GraphReview（Schema-first）→ M4 validate_review →
+              patch apply（如适用）→ replacement build（Schema-first）→
+              M4 validate_candidate → atomic persist。
+
+        import gate = review_eligible（结构性/审核问题）。
+        apply_eligible=false（conflict/stale/deferred/rejected）不阻止持久化
+        合法人工审核历史。
 
         Args:
             md_text: 填写后的审阅 Markdown。
@@ -436,7 +714,7 @@ class ReviewWorkflow:
                 errors=parsed.errors,
             )
 
-        # 2. Load GraphChange candidate
+        # 2. Load GraphChange candidate（Schema-first）
         candidate_dict = self._candidate_repo.get_candidate(parsed.graph_change_id)
         if candidate_dict is None:
             return ImportResult(
@@ -447,31 +725,25 @@ class ReviewWorkflow:
                 errors=[f"Candidate not found: {parsed.graph_change_id}"],
             )
 
-        try:
-            gc = GraphChange(**candidate_dict)
-        except Exception as e:
+        gc, err = self._schema_first_graph_change(candidate_dict)
+        if err:
             return ImportResult(
                 status="error",
                 graph_change_id=parsed.graph_change_id,
                 decision=parsed.decision,
                 dry_run=dry_run,
-                errors=[f"Failed to parse candidate: {e}"],
+                errors=[f"INVALID_REVIEW: {err}"],
             )
 
-        # 3. Verify candidate hash
-        canonical = json.dumps(
-            gc.model_dump(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        computed_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        # 3. Verify candidate hash（M4 authority 重算）
+        computed_hash = self._validator.compute_candidate_hash(gc)
         if parsed.candidate_hash != computed_hash:
             return ImportResult(
                 status="error",
                 graph_change_id=parsed.graph_change_id,
                 decision=parsed.decision,
                 dry_run=dry_run,
+                candidate_hash=computed_hash,
                 errors=[
                     f"Candidate hash mismatch: "
                     f"review has {parsed.candidate_hash}, "
@@ -485,55 +757,62 @@ class ReviewWorkflow:
                 f"GraphChange review_status is already '{gc.review_status}', not 'candidate'"
             )
 
-        # 5. Build GraphReview
-        review_id = _make_review_id(gc)
-
-        # Build patch operations as Pydantic models
-        patch_ops = []
-        for p in parsed.review_patch:
-            op_type = p.get("op")
-            path = p.get("path", "")
-            if op_type in ("add", "replace"):
-                patch_ops.append(GraphPatchValueOperation(
-                    op=op_type,
-                    path=path,
-                    value=p.get("value"),
-                ))
-            elif op_type == "remove":
-                patch_ops.append(GraphPatchRemoveOperation(
-                    op=op_type,
-                    path=path,
-                ))
-
-        resulting_gc_id: Optional[str] = None
-        if parsed.decision == "approved_with_changes":
-            resulting_gc_id = _make_replacement_gc_id(review_id)
-
+        # 5. Build GraphReview（review-intent 确定性 ID + Schema-first）
         reviewer = GraphReviewer(
             reviewer_type="human",
             reviewer_id=parsed.reviewer_id,
             display_name=parsed.display_name,
         )
 
-        review = GraphReview(
-            review_id=review_id,
+        review_intent = _build_review_intent(
             graph_change_id=parsed.graph_change_id,
             decision=parsed.decision,
             reviewer=reviewer,
             reviewed_at=parsed.reviewed_at,
             candidate_hash=parsed.candidate_hash,
-            review_patch=patch_ops,
+            review_patch=parsed.review_patch,
             notes=parsed.review_notes,
-            resulting_graph_change_id=resulting_gc_id,
         )
+        review_id = compute_review_id(review_intent)
+
+        resulting_gc_id: Optional[str] = None
+        if parsed.decision == "approved_with_changes":
+            resulting_gc_id = _make_replacement_gc_id(review_id)
+
+        review_raw = {
+            "review_id": review_id,
+            "graph_change_id": parsed.graph_change_id,
+            "decision": parsed.decision,
+            "reviewer": {
+                "reviewer_type": reviewer.reviewer_type,
+                "reviewer_id": reviewer.reviewer_id,
+                "display_name": reviewer.display_name,
+            },
+            "reviewed_at": parsed.reviewed_at,
+            "candidate_hash": parsed.candidate_hash,
+            "review_patch": parsed.review_patch,
+            "notes": parsed.review_notes,
+            "resulting_graph_change_id": resulting_gc_id,
+        }
+        review, rev_err = self._schema_first_graph_review(review_raw)
+        if rev_err:
+            return ImportResult(
+                status="error",
+                review_id=review_id,
+                graph_change_id=parsed.graph_change_id,
+                decision=parsed.decision,
+                dry_run=dry_run,
+                candidate_hash=parsed.candidate_hash,
+                errors=[f"INVALID_REVIEW: {rev_err}"],
+            )
 
         # 6. M4 validate_review
         as_of = parsed.reviewed_at or gc.created_at
         validation_result = self._validator.validate_review(gc, review, as_of)
 
-        # M5 import gate: only block on review_eligible=false (structural/review issues).
-        # apply_eligible issues (conflicts, stale baseline) do NOT block import —
-        # they are reported as warnings. See M5-R1 spec item #7.
+        # M5 import gate: 只以 review_eligible 为门禁。
+        # apply_eligible=false（conflict/stale/deferred/rejected）不阻止持久化
+        # 合法人工审核历史——见 M5-R2 spec item #20。
         if not validation_result.review_eligible:
             issue_msgs = [f"{i.rule_id}: {i.message}" for i in validation_result.issues
                           if i.blocks_review]
@@ -543,6 +822,7 @@ class ReviewWorkflow:
                 graph_change_id=parsed.graph_change_id,
                 decision=parsed.decision,
                 dry_run=dry_run,
+                candidate_hash=parsed.candidate_hash,
                 review_eligible=False,
                 apply_eligible=validation_result.apply_eligible,
                 errors=[f"M4 validation failed: {'; '.join(issue_msgs)}"],
@@ -557,22 +837,33 @@ class ReviewWorkflow:
 
         # 7. Patch apply（仅 approved_with_changes）
         replacement_gc: Optional[GraphChange] = None
-        if parsed.decision == "approved_with_changes" and parsed.review_patch:
+        expected_replacement_canonical: Optional[str] = None
+        if parsed.decision == "approved_with_changes":
+            if not parsed.review_patch:
+                return ImportResult(
+                    status="error",
+                    review_id=review_id,
+                    graph_change_id=parsed.graph_change_id,
+                    decision=parsed.decision,
+                    dry_run=dry_run,
+                    candidate_hash=parsed.candidate_hash,
+                    errors=["approved_with_changes 要求非空 review_patch"],
+                )
             try:
                 gc_dict = copy.deepcopy(candidate_dict)
                 patched = apply_json_patch(gc_dict, parsed.review_patch)
 
-                # Replacement is a NEW candidate (M5-R1 item #5):
-                # - graph_change_id = replacement_id (UUID5 from review_id)
-                # - review_status = "candidate" (NOT "approved")
+                # Replacement 是 NEW candidate（candidate-shaped）：
+                # - graph_change_id = resulting_graph_change_id
+                # - review_status = "candidate"（NOT "approved"）
                 # - reviewed_at = null
-                # - created_at = review.reviewed_at
+                # - created_at = GraphReview.reviewed_at
                 patched["graph_change_id"] = resulting_gc_id
                 patched["review_status"] = "candidate"
                 patched["reviewed_at"] = None
                 patched["created_at"] = parsed.reviewed_at
 
-                # Node/edge: originating_graph_change_id = replacement_id,
+                # Node/edge: originating_graph_change_id = replacement id,
                 # created_at = reviewed_at, review_status = "candidate",
                 # last_reviewed_at = null
                 if patched.get("node"):
@@ -586,7 +877,18 @@ class ReviewWorkflow:
                     patched["edge"]["originating_graph_change_id"] = resulting_gc_id
                     patched["edge"]["created_at"] = parsed.reviewed_at
 
-                replacement_gc = GraphChange(**patched)
+                # Replacement Schema-first
+                replacement_gc, repl_err = self._schema_first_graph_change(patched)
+                if repl_err:
+                    return ImportResult(
+                        status="error",
+                        review_id=review_id,
+                        graph_change_id=parsed.graph_change_id,
+                        decision=parsed.decision,
+                        dry_run=dry_run,
+                        candidate_hash=parsed.candidate_hash,
+                        errors=[f"Replacement invalid: {repl_err}"],
+                    )
             except Exception as e:
                 return ImportResult(
                     status="error",
@@ -594,6 +896,7 @@ class ReviewWorkflow:
                     graph_change_id=parsed.graph_change_id,
                     decision=parsed.decision,
                     dry_run=dry_run,
+                    candidate_hash=parsed.candidate_hash,
                     errors=[f"Patch apply failed: {e}"],
                 )
 
@@ -613,10 +916,109 @@ class ReviewWorkflow:
                     graph_change_id=parsed.graph_change_id,
                     decision=parsed.decision,
                     dry_run=dry_run,
+                    candidate_hash=parsed.candidate_hash,
                     errors=[f"Replacement validation failed: {'; '.join(issue_msgs)}"],
                 )
 
-        # 9. Dry-run: stop here
+            expected_replacement_canonical = json.dumps(
+                replacement_gc.model_dump(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+
+        # 9. Idempotent replay preflight（写之前检测）
+        existing_review_row = None
+        try:
+            existing_review_row = self._db._conn.execute(
+                "SELECT payload FROM graph_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        except Exception as e:
+            return ImportResult(
+                status="error",
+                review_id=review_id,
+                graph_change_id=parsed.graph_change_id,
+                decision=parsed.decision,
+                dry_run=dry_run,
+                candidate_hash=parsed.candidate_hash,
+                errors=[f"Persistence preflight failed: {e}"],
+            )
+
+        if existing_review_row is not None:
+            existing_payload = existing_review_row["payload"]
+            review_canonical = json.dumps(
+                review.model_dump(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if existing_payload != review_canonical:
+                return ImportResult(
+                    status="error",
+                    review_id=review_id,
+                    graph_change_id=parsed.graph_change_id,
+                    decision=parsed.decision,
+                    dry_run=dry_run,
+                    candidate_hash=parsed.candidate_hash,
+                    errors=[
+                        f"IMMUTABLE_REVIEW_CONFLICT: review_id={review_id} "
+                        f"already exists with different payload"
+                    ],
+                )
+            # 幂等回放：approved_with_changes 必须验证 replacement 完整性
+            if resulting_gc_id is not None:
+                existing_replacement = self._candidate_repo.get_candidate(
+                    resulting_gc_id
+                )
+                if existing_replacement is None:
+                    return ImportResult(
+                        status="error",
+                        review_id=review_id,
+                        graph_change_id=parsed.graph_change_id,
+                        decision=parsed.decision,
+                        dry_run=dry_run,
+                        candidate_hash=parsed.candidate_hash,
+                        review_eligible=validation_result.review_eligible,
+                        apply_eligible=validation_result.apply_eligible,
+                        errors=[f"REPLACEMENT_MISSING: replacement GraphChange "
+                                f"{resulting_gc_id} 缺失，不能返回幂等成功"],
+                    )
+                existing_canonical = json.dumps(
+                    existing_replacement,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                if existing_canonical != expected_replacement_canonical:
+                    return ImportResult(
+                        status="error",
+                        review_id=review_id,
+                        graph_change_id=parsed.graph_change_id,
+                        decision=parsed.decision,
+                        dry_run=dry_run,
+                        candidate_hash=parsed.candidate_hash,
+                        review_eligible=validation_result.review_eligible,
+                        apply_eligible=validation_result.apply_eligible,
+                        errors=[f"IMMUTABLE_CANDIDATE_CONFLICT: replacement "
+                                f"{resulting_gc_id} 已存在但 payload 不同"],
+                    )
+            return ImportResult(
+                status="idempotent_noop",
+                review_id=review_id,
+                graph_change_id=parsed.graph_change_id,
+                decision=parsed.decision,
+                resulting_graph_change_id=resulting_gc_id,
+                candidate_hash=parsed.candidate_hash,
+                review_eligible=validation_result.review_eligible,
+                apply_eligible=validation_result.apply_eligible,
+                warnings=warnings,
+            )
+
+        # 10. Dry-run: stop here
+        # 注意：幂等 preflight 在 dry-run 之前执行——若 review 已存在，
+        # dry-run 会如实报告 idempotent_noop（而非 dry_run），避免误导用户
+        # "本次是全新导入"。0 DB 写入保证不变。
         if dry_run:
             return ImportResult(
                 status="dry_run",
@@ -625,46 +1027,27 @@ class ReviewWorkflow:
                 decision=parsed.decision,
                 resulting_graph_change_id=resulting_gc_id,
                 dry_run=True,
+                candidate_hash=parsed.candidate_hash,
+                review_eligible=validation_result.review_eligible,
+                apply_eligible=validation_result.apply_eligible,
                 warnings=warnings,
             )
 
-        # 10. Atomic persist
+        # 11. Atomic persist（all or nothing）
         try:
             with self._db.transaction() as conn:
-                # Persist GraphReview
-                result = self._graph_repo.append_review(review, conn=conn)
-
-                if result == "idempotent_noop":
-                    # Check if there's already a replacement saved
-                    existing_replacement = None
-                    if resulting_gc_id:
-                        try:
-                            existing_replacement = self._candidate_repo.get_candidate(
-                                resulting_gc_id
-                            )
-                        except Exception:
-                            pass
-
-                    return ImportResult(
-                        status="idempotent_noop",
-                        review_id=review_id,
-                        graph_change_id=parsed.graph_change_id,
-                        decision=parsed.decision,
-                        resulting_graph_change_id=resulting_gc_id,
-                        warnings=warnings,
-                    )
-
-                # Persist replacement GraphChange if applicable
+                # approved_with_changes: 先 replacement 后 review（同一事务，all or nothing）
                 if replacement_gc is not None and resulting_gc_id:
                     repl_result = self._candidate_repo.append_candidate(
                         replacement_gc, conn=conn
                     )
-                    # Idempotency is fine for replacement too
                     if repl_result not in ("inserted", "idempotent_noop"):
                         raise ValueError(
                             f"Failed to persist replacement: {repl_result}"
                         )
-
+                result = self._graph_repo.append_review(review, conn=conn)
+                if result not in ("inserted", "idempotent_noop"):
+                    raise ValueError(f"Failed to persist review: {result}")
         except Exception as e:
             return ImportResult(
                 status="error",
@@ -672,7 +1055,52 @@ class ReviewWorkflow:
                 graph_change_id=parsed.graph_change_id,
                 decision=parsed.decision,
                 dry_run=dry_run,
+                candidate_hash=parsed.candidate_hash,
                 errors=[f"Persistence failed: {e}"],
+            )
+
+        # 事务内出现 idempotent（并发/异常状态）：按幂等回放处理
+        if result == "idempotent_noop":
+            if resulting_gc_id is not None:
+                existing_replacement = self._candidate_repo.get_candidate(
+                    resulting_gc_id
+                )
+                if existing_replacement is None:
+                    return ImportResult(
+                        status="error",
+                        review_id=review_id,
+                        graph_change_id=parsed.graph_change_id,
+                        decision=parsed.decision,
+                        candidate_hash=parsed.candidate_hash,
+                        errors=[f"REPLACEMENT_MISSING: replacement GraphChange "
+                                f"{resulting_gc_id} 缺失，不能返回幂等成功"],
+                    )
+                existing_canonical = json.dumps(
+                    existing_replacement,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                if existing_canonical != expected_replacement_canonical:
+                    return ImportResult(
+                        status="error",
+                        review_id=review_id,
+                        graph_change_id=parsed.graph_change_id,
+                        decision=parsed.decision,
+                        candidate_hash=parsed.candidate_hash,
+                        errors=[f"IMMUTABLE_CANDIDATE_CONFLICT: replacement "
+                                f"{resulting_gc_id} 已存在但 payload 不同"],
+                    )
+            return ImportResult(
+                status="idempotent_noop",
+                review_id=review_id,
+                graph_change_id=parsed.graph_change_id,
+                decision=parsed.decision,
+                resulting_graph_change_id=resulting_gc_id,
+                candidate_hash=parsed.candidate_hash,
+                review_eligible=validation_result.review_eligible,
+                apply_eligible=validation_result.apply_eligible,
+                warnings=warnings,
             )
 
         return ImportResult(
@@ -681,5 +1109,8 @@ class ReviewWorkflow:
             graph_change_id=parsed.graph_change_id,
             decision=parsed.decision,
             resulting_graph_change_id=resulting_gc_id,
+            candidate_hash=parsed.candidate_hash,
+            review_eligible=validation_result.review_eligible,
+            apply_eligible=validation_result.apply_eligible,
             warnings=warnings,
         )

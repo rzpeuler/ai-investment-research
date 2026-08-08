@@ -1,6 +1,6 @@
 """M5 Review Renderer：确定性 Markdown 审阅导出器。
 
-生成 knowledge/reviews/{id}.md 人工审阅文件。
+生成 knowledge/candidates/{graph_change_id}.md 人工审阅文件。
 冻结 13-heading 格式，包含 candidate_hash、Reviewer 模板、4 个审核选项 checkbox。
 Evidence 以中性格式展示（来自 persisted Evidence）。
 
@@ -8,13 +8,16 @@ Evidence 以中性格式展示（来自 persisted Evidence）。
 - 不使用 datetime.now()
 - 相同输入 → 相同输出，跨时间不变
 - 冻结标题格式，永不改变
+
+candidate hash 唯一 authority = KnowledgeValidator.compute_candidate_hash()。
+本模块不实现第二套 candidate hash 算法。
 """
 from __future__ import annotations
 
-import hashlib
 from typing import List, Optional
 
 from research_os.models import GraphChange
+from research_os.knowledge.knowledge_validator import KnowledgeValidator
 
 # ── 冻结 13 标题 ────────────────────────────────────────────────
 _FROZEN_REVIEW_HEADINGS = [
@@ -34,19 +37,7 @@ _FROZEN_REVIEW_HEADINGS = [
 ]
 
 
-def _compute_candidate_hash(gc: GraphChange) -> str:
-    """sha256(canonical sorted JSON of model_dump)。"""
-    import json
-    canonical = json.dumps(
-        gc.model_dump(),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _render_evidence_list(gc: GraphChange, evidence_records: List[dict]) -> str:
+def _render_evidence_list(evidence_records: List[dict]) -> str:
     """从 persisted Evidence dict 渲染证据列表（中性格式）。"""
     if not evidence_records:
         return "_（无证据）_\n"
@@ -109,18 +100,23 @@ def _render_edge_info(edge) -> str:
 def review_export_markdown(
     graph_change: GraphChange,
     evidence_records: Optional[List[dict]] = None,
+    candidate_hash: Optional[str] = None,
 ) -> str:
     """将 GraphChange candidate 渲染为审阅 Markdown（冻结 13-heading 格式）。
 
     Args:
         graph_change: 完整 GraphChange 对象。
         evidence_records: persisted Evidence dict 列表（中性格式展示）。
+        candidate_hash: 由调用方（ReviewWorkflow）通过
+            KnowledgeValidator.compute_candidate_hash() 计算后传入；
+            为 None 时退回唯一 authority 计算，保证本模块不持有第二套算法。
 
     Returns:
         Markdown 字符串。
     """
     gc_dump = graph_change.model_dump()
-    candidate_hash = _compute_candidate_hash(graph_change)
+    if candidate_hash is None:
+        candidate_hash = KnowledgeValidator.compute_candidate_hash(graph_change)
     ev_list = evidence_records or []
 
     sections = []
@@ -160,7 +156,7 @@ def review_export_markdown(
     # H5: ## 新证据
     sections.append(next(headings))
     sections.append("")
-    sections.append(_render_evidence_list(graph_change, ev_list))
+    sections.append(_render_evidence_list(ev_list))
     sections.append("")
 
     # Node/Edge details (inline after evidence)
