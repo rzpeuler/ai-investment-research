@@ -403,3 +403,21 @@ def test_preflight_with_evidence_vs_empty_contexts(tmp_path):
     # 用空 contexts 预检 → 内容不同 → conflict
     with pytest.raises(ValueError, match="CANDIDATE_FILE_CONFLICT"):
         renderer.preflight_file_conflict(gc, evidence_contexts=[])
+
+
+# ---- M3 Final: review checkboxes exact ----
+
+def test_review_checkboxes_exact():
+    """审核选项渲染包含且仅包含 4 个决策复选框。"""
+    gc = _make_graph_change(VALID_ID_1)
+    md = render_candidate_markdown(gc, _make_evidence_contexts())
+
+    assert "- [ ] 批准" in md
+    assert "- [ ] 修改后批准" in md
+    assert "- [ ] 暂缓" in md
+    assert "- [ ] 拒绝" in md
+    # 旧品质检查清单文本不应出现
+    assert "证据来源可靠且可验证" not in md
+    assert "变更范围明确且影响可控" not in md
+    assert "实体身份解析正确" not in md
+    assert "与现有图谱无冲突" not in md

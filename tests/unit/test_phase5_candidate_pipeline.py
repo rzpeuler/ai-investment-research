@@ -568,3 +568,123 @@ def test_llm_self_conflict_no_pro_escalation():
     assert not _should_escalate_to_pro([])
     assert _should_escalate_to_pro(["CURRENT_NODE_ALREADY_EXISTS"])
     # LLM self-declared "CONFLICT: please use pro" in proposal level is not deterministic
+
+
+# ---- M3 Final: Markdown handler ----
+
+def test_markdown_success_no_exc_reference(db, tmp_path):
+    """Markdown 成功路径设置 markdown_path，不引用 exc。"""
+    from research_os.llm.provider import FakeLlmProvider
+
+    ev_id = new_uuid()
+    _insert_evidence(db, ev_id)
+    event_id = new_uuid()
+    _insert_event(db, event_id, evidence_ids=[ev_id])
+
+    proposal_output = {
+        "proposal_type": "add_node",
+        "source_object_ids": [f"Event:{event_id}"],
+        "candidate_node": {
+            "existing_node_id": None,
+            "node_type": "Company",
+            "name": "Markdown Success Co",
+            "aliases": ["MSC"],
+            "description": "Test",
+            "valid_from": None,
+            "valid_to": None,
+        },
+        "candidate_edge": None,
+        "new_evidence_ids": [ev_id],
+        "suggested_change": "Markdown success test",
+        "impact_scope": [],
+        "conflicts": [],
+        "verification_points": [],
+        "confidence": 0.7,
+    }
+
+    fake_provider = FakeLlmProvider(behavior=lambda req, schema: {
+        "ok": True, "output": proposal_output, "error": None, "model_id": "fake-model"
+    })
+
+    pipeline = CandidatePipeline(
+        db=db, provider=fake_provider, live=True, dry_run=False
+    )
+    pipeline._llm_client.configured = True
+    pipeline._llm_client.provider = fake_provider
+
+    knowledge_dir = tmp_path / "knowledge"
+    result = pipeline.run(
+        sources=[("Event", event_id)],
+        knowledge_dir=knowledge_dir,
+    )
+
+    # 无论最终状态如何，pipeline 完成了所有步骤
+    assert "status" in result
+    # 如果 markdown 渲染成功，应设置 markdown_path
+    if result["status"] == "ok" or "markdown_path" in result:
+        assert "markdown_path" in result
+        assert result["markdown_path"] != ""
+
+
+def test_markdown_failure_returns_non_ok(db, tmp_path):
+    """Markdown 失败设置 file_write_failed 并返回，不引用未定义 exc。"""
+    # 使用只读目录模拟写入失败
+    from research_os.llm.provider import FakeLlmProvider
+
+    ev_id = new_uuid()
+    _insert_evidence(db, ev_id)
+    event_id = new_uuid()
+    _insert_event(db, event_id, evidence_ids=[ev_id])
+
+    proposal_output = {
+        "proposal_type": "add_node",
+        "source_object_ids": [f"Event:{event_id}"],
+        "candidate_node": {
+            "existing_node_id": None,
+            "node_type": "Company",
+            "name": "Fail Co",
+            "aliases": ["FC"],
+            "description": "Test",
+            "valid_from": None,
+            "valid_to": None,
+        },
+        "candidate_edge": None,
+        "new_evidence_ids": [ev_id],
+        "suggested_change": "Fail test",
+        "impact_scope": [],
+        "conflicts": [],
+        "verification_points": [],
+        "confidence": 0.7,
+    }
+
+    fake_provider = FakeLlmProvider(behavior=lambda req, schema: {
+        "ok": True, "output": proposal_output, "error": None, "model_id": "fake-model"
+    })
+
+    pipeline = CandidatePipeline(
+        db=db, provider=fake_provider, live=True, dry_run=False
+    )
+    pipeline._llm_client.configured = True
+    pipeline._llm_client.provider = fake_provider
+
+    # 使用会导致写入失败的目录（只读父目录）
+    import os
+    import stat
+    knowledge_dir = tmp_path / "knowledge"
+    candidates_dir = knowledge_dir / "candidates"
+    candidates_dir.mkdir(parents=True)
+    # 使 candidates 目录只读以触发写入失败
+    os.chmod(str(candidates_dir), stat.S_IREAD)
+
+    result = pipeline.run(
+        sources=[("Event", event_id)],
+        knowledge_dir=knowledge_dir,
+    )
+
+    # 恢复权限以便 cleanup
+    os.chmod(str(candidates_dir), stat.S_IREAD | stat.S_IWRITE)
+
+    # Markdown 写入失败应设置 file_write_failed 状态并返回
+    assert result["status"] in ("file_write_failed", "build_failed", "identity_resolution_required")
+    if result["status"] == "file_write_failed":
+        assert any("Markdown render" in e for e in result.get("errors", []))

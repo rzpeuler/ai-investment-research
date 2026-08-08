@@ -19,7 +19,9 @@ import pytest
 
 from research_os.knowledge.candidate_builder import (
     GraphChangeBuilder,
+    BuildResult,
     check_evidence_gate,
+    stable_evidence_merge,
     _stable_graph_change_id,
 )
 from research_os.models import (
@@ -210,7 +212,7 @@ def test_build_add_node_with_entity(builder, entity_in_db):
     """构建 add_node GraphChange，entity_id 来自 source_objects。"""
     proposal = _make_add_node_proposal()
     source_objects = _make_source_objects_with_entity(entity_in_db)
-    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"]).graph_change
 
     assert gc is not None
     assert gc.change_type == "add_node"
@@ -237,8 +239,15 @@ def test_add_node_rejects_when_no_entity_id(builder):
         builder.build(proposal, supporting_evidence_ids=["ev:001"])
 
 
-def test_add_node_rejects_ambiguous_entity(builder, entity_in_db):
+def test_add_node_rejects_ambiguous_entity(builder, entity_in_db, db):
     """多个 candidate entity_id → AMBIGUOUS_ENTITY_IDENTITY。"""
+    # 插入第二个公司 entity（两个都在表中，类型都匹配 → 歧义）
+    second_entity_id = "company:other"
+    db.upsert(Entity(
+        entity_id=second_entity_id, entity_type="company",
+        canonical_name="Other Company", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    ))
     from research_os.models import Event as Evt
     ev1 = Evt(
         event_id=f"ev1-{new_uuid()[:8]}",
@@ -250,7 +259,7 @@ def test_add_node_rejects_ambiguous_entity(builder, entity_in_db):
     )
     ev2 = Evt(
         event_id=f"ev2-{new_uuid()[:8]}",
-        event_type="test", subject_entities=["company:other"],
+        event_type="test", subject_entities=[second_entity_id],
         object_entities=[], event_time=T0, announced_at=T0, effective_at=None,
         status="announced", summary="s", quantitative_fields={},
         industry_coordinates=[], novelty=0.5, impact_direction="neutral",
@@ -288,8 +297,8 @@ def test_build_add_node_graph_change_id_deterministic(builder, entity_in_db):
     p2 = _make_add_node_proposal()
     so1 = _make_source_objects_with_entity(entity_in_db)
     so2 = _make_source_objects_with_entity(entity_in_db)
-    gc1 = builder.build(p1, source_objects=so1, supporting_evidence_ids=["ev:001"])
-    gc2 = builder.build(p2, source_objects=so2, supporting_evidence_ids=["ev:001"])
+    gc1 = builder.build(p1, source_objects=so1, supporting_evidence_ids=["ev:001"]).graph_change
+    gc2 = builder.build(p2, source_objects=so2, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc1.graph_change_id == gc2.graph_change_id
 
 
@@ -298,8 +307,8 @@ def test_build_add_node_different_proposal_different_id(builder, entity_in_db):
     p1 = _make_add_node_proposal(suggested_change="变更A")
     p2 = _make_add_node_proposal(suggested_change="变更B")
     so = _make_source_objects_with_entity(entity_in_db)
-    gc1 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"])
-    gc2 = builder.build(p2, source_objects=so, supporting_evidence_ids=["ev:001"])
+    gc1 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
+    gc2 = builder.build(p2, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc1.graph_change_id != gc2.graph_change_id
 
 
@@ -312,8 +321,8 @@ def test_graph_change_id_changes_with_node_changes(builder, entity_in_db):
                         "valid_from": None, "valid_to": None}
     )
     so = _make_source_objects_with_entity(entity_in_db)
-    gc1 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"])
-    gc2 = builder.build(p2, source_objects=so, supporting_evidence_ids=["ev:001"])
+    gc1 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
+    gc2 = builder.build(p2, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc1.graph_change_id != gc2.graph_change_id
 
 
@@ -326,8 +335,8 @@ def test_graph_change_id_changes_with_edge_changes(builder):
                         "assertion_type": "FACT", "valid_from": None, "valid_to": None,
                         "confidence": 0.99}
     )
-    gc1 = builder.build(p1, supporting_evidence_ids=["ev:001"])
-    gc2 = builder.build(p2, supporting_evidence_ids=["ev:001"])
+    gc1 = builder.build(p1, supporting_evidence_ids=["ev:001"]).graph_change
+    gc2 = builder.build(p2, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc1.graph_change_id != gc2.graph_change_id
 
 
@@ -335,11 +344,11 @@ def test_graph_change_id_same_with_clock_change(builder, entity_in_db):
     """时钟变化不影响 graph_change_id（created_at 被排除）。"""
     p1 = _make_add_node_proposal()
     so = _make_source_objects_with_entity(entity_in_db)
-    gc1 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"])
+    gc1 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
 
     import time
     time.sleep(0.1)
-    gc2 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"])
+    gc2 = builder.build(p1, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc1.graph_change_id == gc2.graph_change_id
 
 
@@ -348,7 +357,7 @@ def test_graph_change_id_same_with_clock_change(builder, entity_in_db):
 def test_build_retire_node(builder):
     """构建 retire_node GraphChange。"""
     proposal = _make_retire_node_proposal()
-    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"]).graph_change
 
     assert gc.change_type == "retire_node"
     assert gc.node is not None
@@ -361,7 +370,7 @@ def test_build_retire_node(builder):
 def test_build_modify_node(builder):
     """构建 modify_attribute 节点 GraphChange。"""
     proposal = _make_modify_node_proposal()
-    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"]).graph_change
 
     assert gc.change_type == "modify_attribute"
     assert gc.node is not None
@@ -375,7 +384,7 @@ def test_build_modify_node(builder):
 def test_build_add_edge(builder):
     """构建 add_edge GraphChange（triple lookup）。"""
     proposal = _make_add_edge_proposal()
-    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"]).graph_change
 
     assert gc.change_type == "add_edge"
     assert gc.edge is not None
@@ -390,8 +399,8 @@ def test_build_add_edge_deterministic_id(builder):
     """相同三元组的边复用相同 edge_id。"""
     p1 = _make_add_edge_proposal()
     p2 = _make_add_edge_proposal()
-    gc1 = builder.build(p1, supporting_evidence_ids=["ev:001"])
-    gc2 = builder.build(p2, supporting_evidence_ids=["ev:001"])
+    gc1 = builder.build(p1, supporting_evidence_ids=["ev:001"]).graph_change
+    gc2 = builder.build(p2, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc1.edge.edge_id == gc2.edge.edge_id  # 相同 source/relation/target
 
 
@@ -432,7 +441,7 @@ def test_add_edge_existing_reuse(builder, db):
     db._conn.commit()
 
     proposal = _make_add_edge_proposal()
-    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"]).graph_change
     # reuse existing edge_id (来自 triple lookup)
     assert gc.edge.edge_id == "edge:governance:supplies-test"
     assert gc.edge.version == 2  # N+1
@@ -487,7 +496,7 @@ def test_evidence_closure_passes_with_subset(builder, entity_in_db):
     """new_evidence_ids ⊆ supporting → 通过。"""
     proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
     so = _make_source_objects_with_entity(entity_in_db)
-    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001", "ev:002"])
+    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001", "ev:002"]).graph_change
     assert gc is not None
 
 
@@ -578,7 +587,7 @@ def test_version_first_is_1(builder, entity_in_db):
     """首次创建的节点版本为 1。"""
     proposal = _make_add_node_proposal()
     so = _make_source_objects_with_entity(entity_in_db)
-    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc.node.version == 1
     assert gc.edge is None
 
@@ -586,7 +595,7 @@ def test_version_first_is_1(builder, entity_in_db):
 def test_version_fresh_edge_is_1(builder):
     """首次创建的边版本为 1。"""
     proposal = _make_add_edge_proposal()
-    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc.edge.version == 1
 
 
@@ -677,7 +686,7 @@ def test_add_node_non_company_entity_type(db, builder):
         },
         new_evidence_ids=["ev:001"],
     )
-    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc.node.node_id == entity_id
     assert gc.node.node_type == "Product"
 
@@ -705,7 +714,7 @@ def test_add_node_object_entities_extraction(db, builder):
     source_objects = {("Event", ev.event_id): ev}
 
     proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
-    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc.node.node_id == entity_id
 
 
@@ -747,7 +756,7 @@ def test_add_node_target_entities_extraction(db, builder):
     source_objects = {("Claim", cl.claim_id): cl}
 
     proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
-    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc.node.node_id == entity_id
 
 
@@ -801,7 +810,7 @@ def test_add_node_existing_baseline_increment(db, builder):
     source_objects = {("Event", ev.event_id): ev}
 
     proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
-    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"]).graph_change
     # 已存在节点 → version 应为 2 (N+1)
     assert gc.node.version == 2
 
@@ -828,7 +837,7 @@ def test_modify_missing_node_returns_current_node_not_found(builder):
 def test_fresh_edge_id_format(builder):
     """新边的 edge_id 格式为 edge:graph:SHA256 小写 hex。"""
     proposal = _make_add_edge_proposal()
-    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:001"]).graph_change
     assert gc.edge.edge_id.startswith("edge:graph:")
     assert len(gc.edge.edge_id) >= len("edge:graph:") + 64
     # 验证是合法 hex
@@ -891,5 +900,232 @@ def test_graph_change_new_evidence_ids_equals_proposal(builder, entity_in_db):
     """GraphChange.new_evidence_ids == proposal.new_evidence_ids。"""
     proposal = _make_add_node_proposal(new_evidence_ids=["ev:001", "ev:002"])
     so = _make_source_objects_with_entity(entity_in_db)
-    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001", "ev:002"])
+    gc = builder.build(proposal, source_objects=so, supporting_evidence_ids=["ev:001", "ev:002"]).graph_change
     assert gc.new_evidence_ids == ["ev:001", "ev:002"]
+
+
+# ---- M3 Final: entity type filter ----
+
+def test_type_filter_before_ambiguity(db, builder):
+    """Company + Product 实体 → 类型过滤后 Company 被选中，无歧义。"""
+    company_id = f"company:typefilter-c-{new_uuid()[:8]}"
+    product_id = f"product:typefilter-p-{new_uuid()[:8]}"
+    db.upsert(Entity(
+        entity_id=company_id, entity_type="company",
+        canonical_name="TypeFilter Company", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    ))
+    db.upsert(Entity(
+        entity_id=product_id, entity_type="product",
+        canonical_name="TypeFilter Product", aliases=[], market="unknown",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    ))
+    from research_os.models import Event as Evt
+    ev1 = Evt(
+        event_id=f"ev-{new_uuid()[:8]}", event_type="test",
+        subject_entities=[company_id], object_entities=[],
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    ev2 = Evt(
+        event_id=f"ev-{new_uuid()[:8]}", event_type="test",
+        subject_entities=[product_id], object_entities=[],
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev1.event_id): ev1, ("Event", ev2.event_id): ev2}
+    # 节点类型为 Company，类型过滤应只保留 company 类型的 entity
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    gc = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"]).graph_change
+    assert gc.node.node_id == company_id
+
+
+def test_type_filter_two_companies_ambiguous(db, builder):
+    """两个 Company entity → 类型过滤后仍有两个 → AMBIGUOUS_ENTITY_IDENTITY。"""
+    cid1 = f"company:amb-c1-{new_uuid()[:8]}"
+    cid2 = f"company:amb-c2-{new_uuid()[:8]}"
+    for cid in (cid1, cid2):
+        db.upsert(Entity(
+            entity_id=cid, entity_type="company",
+            canonical_name=f"Ambiguous {cid}", aliases=[], market="SH",
+            industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+        ))
+    from research_os.models import Event as Evt
+    ev1 = Evt(
+        event_id=f"ev-{new_uuid()[:8]}", event_type="test",
+        subject_entities=[cid1], object_entities=[],
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    ev2 = Evt(
+        event_id=f"ev-{new_uuid()[:8]}", event_type="test",
+        subject_entities=[cid2], object_entities=[],
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev1.event_id): ev1, ("Event", ev2.event_id): ev2}
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    with pytest.raises(ValueError, match="AMBIGUOUS_ENTITY_IDENTITY"):
+        builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+
+
+# ---- M3 Final: evidence merge ----
+
+def test_modify_node_evidence_merge(db, builder):
+    """modify_node: old=[A,B], new=[B,C] → candidate evidence_ids=[A,B,C]。"""
+    node_id = f"company:evmerge-{new_uuid()[:8]}"
+    # 插入 entity
+    db.upsert(Entity(
+        entity_id=node_id, entity_type="company",
+        canonical_name="EvMerge", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    ))
+    # 插入已有 graph_node（含旧 evidence_ids）
+    import json as _json
+    existing_node = GraphNode(
+        node_id=node_id, node_type="Company", name="EvMerge",
+        aliases=[], description="", status="active",
+        valid_from=None, valid_to=None, evidence_ids=["ev:A", "ev:B"],
+        version=1, last_reviewed_at=None, review_status="approved",
+        origin_kind="graph_change",
+        originating_graph_change_id="11111111-1111-1111-1111-111111111111",
+        created_at=T0,
+    )
+    db._conn.execute(
+        """INSERT INTO graph_nodes (node_id, version, payload, node_type, name, status,
+           review_status, origin_kind, created_at, valid_from, valid_to,
+           last_reviewed_at, originating_graph_change_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (existing_node.node_id, existing_node.version,
+         _json.dumps(existing_node.model_dump(), ensure_ascii=False, sort_keys=True),
+         existing_node.node_type, existing_node.name, existing_node.status,
+         existing_node.review_status, existing_node.origin_kind, existing_node.created_at,
+         existing_node.valid_from, existing_node.valid_to,
+         existing_node.last_reviewed_at, existing_node.originating_graph_change_id),
+    )
+    db._conn.commit()
+
+    proposal = _make_modify_node_proposal(
+        candidate_node={
+            "existing_node_id": node_id,
+            "node_type": "Company",
+            "name": "EvMerge Updated",
+            "aliases": [],
+            "description": "",
+            "valid_from": None,
+            "valid_to": None,
+        },
+        new_evidence_ids=["ev:B", "ev:C"],
+    )
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:B", "ev:C"]).graph_change
+    assert gc.node.evidence_ids == ["ev:A", "ev:B", "ev:C"]
+
+
+def test_retire_node_evidence_merge(db, builder):
+    """retire_node: old=[A,B], new=[B,C] → candidate evidence_ids=[A,B,C]。"""
+    node_id = f"company:retire-ev-{new_uuid()[:8]}"
+    db.upsert(Entity(
+        entity_id=node_id, entity_type="company",
+        canonical_name="RetireEv", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    ))
+    import json as _json
+    existing_node = GraphNode(
+        node_id=node_id, node_type="Company", name="RetireEv",
+        aliases=[], description="", status="active",
+        valid_from=None, valid_to=None, evidence_ids=["ev:A", "ev:B"],
+        version=1, last_reviewed_at=None, review_status="approved",
+        origin_kind="graph_change",
+        originating_graph_change_id="11111111-1111-1111-1111-111111111111",
+        created_at=T0,
+    )
+    db._conn.execute(
+        """INSERT INTO graph_nodes (node_id, version, payload, node_type, name, status,
+           review_status, origin_kind, created_at, valid_from, valid_to,
+           last_reviewed_at, originating_graph_change_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (existing_node.node_id, existing_node.version,
+         _json.dumps(existing_node.model_dump(), ensure_ascii=False, sort_keys=True),
+         existing_node.node_type, existing_node.name, existing_node.status,
+         existing_node.review_status, existing_node.origin_kind, existing_node.created_at,
+         existing_node.valid_from, existing_node.valid_to,
+         existing_node.last_reviewed_at, existing_node.originating_graph_change_id),
+    )
+    db._conn.commit()
+
+    proposal = _make_retire_node_proposal(
+        candidate_node={
+            "existing_node_id": node_id,
+            "node_type": "Company",
+            "name": "RetireEv",
+            "aliases": [],
+            "description": "",
+            "valid_from": None,
+            "valid_to": T0,
+        },
+        new_evidence_ids=["ev:B", "ev:C"],
+    )
+    gc = builder.build(proposal, supporting_evidence_ids=["ev:B", "ev:C"]).graph_change
+    assert gc.node.evidence_ids == ["ev:A", "ev:B", "ev:C"]
+
+
+# ---- M3 Final: BuildResult.deterministic_conflicts ----
+
+def test_add_node_deterministic_conflict(db, builder):
+    """已有 entity + add_node → BuildResult.deterministic_conflicts 含 CURRENT_NODE_ALREADY_EXISTS。"""
+    entity_id = f"company:detconf-{new_uuid()[:8]}"
+    db.upsert(Entity(
+        entity_id=entity_id, entity_type="company",
+        canonical_name="DetConf", aliases=[], market="SH",
+        industry_ids=[], concept_ids=[], valid_from=None, valid_to=None, source_ids=[],
+    ))
+    # 插入已有 node
+    import json as _json
+    existing_node = GraphNode(
+        node_id=entity_id, node_type="Company", name="DetConf",
+        aliases=[], description="", status="active",
+        valid_from=None, valid_to=None, evidence_ids=["ev:001"],
+        version=1, last_reviewed_at=None, review_status="approved",
+        origin_kind="graph_change",
+        originating_graph_change_id="11111111-1111-1111-1111-111111111111",
+        created_at=T0,
+    )
+    db._conn.execute(
+        """INSERT INTO graph_nodes (node_id, version, payload, node_type, name, status,
+           review_status, origin_kind, created_at, valid_from, valid_to,
+           last_reviewed_at, originating_graph_change_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (existing_node.node_id, existing_node.version,
+         _json.dumps(existing_node.model_dump(), ensure_ascii=False, sort_keys=True),
+         existing_node.node_type, existing_node.name, existing_node.status,
+         existing_node.review_status, existing_node.origin_kind, existing_node.created_at,
+         existing_node.valid_from, existing_node.valid_to,
+         existing_node.last_reviewed_at, existing_node.originating_graph_change_id),
+    )
+    db._conn.commit()
+
+    from research_os.models import Event as Evt
+    ev = Evt(
+        event_id=f"ev-{new_uuid()[:8]}", event_type="test",
+        subject_entities=[entity_id], object_entities=[],
+        event_time=T0, announced_at=T0, effective_at=None,
+        status="announced", summary="s", quantitative_fields={},
+        industry_coordinates=[], novelty=0.5, impact_direction="neutral",
+        impact_horizon="short", evidence_ids=[], confidence=0.5, conflicts=[],
+    )
+    source_objects = {("Event", ev.event_id): ev}
+    proposal = _make_add_node_proposal(new_evidence_ids=["ev:001"])
+    build_result = builder.build(proposal, source_objects=source_objects, supporting_evidence_ids=["ev:001"])
+    assert isinstance(build_result, BuildResult)
+    assert any("CURRENT_NODE_ALREADY_EXISTS" in c for c in build_result.deterministic_conflicts)
+    # graph_change 仍然生成（版本递增，非拒绝）
+    assert build_result.graph_change is not None
+    assert build_result.graph_change.node.version >= 2

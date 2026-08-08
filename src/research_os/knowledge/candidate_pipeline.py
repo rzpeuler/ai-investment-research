@@ -31,6 +31,7 @@ from research_os.knowledge.candidate_sources import (
 )
 from research_os.knowledge.candidate_builder import (
     GraphChangeBuilder,
+    BuildResult,
     check_evidence_gate,
 )
 from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
@@ -425,11 +426,12 @@ class CandidatePipeline:
         # ---- 7. Build + conflict detection ----
         # 使用 source-derived only 的 supporting evidence IDs（闭包）
         try:
-            graph_change = self._builder.build(
+            build_result = self._builder.build(
                 validated_proposal,
                 source_objects=source_objects,
                 supporting_evidence_ids=list(dict.fromkeys(sup_ids + cnt_ids)),
             )
+            graph_change = build_result.graph_change
         except ValueError as exc:
             msg = str(exc)
 
@@ -461,9 +463,8 @@ class CandidatePipeline:
             return results
 
         # ---- 8. 冲突检测 → Pro escalation（共享 budget）----
-        # 使用 builder 确定性冲突（不含 LLM proposal.conflicts）
-        builder_deterministic = self._builder.check_conflicts(validated_proposal)
-        deterministic_conflicts = builder_deterministic
+        # 使用 BuildResult 中的 builder 确定性冲突（不含 LLM proposal.conflicts）
+        deterministic_conflicts = build_result.deterministic_conflicts
         if deterministic_conflicts and requested_model_class != "pro":
             if _should_escalate_to_pro(deterministic_conflicts):
                 if self._budget.can_call("pro"):
@@ -480,11 +481,12 @@ class CandidatePipeline:
                             results["errors"].append("Pro escalation proposal 构造失败")
                             return results
                         try:
-                            graph_change = self._builder.build(
+                            build_result2 = self._builder.build(
                                 validated_proposal,
                                 source_objects=source_objects,
                                 supporting_evidence_ids=list(dict.fromkeys(sup_ids + cnt_ids)),
                             )
+                            graph_change = build_result2.graph_change
                         except ValueError as exc:
                             results["status"] = "pro_escalation_failed"
                             results["errors"].append(str(exc))
@@ -530,8 +532,8 @@ class CandidatePipeline:
                 results["markdown_path"] = file_path
             except ValueError as exc:
                 results["status"] = "file_write_failed"
-            results["errors"].append(f"Markdown render: {exc}")
-            return results
+                results["errors"].append(f"Markdown render: {exc}")
+                return results
 
         results["candidates"].append({
             "graph_change_id": graph_change.graph_change_id,

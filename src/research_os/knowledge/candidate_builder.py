@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from research_os.models import (
@@ -68,6 +69,36 @@ def _uuid5(namespace: str, name: str) -> str:
 def _sha256_hex(s: str) -> str:
     """SHA256 小写 hex。"""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def stable_evidence_merge(
+    old_ids: List[str],
+    new_ids: List[str],
+) -> List[str]:
+    """稳定证据合并：保留旧顺序，仅追加未出现的新 ID。
+
+    保证：old_ids 的顺序原封不动，new_ids 中不在 old_ids 中的元素
+    按 new_ids 顺序追加到末尾。去重但不排序。
+    """
+    seen = set(old_ids)
+    result = list(old_ids)
+    for eid in new_ids:
+        if eid not in seen:
+            seen.add(eid)
+            result.append(eid)
+    return result
+
+
+@dataclass
+class BuildResult:
+    """GraphChangeBuilder.build() 的确定性和可审计返回类型。
+
+    分离 graph_change 和 deterministic_conflicts，让 pipeline
+    在构建后直接访问冲突列表进行 Pro escalation，而无需解析
+    已合并到 gc.conflicts 中的最终列表。
+    """
+    graph_change: "GraphChange"
+    deterministic_conflicts: List[str]
 
 
 def _canonical_json(obj: Any) -> str:
@@ -127,7 +158,7 @@ class GraphChangeBuilder:
         source_objects: Optional[Dict[Any, Any]] = None,
         current_baseline: Optional[str] = None,
         supporting_evidence_ids: Optional[List[str]] = None,
-    ) -> GraphChange:
+    ) -> BuildResult:
         """从 proposal 构造完整 GraphChange candidate。
 
         Args:
@@ -150,6 +181,7 @@ class GraphChangeBuilder:
         ct = proposal.proposal_type
         resolved_entity_id: Optional[str] = None
         existing_node_info: Optional[Dict] = None
+        builder_conflicts: List[str] = []
         if ct in ("add_node", "retire_node", "modify_attribute"):
             if proposal.candidate_node is not None:
                 if ct == "add_node":
@@ -159,15 +191,13 @@ class GraphChangeBuilder:
                     )
                     # 检查是否已有同 entity 的节点（baseline lookup）
                     existing_node_info = self._get_latest_node(resolved_entity_id)
-                    if existing_node_info is not None:
-                        add_node_existing_conflict = f"CURRENT_NODE_ALREADY_EXISTS: node_id={resolved_entity_id}"
 
         # ---- 2. 证据闭包 ---- 必须从 source-derived set，拒绝外部证据
         sup_ids = supporting_evidence_ids or proposal.new_evidence_ids
         self._check_evidence_closure(proposal, sup_ids)
 
         # ---- 3. 确定性冲突（proposal.conflicts + builder conflicts，stable dedup+order）----
-        builder_conflicts = self.check_conflicts(proposal)
+        builder_conflicts.extend(self.check_conflicts(proposal))
         # add add_node existing conflict if detected
         if ct == "add_node" and existing_node_info is not None:
             add_conflict = f"CURRENT_NODE_ALREADY_EXISTS: node_id={resolved_entity_id}"
@@ -192,7 +222,10 @@ class GraphChangeBuilder:
         # ---- 6. Replay first ----
         replayed = self._replay(gc_id)
         if replayed is not None:
-            return replayed
+            return BuildResult(
+                graph_change=replayed,
+                deterministic_conflicts=builder_conflicts,
+            )
 
         # ---- 7. 新 candidate：用 now_iso() ----
         now = now_iso()
@@ -222,20 +255,23 @@ class GraphChangeBuilder:
                 elif ct == "modify_attribute":
                     edge = self._build_modify_edge(proposal, now, gc_id)
 
-        return GraphChange(
-            graph_change_id=gc_id,
-            change_type=ct,
-            node=node,
-            edge=edge,
-            current_knowledge=current_knowledge,
-            new_evidence_ids=proposal.new_evidence_ids,  # 与 proposal 精确一致
-            suggested_change=proposal.suggested_change,
-            impact_scope=proposal.impact_scope,
-            conflicts=deterministic_conflicts,
-            verification_points=proposal.verification_points,
-            review_status="candidate",
-            created_at=now,
-            reviewed_at=None,
+        return BuildResult(
+            graph_change=GraphChange(
+                graph_change_id=gc_id,
+                change_type=ct,
+                node=node,
+                edge=edge,
+                current_knowledge=current_knowledge,
+                new_evidence_ids=proposal.new_evidence_ids,  # 与 proposal 精确一致
+                suggested_change=proposal.suggested_change,
+                impact_scope=proposal.impact_scope,
+                conflicts=deterministic_conflicts,
+                verification_points=proposal.verification_points,
+                review_status="candidate",
+                created_at=now,
+                reviewed_at=None,
+            ),
+            deterministic_conflicts=builder_conflicts,
         )
 
     # ---- Replay ----
@@ -389,6 +425,18 @@ class GraphChangeBuilder:
         # 去重（保持插入顺序）
         candidate_entity_ids = list(dict.fromkeys(candidate_entity_ids))
 
+        # ── 实体类型过滤（先于歧义检查）──
+        # 根据节点类型过滤候选 entity_id：仅保留 entity_type 匹配的 entity
+        expected_type = _NODE_TYPE_TO_ENTITY_TYPE.get(cn.node_type)
+        if expected_type:
+            filtered = []
+            for eid in candidate_entity_ids:
+                ent = self._db.get("entities", eid)
+                if ent is not None and ent.get("entity_type") == expected_type:
+                    filtered.append(eid)
+            if filtered:
+                candidate_entity_ids = filtered
+
         if len(candidate_entity_ids) == 0:
             # 绝不使用 name/alias/slug/hash fallback
             raise ValueError(
@@ -486,6 +534,12 @@ class GraphChangeBuilder:
                 "RETIRE_NODE_REQUIRES_VALID_TO: "
                 f"retire_node proposal 必须提供 valid_to，node_id={node_id}"
             )
+        # 证据闭包合并：读取最新持久化 evidence_ids，追加 proposal 新证据
+        latest_ev: List[str] = []
+        latest_node = self._get_latest_node(node_id)
+        if latest_node:
+            latest_ev = latest_node.get("evidence_ids") or []
+        merged_evidence = stable_evidence_merge(latest_ev, proposal.new_evidence_ids)
         return GraphNode(
             node_id=node_id,
             node_type=cn.node_type,
@@ -495,7 +549,7 @@ class GraphChangeBuilder:
             status="retired",
             valid_from=cn.valid_from,
             valid_to=cn.valid_to,
-            evidence_ids=proposal.new_evidence_ids,
+            evidence_ids=merged_evidence,
             version=version,
             last_reviewed_at=None,
             review_status="candidate",
@@ -511,6 +565,12 @@ class GraphChangeBuilder:
         assert cn is not None and cn.existing_node_id is not None
         node_id = cn.existing_node_id
         version = self._next_version("graph_nodes", "node_id", node_id)
+        # 证据闭包合并：读取最新持久化 evidence_ids，追加 proposal 新证据
+        latest_ev: List[str] = []
+        latest_node = self._get_latest_node(node_id)
+        if latest_node:
+            latest_ev = latest_node.get("evidence_ids") or []
+        merged_evidence = stable_evidence_merge(latest_ev, proposal.new_evidence_ids)
         return GraphNode(
             node_id=node_id,
             node_type=cn.node_type,
@@ -520,7 +580,7 @@ class GraphChangeBuilder:
             status="active",
             valid_from=cn.valid_from,
             valid_to=cn.valid_to,
-            evidence_ids=proposal.new_evidence_ids,
+            evidence_ids=merged_evidence,
             version=version,
             last_reviewed_at=None,
             review_status="candidate",
@@ -643,7 +703,7 @@ class GraphChangeBuilder:
                 f"retire_edge proposal 必须提供 valid_to，"
                 f"source={ce.source_node_id} relation={ce.relation} target={ce.target_node_id}"
             )
-        cnt, existing_edge_id, _ = self._lookup_edge_by_triple(
+        cnt, existing_edge_id, latest_payload_json = self._lookup_edge_by_triple(
             ce.source_node_id, ce.relation, ce.target_node_id
         )
         if cnt == 0:
@@ -658,6 +718,15 @@ class GraphChangeBuilder:
             )
         edge_id = existing_edge_id
         version = self._next_version("graph_edges", "edge_id", edge_id)
+        # 证据闭包合并：读取最新持久化 evidence_ids，追加 proposal 新证据
+        latest_ev: List[str] = []
+        if latest_payload_json:
+            try:
+                payload = json.loads(latest_payload_json)
+                latest_ev = payload.get("evidence_ids") or []
+            except (json.JSONDecodeError, TypeError):
+                pass
+        merged_evidence = stable_evidence_merge(latest_ev, proposal.new_evidence_ids)
         return GraphEdge(
             edge_id=edge_id,
             source_node_id=ce.source_node_id,
@@ -668,7 +737,7 @@ class GraphChangeBuilder:
             valid_from=ce.valid_from,
             valid_to=ce.valid_to,
             confidence=ce.confidence,
-            evidence_ids=proposal.new_evidence_ids,
+            evidence_ids=merged_evidence,
             review_status="candidate",
             version=version,
             originating_graph_change_id=gc_id,
@@ -681,7 +750,7 @@ class GraphChangeBuilder:
     ) -> GraphEdge:
         ce = proposal.candidate_edge
         assert ce is not None
-        cnt, existing_edge_id, _ = self._lookup_edge_by_triple(
+        cnt, existing_edge_id, latest_payload_json = self._lookup_edge_by_triple(
             ce.source_node_id, ce.relation, ce.target_node_id
         )
         if cnt > 1:
@@ -702,6 +771,15 @@ class GraphChangeBuilder:
             )
         edge_id = existing_edge_id
         version = self._next_version("graph_edges", "edge_id", edge_id)
+        # 证据闭包合并：读取最新持久化 evidence_ids，追加 proposal 新证据
+        latest_ev: List[str] = []
+        if latest_payload_json:
+            try:
+                payload = json.loads(latest_payload_json)
+                latest_ev = payload.get("evidence_ids") or []
+            except (json.JSONDecodeError, TypeError):
+                pass
+        merged_evidence = stable_evidence_merge(latest_ev, proposal.new_evidence_ids)
         return GraphEdge(
             edge_id=edge_id,
             source_node_id=ce.source_node_id,
@@ -712,7 +790,7 @@ class GraphChangeBuilder:
             valid_from=ce.valid_from,
             valid_to=ce.valid_to,
             confidence=ce.confidence,
-            evidence_ids=proposal.new_evidence_ids,
+            evidence_ids=merged_evidence,
             review_status="candidate",
             version=version,
             originating_graph_change_id=gc_id,
