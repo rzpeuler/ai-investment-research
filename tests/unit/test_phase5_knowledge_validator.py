@@ -1386,6 +1386,279 @@ class TestM4R1KGV008SourceTierNewOnly:
         assert len(issues) == 0
 
 
+class TestM4R3KGV008AllFactEdges:
+    """M4-R3: KGV-008 source-tier check applies to ALL FACT edge types
+    (add_edge, modify_attribute, retire_edge), not just add_edge."""
+
+    # ── Helpers ──
+    def _setup_edge_tier_test(self, validator, db, graph_repo, relation,
+                              source_tier, edge_id="edge:test:001",
+                              source="company:A", target="company:B",
+                              change_type="modify_attribute"):
+        """Common setup: entities, nodes, S-tier evidence, raw_items, persisted v1 edge."""
+        _insert_entity(db, source)
+        _insert_entity(db, target)
+        _insert_evidence(db, _EV_ID, source_tier=source_tier)
+        _insert_raw_item(db, _RI_ID, [source, target])
+        _insert_node(db, graph_repo, source)
+        _insert_node(db, graph_repo, target)
+        # Insert persisted v1 edge
+        _insert_edge(graph_repo, edge_id=edge_id, source=source,
+                     relation=relation, target=target,
+                     assertion_type="FACT", version=1, evidence_ids=[_EV_ID])
+        # Build canonical current_knowledge from persisted edge
+        from research_os.models import GraphEdge as GE
+        v1_edge = GE(
+            edge_id=edge_id, source_node_id=source, relation=relation,
+            target_node_id=target, assertion_type="FACT",
+            version=1, review_status="approved",
+            evidence_ids=[_EV_ID],
+            originating_graph_change_id=_UUID3,
+            created_at=T0,
+        )
+        ck = json.dumps(v1_edge.model_dump(), ensure_ascii=False,
+                        sort_keys=True, separators=(",", ":"))
+        return ck
+
+    # ── modify_attribute tests ──
+
+    def test_modify_produces_new_b_fails(self, validator, db, graph_repo):
+        """modify PRODUCES + new B-tier evidence → KGV-008 FAIL (core structural needs S/A)."""
+        ck = self._setup_edge_tier_test(
+            validator, db, graph_repo, relation="PRODUCES", source_tier="B")
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["edge"]["edge_id"] = "edge:test:001"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "PRODUCES"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["edge"]["version"] = 2
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["edge"]["evidence_ids"] = [_EV_ID]
+        raw["current_knowledge"] = ck
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) > 0
+        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
+
+    def test_modify_produces_new_a_passes(self, validator, db, graph_repo):
+        """modify PRODUCES + new A-tier evidence → KGV-008 PASS."""
+        ck = self._setup_edge_tier_test(
+            validator, db, graph_repo, relation="PRODUCES", source_tier="A")
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["edge"]["edge_id"] = "edge:test:002"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "PRODUCES"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["edge"]["version"] = 2
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["edge"]["evidence_ids"] = [_EV_ID]
+        raw["current_knowledge"] = ck
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) == 0
+
+    # ── retire_edge tests ──
+
+    def test_retire_supplies_new_c_fails(self, validator, db, graph_repo):
+        """retire SUPPLIES + new C-tier evidence → KGV-008 FAIL (core structural needs S/A)."""
+        ck = self._setup_edge_tier_test(
+            validator, db, graph_repo, relation="SUPPLIES", source_tier="C",
+            edge_id="edge:test:003")
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "retire_edge"
+        raw["edge"]["edge_id"] = "edge:test:003"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "SUPPLIES"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["edge"]["version"] = 2
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["edge"]["evidence_ids"] = [_EV_ID]
+        raw["current_knowledge"] = ck
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) > 0
+        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
+
+    def test_retire_supplies_new_s_passes(self, validator, db, graph_repo):
+        """retire SUPPLIES + new S-tier evidence → KGV-008 PASS."""
+        ck = self._setup_edge_tier_test(
+            validator, db, graph_repo, relation="SUPPLIES", source_tier="S",
+            edge_id="edge:test:004")
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "retire_edge"
+        raw["edge"]["edge_id"] = "edge:test:004"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "SUPPLIES"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["edge"]["version"] = 2
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["edge"]["evidence_ids"] = [_EV_ID]
+        raw["current_knowledge"] = ck
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) == 0
+
+    # ── COMPETES_WITH modify tests (non-structural) ──
+
+    def test_modify_competes_with_new_c_fails(self, validator, db, graph_repo):
+        """modify COMPETES_WITH + new C-tier → KGV-008 FAIL (non-structural needs S/A/B)."""
+        ck = self._setup_edge_tier_test(
+            validator, db, graph_repo, relation="COMPETES_WITH", source_tier="C",
+            edge_id="edge:test:005")
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["edge"]["edge_id"] = "edge:test:005"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "COMPETES_WITH"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["edge"]["version"] = 2
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["edge"]["evidence_ids"] = [_EV_ID]
+        raw["current_knowledge"] = ck
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) > 0
+        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
+
+    def test_modify_competes_with_new_b_passes(self, validator, db, graph_repo):
+        """modify COMPETES_WITH + new B-tier → KGV-008 PASS."""
+        ck = self._setup_edge_tier_test(
+            validator, db, graph_repo, relation="COMPETES_WITH", source_tier="B",
+            edge_id="edge:test:006")
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["edge"]["edge_id"] = "edge:test:006"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "COMPETES_WITH"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["edge"]["version"] = 2
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["edge"]["evidence_ids"] = [_EV_ID]
+        raw["current_knowledge"] = ck
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) == 0
+
+
+class TestM4R3EdgeLookupFailClosed:
+    """M4-R3: Strict edge triple lookup — corrupt/missing graph_edges → GRAPH_STATE_LOOKUP_FAILED."""
+
+    def test_add_edge_corrupt_table_blocks(self, validator, db, graph_repo):
+        """Corrupt graph_edges table → _find_edges_by_triple_strict raises ValueError → GRAPH_STATE_LOOKUP_FAILED."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db)
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+
+        # Corrupt the graph_edges table by destroying it
+        db._conn.execute("DROP TABLE graph_edges")
+
+        gc = GraphChange(**_valid_add_edge_gc())
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.code == "GRAPH_STATE_LOOKUP_FAILED"]
+        assert len(issues) > 0, "Should get GRAPH_STATE_LOOKUP_FAILED on corrupt table"
+        assert any(i.rule_id == "KGV-015" for i in issues), "KGV-015 should catch the DB error"
+        assert all(i.blocks_apply for i in issues), "All GRAPH_STATE_LOOKUP_FAILED issues must block apply"
+
+    def test_modify_edge_corrupt_table_blocks(self, validator, db, graph_repo):
+        """modify_edge with corrupt graph_edges → KGV-015 GRAPH_STATE_LOOKUP_FAILED."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db)
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+        _insert_edge(graph_repo, edge_id="edge:test:mod")
+
+        # Corrupt graph_edges table
+        db._conn.execute("DROP TABLE graph_edges")
+
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["edge"]["edge_id"] = "edge:test:mod"
+        raw["edge"]["source_node_id"] = "company:A"
+        raw["edge"]["target_node_id"] = "company:B"
+        raw["edge"]["relation"] = "COMPETES_WITH"
+        raw["edge"]["version"] = 2
+        raw["current_knowledge"] = "{}"
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.code == "GRAPH_STATE_LOOKUP_FAILED"]
+        assert len(issues) > 0, "Should get GRAPH_STATE_LOOKUP_FAILED on corrupt table"
+
+    def test_add_edge_corrupt_payload_blocks(self, validator, db, graph_repo):
+        """Edge with corrupt JSON payload → _find_edges_by_triple_strict raises ValueError → GRAPH_STATE_LOOKUP_FAILED."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db)
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+        _insert_edge(graph_repo, edge_id="edge:test:corrupt")
+
+        # Corrupt the payload of the existing edge
+        db._conn.execute(
+            "UPDATE graph_edges SET payload = 'not-valid-json-{{{' WHERE edge_id = 'edge:test:corrupt'"
+        )
+
+        gc = GraphChange(**_valid_add_edge_gc())
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.code == "GRAPH_STATE_LOOKUP_FAILED"]
+        assert len(issues) > 0, "Should get GRAPH_STATE_LOOKUP_FAILED on corrupt payload"
+        assert any(i.rule_id == "KGV-015" for i in issues)
+
+    def test_add_edge_table_exists_after_drop(self, validator, db, graph_repo):
+        """Verify we can restore graph_edges after a drop-and-test (cleanup check)."""
+        # Re-create the table (simulates migration re-run after corruption)
+        db._conn.execute("""
+            CREATE TABLE IF NOT EXISTS graph_edges (
+                edge_id TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK(version >= 1),
+                payload TEXT NOT NULL,
+                source_node_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                target_node_id TEXT NOT NULL,
+                assertion_type TEXT NOT NULL,
+                review_status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                valid_from TEXT,
+                valid_to TEXT,
+                confidence REAL NOT NULL,
+                last_reviewed_at TEXT,
+                originating_graph_change_id TEXT,
+                PRIMARY KEY (edge_id, version)
+            )
+        """)
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db)
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+
+        gc = GraphChange(**_valid_add_edge_gc())
+        result = validator.validate_candidate(gc, T1)
+        # After table restore, lookup should work fine
+        issues = [i for i in result.issues if i.code == "GRAPH_STATE_LOOKUP_FAILED"]
+        assert len(issues) == 0, "No GRAPH_STATE_LOOKUP_FAILED after table restore"
+
+
 class TestM4R1KGV014AsOf:
     """KGV-014 actual implementation: as_of checks, future evidence, validity interval."""
 
@@ -1897,11 +2170,11 @@ class TestM4R2Timezone:
 
 
 class TestM4R2KGV008ZeroNew:
-    """Fix 4: KGV-008 blocks FACT edges with zero new_evidence_ids."""
+    """Fix 4: KGV-008 blocks FACT edges with zero new_evidence_ids.
+    Schema-first: empty new_evidence_ids violates minItems:1 → KGV-001 SCHEMA_INVALID."""
 
-    @pytest.mark.xfail(reason="KGV-008 zero-new-evidence not reached for raw dict — tracked for M4-R3")
-    def test_produces_zero_new_evidence_fails(self, validator, db, graph_repo):
-        """PRODUCES FACT with empty new_evidence_ids → KGV-005/KGV-008 blocking issue."""
+    def test_produces_zero_new_evidence_schema_invalid(self, validator, db, graph_repo):
+        """PRODUCES FACT with empty new_evidence_ids → Schema minItems:1 → KGV-001 SCHEMA_INVALID."""
         _insert_entity(db, "company:A")
         _insert_entity(db, "company:B")
         _insert_evidence(db, source_tier="S")
@@ -1912,18 +2185,15 @@ class TestM4R2KGV008ZeroNew:
         raw["edge"]["relation"] = "PRODUCES"
         raw["edge"]["assertion_type"] = "FACT"
         raw["new_evidence_ids"] = []
-        # Use raw dict → validator normalizes (bypasses Pydantic min_length)
+        # Use raw dict → validator normalizes against Schema with minItems:1
         result = validator.validate_candidate(raw, T1)
-        # Zero new evidence should produce a blocking issue (KGV-005 or KGV-008)
-        issues = [i for i in result.issues
-                   if i.rule_id in ("KGV-005", "KGV-008") and i.blocks_apply]
+        # Schema-first: empty new_evidence_ids → KGV-001 SCHEMA_INVALID
+        assert result.structural_ok is False
+        issues = [i for i in result.issues if i.rule_id == "KGV-001" and i.code == "SCHEMA_INVALID"]
         assert len(issues) > 0
-        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
-        assert result.apply_eligible is False
 
-    @pytest.mark.xfail(reason="KGV-008 zero-new-evidence not reached for raw dict — tracked for M4-R3")
-    def test_competes_with_zero_new_evidence_fails(self, validator, db, graph_repo):
-        """COMPETES_WITH FACT with empty new_evidence_ids → KGV-005/KGV-008 blocking issue."""
+    def test_competes_with_zero_new_evidence_schema_invalid(self, validator, db, graph_repo):
+        """COMPETES_WITH FACT with empty new_evidence_ids → Schema minItems:1 → KGV-001 SCHEMA_INVALID."""
         _insert_entity(db, "company:A")
         _insert_entity(db, "company:B")
         _insert_evidence(db, source_tier="B")
@@ -1933,13 +2203,12 @@ class TestM4R2KGV008ZeroNew:
         raw = _valid_add_edge_gc()
         raw["edge"]["assertion_type"] = "FACT"
         raw["new_evidence_ids"] = []
-        # Use raw dict → validator normalizes (bypasses Pydantic min_length)
+        # Use raw dict → validator normalizes against Schema with minItems:1
         result = validator.validate_candidate(raw, T1)
-        # Zero new evidence should produce a blocking issue (KGV-005 or KGV-008)
-        issues = [i for i in result.issues
-                   if i.rule_id in ("KGV-005", "KGV-008") and i.blocks_apply]
+        # Schema-first: empty new_evidence_ids → KGV-001 SCHEMA_INVALID
+        assert result.structural_ok is False
+        issues = [i for i in result.issues if i.rule_id == "KGV-001" and i.code == "SCHEMA_INVALID"]
         assert len(issues) > 0
-        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
 
     def test_model_inference_zero_new_allowed(self, validator, db, graph_repo):
         """MODEL_INFERENCE with zero new_evidence_ids → KGV-008 skipped (no tier floor)."""

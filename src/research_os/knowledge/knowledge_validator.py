@@ -1062,12 +1062,8 @@ class KnowledgeValidator:
                     blocks_review=False, blocks_apply=True))
             return issues
 
-        if gc.change_type != "add_edge":
-            return issues  # no tier floor for MODEL_INFERENCE
-        if gc.edge.assertion_type != "FACT":
-            return issues
-
-        # Use ONLY new_evidence_ids
+        # Use ONLY new_evidence_ids — applies to ALL FACT edge types
+        # (add_edge, modify_attribute, retire_edge)
         new_eids: Set[str] = set(gc.new_evidence_ids)
 
         if not new_eids:
@@ -1381,6 +1377,53 @@ class KnowledgeValidator:
 
         return issues
 
+    # ── Strict Edge Triple Lookup ──────────────────────
+
+    def _find_edges_by_triple_strict(
+        self, source_node_id: str, relation: str, target_node_id: str
+    ) -> List[Dict[str, Any]]:
+        """Strict edge triple lookup — queries graph_edges directly.
+
+        ORDER BY edge_id, version DESC.
+        Any DB error / row decode error / payload error → raise ValueError.
+        This is fail-closed: no silent pass on corruption.
+        Callers (KGV-015, KGV-019) catch ValueError and emit
+        GRAPH_STATE_LOOKUP_FAILED.
+        """
+        try:
+            rows = self._db._conn.execute(
+                """SELECT edge_id, version, payload FROM graph_edges
+                   WHERE source_node_id = ? AND relation = ? AND target_node_id = ?
+                   ORDER BY edge_id, version DESC""",
+                (source_node_id, relation, target_node_id),
+            ).fetchall()
+        except Exception as e:
+            raise ValueError(
+                f"Edge triple lookup DB error for "
+                f"({source_node_id}, {relation}, {target_node_id}): {e}"
+            ) from e
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            try:
+                edge_id = row["edge_id"]
+                version = row["version"]
+                payload_str = row["payload"]
+                # Verify payload is valid JSON
+                payload = json.loads(payload_str)
+            except (json.JSONDecodeError, TypeError, KeyError) as e:
+                raise ValueError(
+                    f"Edge triple lookup row decode/payload error for "
+                    f"({source_node_id}, {relation}, {target_node_id}): {e}"
+                ) from e
+            result.append({
+                "edge_id": edge_id,
+                "version": version,
+                "payload": payload,
+                "payload_str": payload_str,  # keep raw string for canonical comparison
+            })
+        return result
+
     def _check_kgv015(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
         """KGV-015: Duplicate Relation — add_edge→no existing triple, modify/retire→exactly 1 identity."""
         issues: List[KnowledgeValidationIssue] = []
@@ -1390,10 +1433,10 @@ class KnowledgeValidator:
 
         edge = gc.edge
         try:
-            existing_edges = self._graph_repo.find_edge_by_triple(
+            existing_edges = self._find_edges_by_triple_strict(
                 edge.source_node_id, edge.relation, edge.target_node_id,
             )
-        except Exception:
+        except ValueError:
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-015", code="GRAPH_STATE_LOOKUP_FAILED",
                 message=f"Duplicate relation check failed for triple: DB error",
@@ -1590,7 +1633,7 @@ class KnowledgeValidator:
         if gc.edge is not None:
             edge = gc.edge
             try:
-                existing_edges = self._graph_repo.find_edge_by_triple(
+                existing_edges = self._find_edges_by_triple_strict(
                     edge.source_node_id, edge.relation, edge.target_node_id,
                 )
 
