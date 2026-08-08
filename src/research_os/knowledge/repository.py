@@ -348,6 +348,50 @@ class GraphRepository:
             "applied_at": row["applied_at"],
         }
 
+    def get_application_by_identity(self, application_id: str,
+                                    idempotency_key: str) -> Optional[Dict]:
+        """按双 deterministic identity 查找 GraphApplication（M6 安全路径）。
+
+        语义：
+        - 0 rows → None（无 previous application）
+        - 1 row → 返回全列 + parsed payload
+        - >1 logically conflicting rows（application_id 命中 row A、
+          idempotency_key 命中 row B）→ raise ValueError
+          （APPLICATION_DUAL_IDENTITY_CONFLICT，audit corruption，
+           不得任选其一；由 engine 转 APPLICATION_INTEGRITY_CONFLICT）
+
+        正常 DB 中 application_id 为 PRIMARY KEY、idempotency_key 为 UNIQUE，
+        双命中不同行只能来自 SQL 篡改。JSON parse failure 直接上抛。
+
+        Returns:
+            全列 dict 或 None。
+        Raises:
+            ValueError: 双 identity 命中不同行 / JSON parse failure。
+        """
+        rows = self._db._conn.execute(
+            "SELECT application_id, graph_change_id, review_id, "
+            "idempotency_key, payload, applied_at "
+            "FROM graph_applications "
+            "WHERE application_id = ? OR idempotency_key = ?",
+            (application_id, idempotency_key),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise ValueError(
+                f"APPLICATION_DUAL_IDENTITY_CONFLICT: application_id={application_id} "
+                f"与 idempotency_key={idempotency_key} 命中不同行（audit corruption）"
+            )
+        row = rows[0]
+        return {
+            "application_id": row["application_id"],
+            "graph_change_id": row["graph_change_id"],
+            "review_id": row["review_id"],
+            "idempotency_key": row["idempotency_key"],
+            "payload": json.loads(row["payload"]),
+            "applied_at": row["applied_at"],
+        }
+
     def get_application(self, application_id: str) -> Optional[Dict]:
         """按 application_id 读取 GraphApplication payload。"""
         row = self._db._conn.execute(

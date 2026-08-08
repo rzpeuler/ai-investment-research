@@ -165,15 +165,29 @@ class _ImmediateTransaction:
         if exc_type is not None:
             try:
                 conn.execute("ROLLBACK")
-            except sqlite3.OperationalError as rollback_err:
+            except sqlite3.Error as rollback_err:
                 # rollback 失败：保留原始业务异常并附加 rollback context，
                 # 绝不能 silent success
                 raise RuntimeError(
                     f"ROLLBACK failed after {exc_type.__name__}: {exc_val}"
                 ) from rollback_err
             return False  # 原始业务异常继续传播
-        # 正常退出：COMMIT 任何失败必须传播，调用方不得返回 applied
-        conn.execute("COMMIT")
+        # 正常退出：COMMIT 任何失败必须传播（调用方不得返回 applied），
+        # 且先尝试 ROLLBACK cleanup——不留活动事务/挂起写入。
+        try:
+            conn.execute("COMMIT")
+        except sqlite3.Error as commit_err:
+            if conn.in_transaction:
+                try:
+                    conn.execute("ROLLBACK")
+                except sqlite3.Error as rollback_err:
+                    # 保留 commit failure + rollback failure context
+                    raise RuntimeError(
+                        f"COMMIT failed ({commit_err}) and ROLLBACK cleanup "
+                        f"failed ({rollback_err})"
+                    ) from commit_err
+            # 传播原始 commit 异常
+            raise
         return False
 
 

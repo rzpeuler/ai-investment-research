@@ -764,6 +764,44 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
     results）。时间攻击（review 后 SQL mutation evidence 时间）→
     `EVIDENCE_RETRIEVED_AFTER_REVIEW` 拒绝。
 
+### 36.8b M6-R2 Final Integrity Closure 补充（2026-08-09）
+
+> M6 尚未验收，继续补充本决定；不另立 Decision #37。
+
+36. **review valid-JSON wrong-type fail-closed**：`--review-id` 显式路径与
+    implicit single-review 路径的 payload 必须 `JSON decode → top-level 必须
+    object（dict）→ GraphReview Schema-first`。合法 JSON 但顶层非 dict
+    （`[]` / `"foo"` / `123`）→ `APPLY_REJECTED` + `REVIEW_PAYLOAD_INVALID`，
+    不得 public API exception / traceback。显式路径同时读取
+    `review_id, graph_change_id, payload` 三列，用 DB `graph_change_id`
+    column 做 association precheck（`REVIEW_CHANGE_MISMATCH`），payload
+    最终仍必须 Schema-first。
+37. **GraphApplication 双 deterministic identity**：replay lookup 必须同时
+    绑定 deterministic `application_id` 与 `idempotency_key`。M6 安全路径
+    使用 `get_application_by_identity(application_id, idempotency_key)`：
+    0 rows → 无 previous application；1 row → 返回全列 + parsed payload；
+    application_id 命中 row A、idempotency_key 命中 row B（>1 rows，正常
+    DB 因 application_id PRIMARY KEY + idempotency_key UNIQUE 不可能自然
+    出现，只能来自 SQL 篡改）→ `APPLICATION_INTEGRITY_CONFLICT`，不得任选
+    其一。tampering either identity 必须可发现并拒绝（idempotency_key
+    column 篡改为另一个合法 sha256 → `APPLICATION_INTEGRITY_CONFLICT`，
+    不得 idempotent_noop / M4_* / applied）。保留
+    `get_application_by_idempotency_key()` 仅供兼容，安全路径一律双 identity。
+38. **COMMIT failure rollback cleanup**：COMMIT 失败必须捕获原始异常 →
+    若 `conn.in_transaction` 则 attempt ROLLBACK → 传播原始 commit 失败；
+    若 rollback 也失败，raise chained RuntimeError 同时保留 commit failure +
+    rollback failure context。ApplyEngine 必须 never return applied；且
+    rollback 成功后 `conn.in_transaction == False`、pending writes == 0。
+    不重新吞异常。
+39. **persisted GraphReview JSON top-level 必须 object**：任何字段访问
+    （`.get()` 等）之前先验证 payload 顶层是 dict，否则
+    `REVIEW_PAYLOAD_INVALID`。
+40. **ADD_NODE_NOT_ACTIVE 是 first-class ApplyResult.error_code**：
+    add_node 且 node.status != active → `APPLY_REJECTED` +
+    `ADD_NODE_NOT_ACTIVE`（内部 `_TargetBuildError` 携带 code，apply 映射
+    结构化 error_code）；调用方不得从 errors 字符串反解析。该拒绝零
+    graph_nodes / graph_applications delta。
+
 ### 36.9 M6 严格不实现
 
 - M7：modify_attribute / retire_node / retire_edge apply、superseded、expired、

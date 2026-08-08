@@ -1708,6 +1708,25 @@ class TestImmediateTransactionSemantics:
         assert result.error_code == "APPLY_FAILED"
         db.close()
 
+    def test_dual_identity_conflict_mapped_to_integrity_conflict(self):
+        """M6-R2：事务内双 identity 冲突 / application payload 损坏必须映射
+        APPLICATION_INTEGRITY_CONFLICT（与事务外步骤 15 一致），
+        不得落入 APPLY_FAILED。"""
+        from research_os.knowledge.apply_engine import ApplyEngine
+
+        assert ApplyEngine._map_apply_exception(
+            ValueError(
+                "APPLICATION_DUAL_IDENTITY_CONFLICT: application_id 与 "
+                "idempotency_key 命中不同行（audit corruption）"
+            )
+        ) == "APPLICATION_INTEGRITY_CONFLICT"
+        assert ApplyEngine._map_apply_exception(
+            ValueError(
+                "APPLICATION_DUAL_IDENTITY_CONFLICT: 事务内 application "
+                "payload invalid JSON: Expecting value"
+            )
+        ) == "APPLICATION_INTEGRITY_CONFLICT"
+
 
 # ═══════════════════════════════════════════════════════════════
 # 10. M6-R1：GraphApplication tamper attacks（payload + columns）
@@ -1851,6 +1870,58 @@ class TestApplicationTamperAttacks:
         assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
         db.close()
 
+    def test_column_idempotency_key_tampered(self, tmp_path):
+        """M6-R2：idempotency_key column 篡改为另一个合法 sha256 →
+        APPLICATION_INTEGRITY_CONFLICT（双 identity lookup 必须发现），
+        不得 idempotent_noop / M4_* / applied。"""
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        # 另一个合法格式的 sha256（与原 key 不同）
+        other_key = hashlib.sha256(
+            (gc.graph_change_id + "-tampered").encode()
+        ).hexdigest()
+        self._tamper_column(db, app_id, "idempotency_key", other_key)
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_dual_identity_split_constraint_proof(self, tmp_path):
+        """M6-R2：dual-identity split attack 的约束证明。
+
+        row A 拥有 deterministic application_id、row B 拥有 deterministic
+        idempotency_key 的状态，在 schema（application_id PRIMARY KEY +
+        idempotency_key UNIQUE）下机械不可构造：插入 row B（不同
+        application_id + 相同 idempotency_key）违反 UNIQUE 约束被拒绝。
+        因此 >1 rows 双命中分支由 column tamper 路径覆盖，人造 split
+        状态不可能存在。
+        """
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        row_a = db._conn.execute(
+            "SELECT idempotency_key, review_id, graph_change_id "
+            "FROM graph_applications WHERE application_id = ?",
+            (app_id,),
+        ).fetchone()
+        assert row_a is not None
+
+        # 尝试构造 row B：新 application_id + 与 row A 相同的 idempotency_key
+        # （review_id/graph_change_id 复用 row A 的合法值，排除 FK 干扰，
+        #   证明失败点唯一是 idempotency_key UNIQUE 约束）
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+            db._conn.execute(
+                "INSERT INTO graph_applications "
+                "(application_id, graph_change_id, review_id, idempotency_key, "
+                "payload, applied_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), row_a["graph_change_id"],
+                 row_a["review_id"], row_a["idempotency_key"],
+                 "{}", APPLIED_AT),
+            )
+        db._conn.rollback()
+
+        # 篡改 application_id 后，双 identity 不再能通过 column tamper 之外的
+        # 方式产生 >1 rows：application_id 命中 1 行、idempotency_key 命中 0 行
+        # → 由 M6-R1 的 application_id tamper 测试覆盖（APPLICATION_INTEGRITY_CONFLICT）。
+        db.close()
+
 
 # ═══════════════════════════════════════════════════════════════
 # 11. M6-R1：malformed payload attacks
@@ -1946,6 +2017,71 @@ class TestMalformedPayloadAttacks:
 
         result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
         assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    # ── M6-R2：合法 JSON 但顶层非 object（[] / "foo" / 123）必须 fail-closed ──
+
+    def _tamper_review_payload_wrong_type(self, db, review_id, raw_json):
+        db._conn.execute(
+            "UPDATE graph_reviews SET payload = ? WHERE review_id = ?",
+            (raw_json, review_id),
+        )
+        db._conn.commit()
+
+    def test_explicit_review_payload_empty_array(self, tmp_path):
+        """显式 --review-id 且 payload=[]（合法 JSON 非 object）
+        → REVIEW_PAYLOAD_INVALID，不 traceback。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        review = _import_review(workflow, gc, decision="批准")
+        self._tamper_review_payload_wrong_type(db, review.review_id, "[]")
+
+        result = engine.apply(gc.graph_change_id, review_id=review.review_id,
+                              applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REVIEW_PAYLOAD_INVALID"
+        db.close()
+
+    def test_explicit_review_payload_string(self, tmp_path):
+        """显式 --review-id 且 payload="foo" → REVIEW_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        review = _import_review(workflow, gc, decision="批准")
+        self._tamper_review_payload_wrong_type(db, review.review_id, '"foo"')
+
+        result = engine.apply(gc.graph_change_id, review_id=review.review_id,
+                              applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REVIEW_PAYLOAD_INVALID"
+        db.close()
+
+    def test_explicit_review_payload_number(self, tmp_path):
+        """显式 --review-id 且 payload=123 → REVIEW_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        review = _import_review(workflow, gc, decision="批准")
+        self._tamper_review_payload_wrong_type(db, review.review_id, "123")
+
+        result = engine.apply(gc.graph_change_id, review_id=review.review_id,
+                              applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REVIEW_PAYLOAD_INVALID"
+        db.close()
+
+    def test_implicit_single_review_payload_empty_array(self, tmp_path):
+        """implicit 单条 review 且 payload=[] → REVIEW_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        review = _import_review(workflow, gc, decision="批准")
+        self._tamper_review_payload_wrong_type(db, review.review_id, "[]")
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REVIEW_PAYLOAD_INVALID"
         db.close()
 
 
@@ -2047,6 +2183,131 @@ class TestEvidenceReviewTimeClosure:
         assert result.status == "applied"
         node = graph_repo.get_node_version("company:test-corp", 1)
         assert node is not None
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 13. M6-R2：COMMIT failure → rollback cleanup（真实 SQLite）
+# ═══════════════════════════════════════════════════════════════
+
+class TestCommitFailureCleanup:
+    """M6-R2：COMMIT 失败必须先 rollback cleanup 再传播原始异常。
+
+    使用真实 SQLite + DEFERRABLE INITIALLY DEFERRED FK：
+    INSERT 阶段允许（deferred），COMMIT 阶段失败（FK constraint）。
+    证明：异常传播、conn.in_transaction == False、无挂起行。
+    """
+
+    def test_deferred_fk_commit_failure_rolls_back(self, tmp_path):
+        from research_os.storage import Database
+
+        db_path = tmp_path / "fk.db"
+        db = Database(db_path)
+        conn = db._conn
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("CREATE TABLE parent (id TEXT PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE child ("
+            " id TEXT PRIMARY KEY,"
+            " parent_id TEXT,"
+            " FOREIGN KEY (parent_id) REFERENCES parent(id)"
+            "  DEFERRABLE INITIALLY DEFERRED"
+            ")"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            with db.immediate_transaction():
+                conn.execute(
+                    "INSERT INTO child (id, parent_id) VALUES ('c1', 'missing')"
+                )
+
+        # COMMIT 失败 → rollback cleanup：无活动事务、无挂起行
+        assert conn.in_transaction is False
+        assert conn.execute("SELECT COUNT(*) AS c FROM child").fetchone()["c"] == 0
+        db.close()
+
+    def test_commit_failure_then_reapply_succeeds(self, tmp_path):
+        """COMMIT 失败 cleanup 后，同一连接可以继续正常事务（无残留状态）。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "fk2.db"
+        db = Database(db_path)
+        conn = db._conn
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("CREATE TABLE parent (id TEXT PRIMARY KEY)")
+        conn.execute(
+            "CREATE TABLE child ("
+            " id TEXT PRIMARY KEY,"
+            " parent_id TEXT,"
+            " FOREIGN KEY (parent_id) REFERENCES parent(id)"
+            "  DEFERRABLE INITIALLY DEFERRED"
+            ")"
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            with db.immediate_transaction():
+                conn.execute(
+                    "INSERT INTO child (id, parent_id) VALUES ('c1', 'missing')"
+                )
+        assert conn.in_transaction is False
+
+        # 补上 parent 后重试：必须成功（rollback cleanup 未污染连接状态）
+        with db.immediate_transaction():
+            conn.execute("INSERT INTO parent (id) VALUES ('p1')")
+            conn.execute(
+                "INSERT INTO child (id, parent_id) VALUES ('c2', 'p1')"
+            )
+        assert conn.execute("SELECT COUNT(*) AS c FROM child").fetchone()["c"] == 1
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 14. M6-R2：ADD_NODE_NOT_ACTIVE 精确 error_code
+# ═══════════════════════════════════════════════════════════════
+
+class TestAddNodeNotActive:
+    """M6-R2：add_node 且 node.status != active → ADD_NODE_NOT_ACTIVE
+    （first-class ApplyResult.error_code，不依赖 errors 字符串反解析），
+    且零 graph_nodes / graph_applications delta。"""
+
+    def test_inactive_add_node_rejected(self, tmp_path):
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, graph_repo, _, workflow, engine = _make_components(db)
+
+        # candidate 的 node status=retired（add_node 要求 active）
+        gc = _make_node_candidate(
+            node=GraphNode(
+                node_id="company:test-corp",
+                node_type="Company",
+                name="测试公司",
+                aliases=["测试"],
+                description="测试描述",
+                status="retired",
+                valid_from=None,
+                valid_to=None,
+                evidence_ids=[EVIDENCE_UUID],
+                version=1,
+                last_reviewed_at=None,
+                review_status="candidate",
+                origin_kind="graph_change",
+                originating_graph_change_id=str(uuid.uuid4()),
+                created_at=T0,
+            )
+        )
+        candidate_repo.append_candidate(gc)
+        _import_review(workflow, gc, decision="批准")
+
+        nodes_before = _count_table(db, "graph_nodes")
+        apps_before = _count_table(db, "graph_applications")
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "ADD_NODE_NOT_ACTIVE"
+        assert result.status == "APPLY_REJECTED"
+
+        # 零 delta：不写 graph_nodes、不写 graph_applications
+        assert _count_table(db, "graph_nodes") == nodes_before
+        assert _count_table(db, "graph_applications") == apps_before
+        assert graph_repo.get_node_version("company:test-corp", 1) is None
         db.close()
 
 

@@ -280,6 +280,14 @@ class ApplyEngine:
             target_kind, target_id, target_version, target_dump = (
                 self._build_approved_target(effective_gc, review)
             )
+        except _TargetBuildError as e:
+            # 精确机械 error_code（如 ADD_NODE_NOT_ACTIVE），
+            # 调用方不需要从 errors 字符串反解析
+            return self._reject(
+                change_id, e.error_code, str(e),
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
         except Exception as e:
             return self._reject(
                 change_id, "TARGET_BUILD_FAILED", str(e),
@@ -295,10 +303,12 @@ class ApplyEngine:
 
         # 15. Idempotent replay preflight（必须在 M4 gates 之前！
         #     第二次 apply 时 target 已存在，若先跑 KGV duplicate/stale 会错误 reject）
+        # 使用双 deterministic identity（application_id OR idempotency_key）：
+        # 任一 identity 被 SQL 篡改都必须可发现并拒绝，而不是跳过 replay 验证。
         try:
-            existing_app = self._graph_repo.get_application_by_idempotency_key(idem_key)
+            existing_app = self._graph_repo.get_application_by_identity(app_id, idem_key)
         except Exception as e:
-            return self._reject(change_id, "APPLICATION_READ_FAILED", str(e),
+            return self._reject(change_id, "APPLICATION_INTEGRITY_CONFLICT", str(e),
                                 review_id=review.review_id,
                                 effective_gc_id=effective_gc.graph_change_id)
         if existing_app is not None:
@@ -344,20 +354,34 @@ class ApplyEngine:
         # 19. BEGIN IMMEDIATE 事务（消除 TOCTOU；COMMIT 失败传播；任一步失败 ROLLBACK ALL）
         try:
             with self._db.immediate_transaction() as conn:
-                # 事务内 recheck idempotency（并发窗口内已有写入）
-                existing = conn.execute(
+                # 事务内 recheck idempotency（双 identity；并发窗口内已有写入）
+                existing_rows = conn.execute(
                     "SELECT application_id, graph_change_id, review_id, "
                     "idempotency_key, payload, applied_at "
-                    "FROM graph_applications WHERE idempotency_key = ?",
-                    (idem_key,),
-                ).fetchone()
-                if existing is not None:
+                    "FROM graph_applications "
+                    "WHERE application_id = ? OR idempotency_key = ?",
+                    (app_id, idem_key),
+                ).fetchall()
+                if len(existing_rows) > 1:
+                    raise ValueError(
+                        "APPLICATION_DUAL_IDENTITY_CONFLICT: 事务内 application_id "
+                        "与 idempotency_key 命中不同行（audit corruption）"
+                    )
+                if len(existing_rows) == 1:
+                    existing = existing_rows[0]
+                    try:
+                        existing_payload = json.loads(existing["payload"])
+                    except Exception as json_err:
+                        raise ValueError(
+                            "APPLICATION_DUAL_IDENTITY_CONFLICT: 事务内 "
+                            f"application payload invalid JSON: {json_err}"
+                        ) from json_err
                     existing_app = {
                         "application_id": existing["application_id"],
                         "graph_change_id": existing["graph_change_id"],
                         "review_id": existing["review_id"],
                         "idempotency_key": existing["idempotency_key"],
-                        "payload": json.loads(existing["payload"]),
+                        "payload": existing_payload,
                         "applied_at": existing["applied_at"],
                     }
                     raise _InTxnReplay(existing_app)
@@ -472,8 +496,10 @@ class ApplyEngine:
     def _select_review(self, change_id: str, review_id: Optional[str]) -> Any:
         """GraphReview selection（显式 --review-id 或 0/1/>1 确定性规则）。
 
-        SQL error / JSON decode / malformed payload 全部 fail-closed：
-        REVIEW_READ_FAILED / REVIEW_PAYLOAD_INVALID。
+        SQL error / JSON decode / malformed payload / 合法 JSON 非 dict
+        全部 fail-closed（REVIEW_READ_FAILED / REVIEW_PAYLOAD_INVALID）。
+        显式路径用 DB graph_change_id column 做 association precheck，
+        payload 最终仍必须 Schema-first。
 
         >1 reviews 时直接使用 DB review_id column 的稳定排序，
         不解析 payload 得到 review IDs。
@@ -484,7 +510,8 @@ class ApplyEngine:
         if review_id is not None:
             try:
                 row = self._db._conn.execute(
-                    "SELECT payload FROM graph_reviews WHERE review_id = ?",
+                    "SELECT review_id, graph_change_id, payload "
+                    "FROM graph_reviews WHERE review_id = ?",
                     (review_id,),
                 ).fetchone()
             except Exception as e:
@@ -493,17 +520,24 @@ class ApplyEngine:
             if row is None:
                 self._last_error = f"REVIEW_NOT_FOUND: Review not found: {review_id}"
                 return "REVIEW_NOT_FOUND"
+            # DB graph_change_id column 做 association precheck
+            if row["graph_change_id"] != change_id:
+                self._last_error = (
+                    f"REVIEW_CHANGE_MISMATCH: review {review_id} 属于 "
+                    f"graph_change {row['graph_change_id']}，不是 {change_id}"
+                )
+                return "REVIEW_CHANGE_MISMATCH"
             try:
                 review_dict = json.loads(row["payload"])
             except Exception as e:
                 self._last_error = f"REVIEW_PAYLOAD_INVALID: review {review_id} payload invalid JSON: {e}"
                 return "REVIEW_PAYLOAD_INVALID"
-            if review_dict.get("graph_change_id") != change_id:
+            if not isinstance(review_dict, dict):
                 self._last_error = (
-                    f"REVIEW_CHANGE_MISMATCH: review {review_id} 属于 "
-                    f"graph_change {review_dict.get('graph_change_id')}，不是 {change_id}"
+                    f"REVIEW_PAYLOAD_INVALID: review {review_id} payload 顶层"
+                    f"必须是 object，got {type(review_dict).__name__}"
                 )
-                return "REVIEW_CHANGE_MISMATCH"
+                return "REVIEW_PAYLOAD_INVALID"
             return review_dict
 
         try:
@@ -530,12 +564,19 @@ class ApplyEngine:
             )
             return "AMBIGUOUS_REVIEW_SELECTION"
         try:
-            return json.loads(rows[0]["payload"])
+            review_dict = json.loads(rows[0]["payload"])
         except Exception as e:
             self._last_error = (
                 f"REVIEW_PAYLOAD_INVALID: selected review payload invalid JSON: {e}"
             )
             return "REVIEW_PAYLOAD_INVALID"
+        if not isinstance(review_dict, dict):
+            self._last_error = (
+                f"REVIEW_PAYLOAD_INVALID: selected review payload 顶层必须是 "
+                f"object，got {type(review_dict).__name__}"
+            )
+            return "REVIEW_PAYLOAD_INVALID"
+        return review_dict
 
     # ── M4 validation 组合门 ────────────────────────────────
 
@@ -637,18 +678,24 @@ class ApplyEngine:
         - 复制 effective node/edge model_dump
         - 只改变 review_status=approved、last_reviewed_at=review.reviewed_at
         - add_node 要求 status=active，否则 ADD_NODE_NOT_ACTIVE
+          （抛 _TargetBuildError("ADD_NODE_NOT_ACTIVE")，由 apply 映射精确
+           error_code，调用方不得从 errors 字符串反解析）
 
         Returns:
             (target_kind, target_id, target_version, target_dump)
+        Raises:
+            _TargetBuildError: 带 error_code 的目标构造失败
+            ValueError: 其他目标构造失败（Schema 等）
         """
         if effective_gc.node is not None:
             node_dump = effective_gc.node.model_dump()
             node_dump["review_status"] = "approved"
             node_dump["last_reviewed_at"] = review.reviewed_at
             if node_dump.get("status") != "active":
-                raise ValueError(
-                    f"ADD_NODE_NOT_ACTIVE: node {node_dump['node_id']} "
-                    f"status={node_dump.get('status')}（add_node 要求 active）"
+                raise _TargetBuildError(
+                    "ADD_NODE_NOT_ACTIVE",
+                    f"node {node_dump['node_id']} status={node_dump.get('status')}"
+                    f"（add_node 要求 active）",
                 )
             # Schema-first
             schema_errors = validate_instance(node_dump, "graph_node")
@@ -899,6 +946,10 @@ class ApplyEngine:
             return "VERSION_GAP"
         if "ACTIVE_TRANSACTION_CONFLICT" in msg:
             return "ACTIVE_TRANSACTION_CONFLICT"
+        if msg.startswith("APPLICATION_DUAL_IDENTITY_CONFLICT"):
+            # 事务内双 identity 命中不同行（audit corruption）→ 契约 code，
+            # 与事务外步骤 15 一致
+            return "APPLICATION_INTEGRITY_CONFLICT"
         if msg.startswith("REPLACEMENT_"):
             return "REPLACEMENT_" + msg.split(":", 1)[0].split("_", 1)[-1]
         return "APPLY_FAILED"
@@ -922,6 +973,18 @@ class _InTxnReplay(Exception):
     def __init__(self, existing_app: dict):
         super().__init__("idempotent replay detected inside transaction")
         self.existing_app = existing_app
+
+
+class _TargetBuildError(Exception):
+    """approved target 构造失败，携带精确 error_code（如 ADD_NODE_NOT_ACTIVE）。
+
+    由 apply() 映射为结构化 ApplyResult.error_code，
+    调用方无需从 errors 字符串反解析。
+    """
+
+    def __init__(self, error_code: str, message: str):
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class _InTxnRejected(Exception):
