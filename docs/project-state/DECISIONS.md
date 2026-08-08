@@ -1451,3 +1451,5 @@ Graph→Research 不实现，JSON mirror 不实现。
 - 攻击覆盖: observation_id/schema tamper、title/relation tamper、validation_status tamper、company_entity_id tamper
 
 **测试回归恢复**: 原有 M9 测试覆盖已恢复并强化（56 tests vs R1 45，vs original 40）
+
+**R3 acceptance gate**: Phase3 explicit DB failure status（`failed`/`validation_failed`）is ineligible even when `validation_status == passed`。`SOURCE_FILTER_INVALID` regression restored。

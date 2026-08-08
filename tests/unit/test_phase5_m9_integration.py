@@ -1033,6 +1033,55 @@ class TestR2Regression:
         assert result.error_code == "INTEGRATION_SCENARIO_UNSUPPORTED"
 
 
+class TestR3Phase3FailedStatus:
+
+    @pytest.mark.parametrize("failure_status", ["failed", "validation_failed"])
+    def test_db_status_failed_val_passed(self, project_env, db_path, failure_status):
+        """DB validation_status=passed + status=failed/validation_failed → reject"""
+        db = _open_db(db_path)
+        run_dir, run_id, cause_id, link_id, eid = _make_abnormal_run(project_env, db)
+        # Set DB status to failure
+        db2 = Database(Path(db_path))
+        raw = db2.get("abnormal_move_runs", run_id)
+        assert raw is not None
+        raw["status"] = failure_status
+        raw["validation_status"] = "passed"
+        db2._conn.execute(
+            "UPDATE abnormal_move_runs SET payload=? WHERE run_id=?",
+            (json.dumps(raw), run_id),
+        )
+        db2._conn.commit()
+        db2.close()
+
+        # artifact matches DB exactly
+        (run_dir / "abnormal_move_run.json").write_text(json.dumps(raw), encoding="utf-8")
+
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate("abnormal_move_analysis", run_dir)
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_RUN_NOT_ELIGIBLE"
+        # 0 Provider / 0 GraphChange（pre-Pipeline fail）
+        assert result.pipeline_result is None
+
+
+class TestR3SourceFilter:
+
+    def test_explicit_subset_undiscovered_source(self, project_env, db_path):
+        """selected_sources contains undiscovered source → INTEGRATION_SOURCE_FILTER_INVALID"""
+        db = _open_db(db_path)
+        run_dir, cids, _ = _make_morning_run(project_env, db)
+        # resolver only discovers Claim:<cid[0]>
+        integrator = _make_integrator(db, project_env)
+        result = integrator.integrate(
+            "morning_brief", run_dir,
+            selected_sources=[f"Claim:{cids[0]}", "Claim:UNDISCOVERED-ID-000000"],
+        )
+        assert result.status == "error"
+        assert result.error_code == "INTEGRATION_SOURCE_FILTER_INVALID"
+        # 0 CandidatePipeline / 0 Provider / 0 graph_changes
+        assert result.pipeline_result is None
+
+
 # ====================================================================
 # M9 Core Tests
 # ====================================================================

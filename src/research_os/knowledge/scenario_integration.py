@@ -40,6 +40,7 @@ class IntegrationError(Exception):
 MAX_INTEGRATION_SOURCES = 20
 _EQUITY_ELIGIBLE_VALIDATION_STATUSES = frozenset({"pass", "pass_with_warnings"})
 _EQUITY_FAILURE_STATUSES = frozenset({"validation_failed", "failed"})
+_ABNORMAL_FAILURE_STATUSES = frozenset({"failed", "validation_failed"})
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +409,11 @@ class ScenarioCandidateIntegrator:
         if db_run.get("validation_status") != "passed":
             raise IntegrationError("INTEGRATION_RUN_NOT_ELIGIBLE",
                                    f"DB run.validation_status={db_run.get('validation_status')!r}，不是 passed")
+
+        # Phase3 explicit failure status is ineligible even when validation_status == passed
+        if db_run.get("status") in _ABNORMAL_FAILURE_STATUSES:
+            raise IntegrationError("INTEGRATION_RUN_NOT_ELIGIBLE",
+                                   f"DB run.status={db_run.get('status')!r}，属于明确失败状态")
 
         # full artifact↔DB equality
         art_run = _canonicalize_artifact(run_raw, "abnormal_move_run")
