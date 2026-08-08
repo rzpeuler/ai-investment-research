@@ -1642,13 +1642,15 @@ class TestM4R1Determinism:
         ids = result.checked_rule_ids
         assert len(ids) == len(set(ids))  # unique
         assert list(ids) == sorted(ids)   # sorted
-        # Should include all KGV rules
+        # Should include all KGV rules EXCEPT KGV-019 (review-only)
         expected = tuple(
             f"KGV-{n:03d}" for n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-                                      11, 12, 13, 14, 15, 16, 17, 18, 19]
+                                      11, 12, 13, 14, 15, 16, 17, 18]
         )
         for e in expected:
             assert e in ids
+        # KGV-019 must NOT be in candidate checked_rule_ids
+        assert "KGV-019" not in ids
 
 
 class TestM4R1ZeroWriteAllTables:
@@ -1691,6 +1693,417 @@ class TestM4R1ZeroWriteAllTables:
                 assert final[tbl] == expected, (
                     f"Table {tbl}: initial={expected}, final={final[tbl]}"
                 )
+
+
+# ============================================================================
+# M4-R2 Attack Tests — Fail-Closed Final Gate
+# ============================================================================
+
+class TestM4R2CheckedRuleIdsAccuracy:
+    """Fix 1: KGV-019 must NOT be in candidate, MUST be in review."""
+
+    def test_candidate_excludes_kgv019(self, validator, db, graph_repo):
+        """Candidate checked_rule_ids must NOT include KGV-019."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        gc = GraphChange(**_valid_add_node_gc())
+        result = validator.validate_candidate(gc, T1)
+        assert "KGV-019" not in result.checked_rule_ids
+
+    def test_review_includes_kgv019(self, validator, db, graph_repo):
+        """Review checked_rule_ids MUST include KGV-019."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        gc = GraphChange(**_valid_add_node_gc())
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        assert "KGV-019" in result.checked_rule_ids
+
+    def test_apply_preflight_does_not_dup_kgv019(self, validator, db, graph_repo):
+        """Apply preflight must NOT duplicate KGV-019 in checked_rule_ids."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        gc = GraphChange(**_valid_add_node_gc())
+        review = _make_review(gc)
+        result = validator.validate_apply_preflight(gc, review, T1)
+        # KGV-019 should appear exactly once
+        assert result.checked_rule_ids.count("KGV-019") == 1
+
+
+class TestM4R2FailClosed:
+    """Fix 2: All DB/JSON/time errors produce fail-closed issues (no silent pass)."""
+
+    def test_kgv002_entity_lookup_failed_on_db_error(self, validator, db, graph_repo):
+        """Simulate DB error in entity lookup → ENTITY_LOOKUP_FAILED."""
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        # Corrupt entity payload so json.loads fails
+        db._conn.execute(
+            "INSERT INTO entities (entity_id, entity_type, canonical_name, payload) VALUES (?, ?, ?, ?)",
+            ("company:bad", "company", "Bad", "not-valid-json{{{"),
+        )
+        raw = _valid_add_node_gc()
+        raw["node"]["node_id"] = "company:bad"
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-002"]
+        # Should have ENTITY_INVALID (schema-first) or ENTITY_LOOKUP_FAILED
+        assert len(issues) > 0
+
+    def test_kgv005_evidence_lookup_failed(self, validator, db, graph_repo):
+        """Corrupt evidence payload → EVIDENCE_SCHEMA_INVALID or EVIDENCE_LOOKUP_FAILED."""
+        _insert_entity(db)
+        bad_ev_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        db._conn.execute(
+            "INSERT INTO evidence (evidence_id, payload, source_id, raw_item_id,"
+            "independence_group, source_tier) VALUES (?, ?, ?, ?, ?, ?)",
+            (bad_ev_id, "not-json{{{", "src", _RI_ID, "grp", "B"),
+        )
+        _insert_raw_item(db)
+        raw = _valid_add_node_gc()
+        raw["new_evidence_ids"] = [bad_ev_id]
+        raw["node"]["evidence_ids"] = [bad_ev_id]
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-005"]
+        assert len(issues) > 0
+        # Must have EVIDENCE_LOOKUP_FAILED or EVIDENCE_SCHEMA_INVALID
+        codes = {i.code for i in issues}
+        assert codes & {"EVIDENCE_LOOKUP_FAILED", "EVIDENCE_SCHEMA_INVALID"}
+
+    def test_kgv006_raw_item_lookup_failed(self, validator, db, graph_repo):
+        """Invalid RawItem → RAW_ITEM_INVALID or RAW_ITEM_LOOKUP_FAILED."""
+        _insert_entity(db)
+        _insert_evidence(db, _EV_ID)
+        bad_ri_id = "zzzzzzzz-1111-zzzz-zzzz-zzzzzzzzzzzz"
+        db._conn.execute(
+            "INSERT INTO raw_items (raw_item_id, source_id, content_hash, access_status, payload) VALUES (?, ?, ?, ?, ?)",
+            (bad_ri_id, "test", "hash123", "ok", "not-json-{{{"),
+        )
+        db._conn.execute(
+            "UPDATE evidence SET raw_item_id = ? WHERE evidence_id = ?",
+            (bad_ri_id, _EV_ID),
+        )
+        raw = _valid_add_node_gc()
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-006"]
+        assert len(issues) > 0
+
+    def test_kgv014_as_of_evidence_lookup_failed(self, validator, db, graph_repo):
+        """Evidence with corrupt payload → EVIDENCE_LOOKUP_FAILED from KGV-014."""
+        _insert_entity(db)
+        bad_ev_id = "eeeeeeee-1111-eeee-eeee-eeeeeeeeeeee"
+        db._conn.execute(
+            "INSERT INTO evidence (evidence_id, payload, source_id, raw_item_id,"
+            "independence_group, source_tier) VALUES (?, ?, ?, ?, ?, ?)",
+            (bad_ev_id, "bad-json{", "src", _RI_ID, "grp", "B"),
+        )
+        _insert_raw_item(db)
+        raw = _valid_add_node_gc()
+        raw["new_evidence_ids"] = [bad_ev_id]
+        raw["node"]["evidence_ids"] = [bad_ev_id]
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-014"]
+        # Should have EVIDENCE_LOOKUP_FAILED for the corrupt evidence
+        assert len(issues) > 0
+        assert any(i.code == "EVIDENCE_LOOKUP_FAILED" for i in issues)
+
+
+class TestM4R2Timezone:
+    """Fix 3: Timezone normalization — bare ISO→+08:00, Z→UTC, offset→respected."""
+
+    def test_bare_iso_becomes_shanghai(self, validator, db, graph_repo):
+        """Bare ISO timestamps (no offset) → Asia/Shanghai (+08:00), consistent."""
+        _insert_entity(db)
+        # Insert evidence with bare ISO (no Z, no offset)
+        _insert_evidence_raw(db, _EV_ID, _RI_ID, published_at="2026-08-08T08:00:00",
+                             retrieved_at="2026-08-08T09:00:00", source_tier="S")
+        _insert_raw_item(db)
+        gc = GraphChange(**_valid_add_node_gc())
+        result = validator.validate_candidate(gc, "2026-08-08T09:00:00")
+        # Should NOT have time inversion (both parsed as +08:00)
+        issues_007 = [i for i in result.issues if i.rule_id == "KGV-007"]
+        assert len(issues_007) == 0
+
+    def test_bare_vs_offset_consistent(self, validator, db, graph_repo):
+        """Bare ISO 'T08:00:00' must be treated same as '+08:00'."""
+        _insert_entity(db)
+        _insert_raw_item(db)
+        _insert_raw_item(db, _RI_ID2)
+        # Evidence with bare ISO
+        _insert_evidence_raw(db, _EV_ID, _RI_ID,
+                             published_at="2026-08-08T08:00:00",
+                             retrieved_at="2026-08-08T09:00:00", source_tier="S")
+        # Evidence with explicit +08:00
+        _insert_evidence_raw(db, _EV_ID2, _RI_ID2,
+                             published_at="2026-08-08T08:00:00+08:00",
+                             retrieved_at="2026-08-08T09:00:00+08:00", source_tier="S")
+        raw = _valid_add_node_gc()
+        raw["new_evidence_ids"] = [_EV_ID, _EV_ID2]
+        raw["node"]["evidence_ids"] = [_EV_ID, _EV_ID2]
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, "2026-08-08T09:00:00")
+        # Both should pass time checks (consistent interpretation)
+        issues_007 = [i for i in result.issues if i.rule_id == "KGV-007"]
+        assert len(issues_007) == 0
+
+    def test_zulu_vs_eight_offset_correct(self, validator, db, graph_repo):
+        """Z (=+00:00) vs +08:00 are correctly distinguished."""
+        _insert_entity(db)
+        _insert_raw_item(db)
+        _insert_raw_item(db, _RI_ID2)
+        # Published at 00:00Z = 08:00 CST
+        _insert_evidence_raw(db, _EV_ID, _RI_ID,
+                             published_at="2026-08-08T00:00:00Z",
+                             retrieved_at="2026-08-08T09:00:00+08:00",
+                             source_tier="S")
+        raw = _valid_add_node_gc()
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, "2026-08-08T09:00:00+08:00")
+        # published=00:00Z=08:00CST, retrieved=09:00+08:00=09:00CST → valid
+        issues_007 = [i for i in result.issues if i.rule_id == "KGV-007"]
+        assert len(issues_007) == 0
+
+    def test_invalid_timestamp_returns_none(self, validator, db, graph_repo):
+        """Invalid timestamp → _parse_iso returns None, no crash."""
+        _insert_entity(db)
+        # Insert evidence with invalid timestamp via raw SQL (bypass Pydantic)
+        bad_ev_id = "bbbbbbbb-1111-bbbb-bbbb-bbbbbbbbbbbb"
+        db._conn.execute(
+            "INSERT INTO evidence (evidence_id, payload, source_id, raw_item_id,"
+            "independence_group, source_tier) VALUES (?, ?, ?, ?, ?, ?)",
+            (bad_ev_id, json.dumps({
+                "evidence_id": bad_ev_id, "source_id": "cninfo",
+                "raw_item_id": _RI_ID, "title": "Test", "publisher": "Test",
+                "published_at": "not-a-date", "retrieved_at": "2026-08-08T09:00:00",
+                "url": "https://example.com", "excerpt": "test",
+                "evidence_type": "official_disclosure", "independence_group": "grp",
+                "source_tier": "S", "access_status": "ok",
+            }), "cninfo", _RI_ID, "grp", "S"),
+        )
+        _insert_raw_item(db)
+        raw = _valid_add_node_gc()
+        raw["new_evidence_ids"] = [bad_ev_id]
+        raw["node"]["evidence_ids"] = [bad_ev_id]
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        # Should not crash; invalid timestamp just means time check is skipped
+        assert result.structural_ok is True
+
+
+class TestM4R2KGV008ZeroNew:
+    """Fix 4: KGV-008 blocks FACT edges with zero new_evidence_ids."""
+
+    def test_produces_zero_new_evidence_fails(self, validator, db, graph_repo):
+        """PRODUCES FACT with empty new_evidence_ids → INSUFFICIENT_SOURCE_TIER."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db, source_tier="S")
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+        raw = _valid_add_edge_gc()
+        raw["edge"]["relation"] = "PRODUCES"
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["new_evidence_ids"] = []
+        # Use raw dict → validator normalizes (bypasses Pydantic min_length)
+        result = validator.validate_candidate(raw, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) > 0
+        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
+        assert result.apply_eligible is False
+
+    def test_competes_with_zero_new_evidence_fails(self, validator, db, graph_repo):
+        """COMPETES_WITH FACT with empty new_evidence_ids → INSUFFICIENT_SOURCE_TIER."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db, source_tier="B")
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+        raw = _valid_add_edge_gc()
+        raw["edge"]["assertion_type"] = "FACT"
+        raw["new_evidence_ids"] = []
+        # Use raw dict → validator normalizes (bypasses Pydantic min_length)
+        result = validator.validate_candidate(raw, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        assert len(issues) > 0
+        assert any(i.code == "INSUFFICIENT_SOURCE_TIER" for i in issues)
+
+    def test_model_inference_zero_new_allowed(self, validator, db, graph_repo):
+        """MODEL_INFERENCE with zero new_evidence_ids → KGV-008 skipped (no tier floor)."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+        raw = _valid_add_edge_gc()
+        raw["edge"]["assertion_type"] = "MODEL_INFERENCE"
+        raw["new_evidence_ids"] = []
+        # Use raw dict → validator normalizes
+        result = validator.validate_candidate(raw, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-008"]
+        # MODEL_INFERENCE skips KGV-008 entirely (no tier floor)
+        assert len(issues) == 0
+
+
+class TestM4R2KGV014AllEvidence:
+    """Fix 5: KGV-014 checks ALL referenced evidence, not just new_evidence_ids."""
+
+    def test_historical_evidence_after_as_of_also_checked(self, validator, db, graph_repo):
+        """Evidence in node.evidence_ids but not new_evidence_ids is also checked."""
+        _insert_entity(db)
+        T_future = "2027-01-01T00:00:00"
+        _insert_evidence(db, _EV_ID, source_tier="S")
+        _insert_evidence(db, _EV_ID2, published_at=T_future, retrieved_at=T_future, source_tier="S")
+        _insert_raw_item(db)
+        _insert_raw_item(db, _RI_ID2)
+        raw = _valid_add_node_gc()
+        raw["new_evidence_ids"] = [_EV_ID]  # _EV_ID is fine
+        raw["node"]["evidence_ids"] = [_EV_ID, _EV_ID2]  # _EV_ID2 is future→FAIL
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-014"]
+        assert len(issues) > 0
+        assert any(i.code == "EVIDENCE_AFTER_AS_OF" for i in issues)
+
+    def test_stable_dedup_all_evidence(self, validator, db, graph_repo):
+        """Same evidence in both new_evidence_ids and node.evidence_ids → checked once."""
+        _insert_entity(db)
+        T_future = "2027-01-01T00:00:00"
+        _insert_evidence(db, _EV_ID, published_at=T_future, retrieved_at=T_future, source_tier="S")
+        _insert_raw_item(db)
+        raw = _valid_add_node_gc()
+        raw["new_evidence_ids"] = [_EV_ID]
+        raw["node"]["evidence_ids"] = [_EV_ID]  # Same ID in both lists
+        gc = GraphChange(**raw)
+        result = validator.validate_candidate(gc, T1)
+        issues_014 = [i for i in result.issues
+                      if i.rule_id == "KGV-014" and i.code == "EVIDENCE_AFTER_AS_OF"]
+        # Should appear exactly once (deduped)
+        assert len(issues_014) == 1
+
+
+class TestM4R2KGV019StrictBaseline:
+    """Fix 6: KGV-019 strict baseline — no version fallback, empty/invalid→STALE."""
+
+    def test_modify_node_empty_baseline_stale(self, validator, db, graph_repo):
+        """Modify node with empty current_knowledge → STALE_REVIEW_CHECK_FAILED."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        _insert_node(db, graph_repo, "company:600519.SH")
+        raw = _valid_add_node_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["node"]["version"] = 2
+        raw["current_knowledge"] = ""  # Empty baseline
+        gc = GraphChange(**raw)
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-019"]
+        assert len(issues) > 0
+        assert any(i.code == "STALE_REVIEW_CHECK_FAILED" for i in issues)
+
+    def test_modify_node_invalid_json_baseline_stale(self, validator, db, graph_repo):
+        """Modify node with invalid JSON current_knowledge → STALE_REVIEW_CHECK_FAILED."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        _insert_node(db, graph_repo, "company:600519.SH")
+        raw = _valid_add_node_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["node"]["version"] = 2
+        raw["current_knowledge"] = "not-valid-json{{{"
+        gc = GraphChange(**raw)
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-019"]
+        assert len(issues) > 0
+        assert any(i.code == "STALE_REVIEW_CHECK_FAILED" for i in issues)
+
+    def test_modify_edge_empty_baseline_stale(self, validator, db, graph_repo):
+        """Modify edge with empty current_knowledge → STALE_REVIEW_CHECK_FAILED."""
+        _insert_entity(db, "company:A")
+        _insert_entity(db, "company:B")
+        _insert_evidence(db)
+        _insert_raw_item(db, _RI_ID, ["company:A", "company:B"])
+        _insert_node(db, graph_repo, "company:A")
+        _insert_node(db, graph_repo, "company:B")
+        _insert_edge(graph_repo)
+        raw = _valid_add_edge_gc()
+        raw["change_type"] = "modify_attribute"
+        raw["edge"]["version"] = 2
+        raw["current_knowledge"] = ""
+        gc = GraphChange(**raw)
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-019"]
+        assert len(issues) > 0
+        assert any(i.code == "STALE_REVIEW_CHECK_FAILED" for i in issues)
+
+    def test_add_node_baseline_mismatch_stale(self, validator, db, graph_repo):
+        """Add node where baseline differs from persisted → STALE_REVIEW_NODE_CHANGED."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        _insert_node(db, graph_repo, "company:600519.SH", name="Different")
+        raw = _valid_add_node_gc()
+        raw["current_knowledge"] = '{"name": "贵州茅台"}'
+        gc = GraphChange(**raw)
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-019"]
+        assert len(issues) > 0
+        assert any(i.code == "STALE_REVIEW_NODE_CHANGED" for i in issues)
+
+    def test_add_node_with_current_knowledge_no_persisted_stale(self, validator, db, graph_repo):
+        """Add node with current_knowledge but no persisted node → STALE_REVIEW_NODE_CHANGED."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        raw = _valid_add_node_gc()
+        raw["current_knowledge"] = '{"name": "贵州茅台"}'
+        gc = GraphChange(**raw)
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        issues = [i for i in result.issues if i.rule_id == "KGV-019"]
+        assert len(issues) > 0
+        assert any(i.code == "STALE_REVIEW_NODE_CHANGED" for i in issues)
+
+
+class TestM4R2ReviewCheckedRuleIds:
+    """Verify review and apply_preflight checked_rule_ids accuracy."""
+
+    def test_review_has_all_expected_rules(self, validator, db, graph_repo):
+        """Review result must include all KGV-001..019."""
+        _insert_entity(db)
+        _insert_evidence(db)
+        _insert_raw_item(db)
+        gc = GraphChange(**_valid_add_node_gc())
+        review = _make_review(gc)
+        result = validator.validate_review(gc, review, T1)
+        for n in range(1, 20):
+            assert f"KGV-{n:03d}" in result.checked_rule_ids
+
+
+def _insert_evidence_raw(db, evidence_id=_EV_ID, raw_item_id=_RI_ID,
+                         published_at=T0, retrieved_at=T1, source_tier="S"):
+    """Insert evidence with explicit timestamps (bare ISO allowed)."""
+    from research_os.models import Evidence
+    ev = Evidence(
+        evidence_id=evidence_id, source_id="cninfo", raw_item_id=raw_item_id,
+        title="Test Evidence", publisher="Test Publisher",
+        published_at=published_at, retrieved_at=retrieved_at,
+        url="https://example.com/ev/1", excerpt="Test excerpt",
+        evidence_type="official_disclosure", independence_group="test-group",
+        source_tier=source_tier, access_status="ok",
+    )
+    db.upsert(ev)
 
 
 def _make_graph_node(node_id, node_type, name, status="active",
