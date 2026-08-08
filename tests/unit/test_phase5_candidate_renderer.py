@@ -1,14 +1,15 @@
 """Phase 5 M3 Candidate Renderer 测试。
 
 覆盖：
-- Markdown 渲染包含全部固定分段（frozen headings）
+- Markdown 渲染包含全部固定分段（frozen headings M3-R10）
+- 旧标题确认不存在
 - 证据最小信息渲染
 - 节点/边信息渲染
 - 文件写入幂等性
 - CANDIDATE_FILE_CONFLICT
 - dry-run 零文件写入
 - 文件冲突预检（preflight_file_conflict）
-- 标题确定性：严格冻结格式
+- 标题确定性：严格冻结格式，字节确定性
 """
 from __future__ import annotations
 
@@ -122,65 +123,106 @@ def _make_evidence_contexts():
     ]
 
 
-# ---- Markdown 渲染 ----
+# ---- M3-R10 NEW: frozen headings tests ----
 
-def test_render_has_all_sections():
-    """渲染输出包含全部固定分段。"""
+def test_frozen_headings_structure():
+    """M3-R10 冻结标题：确认格式和数量。"""
+    assert len(_FROZEN_HEADINGS) == 13
+    assert _FROZEN_HEADINGS[0] == "# 图谱变更候选"
+    assert "## GraphChange ID" in _FROZEN_HEADINGS
+    assert "## 变更类型" in _FROZEN_HEADINGS
+    assert "## 当前知识" in _FROZEN_HEADINGS
+    assert "## 新证据" in _FROZEN_HEADINGS
+    assert "## 建议变更" in _FROZEN_HEADINGS
+    assert "## 影响范围" in _FROZEN_HEADINGS
+    assert "## 冲突信息" in _FROZEN_HEADINGS
+    assert "## 验证节点" in _FROZEN_HEADINGS
+    assert "## 审核选项" in _FROZEN_HEADINGS
+    assert "## Reviewer" in _FROZEN_HEADINGS
+    assert "## Review Notes" in _FROZEN_HEADINGS
+    assert "## Approved Patch" in _FROZEN_HEADINGS
+
+
+def test_new_headings_present_in_render():
+    """渲染输出包含 M3-R10 新冻结标题。"""
     gc = _make_graph_change(VALID_ID_1)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
 
-    assert "## 1. 变更标识" in md
-    assert "## 2. 当前图谱知识" in md
-    assert "## 3. 新证据" in md
-    assert "## 4. 建议变更" in md
-    assert "## 5. 影响范围" in md
-    assert "## 6. 冲突" in md
-    assert "## 7. 验证点" in md
-    assert "## 8. 变更载体" in md
-    assert "## 9. 审核清单" in md
-    assert "## 10. 审核决定" in md
-    assert "## 11. 批准补丁" in md
+    assert "# 图谱变更候选" in md
+    assert "## GraphChange ID" in md
+    assert "## 变更类型" in md
+    assert "## 当前知识" in md
+    assert "## 新证据" in md
+    assert "## 建议变更" in md
+    assert "## 影响范围" in md
+    assert "## 冲突信息" in md
+    assert "## 验证节点" in md
+    assert "## 审核选项" in md
+    assert "## Reviewer" in md
+    assert "## Review Notes" in md
+    assert "## Approved Patch" in md
 
 
-def test_render_frozen_headings_unmodified():
-    """标题格式为严格冻结格式。"""
-    assert "## 1. 变更标识" in _FROZEN_HEADINGS
-    assert "## 11. 批准补丁" in _FROZEN_HEADINGS
-    assert len(_FROZEN_HEADINGS) == 11
+def test_old_headings_absent():
+    """旧标题（## 1. 变更标识, ## 9. 审核清单 等）不应出现在渲染中。"""
+    gc = _make_graph_change(VALID_ID_2)
+    md = render_candidate_markdown(gc, _make_evidence_contexts())
 
+    assert "## 1. 变更标识" not in md
+    assert "## 2. 当前图谱知识" not in md
+    assert "## 3. 新证据" not in md
+    assert "## 9. 审核清单" not in md
+    assert "## 10. 审核决定" not in md
+    assert "## 11. 批准补丁" not in md
+    assert "## 6. 冲突" not in md  # renamed to 冲突信息
+    assert "## 7. 验证点" not in md  # renamed to 验证节点
+    assert "## 8. 变更载体" not in md  # removed/merged
+
+
+def test_render_byte_deterministic_new_headings():
+    """M3-R10 冻结标题下字节确定性。"""
+    gc = _make_graph_change(VALID_ID_DET)
+    md1 = render_candidate_markdown(gc, _make_evidence_contexts())
+    md2 = render_candidate_markdown(gc, _make_evidence_contexts())
+    assert md1 == md2
+    assert hashlib.sha256(md1.encode("utf-8")).hexdigest() == hashlib.sha256(md2.encode("utf-8")).hexdigest()
+
+
+# ---- Existing tests adapted ----
 
 def test_render_includes_graph_change_id():
     """渲染包含 graph_change_id。"""
-    gc = _make_graph_change(VALID_ID_2)
+    gc = _make_graph_change(VALID_ID_3)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
-    assert VALID_ID_2 in md
+    assert VALID_ID_3 in md
 
 
 def test_render_shows_suggested_change():
     """渲染包含建议变更。"""
-    gc = _make_graph_change(VALID_ID_3)
+    gc = _make_graph_change(VALID_ID_4)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
     assert "测试建议变更描述" in md
 
 
 def test_render_shows_impact():
     """渲染包含影响范围。"""
-    gc = _make_graph_change(VALID_ID_4)
+    gc = _make_graph_change(VALID_ID_5)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
     assert "供应链" in md
     assert "竞品" in md
 
 
 def test_render_shows_conflicts():
-    """渲染包含冲突。"""
-    gc = _make_graph_change(VALID_ID_5)
+    """渲染包含冲突信息。"""
+    gc = _make_graph_change(VALID_ID_6)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
     assert "潜在冲突1" in md
+    assert "## 冲突信息" in md
 
 
 def test_render_shows_evidence():
     """渲染包含证据信息。"""
-    gc = _make_graph_change(VALID_ID_6)
+    gc = _make_graph_change(VALID_ID_7)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
     assert "测试证据" in md
     assert "反证证据" in md
@@ -189,22 +231,23 @@ def test_render_shows_evidence():
 
 
 def test_render_shows_review_checkboxes():
-    """渲染包含审核清单复选框。"""
-    gc = _make_graph_change(VALID_ID_7)
+    """渲染包含审核选项复选框。"""
+    gc = _make_graph_change(VALID_ID_8)
     md = render_candidate_markdown(gc, _make_evidence_contexts())
     assert "- [ ]" in md
+    assert "## 审核选项" in md
 
 
 def test_render_empty_evidence():
     """无证据时显示占位文本。"""
-    gc = _make_graph_change(VALID_ID_8)
+    gc = _make_graph_change(VALID_ID_9)
     md = render_candidate_markdown(gc, [])
     assert "无证据上下文" in md
 
 
 def test_render_empty_current_knowledge():
     """无 current_knowledge 时显示占位文本。"""
-    gc = _make_graph_change(VALID_ID_9, current_knowledge="")
+    gc = _make_graph_change(VALID_ID_A, current_knowledge="")
     md = render_candidate_markdown(gc, [])
     assert "无当前知识" in md
 
@@ -227,20 +270,20 @@ def test_render_to_file(tmp_path):
     """渲染到文件并验证内容。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc = _make_graph_change(VALID_ID_A)
+    gc = _make_graph_change(VALID_ID_B)
 
     file_path = renderer.render_to_file(gc, _make_evidence_contexts())
     assert file_path != "dry-run"
     assert Path(file_path).exists()
     content = Path(file_path).read_text(encoding="utf-8")
-    assert VALID_ID_A in content
+    assert VALID_ID_B in content
 
 
 def test_render_to_file_idempotent(tmp_path):
     """同内容文件写入幂等。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc = _make_graph_change(VALID_ID_B)
+    gc = _make_graph_change(VALID_ID_C)
 
     p1 = renderer.render_to_file(gc, _make_evidence_contexts())
     p2 = renderer.render_to_file(gc, _make_evidence_contexts())
@@ -251,8 +294,8 @@ def test_render_to_file_conflict(tmp_path):
     """同 ID 异内容抛出 CANDIDATE_FILE_CONFLICT。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc1 = _make_graph_change(VALID_ID_C)
-    gc2 = _make_graph_change(VALID_ID_C, suggested_change="不同的变更")
+    gc1 = _make_graph_change(VALID_ID_D)
+    gc2 = _make_graph_change(VALID_ID_D, suggested_change="不同的变更")
 
     renderer.render_to_file(gc1, _make_evidence_contexts())
     with pytest.raises(ValueError, match="CANDIDATE_FILE_CONFLICT"):
@@ -263,7 +306,7 @@ def test_render_dry_run_no_file(tmp_path):
     """dry-run 不写文件。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc = _make_graph_change(VALID_ID_D)
+    gc = _make_graph_change(VALID_ID_E)
 
     result = renderer.render_to_file(
         gc, _make_evidence_contexts(), dry_run=True
@@ -279,7 +322,7 @@ def test_preflight_file_conflict_new_file(tmp_path):
     """新文件预检通过。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc = _make_graph_change(VALID_ID_E)
+    gc = _make_graph_change(VALID_ID_F)
 
     result = renderer.preflight_file_conflict(gc)
     assert result is True  # OK
@@ -289,7 +332,7 @@ def test_preflight_file_conflict_idempotent(tmp_path):
     """已有文件且同内容 → 幂等通过。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc = _make_graph_change(VALID_ID_F)
+    gc = _make_graph_change(VALID_ID_G)
 
     # 先写入（用空 evidence 匹配 preflight 的内容）
     renderer.render_to_file(gc, [])
@@ -302,10 +345,10 @@ def test_preflight_file_conflict_rejected(tmp_path):
     """已有文件但内容不同 → CANDIDATE_FILE_CONFLICT。"""
     knowledge_dir = tmp_path / "knowledge"
     renderer = CandidateRenderer(knowledge_dir)
-    gc1 = _make_graph_change(VALID_ID_G)
-    gc2 = _make_graph_change(VALID_ID_G, suggested_change="不同的变更内容")
+    gc1 = _make_graph_change("11111111-1111-1111-1111-111111111111")
+    gc2 = _make_graph_change("11111111-1111-1111-1111-111111111111", suggested_change="不同的变更内容")
 
-    # 写入 gc1 (preflight content 匹配 gc1)
+    # 写入 gc1
     renderer.render_to_file(gc1, [])
     # gc2 preflight 会生成不同内容 → conflict
     with pytest.raises(ValueError, match="CANDIDATE_FILE_CONFLICT"):
@@ -340,20 +383,17 @@ def test_preflight_bytes_equal_render_bytes(tmp_path):
     # Second preflight with same contexts → idempotent
     assert renderer_preflight.preflight_file_conflict(gc, evidence_contexts=ev_contexts) is True
 
-    # Different GC with same ID → file conflict (idempotent preflight succeeded
-    # because content matches, so render won't conflict either)
+    # Different GC with same ID → idempotent preflight succeeded
     gc_same = _make_graph_change(VALID_ID_DET)
-    # preflight with evidence → idempotent
     assert renderer_preflight.preflight_file_conflict(gc_same, evidence_contexts=ev_contexts) is True
-    # render with evidence → idempotent (same path)
     result = renderer_render.render_to_file(gc_same, ev_contexts)
-    assert VALID_ID_DET in result  # same file, idempotent return
+    assert VALID_ID_DET in result
 
 
 def test_preflight_with_evidence_vs_empty_contexts(tmp_path):
     """preflight 与 render 使用不同 evidence contexts 导致内容不同 → 应产生冲突风险。"""
     knowledge_dir = tmp_path / "knowledge"
-    gc = _make_graph_change(VALID_ID_G)
+    gc = _make_graph_change("99999999-9999-9999-9999-999999999999")
     ev_contexts = _make_evidence_contexts()
 
     # 先用 evidence contexts 写入

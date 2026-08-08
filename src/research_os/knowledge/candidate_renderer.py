@@ -20,18 +20,21 @@ from research_os.models import GraphChange, Evidence
 from research_os.knowledge.candidate_sources import EvidenceContext
 
 # 冻结的标题格式（确定性，永不改变）
+# M3-R10: 新冻结格式
 _FROZEN_HEADINGS = [
-    "## 1. 变更标识",
-    "## 2. 当前图谱知识",
-    "## 3. 新证据",
-    "## 4. 建议变更",
-    "## 5. 影响范围",
-    "## 6. 冲突",
-    "## 7. 验证点",
-    "## 8. 变更载体",
-    "## 9. 审核清单",
-    "## 10. 审核决定",
-    "## 11. 批准补丁",
+    "# 图谱变更候选",
+    "## GraphChange ID",
+    "## 变更类型",
+    "## 当前知识",
+    "## 新证据",
+    "## 建议变更",
+    "## 影响范围",
+    "## 冲突信息",
+    "## 验证节点",
+    "## 审核选项",
+    "## Reviewer",
+    "## Review Notes",
+    "## Approved Patch",
 ]
 
 
@@ -104,26 +107,33 @@ def render_candidate_markdown(
 
     sections = []
 
-    # 标题
-    sections.append(f"# GraphChange Candidate: {gc['graph_change_id'][:8]}")
-    sections.append("")
-
-    # 使用冻结标题格式
+    # 使用冻结标题
     headings = iter(_FROZEN_HEADINGS)
 
-    # 1. GraphChange ID
+    # # 图谱变更候选
+    h0 = next(headings)
+    sections.append(h0)
+    sections.append("")
+
+    # ## GraphChange ID
     h1 = next(headings)
     sections.append(h1)
     sections.append("")
     sections.append(f"- **graph_change_id**: `{gc['graph_change_id']}`")
+    sections.append("")
+
+    # ## 变更类型
+    h2 = next(headings)
+    sections.append(h2)
+    sections.append("")
     sections.append(f"- **change_type**: `{gc['change_type']}`")
     sections.append(f"- **review_status**: `{gc['review_status']}`")
     sections.append(f"- **created_at**: {gc['created_at']}")
     sections.append("")
 
-    # 2. Current Knowledge
-    h2 = next(headings)
-    sections.append(h2)
+    # ## 当前知识
+    h3 = next(headings)
+    sections.append(h3)
     sections.append("")
     current = gc.get("current_knowledge", "")
     if current:
@@ -134,22 +144,22 @@ def render_candidate_markdown(
         sections.append("_（无当前知识——此为新节点/边）_")
     sections.append("")
 
-    # 3. New Evidence
-    h3 = next(headings)
-    sections.append(h3)
+    # ## 新证据
+    h4 = next(headings)
+    sections.append(h4)
     sections.append("")
     sections.append(_render_evidence_info(evidence_contexts))
 
-    # 4. Suggested Change
-    h4 = next(headings)
-    sections.append(h4)
+    # ## 建议变更
+    h5 = next(headings)
+    sections.append(h5)
     sections.append("")
     sections.append(gc.get("suggested_change", "_（无）_"))
     sections.append("")
 
-    # 5. Impact
-    h5 = next(headings)
-    sections.append(h5)
+    # ## 影响范围
+    h6 = next(headings)
+    sections.append(h6)
     sections.append("")
     impact = gc.get("impact_scope", [])
     if impact:
@@ -159,9 +169,9 @@ def render_candidate_markdown(
         sections.append("_（无）_")
     sections.append("")
 
-    # 6. Conflicts
-    h6 = next(headings)
-    sections.append(h6)
+    # ## 冲突信息
+    h7 = next(headings)
+    sections.append(h7)
     sections.append("")
     conflicts = gc.get("conflicts", [])
     if conflicts:
@@ -171,9 +181,9 @@ def render_candidate_markdown(
         sections.append("_（无冲突）_")
     sections.append("")
 
-    # 7. Verification
-    h7 = next(headings)
-    sections.append(h7)
+    # ## 验证节点
+    h8 = next(headings)
+    sections.append(h8)
     sections.append("")
     vps = gc.get("verification_points", [])
     if vps:
@@ -183,10 +193,7 @@ def render_candidate_markdown(
         sections.append("_（无验证点）_")
     sections.append("")
 
-    # 8. 节点/边详情
-    h8 = next(headings)
-    sections.append(h8)
-    sections.append("")
+    # 节点/边详情（inline under 验证节点之后）
     if gc.get("node") is not None:
         sections.append("### 节点")
         sections.append("")
@@ -196,7 +203,7 @@ def render_candidate_markdown(
         sections.append("")
         sections.append(_render_edge_info(gc["edge"]))
 
-    # 9. Review Checkboxes
+    # ## 审核选项 (+4 checkboxes)
     h9 = next(headings)
     sections.append(h9)
     sections.append("")
@@ -204,21 +211,25 @@ def render_candidate_markdown(
     sections.append("- [ ] 变更范围明确且影响可控")
     sections.append("- [ ] 实体身份解析正确")
     sections.append("- [ ] 与现有图谱无冲突")
-    sections.append("- [ ] 符合知识策略要求")
     sections.append("")
 
-    # 10. Review
+    # ## Reviewer (blank)
     h10 = next(headings)
     sections.append(h10)
     sections.append("")
-    sections.append("- **审核人**: _（待审核）_")
-    sections.append("- **决定**: `[ ] approved / [ ] approved_with_changes / [ ] deferred / [ ] rejected`")
-    sections.append("- **备注**: _（待填写）_")
+    sections.append("_（待审核）_")
     sections.append("")
 
-    # 11. Approved Patch
+    # ## Review Notes (blank)
     h11 = next(headings)
     sections.append(h11)
+    sections.append("")
+    sections.append("_（待填写）_")
+    sections.append("")
+
+    # ## Approved Patch (blank)
+    h12 = next(headings)
+    sections.append(h12)
     sections.append("")
     sections.append("_（审核通过后在此填写 JSON Patch）_")
     sections.append("")
