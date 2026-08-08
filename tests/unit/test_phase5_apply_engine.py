@@ -1530,8 +1530,11 @@ class TestApplyConcurrency:
         tb.join(timeout=60)
 
         statuses = {k: v.status for k, v in results.items()}
-        # 最多一个 committed；另一个要么 idempotent（不可能，不同 candidate）
-        # 要么 APPLY_REJECTED（KGV-019/duplicate 等）
+        # 最多一个 committed。两 worker 目标同一 node v1 但不同 change_id
+        # （⇒ 不同 idempotency key、node payload 因随机
+        # originating_graph_change_id 不同）；BEGIN IMMEDIATE 写锁串行化后，
+        # 后到者因 target payload 差异触发 version conflict 或 M4 gate reject，
+        # 不可能两个都 applied。
         committed = [k for k, s in statuses.items() if s == "applied"]
         assert len(committed) <= 1, f"两个互斥 candidate 都 commit: {statuses}"
 
