@@ -330,23 +330,36 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
 >
 > **基线**: M3_ACCEPTED_SHA=242e039, M3_CI=31240709634, M3_TESTS=1480/5 skipped, M3_SCHEMAS=55
 
-1. **Validator = 确定性代码，零 LLM，零 writes**：KGV-001—019 全部为代码实现，不调用
-   Provider，不产生任何数据库写入。
+### KGV 规则索引（19 条代码级验证规则）
 
-2. **Explicit as_of，禁止隐式 now()**：`validate_candidate`/`validate_review`/`validate_apply_preflight`
-   均要求显式 `as_of` 参数，不在内部调用 `now()`。Evidence.published_at ≤ as_of。
+| 规则 | 语义（一行） |
+|---|---|
+| **KGV-001** | Schema 校验：GraphChange/Node/Edge/Evidence/RawItem 全部通过对应 JSON Schema |
+| **KGV-002** | Entity 身份：node_id 存在且 entity_type 与 GraphNodeType 一致，Entity payload 通过 Schema |
+| **KGV-003** | 关系允许域：relation 属于 18 个允许值之一 |
+| **KGV-004** | 端点存在性：edge 的 source/target node_id 在 graph_nodes 中存在 |
+| **KGV-005** | Evidence 存在：所有引用 evidence_id 在 evidence 表存在且 payload 通过 Schema；new_evidence_ids ⊆ candidate evidence_ids |
+| **KGV-006** | Evidence 实体覆盖：使用 new_evidence_ids（仅新证据）→ RawItem → entities 必须覆盖 node 或 edge 端点 |
+| **KGV-007** | 时间顺序：published_at ≤ retrieved_at；review 阶段 retrieved_at ≤ reviewed_at |
+| **KGV-008** | 来源等级：使用 new_evidence_ids。核心结构关系 FACT 至少一个 S/A；其他 FACT 至少一个 S/A/B；MODEL_INFERENCE 无地板 |
+| **KGV-009** | 本体治理范围：Industry/IndustrySegment 只能通过 governance_seed，不能通过普通 candidate |
+| **KGV-010** | 认知边界：GOVERNANCE 禁止出现在 edge；MODEL_INFERENCE 必须有真实 Evidence |
+| **KGV-011** | 冲突阻止：conflicts 非空阻止 apply 但不阻止 review |
+| **KGV-012** | 审核状态：candidate 必须 review_status=candidate + reviewed_at=null；GraphReview 必须 reviewer_type=human + reviewer_id 非空 + reviewed_at ≥ created_at |
+| **KGV-013** | 版本单调：首个版本=1，后续=N+1，不允许 gap |
+| **KGV-014** | 显式截止：as_of 必传且合法 ISO；Evidence.published_at ≤ as_of；valid_from ≤ valid_to |
+| **KGV-015** | 重复关系：add_edge 不能重复已有 triple；modify/retire 必须有且仅有一个身份 |
+| **KGV-016** | 自环拒绝：source_node_id == target_node_id 对全部 18 个 relation 拒绝 |
+| **KGV-017** | 退役节点引用：edge 端点最新版本 status 必须为 active |
+| **KGV-018** | Candidate hash：sha256(canonical JSON of model_dump) 用于防篡改 |
+| **KGV-019** | 过期审核：对比 current_knowledge 与当前持久化图谱状态 canonical baseline（非仅 version）；在 validate_review 阶段运行 |
 
-3. **Candidate hash 使用 canonical JSON**：`compute_candidate_hash(graph_change)` =
-   sha256(canonical sorted JSON of model_dump)，不是 Markdown bytes。
-
-4. **conflicts 阻止 apply 但不阻止 review**：`conflicts != []` → `apply_eligible=false`，
-   但 `review_eligible` 可保持 `true`。
-
-5. **Self-loop v1 默认 deny**：`source_node_id == target_node_id` → `SELF_LOOP_NOT_ALLOWED`
-   适用于全部 18 种 relation。
-
-6. **M4 不实现**：M4 不实现 Markdown parser、不创建 GraphReview、不执行 approve/apply。
-   M5-M10 全部未授权。
+### 关键实现决策
+- **KGV-008 使用 new_evidence_ids**：仅新证据决定来源等级，历史证据不合并计算
+- **KGV-019 使用 current_knowledge canonical baseline**：对比 current_knowledge 内容与最新持久化 node/edge payload，非仅版本号比较
+- **Validator 公共 API fail-closed**：接受 dict 或 model，内部先 normalize（raw→schema→Pydantic→dump→schema），任何阶段失败均返回 SCHEMA_INVALID
+- **确定性结果**：issues 按 (rule_id, code, message) 排序，checked_rule_ids 准确、唯一、稳定顺序
+- **零写入**：所有 validate_* 调用不产生任何 DB INSERT/UPDATE/DELETE
 
 ## 33. Phase 5 M3 GraphChange Candidate Pipeline 语义冻结（2026-08-07）
 

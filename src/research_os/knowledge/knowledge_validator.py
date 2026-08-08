@@ -1,17 +1,23 @@
 """Phase 5 M4 Knowledge Validator — 确定性机械规则引擎（零 LLM、零 writes、零网络）。
 
 实现 KGV-001—019 共 19 条规则：
-- validate_candidate(graph_change, as_of)
-- validate_review(graph_change, graph_review, as_of)
-- validate_apply_preflight(graph_change, graph_review, as_of)
+- validate_candidate(graph_change_or_dict, as_of)
+- validate_review(graph_change_or_dict, graph_review_or_dict, as_of)
+- validate_apply_preflight(graph_change_or_dict, graph_review_or_dict, as_of)
 - compute_candidate_hash(graph_change)
+
+M4-R1: Public Validator fail-closed (accepts dict or model, normalizes first).
+Schema-first: Entity/Evidence/RawItem all go through raw→schema→Pydantic→dump→schema.
+KGV-006/008 use new_evidence_ids only. KGV-019 uses current_knowledge canonical baseline.
+Deterministic: issues sorted by (rule_id, code, message), checked_rule_ids stable.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from research_os.models import (
     GraphChange, GraphChangeType, GraphEdge, GraphNode, GraphReview,
@@ -80,8 +86,90 @@ class KnowledgeValidationResult:
     review_eligible: bool    # 否满足进入审核阶段的条件
     apply_eligible: bool     # 否满足 apply 条件
     candidate_hash: Optional[str]
-    checked_rule_ids: tuple  # tuple of str, 已检查的规则 ID
-    issues: tuple            # tuple of KnowledgeValidationIssue
+    checked_rule_ids: tuple  # tuple of str, 已检查的规则 ID (sorted, unique, stable)
+    issues: tuple            # tuple of KnowledgeValidationIssue (sorted)
+
+
+# ─────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────
+
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    """Parse ISO 8601 string to datetime. Returns None on failure."""
+    if not value:
+        return None
+    try:
+        # Try ISO with Z or offset
+        if value.endswith("Z"):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        try:
+            # Try with +08:00 appended for bare ISO
+            return datetime.fromisoformat(value + "+08:00")
+        except (ValueError, TypeError):
+            return None
+
+
+def _validate_iso_format(value: str) -> bool:
+    """Check if value is a valid ISO 8601 date/time string."""
+    return _parse_iso(value) is not None
+
+
+def _schema_first_validate(payload: Dict[str, Any], schema_name: str,
+                           model_cls, rule_id: str, code: str,
+                           message_prefix: str
+                           ) -> Tuple[Optional[Any], List[KnowledgeValidationIssue]]:
+    """Schema-first validation: raw→schema→Pydantic→dump→schema.
+
+    Returns (model_instance_or_None, issues_list).
+    On success, model_instance is the parsed Pydantic model.
+    On failure, model_instance is None and issues_list has the error.
+    """
+    issues: List[KnowledgeValidationIssue] = []
+
+    # Step 1: Validate raw dict against JSON Schema
+    schema_errors = validate_instance(payload, schema_name)
+    if schema_errors:
+        issues.append(KnowledgeValidationIssue(
+            rule_id=rule_id, code=code,
+            message=f"{message_prefix} schema invalid: {'; '.join(schema_errors)}",
+            blocks_review=True, blocks_apply=True,
+        ))
+        return None, issues
+
+    # Step 2: Parse into Pydantic model
+    try:
+        model_instance = model_cls(**payload)
+    except Exception as e:
+        issues.append(KnowledgeValidationIssue(
+            rule_id=rule_id, code=code,
+            message=f"{message_prefix} Pydantic parse failed: {e}",
+            blocks_review=True, blocks_apply=True,
+        ))
+        return None, issues
+
+    # Step 3: Dump back to dict and re-validate against schema
+    try:
+        dumped = model_instance.model_dump()
+    except Exception as e:
+        issues.append(KnowledgeValidationIssue(
+            rule_id=rule_id, code=code,
+            message=f"{message_prefix} model_dump failed: {e}",
+            blocks_review=True, blocks_apply=True,
+        ))
+        return None, issues
+
+    schema_errors2 = validate_instance(dumped, schema_name)
+    if schema_errors2:
+        issues.append(KnowledgeValidationIssue(
+            rule_id=rule_id, code=code,
+            message=f"{message_prefix} dump schema re-validation failed: {'; '.join(schema_errors2)}",
+            blocks_review=True, blocks_apply=True,
+        ))
+        return None, issues
+
+    return model_instance, issues
 
 
 # ─────────────────────────────────────────────────────────────
@@ -92,12 +180,65 @@ class KnowledgeValidator:
     """Phase 5 M4 知识校验器 — 确定性机械规则引擎。
 
     零 Provider 调用、零网络访问、零数据库写入、零随机数。
+    M4-R1: 公共 API 接受 dict 或 model，内部 normalize 先验。
     """
 
     def __init__(self, db: Any, graph_repo: Any):
         """db 为 Database 实例，graph_repo 为 GraphRepository 实例。"""
         self._db = db
         self._graph_repo = graph_repo
+
+    # ── Normalization (M4-R1: fail-closed) ──────────────
+
+    def _normalize_graph_change(
+        self, raw_or_model: Union[Dict[str, Any], GraphChange]
+    ) -> Tuple[Optional[GraphChange], List[KnowledgeValidationIssue]]:
+        """Normalize raw dict or model into a validated GraphChange.
+
+        If model: validate schema→dump→schema.
+        If dict: raw→schema→Pydantic→dump→schema.
+        Returns (model_or_None, issues).
+        """
+        if isinstance(raw_or_model, GraphChange):
+            dumped = raw_or_model.model_dump()
+            schema_errors = validate_instance(dumped, "graph_change")
+            if schema_errors:
+                issue = KnowledgeValidationIssue(
+                    rule_id="KGV-001", code="SCHEMA_INVALID",
+                    message=f"GraphChange model dump schema invalid: {'; '.join(schema_errors)}",
+                    blocks_review=True, blocks_apply=True,
+                )
+                return None, [issue]
+            return raw_or_model, []
+
+        # raw dict path
+        gc_payload = dict(raw_or_model)
+        return _schema_first_validate(
+            gc_payload, "graph_change", GraphChange,
+            "KGV-001", "SCHEMA_INVALID", "GraphChange"
+        )
+
+    def _normalize_graph_review(
+        self, raw_or_model: Union[Dict[str, Any], GraphReview]
+    ) -> Tuple[Optional[GraphReview], List[KnowledgeValidationIssue]]:
+        """Normalize raw dict or model into a validated GraphReview."""
+        if isinstance(raw_or_model, GraphReview):
+            dumped = raw_or_model.model_dump()
+            schema_errors = validate_instance(dumped, "graph_review")
+            if schema_errors:
+                issue = KnowledgeValidationIssue(
+                    rule_id="KGV-012", code="REVIEW_SCHEMA_INVALID",
+                    message=f"GraphReview model dump schema invalid: {'; '.join(schema_errors)}",
+                    blocks_review=True, blocks_apply=True,
+                )
+                return None, [issue]
+            return raw_or_model, []
+
+        review_payload = dict(raw_or_model)
+        return _schema_first_validate(
+            review_payload, "graph_review", GraphReview,
+            "KGV-012", "REVIEW_SCHEMA_INVALID", "GraphReview"
+        )
 
     # ── candidate hash ──────────────────────────────────
 
@@ -116,13 +257,13 @@ class KnowledgeValidator:
 
     def validate_candidate(
         self,
-        graph_change: GraphChange,
+        graph_change_or_dict: Union[Dict[str, Any], GraphChange],
         as_of: str,
     ) -> KnowledgeValidationResult:
         """校验 GraphChange candidate 是否可以进入审核阶段。
 
         Args:
-            graph_change: 完整的 GraphChange 候选对象。
+            graph_change_or_dict: 完整的 GraphChange 候选对象（dict 或 Pydantic model）。
             as_of: 显式截止时间（不接受 now() 默认值）。
 
         Returns:
@@ -131,92 +272,110 @@ class KnowledgeValidator:
         issues: List[KnowledgeValidationIssue] = []
         checked: List[str] = []
 
+        # ── Normalize (M4-R1) ────────────────────────────
+        gc, norm_issues = self._normalize_graph_change(graph_change_or_dict)
+        issues.extend(norm_issues)
+        structural_ok = len(norm_issues) == 0
+
+        if gc is None:
+            checked.append("KGV-001")
+            return KnowledgeValidationResult(
+                stage="candidate",
+                structural_ok=False,
+                review_eligible=False,
+                apply_eligible=False,
+                candidate_hash=None,
+                checked_rule_ids=tuple(sorted(set(checked))),
+                issues=tuple(sorted(issues, key=lambda i: (i.rule_id, i.code, i.message))),
+            )
+
         # ── KGV-001 Schema ──────────────────────────────
-        schema_issues = self._check_kgv001(graph_change)
-        checked.append("KGV-001")
-        structural_ok = len(schema_issues) == 0
+        schema_issues = self._check_kgv001(gc)
         issues.extend(schema_issues)
+        checked.append("KGV-001")
+        if not structural_ok:
+            structural_ok = len([i for i in schema_issues
+                                 if i.code == "SCHEMA_INVALID"]) == 0
 
         # ── KGV-014 Explicit As-Of ──────────────────────
+        issues.extend(self._check_kgv014(gc, as_of))
         checked.append("KGV-014")
 
-        # ── KGV-002 Node Identity ───────────────────────
-        if graph_change.node is not None:
-            issues.extend(self._check_kgv002(graph_change.node))
+        # ── KGV-002 Node Identity (Schema-first Entity) ──
+        if gc.node is not None:
+            issues.extend(self._check_kgv002(gc.node))
         checked.append("KGV-002")
 
         # ── KGV-016 Self-Loop ───────────────────────────
-        if graph_change.edge is not None:
-            issues.extend(self._check_kgv016(graph_change.edge))
+        if gc.edge is not None:
+            issues.extend(self._check_kgv016(gc.edge))
         checked.append("KGV-016")
 
         # ── KGV-003 Relation Allowlist ──────────────────
-        if graph_change.edge is not None:
-            issues.extend(self._check_kgv003(graph_change.edge))
+        if gc.edge is not None:
+            issues.extend(self._check_kgv003(gc.edge))
         checked.append("KGV-003")
 
         # ── KGV-010 FACT/MODEL_INFERENCE boundary ───────
-        issues.extend(self._check_kgv010(graph_change))
+        issues.extend(self._check_kgv010(gc))
         checked.append("KGV-010")
 
         # ── KGV-009 Governance Seed Scope ───────────────
-        issues.extend(self._check_kgv009(graph_change))
+        issues.extend(self._check_kgv009(gc))
         checked.append("KGV-009")
 
-        # ── KGV-005 Evidence Existence ──────────────────
-        issues.extend(self._check_kgv005(graph_change))
+        # ── KGV-005 Evidence Existence + Subset ─────────
+        issues.extend(self._check_kgv005(gc))
         checked.append("KGV-005")
 
-        # ── KGV-006 Evidence Entity Relevance ───────────
-        issues.extend(self._check_kgv006(graph_change))
+        # ── KGV-006 Evidence Entity Relevance (new_evidence_ids only) ─
+        issues.extend(self._check_kgv006(gc))
         checked.append("KGV-006")
 
         # ── KGV-007 Evidence Time ───────────────────────
-        issues.extend(self._check_kgv007(graph_change))
+        issues.extend(self._check_kgv007(gc))
         checked.append("KGV-007")
 
-        # ── KGV-008 Source Tier ─────────────────────────
-        issues.extend(self._check_kgv008(graph_change))
+        # ── KGV-008 Source Tier (new_evidence_ids only) ─
+        issues.extend(self._check_kgv008(gc))
         checked.append("KGV-008")
 
         # ── KGV-004 Source/Target Existence ─────────────
-        if graph_change.edge is not None:
-            issues.extend(self._check_kgv004(graph_change.edge))
+        if gc.edge is not None:
+            issues.extend(self._check_kgv004(gc.edge))
         checked.append("KGV-004")
 
         # ── KGV-013 Version Monotonicity ────────────────
-        issues.extend(self._check_kgv013(graph_change))
+        issues.extend(self._check_kgv013(gc))
         checked.append("KGV-013")
 
         # ── KGV-015 Duplicate Relation ──────────────────
-        if graph_change.edge is not None:
-            issues.extend(self._check_kgv015(graph_change))
+        if gc.edge is not None:
+            issues.extend(self._check_kgv015(gc))
         checked.append("KGV-015")
 
         # ── KGV-017 Retired Node Reference ──────────────
-        if graph_change.edge is not None:
-            issues.extend(self._check_kgv017(graph_change.edge))
+        if gc.edge is not None:
+            issues.extend(self._check_kgv017(gc.edge))
         checked.append("KGV-017")
 
         # ── KGV-011 Conflict Blocking ───────────────────
-        issues.extend(self._check_kgv011(graph_change))
+        issues.extend(self._check_kgv011(gc))
         checked.append("KGV-011")
 
         # ── KGV-012 Review Status ───────────────────────
-        issues.extend(self._check_kgv012(graph_change))
+        issues.extend(self._check_kgv012(gc))
         checked.append("KGV-012")
 
         # ── KGV-018 Candidate Hash ──────────────────────
         candidate_hash = None
         try:
-            candidate_hash = self.compute_candidate_hash(graph_change)
+            candidate_hash = self.compute_candidate_hash(gc)
         except Exception:
             pass
         checked.append("KGV-018")
 
-        # ── KGV-019 Stale Review (candidate stage: N/A) ─
-        # At candidate stage, there's no review yet, so KGV-019
-        # is checked only during validate_apply_preflight.
+        # ── KGV-019 (candidate stage: N/A) ──────────────
         checked.append("KGV-019")
 
         # Determine eligibility
@@ -228,9 +387,11 @@ class KnowledgeValidator:
             if issue.blocks_apply:
                 apply_eligible = False
 
-        # Candidate stage: apply_eligible is informational only
         if not structural_ok:
             review_eligible = False
+
+        # Sort issues deterministically
+        sorted_issues = tuple(sorted(issues, key=lambda i: (i.rule_id, i.code, i.message)))
 
         return KnowledgeValidationResult(
             stage="candidate",
@@ -238,68 +399,123 @@ class KnowledgeValidator:
             review_eligible=review_eligible,
             apply_eligible=apply_eligible,
             candidate_hash=candidate_hash,
-            checked_rule_ids=tuple(checked),
-            issues=tuple(issues),
+            checked_rule_ids=tuple(sorted(set(checked))),
+            issues=sorted_issues,
         )
 
     # ── validate_review ──────────────────────────────────
 
     def validate_review(
         self,
-        graph_change: GraphChange,
-        graph_review: GraphReview,
+        graph_change_or_dict: Union[Dict[str, Any], GraphChange],
+        graph_review_or_dict: Union[Dict[str, Any], GraphReview],
         as_of: str,
     ) -> KnowledgeValidationResult:
         """校验 GraphReview 是否可以应用于对应的 GraphChange。
 
         Args:
-            graph_change: 被审核的 GraphChange
-            graph_review: 审核记录
+            graph_change_or_dict: 被审核的 GraphChange
+            graph_review_or_dict: 审核记录
             as_of: 显式截止时间
 
         Returns:
             KnowledgeValidationResult
         """
+        # Normalize both inputs (M4-R1)
+        gc, gc_norm_issues = self._normalize_graph_change(graph_change_or_dict)
+        review, review_norm_issues = self._normalize_graph_review(graph_review_or_dict)
+
+        if gc is None or review is None:
+            all_issues = list(gc_norm_issues) + list(review_norm_issues)
+            # Sort issues
+            all_issues.sort(key=lambda i: (i.rule_id, i.code, i.message))
+            return KnowledgeValidationResult(
+                stage="review",
+                structural_ok=False,
+                review_eligible=False,
+                apply_eligible=False,
+                candidate_hash=None,
+                checked_rule_ids=tuple(sorted(set(
+                    ["KGV-001", "KGV-012"]
+                ))),
+                issues=tuple(all_issues),
+            )
+
         # First run candidate validation
-        base = self.validate_candidate(graph_change, as_of)
+        base = self.validate_candidate(gc, as_of)
         issues: List[KnowledgeValidationIssue] = list(base.issues)
         checked: List[str] = list(base.checked_rule_ids)
 
         structural_ok = base.structural_ok
 
         # ── Additional review-stage checks ────────────────
+
         # Verify graph_review matches graph_change
-        if graph_review.graph_change_id != graph_change.graph_change_id:
+        if review.graph_change_id != gc.graph_change_id:
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-012",
                 code="REVIEW_MISMATCH",
-                message=f"GraphReview.graph_change_id={graph_review.graph_change_id} "
-                        f"!= GraphChange.graph_change_id={graph_change.graph_change_id}",
+                message=f"GraphReview.graph_change_id={review.graph_change_id} "
+                        f"!= GraphChange.graph_change_id={gc.graph_change_id}",
                 blocks_review=True,
                 blocks_apply=True,
             ))
 
+        # KGV-012: reviewer_type must be human, reviewer_id non-empty
+        reviewer = review.reviewer
+        if reviewer.reviewer_type != "human":
+            issues.append(KnowledgeValidationIssue(
+                rule_id="KGV-012", code="INVALID_REVIEWER_TYPE",
+                message=f"Reviewer type must be 'human', got '{reviewer.reviewer_type}'",
+                blocks_review=True, blocks_apply=True,
+            ))
+        if not reviewer.reviewer_id:
+            issues.append(KnowledgeValidationIssue(
+                rule_id="KGV-012", code="EMPTY_REVIEWER_ID",
+                message="Reviewer ID must be non-empty",
+                blocks_review=True, blocks_apply=True,
+            ))
+
+        # KGV-012: reviewed_at >= created_at (parsed datetime)
+        gc_created = _parse_iso(gc.created_at)
+        review_reviewed = _parse_iso(review.reviewed_at)
+        if gc_created and review_reviewed:
+            if review_reviewed < gc_created:
+                issues.append(KnowledgeValidationIssue(
+                    rule_id="KGV-012", code="REVIEWED_BEFORE_CREATED",
+                    message=f"reviewed_at={review.reviewed_at} < created_at={gc.created_at}",
+                    blocks_review=True, blocks_apply=True,
+                ))
+
+        # KGV-007: retrieved_at <= reviewed_at for all evidence
+        issues.extend(self._check_kgv007_review(gc, review))
+
         # Verify candidate hash matches
-        expected_hash = self.compute_candidate_hash(graph_change)
-        if graph_review.candidate_hash != expected_hash:
+        expected_hash = self.compute_candidate_hash(gc)
+        if review.candidate_hash != expected_hash:
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-018",
                 code="CANDIDATE_HASH_MISMATCH",
-                message=f"Review candidate_hash={graph_review.candidate_hash} "
+                message=f"Review candidate_hash={review.candidate_hash} "
                         f"!= computed hash={expected_hash}",
                 blocks_review=True,
                 blocks_apply=True,
             ))
 
         # Only approved/approved_with_changes can proceed to apply
-        if graph_review.decision not in ("approved", "approved_with_changes"):
+        if review.decision not in ("approved", "approved_with_changes"):
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-012",
                 code="NON_APPROVABLE_DECISION",
-                message=f"Review decision={graph_review.decision} cannot proceed to apply",
+                message=f"Review decision={review.decision} cannot proceed to apply",
                 blocks_review=False,
                 blocks_apply=True,
             ))
+
+        # ── KGV-019 Stale Review (in review stage) ──────
+        issues.extend(self._check_kgv019(gc))
+        if "KGV-019" not in checked:
+            checked.append("KGV-019")
 
         review_eligible = base.review_eligible
         apply_eligible = base.apply_eligible
@@ -308,6 +524,9 @@ class KnowledgeValidator:
                 review_eligible = False
             if issue.blocks_apply:
                 apply_eligible = False
+
+        # Sort issues deterministically
+        sorted_issues = tuple(sorted(issues, key=lambda i: (i.rule_id, i.code, i.message)))
 
         return KnowledgeValidationResult(
             stage="review",
@@ -315,36 +534,33 @@ class KnowledgeValidator:
             review_eligible=review_eligible,
             apply_eligible=apply_eligible,
             candidate_hash=expected_hash,
-            checked_rule_ids=tuple(checked),
-            issues=tuple(issues),
+            checked_rule_ids=tuple(sorted(set(checked))),
+            issues=sorted_issues,
         )
 
     # ── validate_apply_preflight ─────────────────────────
 
     def validate_apply_preflight(
         self,
-        graph_change: GraphChange,
-        graph_review: GraphReview,
+        graph_change_or_dict: Union[Dict[str, Any], GraphChange],
+        graph_review_or_dict: Union[Dict[str, Any], GraphReview],
         as_of: str,
     ) -> KnowledgeValidationResult:
         """Apply 前最终预检查（含 KGV-019 stale review detection）。
 
         Args:
-            graph_change: 待应用 GraphChange
-            graph_review: 已批准审核
+            graph_change_or_dict: 待应用 GraphChange
+            graph_review_or_dict: 已批准审核
             as_of: 显式截止时间
 
         Returns:
             KnowledgeValidationResult
         """
-        # First run full review validation
-        base = self.validate_review(graph_change, graph_review, as_of)
+        # First run full review validation (which already includes KGV-019)
+        base = self.validate_review(graph_change_or_dict, graph_review_or_dict, as_of)
+
         issues: List[KnowledgeValidationIssue] = list(base.issues)
         checked: List[str] = list(base.checked_rule_ids)
-
-        # ── KGV-019 Stale Review ──────────────────────────
-        issues.extend(self._check_kgv019(graph_change))
-        checked.append("KGV-019")
 
         structural_ok = base.structural_ok
         review_eligible = base.review_eligible
@@ -355,18 +571,21 @@ class KnowledgeValidator:
             if issue.blocks_apply:
                 apply_eligible = False
 
+        # Sort issues deterministically
+        sorted_issues = tuple(sorted(issues, key=lambda i: (i.rule_id, i.code, i.message)))
+
         return KnowledgeValidationResult(
             stage="apply_preflight",
             structural_ok=structural_ok,
             review_eligible=review_eligible,
             apply_eligible=apply_eligible,
             candidate_hash=base.candidate_hash,
-            checked_rule_ids=tuple(checked),
-            issues=tuple(issues),
+            checked_rule_ids=tuple(sorted(set(checked))),
+            issues=sorted_issues,
         )
 
     # ──────────────────────────────────────────────────────
-    #  Rule implementations
+    #  Rule implementations (sorted by KGV number)
     # ──────────────────────────────────────────────────────
 
     def _check_kgv001(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
@@ -407,7 +626,11 @@ class KnowledgeValidator:
         return issues
 
     def _check_kgv002(self, node: GraphNode) -> List[KnowledgeValidationIssue]:
-        """KGV-002: Node Identity — Company node_id == Entity.entity_id, entity_type mapping."""
+        """KGV-002: Node Identity — Schema-first Entity validation.
+
+        Load entity from DB, validate entity.schema→Entity→dump→entity.schema.
+        Any failure→ENTITY_INVALID, KGV-002, fail closed.
+        """
         issues: List[KnowledgeValidationIssue] = []
 
         graph_node_type = node.node_type
@@ -428,7 +651,7 @@ class KnowledgeValidator:
                 blocks_review=True, blocks_apply=True,
             ))
 
-        # Check Entity table for existence and type match
+        # Schema-first Entity check
         try:
             entity_row = self._db._conn.execute(
                 "SELECT payload FROM entities WHERE entity_id = ?",
@@ -442,14 +665,24 @@ class KnowledgeValidator:
                 ))
             else:
                 entity_payload = json.loads(entity_row["payload"])
-                entity_type = entity_payload.get("entity_type")
-                if entity_type != expected_entity_type:
-                    issues.append(KnowledgeValidationIssue(
-                        rule_id="KGV-002", code="ENTITY_TYPE_MISMATCH",
-                        message=f"Entity {node.node_id} has entity_type={entity_type}, "
-                                f"expected {expected_entity_type} for GraphNodeType={graph_node_type}",
-                        blocks_review=True, blocks_apply=True,
-                    ))
+
+                # Schema-first: entity.schema→Entity→dump→entity.schema
+                entity_instance, entity_schema_issues = _schema_first_validate(
+                    entity_payload, "entity", Entity,
+                    "KGV-002", "ENTITY_INVALID",
+                    f"Entity {node.node_id}"
+                )
+                if entity_schema_issues:
+                    issues.extend(entity_schema_issues)
+                else:
+                    entity_type = entity_payload.get("entity_type")
+                    if entity_type != expected_entity_type:
+                        issues.append(KnowledgeValidationIssue(
+                            rule_id="KGV-002", code="ENTITY_TYPE_MISMATCH",
+                            message=f"Entity {node.node_id} has entity_type={entity_type}, "
+                                    f"expected {expected_entity_type} for GraphNodeType={graph_node_type}",
+                            blocks_review=True, blocks_apply=True,
+                        ))
         except Exception:
             # If the entities table doesn't exist or query fails, skip entity check
             pass
@@ -486,7 +719,6 @@ class KnowledgeValidator:
                     blocks_review=True, blocks_apply=True,
                 ))
         except Exception:
-            # graph_nodes table might not exist — treat as not found
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-004", code="SOURCE_NOT_FOUND",
                 message=f"Source node {edge.source_node_id} not found in graph_nodes",
@@ -515,7 +747,10 @@ class KnowledgeValidator:
         return issues
 
     def _check_kgv005(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
-        """KGV-005: Evidence Existence — all evidence IDs must exist in SQLite evidence table."""
+        """KGV-005: Evidence Existence — all evidence IDs must exist in SQLite evidence table.
+        Also check: new_evidence_ids ⊆ candidate object evidence_ids.
+        Schema-first: each Evidence payload validated through schema→Evidence→dump→schema.
+        """
         issues: List[KnowledgeValidationIssue] = []
         all_evidence_ids: Set[str] = set()
 
@@ -533,6 +768,23 @@ class KnowledgeValidator:
             for eid in gc.edge.evidence_ids:
                 all_evidence_ids.add(eid)
 
+        # NEW: new_evidence_ids must be subset of candidate object evidence_ids
+        candidate_object_evidence_ids: Set[str] = set()
+        if gc.node is not None:
+            for eid in gc.node.evidence_ids:
+                candidate_object_evidence_ids.add(eid)
+        if gc.edge is not None:
+            for eid in gc.edge.evidence_ids:
+                candidate_object_evidence_ids.add(eid)
+
+        for eid in gc.new_evidence_ids:
+            if eid not in candidate_object_evidence_ids:
+                issues.append(KnowledgeValidationIssue(
+                    rule_id="KGV-005", code="NEW_EVIDENCE_NOT_IN_CANDIDATE",
+                    message=f"new_evidence_id {eid} not found in candidate node/edge evidence_ids",
+                    blocks_review=True, blocks_apply=True,
+                ))
+
         for eid in all_evidence_ids:
             try:
                 row = self._db._conn.execute(
@@ -547,15 +799,15 @@ class KnowledgeValidator:
                     ))
                     continue
 
-                # Schema-validate the evidence payload
+                # Schema-first: Evidence schema→Evidence→dump→evidence.schema
                 evidence_payload = json.loads(row["payload"])
-                ev_errors = validate_instance(evidence_payload, "evidence")
-                if ev_errors:
-                    issues.append(KnowledgeValidationIssue(
-                        rule_id="KGV-005", code="EVIDENCE_SCHEMA_INVALID",
-                        message=f"Evidence {eid} schema invalid: {'; '.join(ev_errors)}",
-                        blocks_review=True, blocks_apply=True,
-                    ))
+                ev_instance, ev_schema_issues = _schema_first_validate(
+                    evidence_payload, "evidence", Evidence,
+                    "KGV-005", "EVIDENCE_SCHEMA_INVALID",
+                    f"Evidence {eid}"
+                )
+                if ev_schema_issues:
+                    issues.extend(ev_schema_issues)
             except Exception:
                 issues.append(KnowledgeValidationIssue(
                     rule_id="KGV-005", code="EVIDENCE_NOT_FOUND",
@@ -566,7 +818,14 @@ class KnowledgeValidator:
         return issues
 
     def _check_kgv006(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
-        """KGV-006: Evidence Entity Relevance — Evidence→RawItem→entities coverage."""
+        """KGV-006: Evidence Entity Relevance — use ONLY new_evidence_ids.
+
+        Qualification set = GraphChange.new_evidence_ids (not merged candidate object evidence_ids).
+        Each Evidence→raw_item_id→RawItem. RawItem must pass raw_item.schema→RawItem→dump→raw_item.schema.
+        RawItem invalid→entities excluded, RAW_ITEM_INVALID.
+        Node: entity union of new Evidence RawItems must include node_id.
+        Edge: entity union must cover source AND target.
+        """
         issues: List[KnowledgeValidationIssue] = []
 
         # Determine required entities
@@ -580,20 +839,20 @@ class KnowledgeValidator:
         if not required_entity_ids:
             return issues
 
-        # Collect all evidence IDs
-        all_evidence_ids: Set[str] = set()
-        for eid in gc.new_evidence_ids:
-            all_evidence_ids.add(eid)
-        if gc.node is not None:
-            for eid in gc.node.evidence_ids:
-                all_evidence_ids.add(eid)
-        if gc.edge is not None:
-            for eid in gc.edge.evidence_ids:
-                all_evidence_ids.add(eid)
+        # Use ONLY new_evidence_ids for qualification
+        qualification_evidence_ids: Set[str] = set(gc.new_evidence_ids)
 
-        # Build entity coverage from all Evidence→RawItem→entities chains
+        if not qualification_evidence_ids:
+            issues.append(KnowledgeValidationIssue(
+                rule_id="KGV-006", code="NO_NEW_EVIDENCE_FOR_QUALIFICATION",
+                message="No new evidence IDs available for entity relevance qualification",
+                blocks_review=False, blocks_apply=True,
+            ))
+            return issues
+
+        # Build entity coverage from new Evidence→RawItem→entities chains
         covered_entities: Set[str] = set()
-        for eid in all_evidence_ids:
+        for eid in sorted(qualification_evidence_ids):
             try:
                 ev_row = self._db._conn.execute(
                     "SELECT payload FROM evidence WHERE evidence_id = ?",
@@ -626,35 +885,42 @@ class KnowledgeValidator:
 
                 ri_payload = json.loads(ri_row["payload"])
 
-                # Schema validate RawItem
-                ri_errors = validate_instance(ri_payload, "raw_item")
-                if ri_errors:
-                    issues.append(KnowledgeValidationIssue(
-                        rule_id="KGV-006", code="RAW_ITEM_INVALID",
-                        message=f"RawItem {raw_item_id} schema invalid: {'; '.join(ri_errors)}",
-                        blocks_review=False, blocks_apply=True,
-                    ))
+                # Schema-first RawItem validation
+                ri_instance, ri_schema_issues = _schema_first_validate(
+                    ri_payload, "raw_item", RawItem,
+                    "KGV-006", "RAW_ITEM_INVALID",
+                    f"RawItem {raw_item_id}"
+                )
+                if ri_schema_issues:
+                    issues.extend(ri_schema_issues)
+                    # Invalid RawItem → entities excluded from coverage
+                    continue
 
                 # Collect entities from RawItem
                 raw_entities = ri_payload.get("entities", [])
-                for ent_id in raw_entities:
-                    covered_entities.add(ent_id)
+                if isinstance(raw_entities, list):
+                    for ent_id in raw_entities:
+                        if isinstance(ent_id, str):
+                            covered_entities.add(ent_id)
             except Exception:
                 continue
 
         # Check coverage
-        for req_entity in required_entity_ids:
+        for req_entity in sorted(required_entity_ids):
             if req_entity not in covered_entities:
                 issues.append(KnowledgeValidationIssue(
                     rule_id="KGV-006", code="ENTITY_NOT_COVERED_BY_EVIDENCE",
-                    message=f"Required entity {req_entity} not covered by any Evidence→RawItem chain",
+                    message=f"Required entity {req_entity} not covered by any new Evidence→RawItem chain",
                     blocks_review=False, blocks_apply=True,
                 ))
 
         return issues
 
     def _check_kgv007(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
-        """KGV-007: Evidence Time — published_at <= retrieved_at for each Evidence."""
+        """KGV-007: Evidence Time — parsed datetime comparison, not string compare.
+
+        published_at <= retrieved_at for each Evidence.
+        """
         issues: List[KnowledgeValidationIssue] = []
 
         all_evidence_ids: Set[str] = set()
@@ -667,7 +933,7 @@ class KnowledgeValidator:
             for eid in gc.edge.evidence_ids:
                 all_evidence_ids.add(eid)
 
-        for eid in all_evidence_ids:
+        for eid in sorted(all_evidence_ids):
             try:
                 ev_row = self._db._conn.execute(
                     "SELECT payload FROM evidence WHERE evidence_id = ?",
@@ -676,12 +942,59 @@ class KnowledgeValidator:
                 if ev_row is None:
                     continue
                 ev_payload = json.loads(ev_row["payload"])
-                published_at = ev_payload.get("published_at", "")
-                retrieved_at = ev_payload.get("retrieved_at", "")
-                if published_at and retrieved_at and published_at > retrieved_at:
+                published_at_str = ev_payload.get("published_at", "")
+                retrieved_at_str = ev_payload.get("retrieved_at", "")
+
+                published_at = _parse_iso(published_at_str)
+                retrieved_at = _parse_iso(retrieved_at_str)
+
+                if published_at and retrieved_at:
+                    if published_at > retrieved_at:
+                        issues.append(KnowledgeValidationIssue(
+                            rule_id="KGV-007", code="EVIDENCE_TIME_INVALID",
+                            message=f"Evidence {eid}: published_at={published_at_str} > retrieved_at={retrieved_at_str}",
+                            blocks_review=False, blocks_apply=True,
+                        ))
+            except Exception:
+                continue
+
+        return issues
+
+    def _check_kgv007_review(self, gc: GraphChange,
+                             review: GraphReview) -> List[KnowledgeValidationIssue]:
+        """KGV-007 for review stage: retrieved_at <= reviewed_at."""
+        issues: List[KnowledgeValidationIssue] = []
+
+        all_evidence_ids: Set[str] = set()
+        for eid in gc.new_evidence_ids:
+            all_evidence_ids.add(eid)
+        if gc.node is not None:
+            for eid in gc.node.evidence_ids:
+                all_evidence_ids.add(eid)
+        if gc.edge is not None:
+            for eid in gc.edge.evidence_ids:
+                all_evidence_ids.add(eid)
+
+        reviewed_at = _parse_iso(review.reviewed_at)
+        if reviewed_at is None:
+            return issues
+
+        for eid in sorted(all_evidence_ids):
+            try:
+                ev_row = self._db._conn.execute(
+                    "SELECT payload FROM evidence WHERE evidence_id = ?",
+                    (eid,),
+                ).fetchone()
+                if ev_row is None:
+                    continue
+                ev_payload = json.loads(ev_row["payload"])
+                retrieved_at_str = ev_payload.get("retrieved_at", "")
+                retrieved_at = _parse_iso(retrieved_at_str)
+
+                if retrieved_at and retrieved_at > reviewed_at:
                     issues.append(KnowledgeValidationIssue(
-                        rule_id="KGV-007", code="EVIDENCE_TIME_INVALID",
-                        message=f"Evidence {eid}: published_at={published_at} > retrieved_at={retrieved_at}",
+                        rule_id="KGV-007", code="EVIDENCE_RETRIEVED_AFTER_REVIEW",
+                        message=f"Evidence {eid}: retrieved_at={retrieved_at_str} > reviewed_at={review.reviewed_at}",
                         blocks_review=False, blocks_apply=True,
                     ))
             except Exception:
@@ -690,25 +1003,33 @@ class KnowledgeValidator:
         return issues
 
     def _check_kgv008(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
-        """KGV-008: Source Tier — FACT edge with core structural relations needs S/A source."""
+        """KGV-008: Source Tier — use new_evidence_ids ONLY.
+
+        Core structural (PRODUCES/USES_TECHNOLOGY/SUPPLIES/PURCHASES_FROM) FACT:
+            at least one new Evidence with source_tier S or A.
+        Other FACT: at least one new Evidence S/A/B (C-only→FAIL, B→PASS).
+        MODEL_INFERENCE: no tier floor.
+        """
         issues: List[KnowledgeValidationIssue] = []
 
         if gc.edge is None:
             return issues
+        if gc.edge.assertion_type == "MODEL_INFERENCE":
+            return issues  # no tier floor for MODEL_INFERENCE
         if gc.edge.assertion_type != "FACT":
             return issues
-        if gc.edge.relation not in _CORE_STRUCTURAL_RELATIONS:
+
+        # Use ONLY new_evidence_ids
+        new_eids: Set[str] = set(gc.new_evidence_ids)
+
+        if not new_eids:
+            # No new evidence at all is handled by KGV-005/010
             return issues
 
-        # Collect all evidence IDs for this edge
-        all_evidence_ids: Set[str] = set()
-        for eid in gc.new_evidence_ids:
-            all_evidence_ids.add(eid)
-        for eid in gc.edge.evidence_ids:
-            all_evidence_ids.add(eid)
+        is_core_structural = gc.edge.relation in _CORE_STRUCTURAL_RELATIONS
 
-        has_sa_source = False
-        for eid in all_evidence_ids:
+        tiers_found: Set[str] = set()
+        for eid in new_eids:
             try:
                 ev_row = self._db._conn.execute(
                     "SELECT payload FROM evidence WHERE evidence_id = ?",
@@ -718,18 +1039,28 @@ class KnowledgeValidator:
                     continue
                 ev_payload = json.loads(ev_row["payload"])
                 source_tier = ev_payload.get("source_tier", "B")
-                if source_tier in ("S", "A"):
-                    has_sa_source = True
-                    break
+                tiers_found.add(source_tier)
             except Exception:
                 continue
 
-        if not has_sa_source:
-            issues.append(KnowledgeValidationIssue(
-                rule_id="KGV-008", code="INSUFFICIENT_SOURCE_TIER",
-                message=f"FACT edge with relation={gc.edge.relation} requires at least one S/A source",
-                blocks_review=False, blocks_apply=True,
-            ))
+        if is_core_structural:
+            # Core structural: at least one S or A
+            if not (tiers_found & {"S", "A"}):
+                issues.append(KnowledgeValidationIssue(
+                    rule_id="KGV-008", code="INSUFFICIENT_SOURCE_TIER",
+                    message=f"FACT edge with core structural relation {gc.edge.relation} "
+                            f"requires at least one S/A new evidence, got tiers={sorted(tiers_found)}",
+                    blocks_review=False, blocks_apply=True,
+                ))
+        else:
+            # Other FACT: at least one S/A/B (C-only→FAIL)
+            if not (tiers_found & {"S", "A", "B"}):
+                issues.append(KnowledgeValidationIssue(
+                    rule_id="KGV-008", code="INSUFFICIENT_SOURCE_TIER",
+                    message=f"FACT edge with relation {gc.edge.relation} "
+                            f"requires at least one S/A/B new evidence, got tiers={sorted(tiers_found)}",
+                    blocks_review=False, blocks_apply=True,
+                ))
 
         return issues
 
@@ -737,10 +1068,8 @@ class KnowledgeValidator:
         """KGV-009: Governance Seed Scope — block Industry/IndustrySegment from ordinary candidates."""
         issues: List[KnowledgeValidationIssue] = []
 
-        # Check node type
         if gc.node is not None:
             if gc.node.node_type in ("Industry", "IndustrySegment"):
-                # Block add/modify/retire by ordinary candidates
                 if gc.change_type in ("add_node", "modify_attribute", "retire_node"):
                     issues.append(KnowledgeValidationIssue(
                         rule_id="KGV-009", code="ONTOLOGY_CHANGE_REQUIRES_HUMAN_GOVERNANCE",
@@ -748,7 +1077,6 @@ class KnowledgeValidator:
                         blocks_review=True, blocks_apply=True,
                     ))
 
-            # Block governance_seed origin from ordinary candidates
             if gc.node.origin_kind == "governance_seed":
                 if gc.change_type not in ("add_node",):
                     issues.append(KnowledgeValidationIssue(
@@ -764,14 +1092,12 @@ class KnowledgeValidator:
         issues: List[KnowledgeValidationIssue] = []
 
         if gc.edge is not None:
-            # Only FACT/MODEL_INFERENCE allowed for edges
             if gc.edge.assertion_type == "GOVERNANCE":
                 issues.append(KnowledgeValidationIssue(
                     rule_id="KGV-010", code="GOVERNANCE_NOT_ALLOWED",
                     message="GOVERNANCE assertion not allowed for GraphChange edge",
                     blocks_review=True, blocks_apply=True,
                 ))
-            # MODEL_INFERENCE requires real Evidence
             if gc.edge.assertion_type == "MODEL_INFERENCE":
                 if len(gc.new_evidence_ids) == 0:
                     issues.append(KnowledgeValidationIssue(
@@ -790,8 +1116,8 @@ class KnowledgeValidator:
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-011", code="BLOCKING_CONFLICT",
                 message=f"Conflicts present: {gc.conflicts}",
-                blocks_review=False,    # review can still proceed
-                blocks_apply=True,      # apply is blocked
+                blocks_review=False,
+                blocks_apply=True,
             ))
 
         return issues
@@ -800,7 +1126,6 @@ class KnowledgeValidator:
         """KGV-012: Review Status — candidate must have review_status=candidate, reviewed_at=null."""
         issues: List[KnowledgeValidationIssue] = []
 
-        # GraphChange level
         if gc.review_status != "candidate":
             issues.append(KnowledgeValidationIssue(
                 rule_id="KGV-012", code="INVALID_REVIEW_STATUS",
@@ -814,7 +1139,6 @@ class KnowledgeValidator:
                 blocks_review=True, blocks_apply=True,
             ))
 
-        # Node level if present
         if gc.node is not None:
             if gc.node.review_status != "candidate":
                 issues.append(KnowledgeValidationIssue(
@@ -829,7 +1153,6 @@ class KnowledgeValidator:
                     blocks_review=True, blocks_apply=True,
                 ))
 
-        # Edge level if present
         if gc.edge is not None:
             if gc.edge.review_status != "candidate":
                 issues.append(KnowledgeValidationIssue(
@@ -850,13 +1173,11 @@ class KnowledgeValidator:
         """KGV-013: Version Monotonicity — fresh→v1, existing→N+1, no gaps."""
         issues: List[KnowledgeValidationIssue] = []
 
-        # Check node version
         if gc.node is not None:
             issues.extend(self._check_version_monotonicity(
                 "graph_nodes", gc.node.node_id, gc.node.version, "node"
             ))
 
-        # Check edge version
         if gc.edge is not None:
             issues.extend(self._check_version_monotonicity(
                 "graph_edges", gc.edge.edge_id, gc.edge.version, "edge"
@@ -880,7 +1201,6 @@ class KnowledgeValidator:
             max_version = row["mv"] if row and row["mv"] is not None else 0
 
             if max_version == 0:
-                # Fresh entry — must be v1
                 if version != 1:
                     issues.append(KnowledgeValidationIssue(
                         rule_id="KGV-013", code="VERSION_VIOLATION",
@@ -888,7 +1208,6 @@ class KnowledgeValidator:
                         blocks_review=True, blocks_apply=True,
                     ))
             else:
-                # Existing entry — must be N+1
                 if version != max_version + 1:
                     issues.append(KnowledgeValidationIssue(
                         rule_id="KGV-013", code="VERSION_GAP",
@@ -897,12 +1216,90 @@ class KnowledgeValidator:
                         blocks_review=True, blocks_apply=True,
                     ))
         except Exception:
-            # Table might not exist — assume fresh
             if version != 1:
                 issues.append(KnowledgeValidationIssue(
                     rule_id="KGV-013", code="VERSION_VIOLATION",
                     message=f"{kind} {id_value}: first version must be 1, got {version}",
                     blocks_review=True, blocks_apply=True,
+                ))
+
+        return issues
+
+    def _check_kgv014(self, gc: GraphChange, as_of: str) -> List[KnowledgeValidationIssue]:
+        """KGV-014: Explicit As-Of — as_of required, valid ISO.
+
+        Evidence.published_at <= as_of (future evidence→EVIDENCE_AFTER_AS_OF).
+        If node/edge valid_from and valid_to both non-null: valid_from <= valid_to.
+        """
+        issues: List[KnowledgeValidationIssue] = []
+
+        # Check as_of is required and valid ISO
+        if not as_of:
+            issues.append(KnowledgeValidationIssue(
+                rule_id="KGV-014", code="AS_OF_REQUIRED",
+                message="as_of is required, cannot be empty",
+                blocks_review=True, blocks_apply=True,
+            ))
+            return issues
+
+        if not _validate_iso_format(as_of):
+            issues.append(KnowledgeValidationIssue(
+                rule_id="KGV-014", code="AS_OF_INVALID",
+                message=f"as_of='{as_of}' is not a valid ISO 8601 datetime",
+                blocks_review=True, blocks_apply=True,
+            ))
+            return issues
+
+        as_of_dt = _parse_iso(as_of)
+        if as_of_dt is None:
+            issues.append(KnowledgeValidationIssue(
+                rule_id="KGV-014", code="AS_OF_INVALID",
+                message=f"as_of='{as_of}' could not be parsed",
+                blocks_review=True, blocks_apply=True,
+            ))
+            return issues
+
+        # Check Evidence.published_at <= as_of for all new_evidence_ids
+        for eid in sorted(gc.new_evidence_ids):
+            try:
+                ev_row = self._db._conn.execute(
+                    "SELECT payload FROM evidence WHERE evidence_id = ?",
+                    (eid,),
+                ).fetchone()
+                if ev_row is None:
+                    continue
+                ev_payload = json.loads(ev_row["payload"])
+                published_at_str = ev_payload.get("published_at", "")
+                published_at = _parse_iso(published_at_str)
+                if published_at and published_at > as_of_dt:
+                    issues.append(KnowledgeValidationIssue(
+                        rule_id="KGV-014", code="EVIDENCE_AFTER_AS_OF",
+                        message=f"Evidence {eid}: published_at={published_at_str} is after as_of={as_of}",
+                        blocks_review=False, blocks_apply=True,
+                    ))
+            except Exception:
+                continue
+
+        # Check node valid_from <= valid_to
+        if gc.node is not None:
+            vf = _parse_iso(gc.node.valid_from)
+            vt = _parse_iso(gc.node.valid_to)
+            if vf is not None and vt is not None and vf > vt:
+                issues.append(KnowledgeValidationIssue(
+                    rule_id="KGV-014", code="INVALID_VALIDITY_INTERVAL",
+                    message=f"Node {gc.node.node_id}: valid_from={gc.node.valid_from} > valid_to={gc.node.valid_to}",
+                    blocks_review=False, blocks_apply=True,
+                ))
+
+        # Check edge valid_from <= valid_to
+        if gc.edge is not None:
+            vf = _parse_iso(gc.edge.valid_from)
+            vt = _parse_iso(gc.edge.valid_to)
+            if vf is not None and vt is not None and vf > vt:
+                issues.append(KnowledgeValidationIssue(
+                    rule_id="KGV-014", code="INVALID_VALIDITY_INTERVAL",
+                    message=f"Edge {gc.edge.edge_id}: valid_from={gc.edge.valid_from} > valid_to={gc.edge.valid_to}",
+                    blocks_review=False, blocks_apply=True,
                 ))
 
         return issues
@@ -922,14 +1319,13 @@ class KnowledgeValidator:
         except Exception:
             return issues
 
-        # Get unique edge_ids
         unique_edge_ids: Set[str] = set(e["edge_id"] for e in existing_edges)
 
         if gc.change_type == "add_edge":
             if len(unique_edge_ids) > 0:
                 issues.append(KnowledgeValidationIssue(
                     rule_id="KGV-015", code="DUPLICATE_TRIPLE",
-                    message=f"add_edge: triple already exists with edge_ids={unique_edge_ids}",
+                    message=f"add_edge: triple already exists with edge_ids={sorted(unique_edge_ids)}",
                     blocks_review=True, blocks_apply=True,
                 ))
         elif gc.change_type in ("modify_attribute", "retire_edge"):
@@ -945,7 +1341,7 @@ class KnowledgeValidator:
                 issues.append(KnowledgeValidationIssue(
                     rule_id="KGV-015", code="EDGE_ID_MISMATCH",
                     message=f"{gc.change_type}: edge_id={edge.edge_id} does not match "
-                            f"existing identity {unique_edge_ids}",
+                            f"existing identity {sorted(unique_edge_ids)}",
                     blocks_review=True, blocks_apply=True,
                 ))
 
@@ -994,89 +1390,199 @@ class KnowledgeValidator:
     def _check_kgv019(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
         """KGV-019: Stale Review — compare current_knowledge vs current persisted graph state.
 
-        This is a heuristic check: if the GraphChange references a node/edge that
-        has changed since the candidate was created, it's stale.
+        Uses canonical baseline comparison:
+        - Node: if current_knowledge=="", now node exists→STALE_REVIEW.
+          If current_knowledge!="", compare canonical latest persisted node payload
+          vs parsed current_knowledge. NOT just version check.
+        - Edge: same by logical triple (source+relation+target).
+        - MUST run in validate_review stage.
+
+        For add operations: if current_knowledge=="" and node/edge exists→STALE
+        For modify/retire: compare version via current_knowledge vs latest persisted.
         """
         issues: List[KnowledgeValidationIssue] = []
 
-        # For add operations, check that the target node/edge doesn't already exist beyond
-        # what we expect.
-        if gc.change_type == "add_node" and gc.node is not None:
+        current_knowledge = gc.current_knowledge if gc.current_knowledge else ""
+
+        # ── Node check ──
+        if gc.node is not None:
+            node_id = gc.node.node_id
             try:
+                # Get latest persisted node
                 row = self._db._conn.execute(
-                    "SELECT 1 FROM graph_nodes WHERE node_id = ?",
-                    (gc.node.node_id,),
+                    "SELECT payload FROM graph_nodes WHERE node_id = ? ORDER BY version DESC LIMIT 1",
+                    (node_id,),
                 ).fetchone()
-                if row is not None:
-                    issues.append(KnowledgeValidationIssue(
-                        rule_id="KGV-019", code="STALE_REVIEW_NODE_EXISTS",
-                        message=f"add_node candidate stale: node {gc.node.node_id} already exists in graph",
-                        blocks_review=False, blocks_apply=True,
-                    ))
-            except Exception:
-                pass
 
-        if gc.change_type == "add_edge" and gc.edge is not None:
-            try:
-                existing = self._graph_repo.find_edge_by_triple(
-                    gc.edge.source_node_id, gc.edge.relation, gc.edge.target_node_id,
-                )
-                if len(existing) > 0:
-                    issues.append(KnowledgeValidationIssue(
-                        rule_id="KGV-019", code="STALE_REVIEW_EDGE_EXISTS",
-                        message=f"add_edge candidate stale: triple already exists in graph",
-                        blocks_review=False, blocks_apply=True,
-                    ))
-            except Exception:
-                pass
+                if gc.change_type == "add_node":
+                    if current_knowledge == "":
+                        # current_knowledge empty → if node exists anywhere, stale
+                        if row is not None:
+                            issues.append(KnowledgeValidationIssue(
+                                rule_id="KGV-019", code="STALE_REVIEW_NODE_EXISTS",
+                                message=f"add_node candidate stale: node {node_id} already exists in graph",
+                                blocks_review=False, blocks_apply=True,
+                            ))
+                    else:
+                        # current_knowledge non-empty → compare canonical baseline
+                        if row is not None:
+                            persisted_payload = json.loads(row["payload"])
+                            # Parse current_knowledge as canonical payload
+                            try:
+                                ck_payload = json.loads(current_knowledge)
+                            except json.JSONDecodeError:
+                                # current_knowledge not JSON → just check existence
+                                issues.append(KnowledgeValidationIssue(
+                                    rule_id="KGV-019", code="STALE_REVIEW_NODE_EXISTS",
+                                    message=f"add_node candidate stale: node {node_id} exists and current_knowledge is not valid JSON",
+                                    blocks_review=False, blocks_apply=True,
+                                ))
+                            else:
+                                # Compare canonical sorted JSON
+                                persisted_canonical = json.dumps(
+                                    persisted_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                                )
+                                ck_canonical = json.dumps(
+                                    ck_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                                )
+                                if persisted_canonical != ck_canonical:
+                                    issues.append(KnowledgeValidationIssue(
+                                        rule_id="KGV-019", code="STALE_REVIEW_NODE_CHANGED",
+                                        message=f"add_node candidate stale: node {node_id} current_knowledge "
+                                                f"differs from persisted canonical baseline",
+                                        blocks_review=False, blocks_apply=True,
+                                    ))
 
-        # For modify/retire operations, check that the target still exists and is the
-        # version that was reviewed
-        if gc.change_type in ("modify_attribute", "retire_node", "retire_edge"):
-            if gc.node is not None:
-                try:
-                    row = self._db._conn.execute(
-                        "SELECT MAX(version) FROM graph_nodes WHERE node_id = ?",
-                        (gc.node.node_id,),
-                    ).fetchone()
-                    max_version = row[0] if row and row[0] is not None else 0
-                    if max_version == 0:
+                elif gc.change_type in ("modify_attribute", "retire_node"):
+                    if row is None:
                         issues.append(KnowledgeValidationIssue(
                             rule_id="KGV-019", code="STALE_REVIEW_NODE_MISSING",
-                            message=f"modify/retire candidate stale: node {gc.node.node_id} not found",
+                            message=f"modify/retire candidate stale: node {node_id} not found",
                             blocks_review=False, blocks_apply=True,
                         ))
-                    elif max_version >= gc.node.version and gc.node.version < max_version:
-                        issues.append(KnowledgeValidationIssue(
-                            rule_id="KGV-019", code="STALE_REVIEW_VERSION_CHANGED",
-                            message=f"modify/retire candidate stale: node {gc.node.node_id} "
-                                    f"v{gc.node.version} (latest v{max_version})",
-                            blocks_review=False, blocks_apply=True,
-                        ))
-                except Exception:
-                    pass
+                    elif current_knowledge != "":
+                        # Compare canonical baseline
+                        persisted_payload = json.loads(row["payload"])
+                        try:
+                            ck_payload = json.loads(current_knowledge)
+                        except json.JSONDecodeError:
+                            pass
+                        else:
+                            persisted_canonical = json.dumps(
+                                persisted_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                            )
+                            ck_canonical = json.dumps(
+                                ck_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                            )
+                            if persisted_canonical != ck_canonical:
+                                issues.append(KnowledgeValidationIssue(
+                                    rule_id="KGV-019", code="STALE_REVIEW_NODE_CHANGED",
+                                    message=f"modify/retire candidate stale: node {node_id} "
+                                            f"current_knowledge differs from persisted canonical baseline",
+                                    blocks_review=False, blocks_apply=True,
+                                ))
+                    else:
+                        # current_knowledge empty → version-based fallback
+                        persisted_payload = json.loads(row["payload"])
+                        persisted_version = persisted_payload.get("version", 0)
+                        if persisted_version >= gc.node.version and gc.node.version < persisted_version:
+                            pass  # version gap already caught by KGV-013
+                        elif persisted_version > gc.node.version:
+                            issues.append(KnowledgeValidationIssue(
+                                rule_id="KGV-019", code="STALE_REVIEW_NODE_CHANGED",
+                                message=f"modify/retire candidate stale: node {node_id} "
+                                        f"v{gc.node.version} (latest v{persisted_version})",
+                                blocks_review=False, blocks_apply=True,
+                            ))
+            except Exception:
+                pass
 
-            if gc.edge is not None:
-                try:
-                    row = self._db._conn.execute(
-                        "SELECT MAX(version) FROM graph_edges WHERE edge_id = ?",
-                        (gc.edge.edge_id,),
-                    ).fetchone()
-                    max_version = row[0] if row and row[0] is not None else 0
-                    if max_version == 0:
+        # ── Edge check ──
+        if gc.edge is not None:
+            edge = gc.edge
+            try:
+                existing_edges = self._graph_repo.find_edge_by_triple(
+                    edge.source_node_id, edge.relation, edge.target_node_id,
+                )
+
+                if gc.change_type == "add_edge":
+                    if current_knowledge == "":
+                        if len(existing_edges) > 0:
+                            issues.append(KnowledgeValidationIssue(
+                                rule_id="KGV-019", code="STALE_REVIEW_EDGE_EXISTS",
+                                message=f"add_edge candidate stale: triple already exists in graph",
+                                blocks_review=False, blocks_apply=True,
+                            ))
+                    else:
+                        if len(existing_edges) > 0:
+                            # Get latest edge payload
+                            latest_edge = max(existing_edges, key=lambda e: e.get("version", 0))
+                            persisted_payload = latest_edge.get("payload")
+                            if isinstance(persisted_payload, str):
+                                persisted_payload = json.loads(persisted_payload)
+                            try:
+                                ck_payload = json.loads(current_knowledge)
+                            except json.JSONDecodeError:
+                                issues.append(KnowledgeValidationIssue(
+                                    rule_id="KGV-019", code="STALE_REVIEW_EDGE_EXISTS",
+                                    message=f"add_edge candidate stale: triple exists and current_knowledge is not valid JSON",
+                                    blocks_review=False, blocks_apply=True,
+                                ))
+                            else:
+                                persisted_canonical = json.dumps(
+                                    persisted_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                                )
+                                ck_canonical = json.dumps(
+                                    ck_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                                )
+                                if persisted_canonical != ck_canonical:
+                                    issues.append(KnowledgeValidationIssue(
+                                        rule_id="KGV-019", code="STALE_REVIEW_EDGE_CHANGED",
+                                        message=f"add_edge candidate stale: triple exists, "
+                                                f"current_knowledge differs from persisted canonical baseline",
+                                        blocks_review=False, blocks_apply=True,
+                                    ))
+
+                elif gc.change_type in ("modify_attribute", "retire_edge"):
+                    if len(existing_edges) == 0:
                         issues.append(KnowledgeValidationIssue(
                             rule_id="KGV-019", code="STALE_REVIEW_EDGE_MISSING",
-                            message=f"modify/retire candidate stale: edge {gc.edge.edge_id} not found",
+                            message=f"modify/retire candidate stale: edge {edge.edge_id} not found",
                             blocks_review=False, blocks_apply=True,
                         ))
-                    elif max_version >= gc.edge.version and gc.edge.version < max_version:
-                        issues.append(KnowledgeValidationIssue(
-                            rule_id="KGV-019", code="STALE_REVIEW_VERSION_CHANGED",
-                            message=f"modify/retire candidate stale: edge {gc.edge.edge_id} "
-                                    f"v{gc.edge.version} (latest v{max_version})",
-                            blocks_review=False, blocks_apply=True,
-                        ))
-                except Exception:
-                    pass
+                    elif current_knowledge != "":
+                        latest_edge = max(existing_edges, key=lambda e: e.get("version", 0))
+                        persisted_payload = latest_edge.get("payload")
+                        if isinstance(persisted_payload, str):
+                            persisted_payload = json.loads(persisted_payload)
+                        try:
+                            ck_payload = json.loads(current_knowledge)
+                        except json.JSONDecodeError:
+                            pass
+                        else:
+                            persisted_canonical = json.dumps(
+                                persisted_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                            )
+                            ck_canonical = json.dumps(
+                                ck_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                            )
+                            if persisted_canonical != ck_canonical:
+                                issues.append(KnowledgeValidationIssue(
+                                    rule_id="KGV-019", code="STALE_REVIEW_EDGE_CHANGED",
+                                    message=f"modify/retire candidate stale: edge {edge.edge_id} "
+                                            f"current_knowledge differs from persisted canonical baseline",
+                                    blocks_review=False, blocks_apply=True,
+                                ))
+                    else:
+                        latest_version = max(e.get("version", 0) for e in existing_edges)
+                        if latest_version > edge.version:
+                            issues.append(KnowledgeValidationIssue(
+                                rule_id="KGV-019", code="STALE_REVIEW_EDGE_CHANGED",
+                                message=f"modify/retire candidate stale: edge {edge.edge_id} "
+                                        f"v{edge.version} (latest v{latest_version})",
+                                blocks_review=False, blocks_apply=True,
+                            ))
+            except Exception:
+                pass
 
         return issues
