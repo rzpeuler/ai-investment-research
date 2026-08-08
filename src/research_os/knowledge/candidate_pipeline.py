@@ -531,6 +531,7 @@ class CandidatePipeline:
             except ValueError as exc:
                 results["status"] = "file_write_failed"
             results["errors"].append(f"Markdown render: {exc}")
+            return results
 
         results["candidates"].append({
             "graph_change_id": graph_change.graph_change_id,
