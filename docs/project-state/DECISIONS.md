@@ -324,6 +324,30 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
     apply engine、historical query、knowledge context builder、JSON mirror export、
     Phase 2/3/4 integration。M3-M10 全部未授权。
 
+## 34. Phase 5 M4 Knowledge Validator 语义冻结（2026-08-08）
+
+> 本决定在 M4 实现启动时冻结。M4 完成不自动授权 M5。
+>
+> **基线**: M3_ACCEPTED_SHA=242e039, M3_CI=31240709634, M3_TESTS=1480/5 skipped, M3_SCHEMAS=55
+
+1. **Validator = 确定性代码，零 LLM，零 writes**：KGV-001—019 全部为代码实现，不调用
+   Provider，不产生任何数据库写入。
+
+2. **Explicit as_of，禁止隐式 now()**：`validate_candidate`/`validate_review`/`validate_apply_preflight`
+   均要求显式 `as_of` 参数，不在内部调用 `now()`。Evidence.published_at ≤ as_of。
+
+3. **Candidate hash 使用 canonical JSON**：`compute_candidate_hash(graph_change)` =
+   sha256(canonical sorted JSON of model_dump)，不是 Markdown bytes。
+
+4. **conflicts 阻止 apply 但不阻止 review**：`conflicts != []` → `apply_eligible=false`，
+   但 `review_eligible` 可保持 `true`。
+
+5. **Self-loop v1 默认 deny**：`source_node_id == target_node_id` → `SELF_LOOP_NOT_ALLOWED`
+   适用于全部 18 种 relation。
+
+6. **M4 不实现**：M4 不实现 Markdown parser、不创建 GraphReview、不执行 approve/apply。
+   M5-M10 全部未授权。
+
 ## 33. Phase 5 M3 GraphChange Candidate Pipeline 语义冻结（2026-08-07）
 
 > 本决定在 M3 实现启动时冻结。M3 完成不自动授权 M4。

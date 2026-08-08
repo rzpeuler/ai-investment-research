@@ -12,11 +12,12 @@
   - M0：PASS（SHA `df358da`，M0 Offline CI `31159354574` PASS）
   - M1 Graph Contracts：PASS（SHA `b097996`，M1 CI `31165533237`：1281 passed / 5 skipped / 55/55 schemas）
   - M2 Persistence and ontology seed：PASS（SHA `565d500`，M2 CI `31171415215`：1351 passed / 5 skipped / 55/55 schemas）
-  - M3 GraphChange Candidate Pipeline：AUTHORIZED / IN_PROGRESS
-  - M4-M10：NOT_AUTHORIZED
+  - M3 GraphChange Candidate Pipeline：PASS（SHA `242e039`，M3 CI `31240709634`：1480 passed / 5 skipped / 55/55 schemas）
+  - M4 Knowledge Validator：AUTHORIZED / IN_PROGRESS
+  - M5-M10：NOT_AUTHORIZED
 
-Phase 5 正式任务书已由用户批准。M1、M2 已通过独立架构验收。M3 已授权实施。
-**M3 完成不自动授权 M4。** M4 须用户另行明确授权。
+Phase 5 正式任务书已由用户批准。M1、M2、M3 已通过独立架构验收。M4 已授权实施。
+**M4 完成不自动授权 M5。** M5 须用户另行明确授权。
 
 Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施授权**。
 
@@ -39,18 +40,18 @@ Phase 5 正式任务书已由用户批准。**任务书批准 ≠ 工程实施�
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前允许：**M2 only**。
+当前允许：**M4 only**。
 
-M3 要求：M2 完成 + Offline CI PASS + 独立验收 + 用户另行明确授权。
-不得预授权 M3。
+M5 要求：M4 完成 + Offline CI PASS + 独立验收 + 用户另行明确授权。
+不得预授权 M5。
 
 ```
 当前允许：
-完成 M1 Graph Contracts 修正与独立验收。
+完成 M4 Knowledge Validator 实现与验收。
 
 禁止：
-M2 persistence / migration / ontology seed
-以及 M3-M10。
+M5 human review / review-export / review-import
+以及 M6-M10。
 ```
 
 ## Phase 4 独立验收记录
