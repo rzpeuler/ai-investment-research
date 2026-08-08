@@ -842,5 +842,148 @@ def knowledge_candidates(sources, db_path, provider_id, live, dry_run) -> None:
         db.close()
 
 
+@knowledge_group.command("review-export")
+@click.option(
+    "--change-id", "change_id", required=True,
+    help="GraphChange candidate 唯一 ID（UUID）。"
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="仅渲染 Markdown 并输出到 stdout，不写文件。",
+)
+def knowledge_review_export(change_id, db_path, dry_run) -> None:
+    """将 GraphChange candidate 导出为人工审阅 Markdown。
+
+    验证 candidate 存在且 review_status=candidate。
+    包含 candidate_hash、Reviewer 模板、4 个审核选项。
+    """
+    from research_os.knowledge.review_workflow import ReviewWorkflow
+    from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+
+        workflow = ReviewWorkflow(db, candidate_repo, graph_repo, validator)
+
+        result = workflow.review_export(change_id, dry_run=dry_run)
+
+        if result.status == "error":
+            raise click.ClickException(result.error)
+
+        click.echo(result.markdown)
+
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
+@knowledge_group.command("review-import")
+@click.option(
+    "--file", "file_path", required=True,
+    help="填写后的审阅 Markdown 文件路径。"
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="完整预检（parse→load→verify→validate→patch→replacement build），零 DB 写入。",
+)
+def knowledge_review_import(file_path, db_path, dry_run) -> None:
+    """导入人工审阅 Markdown 并持久化。
+
+    流程：parse → load candidate → hash verify → build GraphReview →
+          M4 validate_review → patch apply → atomic persist。
+    dry-run 执行完整预检但零写入。
+    """
+    from research_os.knowledge.review_workflow import ReviewWorkflow
+    from research_os.knowledge.candidate_repository import GraphChangeCandidateRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        raise click.ClickException(f"数据库不存在: {db_full}")
+
+    # 读取 Markdown 文件
+    md_file = Path(file_path)
+    if not md_file.is_absolute():
+        md_file = root / file_path
+    if not md_file.exists():
+        raise click.ClickException(f"审阅文件不存在: {md_file}")
+
+    try:
+        md_text = md_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise click.ClickException(f"读取审阅文件失败: {exc}")
+
+    if dry_run:
+        db = Database.open_read_only(db_full)
+    else:
+        db = Database(db_full)
+        db.initialize()
+
+    try:
+        candidate_repo = GraphChangeCandidateRepository(db)
+        graph_repo = GraphRepository(db)
+        validator = KnowledgeValidator(db, graph_repo)
+
+        workflow = ReviewWorkflow(db, candidate_repo, graph_repo, validator)
+
+        result = workflow.review_import(md_text, dry_run=dry_run)
+
+        output = {
+            "status": result.status,
+            "review_id": result.review_id,
+            "graph_change_id": result.graph_change_id,
+            "decision": result.decision,
+            "resulting_graph_change_id": result.resulting_graph_change_id,
+            "dry_run": result.dry_run,
+            "warnings": result.warnings,
+        }
+        if result.errors:
+            output["errors"] = result.errors
+
+        click.echo(json.dumps(output, ensure_ascii=False, sort_keys=True))
+
+        if result.status == "error":
+            raise SystemExit(1)
+
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()
