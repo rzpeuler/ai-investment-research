@@ -392,16 +392,64 @@ def _count_table(db, table):
     return int(row["c"])
 
 
+def _add_second_evidence(db, evidence_id, published_at, retrieved_at):
+    """插入第二条 Evidence E2（含 raw_item 链，entities 覆盖 company:test-corp）。"""
+    conn = db._conn
+    ri2_id = "44444444-4444-4444-4444-444444444444"
+    ev = Evidence(
+        evidence_id=evidence_id,
+        source_id=SOURCE_UUID,
+        raw_item_id=ri2_id,
+        title="第二条证据",
+        publisher="测试发布者",
+        published_at=published_at,
+        retrieved_at=retrieved_at,
+        url="https://example.com/e2",
+        excerpt="测试摘录2",
+        evidence_type="news_report",
+        independence_group="group-2",
+        source_tier="B",
+        access_status="ok",
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO evidence (evidence_id, payload, source_id, raw_item_id, independence_group, source_tier) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (evidence_id,
+         json.dumps(ev.model_dump(), ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":")),
+         SOURCE_UUID, ri2_id, "group-2", "B"),
+    )
+    ri2 = {
+        "raw_item_id": ri2_id, "source_id": SOURCE_UUID,
+        "external_id": "ext-002", "url": "https://example.com/e2",
+        "title": "第二条", "publisher": "测试", "author": "测试作者",
+        "published_at": published_at,
+        "retrieved_at": retrieved_at,
+        "content_hash": SHA256_ZEROS, "content_excerpt": "摘录2",
+        "content_storage": "metadata_and_excerpt", "language": "zh-CN",
+        "access_status": "ok", "entities": ["company:test-corp"],
+        "raw_category": "news",
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO raw_items "
+        "(raw_item_id, payload, source_id, content_hash, access_status) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (ri2_id, json.dumps(ri2, ensure_ascii=False),
+         SOURCE_UUID, SHA256_ZEROS, "ok"),
+    )
+    conn.commit()
+
+
 def _canonical(obj):
     return json.dumps(obj, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":"))
 
 
 def _reject_code(result: ApplyResult) -> str:
-    """从 APPLY_REJECTED 结果提取 error code。"""
+    """从 APPLY_REJECTED 结果提取精确 error_code。"""
     assert result.status == "APPLY_REJECTED"
-    assert result.errors, "APPLY_REJECTED 必须有 error code"
-    return result.errors[0].split(":", 1)[0]
+    assert result.error_code, "APPLY_REJECTED 必须有 error_code"
+    return result.error_code
 
 
 def _manual_review(db, gc, graph_repo, decision="approved",
@@ -872,7 +920,7 @@ class TestApplyMutationDetection:
 
         result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
         assert result.status == "APPLY_REJECTED"
-        assert "M4_" in result.errors[0]  # validate gate 拒绝
+        assert result.error_code == "M4_APPLY_PREFLIGHT_FAILED"
         db.close()
 
     def test_evidence_schema_invalid_after_review_rejected(self, tmp_path):
@@ -1414,7 +1462,12 @@ class TestApplyConcurrency:
     """攻击 42：双连接并发互斥候选，BEGIN IMMEDIATE 消除 TOCTOU。"""
 
     def test_two_connections_conflicting_candidates(self, tmp_path):
-        """双连接 + 互斥 candidate：最多一个 commit，无 half application。"""
+        """双连接 + 互斥 candidate：最多一个 commit，无 half application。
+
+        每个 worker thread 在自己的线程内创建 Database connection
+        （SQLite 默认线程保护 check_same_thread=True），仍为
+        same SQLite file + two independent connections + BEGIN IMMEDIATE。
+        """
         from research_os.storage import Database
         from research_os.knowledge.candidate_repository import (
             GraphChangeCandidateRepository,
@@ -1422,46 +1475,57 @@ class TestApplyConcurrency:
         from research_os.knowledge.repository import GraphRepository
 
         db_path = tmp_path / "concurrent.db"
-
-        # 连接 A：setup + candidate + review
-        db_a = Database(db_path)
-        db_a.initialize()
-        _seed_concurrent(db_a)
-        candidate_repo_a = GraphChangeCandidateRepository(db_a)
-        graph_repo_a = GraphRepository(db_a)
-        validator_a = KnowledgeValidator(db_a, graph_repo_a)
-        workflow_a = ReviewWorkflow(db_a, candidate_repo_a, graph_repo_a, validator_a)
-        gc_a = _make_node_candidate(change_id=str(uuid.uuid4()))
-        candidate_repo_a.append_candidate(gc_a)
-        _import_review(workflow_a, gc_a, decision="批准")
-
-        # 连接 B：setup + 互斥 candidate（同 node_id 不同 payload）
-        db_b = Database(db_path)
-        candidate_repo_b = GraphChangeCandidateRepository(db_b)
-        graph_repo_b = GraphRepository(db_b)
-        validator_b = KnowledgeValidator(db_b, graph_repo_b)
-        workflow_b = ReviewWorkflow(db_b, candidate_repo_b, graph_repo_b, validator_b)
-        gc_b = _make_node_candidate(change_id=str(uuid.uuid4()))
-        candidate_repo_b.append_candidate(gc_b)
-        _import_review(workflow_b, gc_b, decision="批准")
-
-        engine_a = ApplyEngine(db_a, candidate_repo_a, graph_repo_a, validator_a)
-        engine_b = ApplyEngine(db_b, candidate_repo_b, graph_repo_b, validator_b)
+        # 主线程先 initialize 一次（建表），两个 worker 复用文件
+        setup_db = Database(db_path)
+        setup_db.initialize()
+        _seed_concurrent(setup_db)
+        setup_db.close()
 
         results = {}
+        # Barrier(3)：主线程 + worker A + worker B。
+        # 每个 worker 在自己的线程内完成 setup（candidate + review 写操作）
+        # 与 apply；barrier 保证双方 setup 完成后同时竞争 apply。
+        barrier = threading.Barrier(3)
 
         def run_a():
+            db_a = Database(db_path)
+            candidate_repo_a = GraphChangeCandidateRepository(db_a)
+            graph_repo_a = GraphRepository(db_a)
+            validator_a = KnowledgeValidator(db_a, graph_repo_a)
+            workflow_a = ReviewWorkflow(db_a, candidate_repo_a, graph_repo_a,
+                                        validator_a)
+            gc_a = _make_node_candidate(change_id=str(uuid.uuid4()))
+            candidate_repo_a.append_candidate(gc_a)
+            _import_review(workflow_a, gc_a, decision="批准")
+            engine_a = ApplyEngine(db_a, candidate_repo_a, graph_repo_a,
+                                   validator_a)
+            barrier.wait()
             results["a"] = engine_a.apply(gc_a.graph_change_id,
                                           applied_at=APPLIED_AT)
+            db_a.close()
 
         def run_b():
+            db_b = Database(db_path)
+            candidate_repo_b = GraphChangeCandidateRepository(db_b)
+            graph_repo_b = GraphRepository(db_b)
+            validator_b = KnowledgeValidator(db_b, graph_repo_b)
+            workflow_b = ReviewWorkflow(db_b, candidate_repo_b, graph_repo_b,
+                                        validator_b)
+            gc_b = _make_node_candidate(change_id=str(uuid.uuid4()))
+            candidate_repo_b.append_candidate(gc_b)
+            _import_review(workflow_b, gc_b, decision="批准")
+            engine_b = ApplyEngine(db_b, candidate_repo_b, graph_repo_b,
+                                   validator_b)
+            barrier.wait()
             results["b"] = engine_b.apply(gc_b.graph_change_id,
                                           applied_at=APPLIED_AT)
+            db_b.close()
 
         ta = threading.Thread(target=run_a)
         tb = threading.Thread(target=run_b)
         ta.start()
         tb.start()
+        barrier.wait()  # 主线程释放
         ta.join(timeout=60)
         tb.join(timeout=60)
 
@@ -1471,14 +1535,13 @@ class TestApplyConcurrency:
         committed = [k for k, s in statuses.items() if s == "applied"]
         assert len(committed) <= 1, f"两个互斥 candidate 都 commit: {statuses}"
 
-        # 无 half application：nodes/applications 一致性
-        nodes = _count_table(db_a, "graph_nodes")
-        apps = _count_table(db_a, "graph_applications")
+        # 无 half application：applications 一致性
+        check_db = Database(db_path)
+        apps = _count_table(check_db, "graph_applications")
         if committed:
             assert apps == 1
         assert apps <= 1
-        db_a.close()
-        db_b.close()
+        check_db.close()
 
     def test_second_connection_blocks_until_first_commits(self, tmp_path):
         """BEGIN IMMEDIATE：第二连接等待写锁，事务内 recheck 幂等。"""
@@ -1505,16 +1568,19 @@ class TestApplyConcurrency:
         db_a._conn.commit()
         db_a._conn.execute("BEGIN IMMEDIATE")
 
-        db_b = Database(db_path)
-        candidate_repo_b = GraphChangeCandidateRepository(db_b)
-        graph_repo_b = GraphRepository(db_b)
-        validator_b = KnowledgeValidator(db_b, graph_repo_b)
-        engine_b = ApplyEngine(db_b, candidate_repo_b, graph_repo_b, validator_b)
         results = {}
 
         def run_b():
+            # worker 线程在自己的线程内创建 Database connection
+            db_b = Database(db_path)
+            candidate_repo_b = GraphChangeCandidateRepository(db_b)
+            graph_repo_b = GraphRepository(db_b)
+            validator_b = KnowledgeValidator(db_b, graph_repo_b)
+            engine_b = ApplyEngine(db_b, candidate_repo_b, graph_repo_b,
+                                   validator_b)
             results["b"] = engine_b.apply(gc.graph_change_id,
                                           applied_at=APPLIED_AT)
+            db_b.close()
 
         tb = threading.Thread(target=run_b)
         tb.start()
@@ -1528,7 +1594,457 @@ class TestApplyConcurrency:
 
         assert results["b"].status == "applied"
         db_a.close()
-        db_b.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 9. M6-R1：immediate transaction 语义
+# ═══════════════════════════════════════════════════════════════
+
+class TestImmediateTransactionSemantics:
+    """M6-R1：COMMIT 失败传播 / 无隐式 commit / rollback context。"""
+
+    def test_active_transaction_conflict(self, tmp_path):
+        """pre-existing transaction → immediate_transaction 不得自动 commit。"""
+        from research_os.storage import Database
+
+        db_path = tmp_path / "txn.db"
+        db = Database(db_path)
+        conn = db._conn
+        conn.execute("CREATE TABLE IF NOT EXISTS t (x)")
+        conn.execute("INSERT INTO t VALUES (1)")
+        assert conn.in_transaction is True  # 调用者已有隐式事务
+
+        with pytest.raises(RuntimeError, match="ACTIVE_TRANSACTION_CONFLICT"):
+            with db.immediate_transaction():
+                pass
+
+        # 调用者已有事务未被自动 commit（work 保留）
+        assert conn.in_transaction is True
+        assert conn.execute("SELECT COUNT(*) AS c FROM t").fetchone()["c"] == 1
+        conn.rollback()
+        db.close()
+
+    def test_commit_failure_propagates(self):
+        """COMMIT 失败必须异常传播（不得 silent success）。"""
+        from research_os.storage.db import _ImmediateTransaction
+
+        class _FakeDb:
+            def __init__(self, conn):
+                self._conn = conn
+
+        class _FailingCommitConn:
+            def __init__(self):
+                self.in_transaction = False
+
+            def execute(self, sql, *args):
+                if sql.startswith("BEGIN"):
+                    self.in_transaction = True
+                    return None
+                if sql.startswith("COMMIT"):
+                    self.in_transaction = False
+                    raise sqlite3.OperationalError("simulated commit failure")
+                if sql.startswith("ROLLBACK"):
+                    self.in_transaction = False
+                    return None
+                return None
+
+        fake = _FailingCommitConn()
+        txn = _ImmediateTransaction(_FakeDb(fake))
+        with pytest.raises(sqlite3.OperationalError, match="simulated commit failure"):
+            with txn:
+                pass
+
+    def test_rollback_failure_preserves_original_exception(self):
+        """业务异常 + ROLLBACK 失败：保留原始异常并附加 rollback context。"""
+        from research_os.storage.db import _ImmediateTransaction
+
+        class _FakeDb:
+            def __init__(self, conn):
+                self._conn = conn
+
+        class _FailingRollbackConn:
+            def __init__(self):
+                self.in_transaction = False
+
+            def execute(self, sql, *args):
+                if sql.startswith("BEGIN"):
+                    self.in_transaction = True
+                    return None
+                if sql.startswith("ROLLBACK"):
+                    raise sqlite3.OperationalError("simulated rollback failure")
+                return None
+
+        fake = _FailingRollbackConn()
+        txn = _ImmediateTransaction(_FakeDb(fake))
+        with pytest.raises(RuntimeError, match="ROLLBACK failed after ValueError"):
+            with txn:
+                raise ValueError("original business error")
+
+    def test_commit_failure_engine_not_applied(self, tmp_path, monkeypatch):
+        """COMMIT 失败 → ApplyEngine 不得返回 applied。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        _import_review(workflow, gc, decision="批准")
+
+        class _CommitFailTxn:
+            def __enter__(self):
+                return db._conn
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if exc_type is None:
+                    raise sqlite3.OperationalError("simulated commit failure")
+                return False
+
+        monkeypatch.setattr(db, "immediate_transaction",
+                            lambda: _CommitFailTxn())
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert result.status == "APPLY_REJECTED"
+        assert result.error_code == "APPLY_FAILED"
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 10. M6-R1：GraphApplication tamper attacks（payload + columns）
+# ═══════════════════════════════════════════════════════════════
+
+class TestApplicationTamperAttacks:
+    """M6-R1：第一次 apply 后直接 SQL 篡改 application payload/columns。"""
+
+    def _apply_once(self, tmp_path):
+        """建立已 apply 状态，返回 (db, engine, gc, app_id)。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, graph_repo, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        _import_review(workflow, gc, decision="批准")
+        r = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert r.status == "applied"
+        return db, engine, gc, r.application_id
+
+    def _tamper_payload(self, db, app_id, field, value):
+        row = db._conn.execute(
+            "SELECT payload FROM graph_applications WHERE application_id = ?",
+            (app_id,),
+        ).fetchone()
+        payload = json.loads(row["payload"])
+        payload[field] = value
+        db._conn.execute(
+            "UPDATE graph_applications SET payload = ? WHERE application_id = ?",
+            (json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                        separators=(",", ":")), app_id),
+        )
+        db._conn.commit()
+
+    def _tamper_column(self, db, app_id, column, value):
+        db._conn.execute(
+            f"UPDATE graph_applications SET {column} = ? WHERE application_id = ?",
+            (value, app_id),
+        )
+        db._conn.commit()
+
+    def test_payload_application_id_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "application_id", str(uuid.uuid4()))
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_payload_original_graph_change_id_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "original_graph_change_id",
+                             str(uuid.uuid4()))
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_payload_decision_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "decision", "deferred")
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_payload_review_candidate_hash_tampered(self, tmp_path):
+        """review_candidate_hash 篡改 → reject。"""
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "review_candidate_hash", "a" * 64)
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_payload_effective_candidate_hash_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "effective_candidate_hash", "b" * 64)
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_payload_status_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "status", "revoked")
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_payload_applied_at_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_payload(db, app_id, "applied_at",
+                             "2026-08-10T00:00:00+08:00")
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_column_application_id_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_column(db, app_id, "application_id", str(uuid.uuid4()))
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_column_graph_change_id_tampered(self, tmp_path):
+        """graph_change_id 改为另一个合法 GraphChange → reject。"""
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        # 另一个合法 candidate（满足 FK）
+        other = _make_node_candidate()
+        from research_os.knowledge.candidate_repository import (
+            GraphChangeCandidateRepository,
+        )
+        GraphChangeCandidateRepository(db).append_candidate(other)
+        self._tamper_column(db, app_id, "graph_change_id",
+                            other.graph_change_id)
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_column_review_id_tampered(self, tmp_path):
+        """review_id 改为另一个已存在 review → reject。"""
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        # 另一个 candidate 的合法 review（满足 FK；用 edge candidate 避免
+        # 与已 apply 的 node 冲突 KGV-013）
+        from research_os.knowledge.candidate_repository import (
+            GraphChangeCandidateRepository,
+        )
+        candidate_repo = GraphChangeCandidateRepository(db)
+        other = _make_edge_candidate()
+        candidate_repo.append_candidate(other)
+        _, graph_repo, _, workflow, _ = _make_components(db)
+        md2 = _build_review_markdown(other, decision="批准",
+                                     reviewer_id="reviewer-other")
+        result2 = workflow.review_import(md2)
+        assert result2.status == "ok", f"import failed: {result2.errors}"
+        self._tamper_column(db, app_id, "review_id", result2.review_id)
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+    def test_column_applied_at_tampered(self, tmp_path):
+        db, engine, gc, app_id = self._apply_once(tmp_path)
+        self._tamper_column(db, app_id, "applied_at",
+                            "2026-08-10T00:00:00+08:00")
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 11. M6-R1：malformed payload attacks
+# ═══════════════════════════════════════════════════════════════
+
+class TestMalformedPayloadAttacks:
+    """M6-R1：candidate/review/replacement/target payload 损坏 → structured reject。"""
+
+    def test_candidate_payload_invalid_json(self, tmp_path):
+        """original graph_changes.payload invalid JSON → CANDIDATE_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        _import_review(workflow, gc, decision="批准")
+
+        db._conn.execute(
+            "UPDATE graph_changes SET payload = ? WHERE graph_change_id = ?",
+            ("{broken json", gc.graph_change_id),
+        )
+        db._conn.commit()
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "CANDIDATE_PAYLOAD_INVALID"
+        db.close()
+
+    def test_replacement_payload_invalid_json(self, tmp_path):
+        """replacement payload invalid JSON → REPLACEMENT_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        patch = [{"op": "replace", "path": "/suggested_change", "value": "更新"}]
+        review = _import_review(workflow, gc, decision="修改后批准", patch=patch)
+
+        db._conn.execute(
+            "UPDATE graph_changes SET payload = ? WHERE graph_change_id = ?",
+            ("{broken json", review.resulting_graph_change_id),
+        )
+        db._conn.commit()
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REPLACEMENT_PAYLOAD_INVALID"
+        db.close()
+
+    def test_review_payload_invalid_json(self, tmp_path):
+        """selected graph_reviews.payload invalid JSON → REVIEW_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        review = _import_review(workflow, gc, decision="批准")
+
+        db._conn.execute(
+            "UPDATE graph_reviews SET payload = ? WHERE review_id = ?",
+            ("{broken json", review.review_id),
+        )
+        db._conn.commit()
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REVIEW_PAYLOAD_INVALID"
+        db.close()
+
+    def test_review_payload_invalid_json_explicit_review_id(self, tmp_path):
+        """显式 --review-id 且 payload 损坏 → REVIEW_PAYLOAD_INVALID。"""
+        db, _ = _setup_db(tmp_path)
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        review = _import_review(workflow, gc, decision="批准")
+
+        db._conn.execute(
+            "UPDATE graph_reviews SET payload = ? WHERE review_id = ?",
+            ("{broken json", review.review_id),
+        )
+        db._conn.commit()
+
+        result = engine.apply(gc.graph_change_id, review_id=review.review_id,
+                              applied_at=APPLIED_AT)
+        assert _reject_code(result) == "REVIEW_PAYLOAD_INVALID"
+        db.close()
+
+    def test_persisted_target_invalid_json_during_replay(self, tmp_path):
+        """replay 时 persisted target payload invalid JSON → APPLICATION_INTEGRITY_CONFLICT。"""
+        db, engine, gc, _ = _apply_and_return_all(tmp_path)
+
+        # 攻击：target node payload 损坏（application 已存在）
+        db._conn.execute(
+            "UPDATE graph_nodes SET payload = ? WHERE node_id = ? AND version = 1",
+            ("{broken json", "company:test-corp"),
+        )
+        db._conn.commit()
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "APPLICATION_INTEGRITY_CONFLICT"
+        db.close()
+
+
+def _apply_and_return_all(tmp_path):
+    """建立已 apply 状态（供 replay/malformed 测试），返回 (db, engine, gc, app_id)。"""
+    db, _ = _setup_db(tmp_path)
+    candidate_repo, graph_repo, _, workflow, engine = _make_components(db)
+    gc = _make_node_candidate()
+    candidate_repo.append_candidate(gc)
+    _import_review(workflow, gc, decision="批准")
+    r = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+    assert r.status == "applied"
+    return db, engine, gc, r.application_id
+
+
+# ═══════════════════════════════════════════════════════════════
+# 12. M6-R1：effective Evidence review-time closure
+# ═══════════════════════════════════════════════════════════════
+
+class TestEvidenceReviewTimeClosure:
+    """M6-R1：approved_with_changes 的 effective Evidence 必须满足
+    published_at / retrieved_at <= reviewed_at。"""
+
+    E2 = "55555555-5555-5555-5555-555555555555"
+
+    def _replacement_with_e2(self, db, workflow, gc):
+        """构造引用 E1+E2 的 approved_with_changes review。"""
+        patch = [
+            {"op": "replace", "path": "/new_evidence_ids",
+             "value": [EVIDENCE_UUID, self.E2]},
+            {"op": "replace", "path": "/node/evidence_ids",
+             "value": [EVIDENCE_UUID, self.E2]},
+        ]
+        md = _build_review_markdown(gc, decision="修改后批准", patch=patch)
+        result = workflow.review_import(md)
+        assert result.status == "ok", f"import failed: {result.errors}"
+        return result
+
+    def test_attack_a_evidence_retrieved_after_review(self, tmp_path):
+        """Attack A：E2.published_at < T1 但 retrieved_at > T1（< applied_at）
+        → EVIDENCE_RETRIEVED_AFTER_REVIEW。"""
+        db, _ = _setup_db(tmp_path)
+        # E2: published 08-05 (< T1 08-08T14:00)，retrieved 08-09 (> T1，< applied 08-09T10:00)
+        _add_second_evidence(db, self.E2,
+                             published_at="2026-08-05T10:00:00+08:00",
+                             retrieved_at="2026-08-09T08:00:00+08:00")
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        self._replacement_with_e2(db, workflow, gc)
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "EVIDENCE_RETRIEVED_AFTER_REVIEW"
+        db.close()
+
+    def test_attack_b_evidence_mutated_after_review(self, tmp_path):
+        """Attack B：先合法完成 review，review 后 SQL mutation E2 时间
+        （published/retrieved = T1 + delta，但 <= applied_at）→ reject。"""
+        db, _ = _setup_db(tmp_path)
+        # E2 初始合法：retrieved_at < T1
+        _add_second_evidence(db, self.E2,
+                             published_at="2026-08-05T10:00:00+08:00",
+                             retrieved_at="2026-08-06T10:00:00+08:00")
+        candidate_repo, _, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        self._replacement_with_e2(db, workflow, gc)
+
+        # 攻击：review 后 mutation E2 时间（仍 <= applied_at）
+        row = db._conn.execute(
+            "SELECT payload FROM evidence WHERE evidence_id = ?", (self.E2,)
+        ).fetchone()
+        payload = json.loads(row["payload"])
+        payload["published_at"] = "2026-08-08T15:00:00+08:00"  # > T1
+        payload["retrieved_at"] = "2026-08-08T16:00:00+08:00"  # > T1
+        db._conn.execute(
+            "UPDATE evidence SET payload = ? WHERE evidence_id = ?",
+            (json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                        separators=(",", ":")), self.E2),
+        )
+        db._conn.commit()
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert _reject_code(result) == "EVIDENCE_RETRIEVED_AFTER_REVIEW"
+        db.close()
+
+    def test_evidence_within_review_time_applies(self, tmp_path):
+        """E2 时间全部 <= reviewed_at → apply 成功。"""
+        db, _ = _setup_db(tmp_path)
+        _add_second_evidence(db, self.E2,
+                             published_at="2026-08-05T10:00:00+08:00",
+                             retrieved_at="2026-08-06T10:00:00+08:00")
+        candidate_repo, graph_repo, _, workflow, engine = _make_components(db)
+        gc = _make_node_candidate()
+        candidate_repo.append_candidate(gc)
+        self._replacement_with_e2(db, workflow, gc)
+
+        result = engine.apply(gc.graph_change_id, applied_at=APPLIED_AT)
+        assert result.status == "applied"
+        node = graph_repo.get_node_version("company:test-corp", 1)
+        assert node is not None
+        db.close()
 
 
 def _seed_concurrent(db):

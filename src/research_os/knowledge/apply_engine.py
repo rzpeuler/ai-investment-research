@@ -1,21 +1,25 @@
 """M6 Deterministic Apply Engine：将已批准的人工审核确定性应用到图谱。
 
-核心契约（Decision #36）：
+核心契约（Decision #36 + M6-R1 safety closure）：
 - 只 apply `add_node` / `add_edge`；modify/retire → CHANGE_TYPE_REQUIRES_M7
 - ZERO LLM / ZERO Provider / ZERO network
 - GraphReview selection：显式 --review-id 或 0/1/>1 确定性规则，
-  禁止 latest/approved/timestamp/first-row 自动策略
+  禁止 latest/approved/timestamp/first-row 自动策略；全部 fail-closed
 - Review 与 original GraphChange 均 Schema-first（Markdown NOT AUTHORITATIVE）
+- strict reads：candidate / review / target / application 的 SQL/JSON/Schema
+  失败全部映射为结构化 APPLY_REJECTED，无 uncaught decode
 - approved：effective = original；validate_apply_preflight 全绿
-- approved_with_changes：replacement 确定性 linkage + 重新构造验证
-  （build_replacement_graph_change 唯一 helper），replacement tamper 拒绝
+- approved_with_changes：replacement 确定性 linkage + 重建验证 + tamper 拒绝；
+  effective Evidence 必须满足 review-time information closure
+  （published_at / retrieved_at <= reviewed_at）
 - candidate hash 唯一 authority = KnowledgeValidator.compute_candidate_hash()
-- apply-time transformation：复制 effective node/edge dump，只改
-  review_status=approved、last_reviewed_at=review.reviewed_at；
-  MODEL_INFERENCE 保持不变；applied_at 只属于 graph_applications audit
+- apply-time transformation：只改 review_status=approved、
+  last_reviewed_at=review.reviewed_at；MODEL_INFERENCE 保持；applied_at 只属 audit
 - 不 UPDATE GraphChange / GraphReview（byte-for-byte immutable）
-- idempotency key 确定性（不含 applied_at）；idempotent replay 优先识别
-- BEGIN IMMEDIATE 事务消除 TOCTOU；任一步失败 ROLLBACK ALL
+- idempotency key 确定性（不含 applied_at）；idempotent replay 优先识别，
+  replay 验证完整 application audit（canonical payload 全等 + 全部 DB columns）
+- BEGIN IMMEDIATE 事务消除 TOCTOU；COMMIT 失败传播；无隐式 commit；
+  事务内 gate 失败保留精确 error_code；任一步失败 ROLLBACK ALL
 - dry-run：完整预检，0 writes / 0 mkdir
 """
 from __future__ import annotations
@@ -93,7 +97,7 @@ def schema_first_graph_review(review_dict: dict
 
 @dataclass(frozen=True)
 class ApplyResult:
-    """M6 apply 显式结果（状态 + 内部 error code）。"""
+    """M6 apply 显式结果（状态 + 精确 error_code + 人类可读 errors）。"""
     status: str  # "applied" / "idempotent_noop" / "dry_run" / "APPLY_REJECTED"
     original_graph_change_id: str
     effective_graph_change_id: str
@@ -105,6 +109,7 @@ class ApplyResult:
     target_version: Optional[int] = None
     applied_at: Optional[str] = None
     dry_run: bool = False
+    error_code: Optional[str] = None  # 精确机械 code（成功为 null）
     errors: Tuple[str, ...] = ()
     warnings: Tuple[str, ...] = ()
 
@@ -117,6 +122,7 @@ class ApplyEngine:
         self._candidate_repo = candidate_repo
         self._graph_repo = graph_repo
         self._validator = validator
+        self._last_error: str = ""
 
     # ── public API ──────────────────────────────────────────
 
@@ -136,18 +142,14 @@ class ApplyEngine:
             dry_run: 完整预检，0 writes。
 
         Returns:
-            ApplyResult
+            ApplyResult（error_code 精确；成功为 null）
         """
-        # 1. Load original candidate（Schema-first）
-        candidate_dict = self._candidate_repo.get_candidate(change_id)
-        if candidate_dict is None:
-            return self._reject(change_id, "CANDIDATE_NOT_FOUND",
-                                f"Candidate not found: {change_id}")
-        original_gc, err = schema_first_graph_change(candidate_dict)
-        if err:
-            return self._reject(change_id, "CANDIDATE_SCHEMA_INVALID", err)
+        # 1. Load original candidate（strict loader，Schema-first）
+        original_gc, cand_err = self._load_graph_change_strict(change_id)
+        if cand_err is not None:
+            return self._reject(change_id, cand_err[0], cand_err[1])
 
-        # 2. Review selection
+        # 2. Review selection（fail-closed）
         selected = self._select_review(change_id, review_id)
         if isinstance(selected, str):  # error code
             return self._reject(change_id, selected, self._last_error)
@@ -167,8 +169,7 @@ class ApplyEngine:
 
         # 5. applied_at（capture once）+ 时间门禁
         # 使用 parse_iso 做 datetime 语义比较（KGV-014 同款），避免
-        # naive/带时区字符串字典序比较的误判（now_iso 为 naive 无时区后缀，
-        # reviewed_at 通常带 +08:00）。
+        # naive/带时区字符串字典序比较的误判。
         if applied_at is None:
             applied_at = now_iso()
         try:
@@ -222,17 +223,16 @@ class ApplyEngine:
                     f"!= expected {expected_resulting}",
                     review_id=review.review_id,
                 )
-            # 9. load persisted replacement（Schema-first）
-            repl_dict = self._candidate_repo.get_candidate(review.resulting_graph_change_id)
-            if repl_dict is None:
-                return self._reject(
-                    change_id, "REPLACEMENT_MISSING",
-                    f"replacement GraphChange {review.resulting_graph_change_id} 缺失",
-                    review_id=review.review_id,
-                )
-            persisted_repl, rerr = schema_first_graph_change(repl_dict)
-            if rerr:
-                return self._reject(change_id, "REPLACEMENT_SCHEMA_INVALID", rerr,
+            # 9. load persisted replacement（strict loader，Schema-first）
+            persisted_repl, repl_err = self._load_graph_change_strict(
+                review.resulting_graph_change_id,
+                missing_code="REPLACEMENT_MISSING",
+                read_code="REPLACEMENT_READ_FAILED",
+                payload_code="REPLACEMENT_PAYLOAD_INVALID",
+                schema_code="REPLACEMENT_SCHEMA_INVALID",
+            )
+            if repl_err is not None:
+                return self._reject(change_id, repl_err[0], repl_err[1],
                                     review_id=review.review_id)
             if persisted_repl.review_status != "candidate":
                 return self._reject(
@@ -304,6 +304,7 @@ class ApplyEngine:
         if existing_app is not None:
             return self._replay_result(
                 change_id, effective_gc, review, idem_key, app_id,
+                effective_hash,
                 target_kind, target_id, target_version, target_dump,
                 existing_app, applied_at, dry_run,
             )
@@ -313,7 +314,7 @@ class ApplyEngine:
         if gate is not None:
             return gate
 
-        # 17. Current-graph / version preflight（dry-run 也执行）
+        # 17. Current-graph / version preflight（strict read；dry-run 也执行）
         preflight_err = self._target_preflight(
             target_kind, target_id, target_version, target_dump
         )
@@ -340,27 +341,33 @@ class ApplyEngine:
                 dry_run=True,
             )
 
-        # 19. BEGIN IMMEDIATE 事务（消除 TOCTOU；任一步失败 ROLLBACK ALL）
+        # 19. BEGIN IMMEDIATE 事务（消除 TOCTOU；COMMIT 失败传播；任一步失败 ROLLBACK ALL）
         try:
             with self._db.immediate_transaction() as conn:
                 # 事务内 recheck idempotency（并发窗口内已有写入）
                 existing = conn.execute(
-                    "SELECT application_id, payload, applied_at FROM graph_applications "
-                    "WHERE idempotency_key = ?",
+                    "SELECT application_id, graph_change_id, review_id, "
+                    "idempotency_key, payload, applied_at "
+                    "FROM graph_applications WHERE idempotency_key = ?",
                     (idem_key,),
                 ).fetchone()
                 if existing is not None:
                     existing_app = {
                         "application_id": existing["application_id"],
+                        "graph_change_id": existing["graph_change_id"],
+                        "review_id": existing["review_id"],
+                        "idempotency_key": existing["idempotency_key"],
                         "payload": json.loads(existing["payload"]),
                         "applied_at": existing["applied_at"],
                     }
                     raise _InTxnReplay(existing_app)
 
-                # 事务内 rerun current-state M4 validation（锁内最新状态）
-                gate = self._validate_gates(original_gc, effective_gc, review, applied_at)
+                # 事务内 rerun current-state M4 validation（锁内最新状态），
+                # gate 失败保留原始 error_code（_InTxnRejected signal）
+                gate = self._validate_gates(original_gc, effective_gc, review,
+                                            applied_at)
                 if gate is not None:
-                    raise ValueError("; ".join(gate.errors))
+                    raise _InTxnRejected(gate)
 
                 # recheck target/version（append 方法内部强校验）
                 if target_kind == "node":
@@ -372,21 +379,11 @@ class ApplyEngine:
                 if result not in ("inserted", "idempotent_noop"):
                     raise ValueError(f"target append failed: {result}")
 
-                # append GraphApplication（INSERT ONLY）
-                payload = {
-                    "application_id": app_id,
-                    "original_graph_change_id": change_id,
-                    "effective_graph_change_id": effective_gc.graph_change_id,
-                    "review_id": review.review_id,
-                    "decision": review.decision,
-                    "review_candidate_hash": review.candidate_hash,
-                    "effective_candidate_hash": effective_hash,
-                    "target_kind": target_kind,
-                    "target_id": target_id,
-                    "target_version": target_version,
-                    "applied_at": applied_at,
-                    "status": "applied",
-                }
+                # append GraphApplication（INSERT ONLY，完整 immutable）
+                payload = self._build_application_payload(
+                    app_id, change_id, effective_gc, review, effective_hash,
+                    target_kind, target_id, target_version, applied_at,
+                )
                 app_result = self._graph_repo.append_application(
                     app_id,
                     effective_gc.graph_change_id,
@@ -402,12 +399,16 @@ class ApplyEngine:
             # 事务内发现已存在 application（并发窗口）：走 replay 验证
             return self._replay_result(
                 change_id, effective_gc, review, idem_key, app_id,
+                effective_hash,
                 target_kind, target_id, target_version, target_dump,
                 replay.existing_app, applied_at, dry_run=False,
             )
+        except _InTxnRejected as rejected:
+            # 事务内 gate 失败：ROLLBACK 后返回原始 ApplyResult（保留精确 error_code）
+            return rejected.result
         except Exception as e:
             return self._reject(
-                change_id, "APPLY_FAILED", str(e),
+                change_id, self._map_apply_exception(e), str(e),
                 review_id=review.review_id,
                 effective_gc_id=effective_gc.graph_change_id,
             )
@@ -425,10 +426,57 @@ class ApplyEngine:
             applied_at=applied_at,
         )
 
-    # ── review selection ────────────────────────────────────
+    # ── strict graph-change loader（M6-R1） ─────────────────
+
+    def _load_graph_change_strict(
+        self,
+        graph_change_id: str,
+        *,
+        missing_code: str = "CANDIDATE_NOT_FOUND",
+        read_code: str = "CANDIDATE_READ_FAILED",
+        payload_code: str = "CANDIDATE_PAYLOAD_INVALID",
+        schema_code: str = "CANDIDATE_SCHEMA_INVALID",
+    ) -> Tuple[Optional[GraphChange], Optional[Tuple[str, str]]]:
+        """M6 strict candidate/replacement loader。
+
+        直接 SELECT payload FROM graph_changes，然后 Schema-first：
+        - DB error → (None, (read_code, msg))
+        - missing → (None, (missing_code, msg))
+        - invalid JSON → (None, (payload_code, msg))
+        - raw schema → GraphChange → dump schema（任一失败 → schema_code）
+
+        Returns:
+            (GraphChange, None) 或 (None, (error_code, message))
+        """
+        try:
+            row = self._db._conn.execute(
+                "SELECT payload FROM graph_changes WHERE graph_change_id = ?",
+                (graph_change_id,),
+            ).fetchone()
+        except Exception as e:
+            return None, (read_code, f"DB error reading graph_change {graph_change_id}: {e}")
+        if row is None:
+            return None, (missing_code, f"GraphChange not found: {graph_change_id}")
+        try:
+            candidate_dict = json.loads(row["payload"])
+        except Exception as e:
+            return None, (payload_code,
+                          f"GraphChange {graph_change_id} payload invalid JSON: {e}")
+        gc, err = schema_first_graph_change(candidate_dict)
+        if err:
+            return None, (schema_code, err)
+        return gc, None
+
+    # ── review selection（fail-closed） ──────────────────────
 
     def _select_review(self, change_id: str, review_id: Optional[str]) -> Any:
         """GraphReview selection（显式 --review-id 或 0/1/>1 确定性规则）。
+
+        SQL error / JSON decode / malformed payload 全部 fail-closed：
+        REVIEW_READ_FAILED / REVIEW_PAYLOAD_INVALID。
+
+        >1 reviews 时直接使用 DB review_id column 的稳定排序，
+        不解析 payload 得到 review IDs。
 
         Returns:
             review dict；或 error code 字符串（错误详情存于 self._last_error）。
@@ -440,12 +488,16 @@ class ApplyEngine:
                     (review_id,),
                 ).fetchone()
             except Exception as e:
-                self._last_error = f"DB error reading review {review_id}: {e}"
+                self._last_error = f"REVIEW_READ_FAILED: DB error reading review {review_id}: {e}"
                 return "REVIEW_READ_FAILED"
             if row is None:
-                self._last_error = f"Review not found: {review_id}"
+                self._last_error = f"REVIEW_NOT_FOUND: Review not found: {review_id}"
                 return "REVIEW_NOT_FOUND"
-            review_dict = json.loads(row["payload"])
+            try:
+                review_dict = json.loads(row["payload"])
+            except Exception as e:
+                self._last_error = f"REVIEW_PAYLOAD_INVALID: review {review_id} payload invalid JSON: {e}"
+                return "REVIEW_PAYLOAD_INVALID"
             if review_dict.get("graph_change_id") != change_id:
                 self._last_error = (
                     f"REVIEW_CHANGE_MISMATCH: review {review_id} 属于 "
@@ -456,12 +508,12 @@ class ApplyEngine:
 
         try:
             rows = self._db._conn.execute(
-                "SELECT payload FROM graph_reviews WHERE graph_change_id = ? "
-                "ORDER BY reviewed_at, review_id",
+                "SELECT review_id, payload FROM graph_reviews "
+                "WHERE graph_change_id = ? ORDER BY review_id",
                 (change_id,),
             ).fetchall()
         except Exception as e:
-            self._last_error = f"DB error reading reviews for {change_id}: {e}"
+            self._last_error = f"REVIEW_READ_FAILED: DB error reading reviews for {change_id}: {e}"
             return "REVIEW_READ_FAILED"
 
         if not rows:
@@ -470,21 +522,32 @@ class ApplyEngine:
             )
             return "REVIEW_REQUIRED"
         if len(rows) > 1:
-            ids = [json.loads(r["payload"]).get("review_id") for r in rows]
+            # DB review_id column 的稳定排序（不解析 payload）
+            ids = [r["review_id"] for r in rows]
             self._last_error = (
                 f"AMBIGUOUS_REVIEW_SELECTION: candidate {change_id} 有 {len(rows)} "
                 f"条审核记录 {ids}，必须显式提供 --review-id"
             )
             return "AMBIGUOUS_REVIEW_SELECTION"
-        return json.loads(rows[0]["payload"])
+        try:
+            return json.loads(rows[0]["payload"])
+        except Exception as e:
+            self._last_error = (
+                f"REVIEW_PAYLOAD_INVALID: selected review payload invalid JSON: {e}"
+            )
+            return "REVIEW_PAYLOAD_INVALID"
 
     # ── M4 validation 组合门 ────────────────────────────────
 
     def _validate_gates(self, original_gc, effective_gc, review, applied_at):
         """M4 validation 组合门（approved / approved_with_changes）。
 
+        approved_with_changes 的 effective Evidence 必须满足 review-time
+        information closure（published_at / retrieved_at <= reviewed_at），
+        因此 replacement 的 validate_candidate 使用 as_of=review.reviewed_at。
+
         Returns:
-            None（通过）或 ApplyResult（APPLY_REJECTED）。
+            None（通过）或 ApplyResult（APPLY_REJECTED，error_code 精确）。
         """
         if review.decision == "approved":
             vres = self._validator.validate_apply_preflight(
@@ -522,8 +585,39 @@ class ApplyEngine:
                 review_id=review.review_id,
                 effective_gc_id=effective_gc.graph_change_id,
             )
-        # replacement validate_candidate（全绿要求）
-        cres = self._validator.validate_candidate(effective_gc, applied_at)
+
+        # review-time information closure：
+        # effective replacement 的全部 Evidence 必须 retrieved_at <= reviewed_at
+        # （人工审核发生在 reviewed_at；不能因为 apply 时已拿到 Evidence
+        #   就认为审核时见过它——复用 M4 KGV-007 review 逻辑，不改语义）
+        closure_issues = self._validator.evidence_review_time_closure(
+            effective_gc, review
+        )
+        retrieved_after = [i for i in closure_issues
+                           if i.code == "EVIDENCE_RETRIEVED_AFTER_REVIEW"]
+        if retrieved_after:
+            msgs = [f"{i.rule_id}: {i.message}" for i in retrieved_after]
+            return self._reject(
+                original_gc.graph_change_id, "EVIDENCE_RETRIEVED_AFTER_REVIEW",
+                "effective Evidence 在 review 之后才被获取: " + "; ".join(msgs),
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+        lookup_failed = [i for i in closure_issues
+                         if i.code == "EVIDENCE_LOOKUP_FAILED"]
+        if lookup_failed:
+            msgs = [f"{i.rule_id}: {i.message}" for i in lookup_failed]
+            return self._reject(
+                original_gc.graph_change_id, "EVIDENCE_LOOKUP_FAILED",
+                "effective Evidence review-time 检查失败: " + "; ".join(msgs),
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+
+        # replacement validate_candidate：
+        # as_of = review.reviewed_at（review-time information cutoff；
+        #      replacement 的 published_at <= reviewed_at 由 KGV-014 保证）
+        cres = self._validator.validate_candidate(effective_gc, review.reviewed_at)
         if not (cres.structural_ok and cres.review_eligible and cres.apply_eligible):
             msgs = [f"{i.rule_id}: {i.message}" for i in cres.issues
                     if i.blocks_review or i.blocks_apply]
@@ -612,25 +706,48 @@ class ApplyEngine:
         app_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "graph-application:" + idem_key))
         return idem_key, app_id
 
-    # ── target/version preflight ────────────────────────────
+    def _build_application_payload(
+        self, app_id, change_id, effective_gc, review, effective_hash,
+        target_kind, target_id, target_version, applied_at,
+    ) -> dict:
+        """GraphApplication internal audit payload（status=applied）。"""
+        return {
+            "application_id": app_id,
+            "original_graph_change_id": change_id,
+            "effective_graph_change_id": effective_gc.graph_change_id,
+            "review_id": review.review_id,
+            "decision": review.decision,
+            "review_candidate_hash": review.candidate_hash,
+            "effective_candidate_hash": effective_hash,
+            "target_kind": target_kind,
+            "target_id": target_id,
+            "target_version": target_version,
+            "applied_at": applied_at,
+            "status": "applied",
+        }
+
+    # ── target/version strict preflight ─────────────────────
 
     def _target_preflight(self, target_kind, target_id, target_version,
                           target_dump) -> Optional[Tuple[str, str]]:
-        """current-graph / version preflight（dry-run 与写前共用）。
+        """current-graph / version preflight（strict read；dry-run 与写前共用）。
 
-        - 目标 (id, version) 已存在且 payload 一致 → TARGET_ALREADY_EXISTS_IDEMPOTENT
-        - 已存在但 payload 不同 → TARGET_VERSION_CONFLICT
-        - 版本规则：首个版本必须 1，后续必须 N+1（与 append_node/append_edge 一致）
+        DB error / invalid JSON / malformed persisted target 全部
+        → 结构化 (error_code, message)。
 
         Returns:
             None（可写）或 (error_code, message)。
         """
-        if target_kind == "node":
-            existing = self._graph_repo.get_node_version(target_id, target_version)
-            latest = self._graph_repo.get_latest_node_version(target_id)
-        else:
-            existing = self._graph_repo.get_edge_version(target_id, target_version)
-            latest = self._graph_repo.get_latest_edge_version(target_id)
+        try:
+            if target_kind == "node":
+                existing = self._graph_repo.get_node_version(target_id, target_version)
+                latest = self._graph_repo.get_latest_node_version(target_id)
+            else:
+                existing = self._graph_repo.get_edge_version(target_id, target_version)
+                latest = self._graph_repo.get_latest_edge_version(target_id)
+        except Exception as e:
+            return ("TARGET_READ_FAILED",
+                    f"{target_kind} {target_id} 读取失败: {e}")
         if existing is not None:
             if _canonical_json(existing) == _canonical_json(target_dump):
                 return ("TARGET_ALREADY_EXISTS_IDEMPOTENT",
@@ -647,50 +764,93 @@ class ApplyEngine:
                     f"got version={target_version}（期望 {latest + 1}）")
         return None
 
-    # ── replay verification ─────────────────────────────────
+    # ── replay verification（完整 audit） ────────────────────
 
     def _replay_result(self, change_id, effective_gc, review, idem_key, app_id,
+                       effective_hash,
                        target_kind, target_id, target_version, target_dump,
                        existing_app, applied_at, dry_run) -> ApplyResult:
-        """已存在 GraphApplication 的 replay 验证。
+        """已存在 GraphApplication 的 replay 验证（完整 audit）。
 
-        - application audit integrity + target 存在 + payload 一致
-          → IDEMPOTENT_NOOP（返回已有 application_id/applied_at）
-        - 任何不一致 → APPLICATION_INTEGRITY_CONFLICT（不得冒充幂等）
+        必须验证：
+        1. expected audit canonical payload 与 stored payload 全对象相等
+           （使用 stored applied_at 构造 expected payload）
+        2. DB columns：application_id / graph_change_id / review_id /
+           idempotency_key / applied_at 全部与 deterministic 值一致
+        3. target 存在、version 精确、canonical payload 精确
+
+        任一不一致 → APPLICATION_INTEGRITY_CONFLICT（不得冒充幂等）。
         """
         app_payload = existing_app.get("payload") or {}
-        # audit integrity：派生字段必须一致
-        if app_payload.get("target_kind") != target_kind:
-            return self._reject(change_id, "APPLICATION_INTEGRITY_CONFLICT",
-                                "application.target_kind 不一致",
-                                review_id=review.review_id,
-                                effective_gc_id=effective_gc.graph_change_id)
-        if app_payload.get("target_id") != target_id:
-            return self._reject(change_id, "APPLICATION_INTEGRITY_CONFLICT",
-                                "application.target_id 不一致",
-                                review_id=review.review_id,
-                                effective_gc_id=effective_gc.graph_change_id)
-        if app_payload.get("target_version") != target_version:
-            return self._reject(change_id, "APPLICATION_INTEGRITY_CONFLICT",
-                                "application.target_version 不一致",
-                                review_id=review.review_id,
-                                effective_gc_id=effective_gc.graph_change_id)
-        if app_payload.get("effective_graph_change_id") != effective_gc.graph_change_id:
-            return self._reject(change_id, "APPLICATION_INTEGRITY_CONFLICT",
-                                "application.effective_graph_change_id 不一致",
-                                review_id=review.review_id,
-                                effective_gc_id=effective_gc.graph_change_id)
-        if app_payload.get("review_id") != review.review_id:
-            return self._reject(change_id, "APPLICATION_INTEGRITY_CONFLICT",
-                                "application.review_id 不一致",
-                                review_id=review.review_id,
-                                effective_gc_id=effective_gc.graph_change_id)
+        stored_applied_at = existing_app.get("applied_at") or app_payload.get("applied_at")
 
-        # target 存在 + payload 一致
-        if target_kind == "node":
-            persisted = self._graph_repo.get_node_version(target_id, target_version)
-        else:
-            persisted = self._graph_repo.get_edge_version(target_id, target_version)
+        # 1. expected audit canonical payload（使用 stored applied_at）
+        expected_payload = self._build_application_payload(
+            app_id, change_id, effective_gc, review, effective_hash,
+            target_kind, target_id, target_version,
+            stored_applied_at if stored_applied_at is not None else applied_at,
+        )
+        if _canonical_json(app_payload) != _canonical_json(expected_payload):
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                "application payload 与 expected audit 不一致（被篡改）",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+
+        # 2. DB columns 全部验证
+        if existing_app.get("application_id") != app_id:
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                "application_id 与 deterministic app_id 不一致",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+        if existing_app.get("graph_change_id") != effective_gc.graph_change_id:
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                "graph_change_id 与 effective_graph_change_id 不一致",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+        if existing_app.get("review_id") != review.review_id:
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                "review_id 不一致",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+        if existing_app.get("idempotency_key") != idem_key:
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                "idempotency_key 与 deterministic idem_key 不一致",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+        if existing_app.get("applied_at") != expected_payload["applied_at"]:
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                "applied_at column 与 expected payload 不一致",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
+
+        # 3. target 存在 + payload 一致（strict read）
+        try:
+            if target_kind == "node":
+                persisted = self._graph_repo.get_node_version(target_id, target_version)
+            else:
+                persisted = self._graph_repo.get_edge_version(target_id, target_version)
+        except Exception as e:
+            # replay 场景：application 已存在但 target 状态异常（invalid JSON /
+            # DB error）→ 完整性冲突（不得 fail-open 冒充幂等）
+            return self._reject(
+                change_id, "APPLICATION_INTEGRITY_CONFLICT",
+                f"application 存在但 target {target_kind} {target_id} "
+                f"v{target_version} 读取失败: {e}",
+                review_id=review.review_id,
+                effective_gc_id=effective_gc.graph_change_id,
+            )
         if persisted is None:
             return self._reject(
                 change_id, "APPLICATION_INTEGRITY_CONFLICT",
@@ -709,7 +869,6 @@ class ApplyEngine:
             )
 
         # 全部一致 → IDEMPOTENT_NOOP
-        stored_applied_at = existing_app.get("applied_at") or app_payload.get("applied_at")
         return ApplyResult(
             status="idempotent_noop",
             original_graph_change_id=change_id,
@@ -726,15 +885,34 @@ class ApplyEngine:
 
     # ── helpers ─────────────────────────────────────────────
 
+    @staticmethod
+    def _map_apply_exception(exc: Exception) -> str:
+        """把事务内异常映射为精确 error code。"""
+        msg = str(exc)
+        if msg.startswith("IMMUTABLE_APPLICATION_CONFLICT"):
+            return "APPLICATION_INTEGRITY_CONFLICT"
+        if msg.startswith("IMMUTABLE_VERSION_CONFLICT"):
+            return "TARGET_VERSION_CONFLICT"
+        if msg.startswith("VERSION_VIOLATION"):
+            return "VERSION_VIOLATION"
+        if msg.startswith("VERSION_GAP"):
+            return "VERSION_GAP"
+        if "ACTIVE_TRANSACTION_CONFLICT" in msg:
+            return "ACTIVE_TRANSACTION_CONFLICT"
+        if msg.startswith("REPLACEMENT_"):
+            return "REPLACEMENT_" + msg.split(":", 1)[0].split("_", 1)[-1]
+        return "APPLY_FAILED"
+
     def _reject(self, change_id, error_code: str, message: str, *,
                 review_id: str = "", effective_gc_id: str = "") -> ApplyResult:
-        """构造 APPLY_REJECTED 结果（error code 明确）。"""
+        """构造 APPLY_REJECTED 结果（error_code 精确机械 code）。"""
         return ApplyResult(
             status="APPLY_REJECTED",
             original_graph_change_id=change_id,
             effective_graph_change_id=effective_gc_id or change_id,
             review_id=review_id,
-            errors=(f"{error_code}: {message}",),
+            error_code=error_code,
+            errors=(message,),
         )
 
 
@@ -744,3 +922,11 @@ class _InTxnReplay(Exception):
     def __init__(self, existing_app: dict):
         super().__init__("idempotent replay detected inside transaction")
         self.existing_app = existing_app
+
+
+class _InTxnRejected(Exception):
+    """事务内 gate 失败（并发窗口内最新状态）——保留原始 ApplyResult。"""
+
+    def __init__(self, result: ApplyResult):
+        super().__init__(result.errors[0] if result.errors else "rejected inside transaction")
+        self.result = result

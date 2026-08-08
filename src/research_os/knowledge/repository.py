@@ -315,23 +315,35 @@ class GraphRepository:
     # ---- application (M6) ----
 
     def get_application_by_idempotency_key(self, idempotency_key: str) -> Optional[Dict]:
-        """按 idempotency_key 读取 GraphApplication（strict read）。
+        """按 idempotency_key 读取 GraphApplication 全部列（strict read）。
 
-        DB error 直接上抛（M6 strict read path 禁止 fail-open）。
+        JSON parse failure 直接上抛（M6 strict read path 禁止 fail-open，
+        由 engine 转 APPLICATION_INTEGRITY_CONFLICT / APPLICATION_READ_FAILED）。
 
         Returns:
-            {"application_id": ..., "payload": {...}, "applied_at": ...}
+            {
+                "application_id": ...,
+                "graph_change_id": ...,
+                "review_id": ...,
+                "idempotency_key": ...,
+                "payload": {...},
+                "applied_at": ...,
+            }
             或 None（不存在）。
         """
         row = self._db._conn.execute(
-            "SELECT application_id, payload, applied_at FROM graph_applications "
-            "WHERE idempotency_key = ?",
+            "SELECT application_id, graph_change_id, review_id, "
+            "idempotency_key, payload, applied_at "
+            "FROM graph_applications WHERE idempotency_key = ?",
             (idempotency_key,),
         ).fetchone()
         if row is None:
             return None
         return {
             "application_id": row["application_id"],
+            "graph_change_id": row["graph_change_id"],
+            "review_id": row["review_id"],
+            "idempotency_key": row["idempotency_key"],
             "payload": json.loads(row["payload"]),
             "applied_at": row["applied_at"],
         }
@@ -354,11 +366,14 @@ class GraphRepository:
         applied_at: str,
         conn: Optional[sqlite3.Connection] = None,
     ) -> str:
-        """追加 GraphApplication（INSERT ONLY，幂等 + 不可变冲突）。
+        """追加 GraphApplication（INSERT ONLY，完整 immutable contract）。
 
-        - 同 idempotency_key + 同 payload → idempotent_noop
-        - 同 idempotency_key + 异 payload → IMMUTABLE_APPLICATION_CONFLICT
-          （不得覆盖）
+        - 已有同 application_id 或同 idempotency_key：
+          只有 all columns same（application_id / graph_change_id / review_id /
+          idempotency_key / applied_at）AND canonical payload same
+          才返回 idempotent_noop；
+          否则 IMMUTABLE_APPLICATION_CONFLICT（不得覆盖）。
+        - 不得仅比较 payload。
 
         Args:
             application_id: UUID5 确定性 application ID。
@@ -373,7 +388,7 @@ class GraphRepository:
             "inserted" / "idempotent_noop"
 
         Raises:
-            ValueError: Schema 校验失败 / 不可变冲突。
+            ValueError: 不可变冲突。
         """
         canonical_payload = json.dumps(
             payload,
@@ -382,17 +397,30 @@ class GraphRepository:
             separators=(",", ":"),
         )
 
+        def _row_matches(row) -> bool:
+            """all columns + canonical payload 全部一致才算幂等。"""
+            return (
+                row["application_id"] == application_id
+                and row["graph_change_id"] == graph_change_id
+                and row["review_id"] == review_id
+                and row["idempotency_key"] == idempotency_key
+                and row["applied_at"] == applied_at
+                and row["payload"] == canonical_payload
+            )
+
         def _do(conn):
             existing = conn.execute(
-                "SELECT payload FROM graph_applications WHERE idempotency_key = ?",
-                (idempotency_key,),
+                "SELECT application_id, graph_change_id, review_id, "
+                "idempotency_key, payload, applied_at "
+                "FROM graph_applications WHERE application_id = ? OR idempotency_key = ?",
+                (application_id, idempotency_key),
             ).fetchone()
             if existing is not None:
-                if existing["payload"] == canonical_payload:
+                if _row_matches(existing):
                     return "idempotent_noop"
                 raise ValueError(
-                    f"IMMUTABLE_APPLICATION_CONFLICT: idempotency_key={idempotency_key} "
-                    f"already exists with different payload"
+                    f"IMMUTABLE_APPLICATION_CONFLICT: application_id={application_id} "
+                    f"/ idempotency_key={idempotency_key} 已存在但 columns/payload 不同"
                 )
             conn.execute(
                 """INSERT INTO graph_applications (

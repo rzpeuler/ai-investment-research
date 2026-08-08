@@ -1032,6 +1032,21 @@ class KnowledgeValidator:
 
         return issues
 
+    def evidence_review_time_closure(
+        self,
+        graph_change: GraphChange,
+        graph_review: GraphReview,
+    ) -> List[KnowledgeValidationIssue]:
+        """M6 review-time information closure（只读，不改 KGV-007 语义）。
+
+        effective replacement 的全部 Evidence 必须满足：
+        `retrieved_at <= review.reviewed_at`（人工审核发生在 reviewed_at，
+        不能因为 apply 时已拿到 Evidence 就认为审核时见过它）。
+
+        复用现有 `_check_kgv007_review` 逻辑，不复制第二套时间算法。
+        """
+        return self._check_kgv007_review(graph_change, graph_review)
+
     def _check_kgv008(self, gc: GraphChange) -> List[KnowledgeValidationIssue]:
         """KGV-008: Source Tier — use new_evidence_ids ONLY.
 

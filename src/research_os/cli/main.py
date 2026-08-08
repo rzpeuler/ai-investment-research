@@ -1081,6 +1081,7 @@ def knowledge_apply(change_id, review_id, db_path, dry_run, applied_at) -> None:
             "target_version": result.target_version,
             "applied_at": result.applied_at,
             "dry_run": result.dry_run,
+            "error_code": result.error_code,
             "warnings": list(result.warnings),
         }
         if result.errors:

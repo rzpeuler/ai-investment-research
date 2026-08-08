@@ -137,6 +137,14 @@ class _ImmediateTransaction:
 
     用于 M6 Apply Engine：事务开始即获取写锁，事务内 rerun preflight/
     validation 后再写入，任一步失败整体 ROLLBACK。
+
+    语义（M6-R1 冻结）：
+    - 进入时若调用者已有活动事务（conn.in_transaction 为 True），
+      不得自动 commit 清场——raise ACTIVE_TRANSACTION_CONFLICT（RuntimeError），
+      由调用方转 APPLY_REJECTED。
+    - 正常退出：COMMIT 任何失败必须异常传播（调用方不得返回成功）。
+    - 异常退出：执行 ROLLBACK；若 rollback 自己失败，不得把原始业务异常
+      变成成功——保留原始异常并附加 rollback context。
     """
 
     def __init__(self, db: "Database"):
@@ -144,21 +152,28 @@ class _ImmediateTransaction:
 
     def __enter__(self) -> sqlite3.Connection:
         conn = self._db._conn
-        # 结束任何隐式活动事务（python commit() 无活动事务时是 no-op）
-        conn.commit()
+        if conn.in_transaction:
+            raise RuntimeError(
+                "ACTIVE_TRANSACTION_CONFLICT: immediate_transaction() 不得自动提交"
+                "调用者已有事务（M6 不得擅自 commit 调用者已有 work）"
+            )
         conn.execute("BEGIN IMMEDIATE")
         return conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         conn = self._db._conn
-        try:
-            if exc_type is not None:
+        if exc_type is not None:
+            try:
                 conn.execute("ROLLBACK")
-            else:
-                conn.execute("COMMIT")
-        except sqlite3.OperationalError:
-            # 事务已被外部终止（例如连接错误），无需再次回滚
-            pass
+            except sqlite3.OperationalError as rollback_err:
+                # rollback 失败：保留原始业务异常并附加 rollback context，
+                # 绝不能 silent success
+                raise RuntimeError(
+                    f"ROLLBACK failed after {exc_type.__name__}: {exc_val}"
+                ) from rollback_err
+            return False  # 原始业务异常继续传播
+        # 正常退出：COMMIT 任何失败必须传播，调用方不得返回 applied
+        conn.execute("COMMIT")
         return False
 
 
@@ -168,11 +183,9 @@ class Database:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # check_same_thread=False：生产路径为本地单用户同步 CLI 契约（单线程）；
-        # 放宽仅用于满足 M6 双连接并发测试中"主线程 setup、工作线程 apply"的
-        # 跨线程使用模式（SQLite WAL + busy timeout 保证连接级安全）。
-        # 生产代码不得在多个线程中同时使用同一 Database 连接执行写操作。
-        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        # 保持 sqlite3 默认线程保护（check_same_thread=True）：
+        # 生产路径为单线程同步 CLI 契约，全局不削弱跨线程误用防护。
+        self._conn = sqlite3.connect(str(self.path))
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -186,7 +199,7 @@ class Database:
         instance = cls.__new__(cls)
         instance.path = resolved
         uri = resolved.as_uri() + "?mode=ro"
-        instance._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        instance._conn = sqlite3.connect(uri, uri=True)
         instance._conn.row_factory = sqlite3.Row
         instance._conn.execute("PRAGMA foreign_keys=ON")
         return instance

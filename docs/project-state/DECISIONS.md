@@ -691,8 +691,78 @@ DocumentBlock/locator、checksum 和官方 URL。普通 CSV、手工金额或无
     成功输出 deterministic JSON（status / original_graph_change_id /
     effective_graph_change_id / review_id / application_id / idempotency_key /
     target_kind / target_id / target_version / applied_at / dry_run / warnings）；
-    失败 non-zero exit + `status=APPLY_REJECTED` + error_code + errors，
+    失败 non-zero exit + `status=APPLY_REJECTED` + `error_code` + errors，
     不得 silent failure。
+
+### 36.8a M6-R1 Apply Safety Closure 补充（2026-08-08）
+
+> M6 尚未验收，直接补充本决定；不另立 Decision #37。
+
+29. **immediate_transaction 语义**：
+    - COMMIT 失败必须异常传播（ApplyEngine 不得返回 applied）；不得
+      `except OperationalError: pass` 吞掉 COMMIT/ROLLBACK 失败。
+    - 进入 BEGIN IMMEDIATE 前若调用者已有活动事务（`conn.in_transaction`），
+      不得自动 commit 清场——raise `ACTIVE_TRANSACTION_CONFLICT`
+      （RuntimeError），由 ApplyEngine 转 `APPLY_REJECTED`。
+    - 异常退出执行 ROLLBACK；若 rollback 自己失败，不得把原始业务异常变成
+      成功——保留原始异常并附加 rollback context。
+30. **SQLite 线程保护**：恢复 sqlite3 默认 `check_same_thread=True`
+    （全局不削弱跨线程误用防护）。并发测试改为每个 worker thread
+    在自己的线程内创建 Database connection（仍为 same SQLite file +
+    two independent connections + BEGIN IMMEDIATE）。
+31. **strict reads**：M6 不得依赖 `candidate_repo.get_candidate()`
+    处理安全关键读取。新增 `_load_graph_change_strict()`（直接
+    SELECT payload FROM graph_changes → DB error/missing/invalid JSON/
+    Schema 失败全部映射结构化 code：CANDIDATE_READ_FAILED /
+    CANDIDATE_NOT_FOUND / CANDIDATE_PAYLOAD_INVALID /
+    CANDIDATE_SCHEMA_INVALID；replacement 用 REPLACEMENT_* 对应 code）。
+    review selection 的 SQL error / JSON decode / malformed payload 全部
+    fail-closed（REVIEW_READ_FAILED / REVIEW_PAYLOAD_INVALID）；>1 reviews
+    时 ambiguity message 直接使用 DB review_id column 稳定排序，不解析 payload。
+    target/version strict read 的 DB error / invalid JSON → 结构化拒绝，
+    ApplyEngine public API 不得直接 crash。
+32. **ApplyResult.error_code**：`error_code: str | None`；所有拒绝路径
+    `status=APPLY_REJECTED` + 精确机械 code（如 REVIEW_REQUIRED /
+    AMBIGUOUS_REVIEW_SELECTION / CANDIDATE_HASH_MISMATCH / STALE_REVIEW /
+    APPLICATION_INTEGRITY_CONFLICT / APPLY_TIME_INVALID /
+    CHANGE_TYPE_REQUIRES_M7），成功为 null；`errors` 保存人类可读信息。
+    调用方不再从字符串 prefix 反解析 code。
+33. **事务内 revalidation 保留 error code**：事务内 gate 失败使用内部 signal
+    `_InTxnRejected(ApplyResult)`，ROLLBACK 后返回原始 ApplyResult
+    （保留 STALE_REVIEW / M4_APPLY_PREFLIGHT_FAILED /
+    M4_REPLACEMENT_VALIDATION_FAILED 等精确 code）；
+    target/application immutable conflict 映射精确 code
+    （TARGET_VERSION_CONFLICT / VERSION_VIOLATION / VERSION_GAP /
+    APPLICATION_INTEGRITY_CONFLICT）。
+34. **GraphApplication replay 验证完整 audit**：
+    - `get_application_by_idempotency_key()` 返回全部列
+      （application_id / graph_change_id / review_id / idempotency_key /
+      payload / applied_at）；JSON parse failure 上抛，由 engine 转
+      `APPLICATION_INTEGRITY_CONFLICT` / `APPLICATION_READ_FAILED`。
+    - replay 时用 stored applied_at 构造 expected payload，canonical
+      全对象相等；DB columns 全部与 deterministic 值一致
+      （application_id == deterministic app_id、
+      graph_change_id == effective_graph_change_id、
+      review_id == review.review_id、
+      idempotency_key == deterministic idem_key、
+      applied_at == expected_payload.applied_at）；
+      再验证 target 存在 / version 精确 / canonical payload 精确。
+      任一不一致 → `APPLICATION_INTEGRITY_CONFLICT`。不得只检查少数字段。
+    - `append_application()` 完整 immutable：application_id 或
+      idempotency_key 已存在时，只有 all columns same AND canonical
+      payload same 才 idempotent_noop，否则
+      `IMMUTABLE_APPLICATION_CONFLICT`；不得仅比较 payload。
+35. **approved_with_changes effective Evidence review-time closure**：
+    人工 review 发生在 `review.reviewed_at`，因此 effective replacement
+    的全部 Evidence 必须证明 `published_at <= reviewed_at` 且
+    `retrieved_at <= reviewed_at`，而不是只要求 `<= applied_at`。
+    实现：保留 original `validate_review(original, review, ...)` + KGV-019
+    stale gate；effective replacement 的 `validate_candidate(effective_gc,
+    as_of=review.reviewed_at)` 用于 review-time information cutoff；
+    复用 M4 KGV-007 的 review-time Evidence 逻辑（只读 helper
+    `evidence_review_time_closure()`，不改 KGV-007 语义、不改现有 M4
+    results）。时间攻击（review 后 SQL mutation evidence 时间）→
+    `EVIDENCE_RETRIEVED_AFTER_REVIEW` 拒绝。
 
 ### 36.9 M6 严格不实现
 

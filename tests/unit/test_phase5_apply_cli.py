@@ -321,6 +321,7 @@ class TestApplyCli:
         assert result.exit_code == 1
         out = json.loads(result.output)
         assert out["status"] == "APPLY_REJECTED"
+        assert out["error_code"] == "REVIEW_REQUIRED"
         assert any("REVIEW_REQUIRED" in e for e in out["errors"])
 
     def test_apply_dry_run_zero_writes(self, project_env, monkeypatch):
