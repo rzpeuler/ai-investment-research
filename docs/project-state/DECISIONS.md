@@ -1704,3 +1704,16 @@ Graph→Research 不实现，JSON mirror 不实现。
 > - This correction replaces remaining stale claims with explicit terminal state.
 > - No runtime, schema, migration, or M10 acceptance semantics changed.
 > - Phase5: CLOSED / PASS. Phase6: NOT_AUTHORIZED.
+
+### 40.17 Phase5 Final Governance Closure（2026-08-09）
+
+> - #40.15, #40.16 对 "fully closed" 的判断仍过早。
+>   最后独立审查发现：KNOWN_LIMITATIONS stale `Phase 5 = BLOCKED`；
+>   NEXT_PHASE stale `禁止 merge PR5C`；
+>   governance test 将 KNOWN_LIMITATIONS 错分为 historical；
+>   CURRENT_STATE `code_baseline` 语义不清。
+> - 本轮关闭以上缺口。
+> - Phase 5 engineering acceptance 不变。M10 acceptance 不变。
+> - Schema / migration / DB / runtime 均不变。
+> - Phase 5 = CLOSED / PASS。Phase 6 implementation = NOT_AUTHORIZED。
+> - Governance-only PR 的未来 merge SHA 不再要求通过另一个 PR 回填。
