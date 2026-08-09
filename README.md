@@ -56,8 +56,8 @@ Schema 30→51，迁移 user_version=5。
 **Phase 5：IN_PROGRESS**。
 **PR5B**：MERGED（squash merge → `cfdeeba7`）。
 **M0-M8**：**PASS**（M8 SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
-**M9**：**AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`）。
-**M10**：**NOT_AUTHORIZED**。
+**M9**：**PASS**（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
+**M10**：**AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，Draft PR #6）。
 
 ## 快速开始
 

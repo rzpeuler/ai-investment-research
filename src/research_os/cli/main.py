@@ -1504,5 +1504,85 @@ def knowledge_integrate(scenario, run_dir, sources, db_path,
         db.close()
 
 
+@knowledge_group.command("export")
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--project-root", "project_root",
+    default=None,
+    help="项目根目录（默认自动检测）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="完整 SQLite preflight + tree_sha256 计算，0 文件写入。",
+)
+def knowledge_export(db_path, project_root, dry_run) -> None:
+    """M10-A Deterministic JSON Mirror Export。
+
+    零 LLM / 零 Provider / 零 network / 零 DB 写入。
+    SQLite → JSON 确定性导出（graph + history mirror）。
+    """
+    import json as _json
+
+    from research_os.knowledge.exporter import (
+        KnowledgeMirrorExporter,
+        ExportError,
+    )
+    from research_os.knowledge.history import HistoryService
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.storage import Database
+
+    root = Path(project_root) if project_root else _project_root()
+    db_full = root / db_path
+    if not db_full.exists():
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": "EXPORT_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1)
+
+    knowledge_root = root / "knowledge"
+
+    db = Database.open_read_only(db_full) if dry_run else Database(db_full)
+    if not dry_run:
+        db.initialize()
+
+    try:
+        graph_repo = GraphRepository(db)
+        history_service = HistoryService(db, graph_repo)
+        exporter = KnowledgeMirrorExporter(
+            db=db,
+            graph_repo=graph_repo,
+            history_service=history_service,
+            knowledge_root=knowledge_root,
+        )
+        result = exporter.export(dry_run=dry_run)
+    except ExportError as exc:
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": exc.error_code,
+            "errors": [str(exc.message)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    except Exception as exc:
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": "EXPORT_READ_FAILED",
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    finally:
+        db.close()
+
+    click.echo(_json.dumps(
+        result.to_dict(), ensure_ascii=False, sort_keys=True
+    ))
+
+
 if __name__ == "__main__":
     cli()

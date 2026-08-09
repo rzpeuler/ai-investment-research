@@ -1453,3 +1453,81 @@ Graph→Research 不实现，JSON mirror 不实现。
 **测试回归恢复**: 原有 M9 测试覆盖已恢复并强化（56 tests vs R1 45，vs original 40）
 
 **R3 acceptance gate**: Phase3 explicit DB failure status（`failed`/`validation_failed`）is ineligible even when `validation_status == passed`。`SOURCE_FILTER_INVALID` regression restored。
+
+### 39.11 M9 Independent Acceptance（2026-08-09）
+
+> M9 独立架构验收结论：**PASS**。
+
+- **M9_ACCEPTED_SHA**：`d097ca8a21136370ac01e3422a51e7e435530106`
+- **M9_OFFLINE_CI**：`31275096225`
+- **M9_TEST_RESULT**：2068 passed / 5 skipped / 0 failed / 0 xfail
+- **SCHEMAS**：55/55
+- **DB_VERSION**：6
+- **验收范围**：scenario_integration.py（Phase2/3/4 → CandidatePipeline）、run authority closure（artifact ↔ DB canonical equality）、M3 source whitelist 未变、56 tests（vs original 40）
+- **不变性**：no Schema/migration change、source whitelist frozen（9 种）、Phase2/3/4 无行为变化、Graph→Research NOT implemented
+
+---
+
+## 40. Phase 5 M10 Deterministic JSON Mirror + E2E Acceptance Contract（2026-08-09）
+
+> **用户选择**：OPTION_A（在 M10 中实现 JSON Mirror）。
+> **PHASE5_UNRESOLVED_REQUIREMENT**：DETERMINISTIC_JSON_MIRROR → **RESOLUTION: IMPLEMENT_IN_M10**。
+>
+> 历史 Decision #38.10（JSON mirror deferred）保留为历史记录，不删除、不改写。
+> Option A 由用户于 2026-08-09 明确选择。JSON mirror 不再 silent deferred，现为显式 M10 实现要求。
+>
+> M10 独立验收前状态：**JSON_MIRROR: IMPLEMENTATION_IN_PROGRESS**。
+
+### 40.1 M10 分两个子闭包
+
+1. **M10-A**：Deterministic JSON Mirror（exporter + CLI + 32 项目标测试）
+2. **M10-B**：Four-class E2E（Case A-D + full regression + Pro 对抗审查 + Offline CI）
+
+顺序冻结：M10-A → PASS → M10-B。不得先写 E2E 再临时设计 export contract。
+
+### 40.2 M10-A JSON Mirror Authority 原则
+
+- **SQLite = ONLY AUTHORITATIVE SOURCE**。JSON = READ-ONLY DETERMINISTIC EXPORT。
+- 禁止：JSON→SQLite import、JSON→active graph apply、JSON→GraphChange、JSON edit→database sync、bidirectional sync、watcher auto-import。
+- 不新增 `research knowledge import` / `research knowledge sync-from-json` 命令。
+- 人工改 JSON 无数据库效果；下一次 export 由 SQLite 覆盖。
+
+### 40.3 Mirror 输出目录
+
+仅由 exporter 管理：`knowledge/graph/nodes/`、`knowledge/graph/edges/`、`knowledge/history/nodes/`、`knowledge/history/edges/`。
+
+- Graph mirror：每个 stable identity 的 MAX(version) canonical payload（latest persisted version），不执行 now() / business as_of。
+- History mirror：每个 identity 的 version ASC 全量版本。不镜像 GraphChange/Review/Application/Evidence/RawItem/Source。
+- 文件名 encoding：`urllib.parse.quote(object_id, safe="-._~")`（Windows colon → percent encoding）。
+- JSON bytes 冻结：`json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"`，UTF-8。禁止注入 exported_at/now/hostname/absolute path/random id。
+- 单 SQLite read snapshot（显式 BEGIN → 全部 SELECT → ROLLBACK）。preflight 全部成功后才写文件（fail-closed，0 部分输出）。
+- 成功 export 全量替换 managed 目录文件；stale JSON 不残留。
+- `tree_sha256`：按 relative path lexical sort → path+NUL+bytes+NUL 串联 SHA256。
+
+### 40.4 M10-B E2E Cases
+
+**Case A（Governance seed）**：fresh DB → seed → seed again（幂等）→ history → query → export。证明 34 nodes / 31 edges、industry:ai_hardware / semiconductor / ai_software、repeat seed 0 version inflation、GOVERNANCE partition。
+
+**Case B（FACT，真实官方 Evidence）**：company:688981.SH（中芯国际）→ BELONGS_TO → industry_segment:semiconductor:wafer_manufacturing（晶圆制造）。断言 assertion_type=FACT。官方 Evidence：SSE 披露 2024 年年报（URL `https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/2025-03-28/688981_20250328_JLBJ.pdf`，第四节 管理层讨论与分析，PDF 14-15/222）。离线 CI 不联网；一次显式 online acceptance 验证真实来源 URL 可达性和 locator 一致性。真实 production graph 仍需真实人工审核，M10 不写入 production DB。entity 必须正常持久化（禁止 direct SQL graph 设置）。
+
+**Case C（MODEL_INFERENCE）**：persisted structured source → CandidatePipeline → assertion_type=MODEL_INFERENCE。relation 限于 BENEFITS_FROM/HARMED_BY/AFFECTS/SUBSTITUTES。证明 candidate review_status=candidate（非 auto-active）、apply 后仍为 MODEL_INFERENCE、M8 query epistemic 分区中 model_inferences 包含、facts 不包含、JSON mirror 保持 assertion_type 标签。
+
+**Case D（Conflict / rejected）**：两个不兼容 evidence-backed 结构化对象 → GraphChange.conflicts != []。至少一条路径：approved review → ApplyEngine → rejected by blocking conflict（KGV-011 / apply gate）。禁止 delete one Evidence / mutate conflict / direct UPDATE GraphChange 制造成功。
+
+### 40.5 不变约束
+
+- SCHEMA_COUNT: 55（不新增）。DB_VERSION: 6（不新增 migration）。SCHEMAS_CHANGED: NONE。MIGRATIONS_CHANGED: NONE。
+- JSON history wrapper 不新增 JSON Schema（deterministic export envelope，非新持久化域契约）。
+- 禁止 Graph→Research（KnowledgeContext → morning/abnormal move/equity research 输入）。
+- 不修 Phase3 timing defect（move_start_at/move_end_at）。
+- 原则上不修改 M3-M9 已验收模块；若测试暴露真 blocker → STOP + REPORT。
+
+### 40.6 M10 Acceptance Standards
+
+- 全量 pytest ≥ 2068 passed / 5 skipped / 0 failed / 0 xfail
+- 55/55 schemas / compileall PASS / diff-check PASS
+- Offline CI PASS（不新增默认 skipped online test）
+- V4 Pro 对抗审查：0 blocker / 0 should-fix
+- Online official Evidence verification: PASS 或 ONLINE_ACCEPTANCE_NEEDED（禁止无网络时造假）
+- M10 完成状态：READY_FOR_INDEPENDENT_ACCEPTANCE（非 Phase5 PASS）
+- JSON_MIRROR 状态：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE

@@ -18,10 +18,10 @@
   - M6 Deterministic Apply Engine：PASS（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
   - M7 Supersede / Expire / History：PASS（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
   - M8 Query + Knowledge Context Builder：PASS（SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
-  - M9 Structured Research Candidate Integration：**AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，Draft PR #6）
-  - M10：NOT_AUTHORIZED
+  - M9 Structured Research Candidate Integration：**PASS**（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
+  - M10 Deterministic JSON Mirror + E2E Acceptance：**AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，Draft PR #6）
 
-Phase 5 正式任务书已由用户批准。M1-M8 全部通过独立架构验收。
+Phase 5 正式任务书已由用户批准。M1-M9 全部通过独立架构验收。
 PR5B 已 squash merge 进入 master（`cfdeeba7`）。
 
 ## Phase 5 工程前置条件
@@ -37,13 +37,13 @@ PR5B 已 squash merge 进入 master（`cfdeeba7`）。
 
 ## Phase 5 实施授权门
 
-**PR5B 已 squash merge。用户已于 2026-08-09 明确授权 M9。**
+**PR5B 已 squash merge。用户已于 2026-08-09 明确授权 M9。M9 已通过独立验收（2026-08-09）。**
 
 ```
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前准入：**M9 AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`）。
+当前准入：**M10 AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，JSON Mirror Option A）。
 
 PR5B closeout 已完成：
 
@@ -56,19 +56,17 @@ PR5B closeout CI: 31270208169 PASS
 
 M9 scope：existing structured research objects → GraphChange candidate。
 Graph→Research NOT implemented in M9。
-M10 NOT_AUTHORIZED。
 
 ```
 当前状态：
 PR5B MERGED（master cfdeeba7）。
 PR5C phase5/pipeline-integration（Draft PR #6）。
-M0-M8 PASS。
-M9 AUTHORIZED / IN_PROGRESS。
-M10 NOT_AUTHORIZED。
+M0-M9 PASS。
+M10 AUTHORIZED / IN_PROGRESS。
 
 禁止：
-M10 / merge PR5C / JSON mirror / Schema change / migration /
-Phase2/3/4 behavioral change / source whitelist expansion
+merge PR5C / Schema change / migration /
+Phase2/3/4 behavioral change / source whitelist expansion / Graph→Research
 ```
 
 ## Phase 4 独立验收记录
