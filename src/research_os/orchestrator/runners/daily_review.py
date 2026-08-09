@@ -26,6 +26,14 @@ class DailyReviewScenarioRunner:
         if request.get("as_of") and not validate_iso(request["as_of"]):
             raise ValueError(f"--as-of 非法: {request['as_of']!r}（需要 ISO-8601）")
         normalized["as_of"] = request.get("as_of") or _default_as_of(day)
+        # previous_cutoff: omitted/None → None; valid ISO → preserve; invalid → ValueError
+        raw_cutoff = request.get("previous_cutoff")
+        if raw_cutoff is not None:
+            if not validate_iso(raw_cutoff):
+                raise ValueError(f"--previous-cutoff 非法: {raw_cutoff!r}（需要 ISO-8601 或省略）")
+            normalized["previous_cutoff"] = raw_cutoff
+        else:
+            normalized["previous_cutoff"] = None
         return normalized
 
     def build_plan(self, request: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:

@@ -9,11 +9,14 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from research_os.models import DailyReviewRequest, DailyReviewRun
 from research_os.review.daily import (
     DailyReviewPipeline,
     report_path_for,
 )
+from research_os.orchestrator.runners.daily_review import DailyReviewScenarioRunner
 from research_os.validators.schema_validator import validate_instance
 
 
@@ -59,6 +62,20 @@ def _prev_run(project_root: Path, run_id: str, claims,
         (d / "validation.json").write_text(
             json.dumps(vdata, ensure_ascii=False),
             encoding="utf-8")
+    return d
+
+
+def _write_prior_artifacts_exact(project_root: Path, run_id: str,
+                                  task_json: dict, validation_json: dict | None = None,
+                                  evening_run_json: dict | None = None) -> Path:
+    """精确写入 prior run artifacts，不自动补 lineage（用于攻击测试）。"""
+    d = project_root / "reports" / "runs" / run_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "task.json").write_text(json.dumps(task_json, ensure_ascii=False), encoding="utf-8")
+    if validation_json is not None:
+        (d / "validation.json").write_text(json.dumps(validation_json, ensure_ascii=False), encoding="utf-8")
+    if evening_run_json is not None:
+        (d / "evening_brief_run.json").write_text(json.dumps(evening_run_json, ensure_ascii=False), encoding="utf-8")
     return d
 
 
@@ -321,3 +338,192 @@ def test_effective_end_in_time_window_metadata(tmp_path):
         task_id="t1", previous_cutoff="2026-08-05T20:00:00+08:00")
     assert artifacts.effective_end.endswith("12:00:00+08:00") or "12:00:00" in artifacts.effective_end
     assert "T23:59:59" not in artifacts.markdown
+
+
+# ================================================================
+# R4 lineage attack tests - exact artifact construction
+# ================================================================
+
+
+class TestPriorLineageAttacks:
+
+    def _task(self, task_id, scenario="morning_brief", **kw):
+        b = {"task_id": task_id, "scenario": scenario, "status": "completed",
+             "as_of": "2026-08-06T08:00:00+08:00",
+             "finished_at": "2026-08-06T08:15:00+08:00",
+             "time_window": {"start": None, "end": None}}
+        b.update(kw)
+        return b
+
+    def _val(self, task_id, status="ok"):
+        return {"status": status, "task_id": task_id}
+
+    def _evening_run(self, task_id):
+        tid = "11111111-1111-4111-8111-111111111111"  # valid UUID
+        return {
+            "report_id": tid, "task_id": task_id if len(task_id) == 36 else task_id,
+            "as_of": "2026-08-06T20:10:00+08:00",
+            "window_start": "2026-08-06T08:00:00+08:00",
+            "window_end": "2026-08-06T20:00:00+08:00",
+            "actual_started_at": "2026-08-06T08:00:00+08:00",
+            "actual_finished_at": "2026-08-06T20:05:00+08:00",
+            "scheduled_for": "2026-08-06T20:00:00+08:00",
+            "delayed": False, "delay_seconds": 0,
+            "coverage": [{"monitoring_channel": "test", "status": "ok",
+                          "sources_attempted": 1, "sources_succeeded": 1,
+                          "limitations": []}],
+            "selected_cluster_ids": [],
+            "missing_data": [], "warnings": [],
+            "status": "success",
+        }
+
+    # -- A: valid morning legacy prior --
+    def test_a_morning_legacy(self, tmp_path):
+        db = _FakeDb([_evidence("e1", "2026-08-06T08:05:00+08:00", "新", ["macro:cpi"])])
+        _write_prior_artifacts_exact(tmp_path, "task-A",
+            self._task("task-A"), self._val("task-A"))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-A"])
+        assert art.previous_cutoff == "2026-08-06T08:00:00"
+        assert len(art.new_evidence) == 1
+
+    # -- B: valid evening scenario Run P1 window_end --
+    def test_b_evening_run_p1(self, tmp_path):
+        db = _FakeDb([])
+        tid = "22222222-2222-4222-8222-222222222222"
+        _write_prior_artifacts_exact(tmp_path, tid,
+            self._task(tid, scenario="evening_brief",
+                       as_of="2026-08-06T20:10:00+08:00",
+                       finished_at="2026-08-06T20:15:00+08:00"),
+            self._val(tid), self._evening_run(tid))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T22:00:00+08:00",
+            task_id="t1", previous_run_ids=[tid])
+        assert art.previous_cutoff == "2026-08-06T20:00:00"
+
+    # -- C: malformed evening Run schema -> P1 rejected --
+    def test_c_malformed_evening_run(self, tmp_path):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-C",
+            self._task("task-C", scenario="evening_brief",
+                       as_of="2026-08-06T20:10:00+08:00",
+                       time_window={"start": "2026-08-06T08:00:00+08:00",
+                                    "end": "2026-08-06T20:30:00+08:00"}),
+            self._val("task-C"),
+            {"task_id": "task-C", "window_end": "2026-08-06T21:00:00+08:00"})
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T22:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-C"])
+        assert art.previous_cutoff == "2026-08-06T20:30:00"
+
+    # -- D: directory/task mismatch --
+    def test_d_dir_task_mismatch(self, tmp_path):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-A",
+            self._task("task-B"), self._val("task-B"))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-A"])
+        assert art.previous_cutoff is None
+
+    # -- E: validation task_id mismatch --
+    def test_e_val_task_mismatch(self, tmp_path):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-E",
+            self._task("task-E"), {"status": "ok", "task_id": "wrong"})
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-E"])
+        assert art.previous_cutoff is None
+
+    # -- F: task lifecycle gate --
+    @pytest.mark.parametrize("st", ["planned","running","failed","cancelled"])
+    def test_f_task_lifecycle(self, tmp_path, st):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-F",
+            self._task("task-F", status=st), self._val("task-F"))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-F"])
+        assert art.previous_cutoff is None
+
+    # -- G: scenario gate --
+    @pytest.mark.parametrize("sc", ["stock_review","equity_research","abnormal_move","unknown"])
+    def test_g_scenario_gate(self, tmp_path, sc):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-G",
+            self._task("task-G", scenario=sc), self._val("task-G"))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-G"])
+        assert art.previous_cutoff is None
+
+    # -- H: validation status gate --
+    @pytest.mark.parametrize("vs", ["pending","failed","fail","error","unknown"])
+    def test_h_val_status_gate(self, tmp_path, vs):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-H",
+            self._task("task-H"), {"status": vs, "task_id": "task-H"})
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-H"])
+        assert art.previous_cutoff is None
+
+    # -- I: future cutoff --
+    def test_i_future_cutoff(self, tmp_path):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-I",
+            self._task("task-I", as_of="2026-08-07T00:00:00+08:00"),
+            self._val("task-I"))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-I"])
+        assert art.previous_cutoff is None
+
+    # -- J: completion timestamp prohibition --
+    def test_j_completion_timestamp_only(self, tmp_path):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-J",
+            {"task_id": "task-J", "scenario": "morning_brief", "status": "completed",
+             "finished_at": "2026-08-06T08:15:00+08:00",
+             "requested_at": "2026-08-06T07:55:00+08:00",
+             "time_window": {"start": None, "end": None}},
+            self._val("task-J"))
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-J"])
+        assert art.previous_cutoff is None
+
+    # -- K: explicit cutoff lineage --
+    def test_k_explicit_cutoff_lineage(self, tmp_path):
+        db = _FakeDb([])
+        runner = DailyReviewScenarioRunner()
+        norm = runner.validate_request({
+            "review_business_date": "2026-08-06",
+            "as_of": "2026-08-06T20:00:00+08:00",
+            "previous_cutoff": "2026-08-06T09:00:00+08:00",
+        })
+        assert norm["previous_cutoff"] == "2026-08-06T09:00:00+08:00"
+        from research_os.models import DailyReviewRequest
+        from research_os.utils.id import new_uuid
+        m = DailyReviewRequest(
+            request_id=new_uuid(), task_id="t1", review_business_date="2026-08-06",
+            as_of="2026-08-06T20:00:00+08:00",
+            previous_cutoff=norm["previous_cutoff"],
+            requested_at="2026-08-06T20:00:00+08:00")
+        assert m.previous_cutoff == "2026-08-06T09:00:00+08:00"
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_cutoff=m.previous_cutoff)
+        assert art.previous_cutoff == "2026-08-06T09:00:00+08:00"
+
+    # -- L: invalid explicit cutoff --
+    def test_l_invalid_cutoff(self):
+        runner = DailyReviewScenarioRunner()
+        with pytest.raises(ValueError, match=r"previous"):
+            runner.validate_request({
+                "review_business_date": "2026-08-06",
+                "as_of": "2026-08-06T20:00:00+08:00",
+                "previous_cutoff": "invalid",
+            })

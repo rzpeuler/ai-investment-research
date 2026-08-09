@@ -156,13 +156,18 @@ def _extract_business_cutoff(
         if ep.exists():
             try:
                 edata = json.loads(ep.read_text(encoding="utf-8"))
-                if str(edata.get("task_id") or "") == tdata.get("task_id"):
+                # authoritative schema validation before accepting
+                from research_os.validators.schema_validator import validate_instance
+                schema_errors = validate_instance(edata, "evening_brief_run")
+                if schema_errors:
+                    pass  # P1 rejected — schema invalid
+                elif str(edata.get("task_id") or "") == tdata.get("task_id"):
                     we = edata.get("window_end")
                     if we:
                         dt = parse_iso(we)
                         if dt <= as_of_dt:
                             return dt
-            except (ValueError, OSError):
+            except (ValueError, OSError, ImportError):
                 pass
     # P2 — task time_window.end
     tw = tdata.get("time_window") or {}
