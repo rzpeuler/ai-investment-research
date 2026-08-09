@@ -39,6 +39,12 @@ def test_phase_status_documents_are_consistent():
     assert "Phase 5 implementation：PASS" in next_phase, "NEXT_PHASE must reflect Phase5 PASS"
     assert "Phase 5" in limitations and ("PASS" in limitations or "CLOSED" in limitations), \
         "KNOWN_LIMITATIONS must reflect Phase5 terminal state"
+    assert "Phase 5 = CLOSED / PASS" in limitations, \
+        "KNOWN_LIMITATIONS must explicitly state Phase 5 = CLOSED / PASS"
+    # KNOWN_LIMITATIONS header must not contain Phase5 BLOCKED
+    lim_header = "\n".join(limitations.split("\n")[:30])
+    assert "Phase 5 = BLOCKED" not in lim_header and "Phase 5 = BLOCKED" != lim_header.strip(), \
+        "KNOWN_LIMITATIONS header must not declare Phase5 BLOCKED"
     assert "NOT_AUTHORIZED" in limitations, "KNOWN_LIMITATIONS must reflect Phase6 NOT_AUTHORIZED"
     assert "**IMPLEMENTATION_STATUS: COMPLETE**" in phase5_task
     # No stale pre-merge artifacts in CURRENT_STATE or NEXT_PHASE surface
@@ -71,13 +77,9 @@ def test_phase_status_documents_are_consistent():
     assert "M10 NOT_AUTHORIZED" not in taskbook_header
 
     # Historical docs: may reflect their own state (legacy check)
-    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
     phase4 = _read("docs/tasks/phase4-full-research-capability.md")
-    for text in (limitations, phase4):
-        assert "PASS" in text or "PASSED" in text or \
-               "SATISFIED" in text or "COMPLETED" in text
-        assert any(s in text for s in ["BLOCKED", "IN_PROGRESS", "PASS",
-                                        "COMPLETED", "SATISFIED"])
+    assert "PASS" in phase4 or "PASSED" in phase4 or \
+           "SATISFIED" in phase4 or "COMPLETED" in phase4
 
 
 def test_baseline_readme_does_not_claim_to_be_current():
