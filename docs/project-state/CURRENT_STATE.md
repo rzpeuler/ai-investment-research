@@ -1,7 +1,8 @@
 # 当前项目状态（CURRENT STATE）
 
 > 更新日期：2026-08-09
-> 权威规范：`docs/engineering-guide.md` V1.2
+> 串行阶段：P6-S0 Serial Governance Reset (IN PROGRESS / AWAITING_INDEPENDENT_ACCEPTANCE)
+> 权威规范：`docs/engineering-guide.md` V1.3
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -41,10 +42,10 @@
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
 | Phase 5 | PASS | **PR5B MERGED** (cfdeeba7)。M0-M10 PASS。**PR5C #6 MERGED / SQUASH** (master 1e1d4f9)。Post-merge governance hotfixes #7, #8 merged (master 1087520)。**M10 PASS** (accepted SHA 156ea35, CI 31292861813)。Phase 5 terminal state 不重新打开。 |
-| Phase 6 Top-Level Design | FROZEN / APPROVED | DECISIONS.md #41 + engineering-guide V1.2（第 69 节）冻结 6A / 6B / 6C 七场景、并行拓扑、Graph→Research READ ONLY、KnowledgeContext != Evidence、Candidate-only 写入、时间治理、输出安全、ontology/source 冻结。任务书 `docs/tasks/phase6-research-workflows.md` APPROVED。 |
-| P6-G0 | implementation work item | Phase 6 顶层设计治理冻结，design/governance-only，无 production scenario。P6-G0 已独立验收（PR #13，G0 FINAL MASTER `9e5c894`）。 |
-| P6-F0 | IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE | 共享契约冻结（`docs/contracts/phase6-shared-contract.md` + DECISIONS #42），契约/测试/状态同步，无业务代码。F0 验收 PASS 前 6A/6B/6C-PREP 不得开始。 |
-| Phase 6 business implementation | NOT_AUTHORIZED | 6A / 6B / 6C 全部 NOT_AUTHORIZED / NOT_STARTED。 |
+| Phase 6 Top-Level Design | FROZEN / APPROVED | DECISIONS #41 + #43 + #44；engineering-guide V1.3 §69。并行已取消，串行 S0→S6。 |
+| P6-G0 | PASS / MERGED | Phase 6 顶层设计治理冻结（PR #13）。 |
+| P6-F0 | PASS / MERGED | 共享契约冻结（PR #14）。 |
+| Phase 6 business implementation | NOT_AUTHORIZED | 6A / 6B 均实现于 off-master 分支但未验收未合入。6C NOT_IMPLEMENTED。 |
 
 ## 2026-08-07 修复后的关键事实
 

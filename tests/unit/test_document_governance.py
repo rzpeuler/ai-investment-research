@@ -164,6 +164,22 @@ def test_phase6_top_level_design_governance_frozen():
     assert "任务书 approved 不得被解释成整个 Phase 6 已授权开发" in taskbook
     assert "NOT_AUTHORIZED" in next_phase
 
+    # ── DECISION #43, #44 ──
+    assert "## 43. Evening Brief Design Correction" in decisions
+    assert "## 44. Phase 6 Serial Recovery" in decisions
+
+    # ── V1.3 propagation ──
+    assert "V1.3" in guide
+    contract = _read("docs/contracts/phase6-shared-contract.md")
+    assert "V1.3" in contract
+    assert "V1.3" in current
+
+    # ── P6-S5 enablement, not P6-I0 ──
+    assert "P6-I0" not in taskbook
+    # P6-I0 should not appear in new decisions (#43+#44)
+    decisions_43_44 = decisions[decisions.find("## 43."):] if "## 43." in decisions else ""
+    assert "P6-I0" not in decisions_43_44, "P6-I0 must not appear in new serial decisions"
+
 
 def test_phase6_shared_contract_frozen():
     """P6-F0: shared contract must be frozen with real structural checks.
@@ -297,3 +313,10 @@ def test_phase6_shared_contract_frozen():
     # 11. 决策 #42 存在
     assert "## 42. Phase 6 Shared Contract Freeze（P6-F0" in decisions
     assert "F0 只冻结契约" in contract or "不实现任何 Phase 6 业务研究能力" in contract
+
+    # 12. §27 串行 heading
+    assert "串行业务开发与中央集成方式" in contract or "串行" in contract
+
+    # 13. P6-S5 中央集成，非 P6-I0
+    assert "P6-S5" in contract
+    assert "P6-I0" not in contract

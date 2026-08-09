@@ -59,18 +59,15 @@ Schema 30→51，迁移 user_version=5。
 **M10**：**PASS**（M10 accepted SHA `156ea35`，CI `31292861813`，2110 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6 / Pro 0 blocker 0 should-fix）。
 **PR5C**：#6 MERGED / SQUASH → master `1e1d4f9`。
 
-**Phase 6：P6-S0: Serial Governance Reset (IN PROGRESS)**。
-正式设计决策见 [`docs/project-state/DECISIONS.md`](docs/project-state/DECISIONS.md) #41，
-工程指南升级至 V1.2（[`docs/engineering-guide.md`](docs/engineering-guide.md) 第 69 节），
-正式任务书见 [`docs/tasks/phase6-research-workflows.md`](docs/tasks/phase6-research-workflows.md)
-（APPROVED / NOT_STARTED）。完整七场景冻结为 6A（industry_research / theme_discovery）、
-6B（evening_brief / daily_review / stock_review）、6C（first_coverage /
-earnings_expectation）。**并行开发已取消（CANCELLED），串行门控已激活（ACTIVE）：**
-S0 → S1 (6B) → S2 (6A) → S3 (earnings) → S4 (first_coverage) → S5 (enablement) → S6 (closeout)。
-Graph→Research 契约 READ ONLY、`KnowledgeContext != Evidence`、Graph 写入仅 Candidate、
-as_of 强制、输出安全与 ontology/source 冻结均已写入指南与决策。**P6-G0 顶层设计治理冻结
-（FROZEN / APPROVED）、P6-F0 共享契约冻结（FROZEN / APPROVED）；当前仅 P6-S0 已授权，
-其余里程碑均为 NOT_AUTHORIZED。**
+## Phase 6：P6-S0 Serial Governance Reset (IN PROGRESS)
+
+- 并行开发：CANCELLED
+- 串行拓扑：S0 → S1(6B) → S2(6A) → S3(earnings) → S4(first_coverage) → S5(enablement) → S6(closeout)
+- 当前授权：仅 P6-S0（governance-only）
+- P6-S1—S6：NOT_AUTHORIZED
+- 业务代码：master 上 NONE
+- 工程指南：V1.3
+- 数据库：v6
 
 ## 快速开始
 

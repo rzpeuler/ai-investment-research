@@ -1,10 +1,10 @@
 # Phase 6 Shared Contract（P6-F0 冻结）
 
 > 状态：**FROZEN → UPDATED for Serial (2026-08-09)**
-> 依据：`docs/engineering-guide.md` V1.2（第 69 节）、`docs/project-state/DECISIONS.md` #41、
+> 依据：`docs/engineering-guide.md` V1.3（第 69 节）、`docs/project-state/DECISIONS.md` #41、#43、#44、
 > `docs/tasks/phase6-research-workflows.md`（P6-F0 里程碑）。
 > 用途：6A / 6B / 6C 三个业务 Track 串行开发的**唯一共享边界**。
-> 三个 Track 的 Agent 只需读取本文件 + engineering-guide V1.2 + Phase 6 taskbook，
+> 三个 Track 的 Agent 只需读取本文件 + engineering-guide V1.3 + serial taskbook，
 > 即可确定自己的共享边界。
 > 本文件只冻结契约，不实现任何 Phase 6 业务研究能力。
 
@@ -17,7 +17,7 @@ F0 回答四个问题：
 ```text
 多个 Agent 会共同依赖什么   → 统一控制面 + 共享契约（本文件）
 多个 Agent 绝对不能各自定义什么 → 见 §3 统一控制面、§9 共享状态、§11 as_of 等
-哪些 shared files 禁止并行修改  → 见 §7 Shared-file Ownership（CONFLICT ZONE）
+哪些 shared files 禁止未经授权修改 → 见 §7 Shared-file Ownership（CONFLICT ZONE，仅 P6-S5 可修改）
 每个 Track 通过什么接口测试和集成 → 见 §8 isolated registry 注入 + §30 集成方式
 ```
 
@@ -349,7 +349,7 @@ second Evidence graph loader
 ```text
 DB = v6
 F0 默认 NO MIGRATION
-6A / 6B / 6C-PREP 业务 Track 不得自行迁移 DB
+6A / 6B / 6C 业务 Track 不得自行迁移 DB（S1→S4 每个 milestone 各自 DB v6 基线）
 ```
 
 若发现七场景无法在 v6 + run artifacts 下实现：不迁移，只输出
@@ -359,10 +359,10 @@ F0 默认 NO MIGRATION
 
 - JSON Schema = authoritative；Pydantic = constructor；`model_dump()` → schema validate。
 - 各 Track 后续可创建自己拥有的新 Phase 6 schema（6A-owned / 6B-owned / 6C-owned），
-  但**禁止并行修改** `task.schema.json` 与 shared core schemas。
+  但**禁止未经授权修改 shared core schema**
 - 若必须修改 shared schema：STOP → serial contract change。
 - F0 不为七场景预先建立猜测性 Schema；只有同时满足（三个 Track 都必须共享、语义已
-  冻结、没有它无法安全并行、不属于某 Track 自有业务对象）才在 F0 新增 shared Schema。
+  冻结、没有它无法安全实现、不属于某 Track 自有业务对象）才在 F0 新增 shared Schema。
   当前 F0 判定：**无新增 shared Schema 必要**——既有 Task/Plan/ScenarioExecutionResult
   + run artifacts 已足够承载七场景契约。
 
@@ -437,7 +437,7 @@ Phase 6 Track 不得因业务需要直接加网站。正式来源扩张必须单
 source-governance 流程（discovery → probe → source governance → verification →
 registry update）。F0 只冻结规则，不做来源扩张。
 
-## 27. 并行开发与集成方式（FROZEN）
+## 27. 串行业务开发与中央集成方式（FROZEN）
 
 各 Track 开发时**不得修改默认中央注册表**；测试通过 isolated registry 注入：
 
@@ -448,7 +448,7 @@ orch = Orchestrator(project_root, db=db, registry=registry)
 ```
 
 不得为了让新 Runner 工作提前修改 `orchestrator.py` 或 `runners/__init__.py`。
-中央注册统一留给 P6-I0 serial enablement。
+中央注册统一留给 P6-S5 serial enablement。
 
 ## 28. F0 范围与产出
 
@@ -462,7 +462,7 @@ Graph write 扩张 / ontology / source 扩张。
 - 七个 scenario ID 与设计一致且未漂移（task.schema.json enum + CLI choices 复用）；
 - 仍只有一个 Orchestrator 与一个 ScenarioRegistry contract；
 - isolated registry 注入测试方式冻结（§27）；
-- shared-file conflict zone 冻结（§7）；
+- shared-file conflict zone 冻结（§7，仅 P6-S5 修改）；
 - artifact naming / Task ID lineage / as_of / 6B 时间 / 6C 三时间 / Evidence lineage /
   Graph→Research read-only / KnowledgeContext != Evidence / MODEL_INFERENCE 语义 /
   DB v6 / 无 migration 全部冻结；
