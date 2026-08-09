@@ -74,7 +74,8 @@ def validate_report(path: str | Path) -> ReportValidation:
         if word in body:
             errors.append(f"检测到禁止输出词: {word!r}")
 
-    if fm_result.frontmatter and fm_result.frontmatter.get("scenario") == "morning_brief":
+    if fm_result.frontmatter and fm_result.frontmatter.get("scenario") in ("morning_brief", "evening_brief"):
+        # 晨报/晚报同构（DECISIONS #43）：共享同一套 Brief 专用校验
         e, w = validate_morning_brief(body, fm_result.frontmatter)
         errors.extend(e)
         warnings.extend(w)
@@ -83,15 +84,19 @@ def validate_report(path: str | Path) -> ReportValidation:
 
 
 def validate_morning_brief(body: str, fm: dict) -> tuple[List[str], List[str]]:
-    """晨报专用校验（22.1-22.6）。"""
+    """Brief（晨报/晚报）专用校验（22.1-22.6）。
+
+    morning_brief 与 evening_brief 同构复用（DECISIONS #43）：同一窗口/覆盖/
+    证据/内容质量规则；函数名保留 Phase 2 兼容。
+    """
     errors: List[str] = []
     warnings: List[str] = []
 
-    # 22.1 晨报必需 Front Matter 字段
+    # 22.1 Brief 必需 Front Matter 字段
     for f in ("window_start", "window_end", "scheduled_for",
               "actual_started_at", "delayed", "delay_seconds"):
         if f not in fm:
-            errors.append(f"缺少晨报必需字段: {f}")
+            errors.append(f"缺少简报必需字段: {f}")
 
     # 22.2 日期关系
     if fm.get("window_start") and fm.get("window_end"):
