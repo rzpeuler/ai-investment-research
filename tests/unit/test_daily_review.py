@@ -470,6 +470,18 @@ class TestPriorLineageAttacks:
             task_id="t1", previous_run_ids=["task-H"])
         assert art.previous_cutoff is None
 
+    # -- R5-3: accepted validation statuses positive matrix --
+    @pytest.mark.parametrize("vs", ["ok", "pass", "pass_with_warnings"])
+    def test_accepted_validation_statuses(self, tmp_path, vs):
+        db = _FakeDb([])
+        _write_prior_artifacts_exact(tmp_path, "task-OK",
+            self._task("task-OK", as_of="2026-08-06T08:00:00+08:00"),
+            {"status": vs, "task_id": "task-OK"})
+        art = DailyReviewPipeline(tmp_path, db).run(
+            date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+            task_id="t1", previous_run_ids=["task-OK"])
+        assert art.previous_cutoff == "2026-08-06T08:00:00"
+
     # -- I: future cutoff --
     def test_i_future_cutoff(self, tmp_path):
         db = _FakeDb([])

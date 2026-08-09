@@ -83,6 +83,13 @@ def _seed_finding(db: Database) -> None:
 def _seed_previous_run(tmp_path, run_id: str) -> None:
     d = tmp_path / "reports" / "runs" / run_id
     d.mkdir(parents=True, exist_ok=True)
+    (d / "task.json").write_text(json.dumps({
+        "task_id": run_id, "scenario": "morning_brief", "status": "completed",
+        "as_of": "2026-08-06T08:00:00+08:00",
+    }, ensure_ascii=False), encoding="utf-8")
+    (d / "validation.json").write_text(json.dumps({
+        "status": "ok", "task_id": run_id,
+    }, ensure_ascii=False), encoding="utf-8")
     (d / "claims.json").write_text(json.dumps([{
         "claim_id": "c-0001", "claim_type": "FACT", "title": "CPI同比上涨0.5%",
         "object": {"entities": ["macro:cpi"]}, "evidence_ids": ["e-0001"],
@@ -229,6 +236,52 @@ def test_stock_review_full_flow(tmp_path):
         assert req["task_id"] == run["task_id"] == result.task_id
         assert run["entity"] == "company:solar"
         assert run["new_evidence_count"] >= 1
+    finally:
+        orch.close()
+
+
+# ---------- R5 integration tests ----------
+
+def test_explicit_cutoff_artifact_lineage(tmp_path):
+    """R5-1: explicit previous_cutoff flows through full Orchestrator lineage."""
+    db = _make_db(tmp_path)
+    _seed_evidence(db)
+    orch = Orchestrator(tmp_path, db=db, registry=_registry())
+    try:
+        result = orch.execute("daily_review", dict(
+            review_business_date="2026-08-06",
+            as_of="2026-08-06T20:00:00+08:00",
+            previous_cutoff="2026-08-06T09:00:00+08:00",
+            force=True,
+        ))
+        assert result.status in ("success", "partial_success"), f"status={result.status}"
+        assert result.task_id != ""
+
+        run_dir = tmp_path / "reports" / "runs" / result.task_id
+        req_artifact = json.loads((run_dir / "daily_review_request.json").read_text(encoding="utf-8"))
+        run_artifact = json.loads((run_dir / "daily_review_run.json").read_text(encoding="utf-8"))
+
+        assert req_artifact["previous_cutoff"] == "2026-08-06T09:00:00+08:00"
+        assert run_artifact["previous_cutoff"] == "2026-08-06T09:00:00+08:00"
+        assert req_artifact["task_id"] == result.task_id
+        assert run_artifact["task_id"] == result.task_id
+    finally:
+        orch.close()
+
+
+def test_invalid_cutoff_orchestrator_failure(tmp_path):
+    """R5-2: invalid previous_cutoff -> Orchestrator structured failure."""
+    db = _make_db(tmp_path)
+    orch = Orchestrator(tmp_path, db=db, registry=_registry())
+    try:
+        result = orch.execute("daily_review", dict(
+            review_business_date="2026-08-06",
+            as_of="2026-08-06T20:00:00+08:00",
+            previous_cutoff="invalid",
+            force=True,
+        ))
+        assert result.status == "failed", f"expected failed, got {result.status}"
+        assert result.exit_code == 2, f"expected exit_code=2, got {result.exit_code}"
     finally:
         orch.close()
 
