@@ -1523,8 +1523,9 @@ def knowledge_integrate(scenario, run_dir, sources, db_path,
 def knowledge_export(db_path, project_root, dry_run) -> None:
     """M10-A Deterministic JSON Mirror Export。
 
-    零 LLM / 零 Provider / 零 network / 零 DB 写入。
+    零 LLM / 零 Provider / 零 network / 零 DB 写入 / **零 DB 初始化**。
     SQLite → JSON 确定性导出（graph + history mirror）。
+    **永远以 mode=ro 打开数据库。**
     """
     import json as _json
 
@@ -1532,9 +1533,6 @@ def knowledge_export(db_path, project_root, dry_run) -> None:
         KnowledgeMirrorExporter,
         ExportError,
     )
-    from research_os.knowledge.history import HistoryService
-    from research_os.knowledge.repository import GraphRepository
-    from research_os.storage import Database
 
     root = Path(project_root) if project_root else _project_root()
     db_full = root / db_path
@@ -1548,18 +1546,11 @@ def knowledge_export(db_path, project_root, dry_run) -> None:
 
     knowledge_root = root / "knowledge"
 
-    db = Database.open_read_only(db_full) if dry_run else Database(db_full)
-    if not dry_run:
-        db.initialize()
-
     try:
-        graph_repo = GraphRepository(db)
-        history_service = HistoryService(db, graph_repo)
         exporter = KnowledgeMirrorExporter(
-            db=db,
-            graph_repo=graph_repo,
-            history_service=history_service,
+            project_root=root,
             knowledge_root=knowledge_root,
+            db_path=db_full,
         )
         result = exporter.export(dry_run=dry_run)
     except ExportError as exc:
@@ -1576,8 +1567,6 @@ def knowledge_export(db_path, project_root, dry_run) -> None:
             "errors": [str(exc)],
         }, ensure_ascii=False, sort_keys=True))
         raise SystemExit(1) from None
-    finally:
-        db.close()
 
     click.echo(_json.dumps(
         result.to_dict(), ensure_ascii=False, sort_keys=True

@@ -1,12 +1,15 @@
-"""Phase 5 M10-A Deterministic JSON Mirror Exporter。
+"""Phase 5 M10 Deterministic JSON Mirror Exporter。
 
 SQLite → JSON 只读确定性导出（零 LLM / 零 Provider / 零 network / 零 DB 写入）。
 SQLite 是唯一权威源；JSON 是只读确定性导出；禁止 JSON → SQLite import。
+
+R1: 强只读 DB authority + 项目根 containment + managed path preflight + symlink fail-closed。
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import urllib.parse
@@ -28,6 +31,12 @@ _MANAGED_DIRS = [
     _EXPORT_EDGE_DIR,
     _EXPORT_HISTORY_NODE_DIR,
     _EXPORT_HISTORY_EDGE_DIR,
+]
+
+# managed parents that must exist as directories (not symlinks)
+_MANAGED_PARENTS = [
+    "graph",
+    "history",
 ]
 
 
@@ -73,55 +82,87 @@ class KnowledgeMirrorExporter:
 
     每身份最新 version graph mirror + 全量 version history mirror。
     单 SQLite read snapshot；preflight fail-closed；删除残留旧 JSON。
-    """
 
-    # pylint: disable=too-many-instance-attributes
+    R1: 内部自开 read-only Database；接受 project_root + knowledge_root
+    进行 containment + symlink 预检；任意路径逃逸则 EXPORT_PATH_INVALID。
+    """
 
     def __init__(
         self,
-        db: Database,
-        graph_repo: GraphRepository,
-        history_service: HistoryService,
+        *,
+        project_root: Path,
         knowledge_root: Path,
+        db_path: Path,
     ):
-        self._db = db
-        self._graph_repo = graph_repo
-        self._history = history_service
-        raw_root = str(knowledge_root)
-        if ".." in raw_root:
+        """构造导出器。
+
+        Args:
+            project_root: 项目根目录（必须为绝对路径，且 knowledge_root 在其内）。
+            knowledge_root: knowledge/ 目录（必须为 project_root 的子目录或自身）。
+            db_path: SQLite 数据库路径（内部以 mode=ro 打开）。
+        """
+        # ── resolve & validate project/knowledge containment ──
+        self._project_root = project_root.resolve()
+        self._knowledge_root_resolved = knowledge_root.resolve(strict=False)
+
+        # canonical knowledge: <project_root>/knowledge
+        canonical_knowledge = self._project_root / "knowledge"
+
+        # containment check: knowledge root must be inside project root
+        try:
+            self._knowledge_root_resolved.relative_to(self._project_root)
+        except ValueError:
             raise ExportError(
                 "EXPORT_PATH_INVALID",
-                "knowledge_root 不得包含 ../ 逃逸",
+                f"knowledge_root ({self._knowledge_root_resolved}) "
+                f"不在 project_root ({self._project_root}) 内",
             )
-        self._knowledge_root = Path(knowledge_root).resolve()
+
+        # symlink check: knowledge root itself must not be a symlink
+        # 指向外部 (resolve vs raw 比较)
+        if os.path.islink(str(knowledge_root)):
+            raise ExportError(
+                "EXPORT_PATH_INVALID",
+                "knowledge_root 不得为 symlink",
+            )
+
+        # open read-only DB
+        self._db = Database.open_read_only(db_path)
+        self._graph_repo = GraphRepository(self._db)
+        self._history = HistoryService(self._db, self._graph_repo)
+        self._db_path = db_path
 
     # ── public entry ────────────────────────────────────────
 
     def export(self, *, dry_run: bool = False) -> ExportResult:
-        """执行完整导出流程。"""
+        """执行完整导出流程。
+
+        先做 managed path preflight（检查 symlink/escape），
+        然后单 read snapshot → 内存构建 → tree hash → 文件写入。
+        """
+        # Preflight: check all managed paths BEFORE any filesystem mutation
+        if not dry_run:
+            self._preflight_managed_paths()
+
         # 打开共享 read snapshot
         conn = self._db._conn
         conn.execute("BEGIN")
 
         try:
-            # 2. list identities
             node_ids = self._list_node_ids(conn)
             edge_ids = self._list_edge_ids(conn)
 
-            # 3. build all mirror in memory
             result, file_map = self._build_mirror(
                 conn, node_ids, edge_ids, dry_run
             )
             if result.status == "error":
                 return result
 
-            # 4. compute tree hash
             result.tree_sha256 = self._compute_tree_sha256(file_map)
 
         finally:
             conn.execute("ROLLBACK")
 
-        # 5. filesystem write phase (dry_run skip)
         if not dry_run:
             try:
                 result.files_written = self._write_mirror(file_map)
@@ -135,14 +176,67 @@ class KnowledgeMirrorExporter:
 
         return result
 
-    # ── validation ─────────────────────────────────────────
+    # ── path preflight ──────────────────────────────────────
 
+    def _preflight_managed_paths(self) -> None:
+        """在所有文件系统写入前统一检查 managed 路径。
+
+        拒绝：symlink、非目录冲突、resolved 路径在 project_root 外。
+        任何失败 → EXPORT_PATH_INVALID，0 文件变更。
+        """
+        kroot = self._knowledge_root_resolved
+
+        # check parent dirs first
+        for parent in _MANAGED_PARENTS:
+            pdir = kroot / parent
+            if pdir.exists():
+                if pdir.is_symlink():
+                    raise ExportError(
+                        "EXPORT_PATH_INVALID",
+                        f"managed parent 为 symlink: {pdir}",
+                    )
+                if not pdir.is_dir():
+                    raise ExportError(
+                        "EXPORT_PATH_INVALID",
+                        f"managed parent 非目录: {pdir}",
+                    )
+                # resolve and check containment
+                resolved = pdir.resolve()
+                try:
+                    resolved.relative_to(self._project_root)
+                except ValueError:
+                    raise ExportError(
+                        "EXPORT_PATH_INVALID",
+                        f"managed parent 指向 project 外: {resolved}",
+                    )
+
+        # check each managed dir
+        for managed_dir in _MANAGED_DIRS:
+            mdir = kroot / managed_dir
+            if mdir.exists():
+                if mdir.is_symlink():
+                    raise ExportError(
+                        "EXPORT_PATH_INVALID",
+                        f"managed dir 为 symlink: {mdir}",
+                    )
+                if not mdir.is_dir():
+                    raise ExportError(
+                        "EXPORT_PATH_INVALID",
+                        f"managed dir 非目录: {mdir}",
+                    )
+                resolved = mdir.resolve()
+                try:
+                    resolved.relative_to(self._project_root)
+                except ValueError:
+                    raise ExportError(
+                        "EXPORT_PATH_INVALID",
+                        f"managed dir 指向 project 外: {resolved}",
+                    )
 
     # ── identity discovery ──────────────────────────────────
 
     @staticmethod
     def _list_node_ids(conn) -> List[str]:
-        """列出全部唯一 node identity（按 node_id 排序）。"""
         rows = conn.execute(
             "SELECT DISTINCT node_id FROM graph_nodes ORDER BY node_id"
         ).fetchall()
@@ -150,7 +244,6 @@ class KnowledgeMirrorExporter:
 
     @staticmethod
     def _list_edge_ids(conn) -> List[str]:
-        """列出全部唯一 edge identity（按 edge_id 排序）。"""
         rows = conn.execute(
             "SELECT DISTINCT edge_id FROM graph_edges ORDER BY edge_id"
         ).fetchall()
@@ -165,12 +258,10 @@ class KnowledgeMirrorExporter:
         edge_ids: List[str],
         dry_run: bool,
     ) -> Tuple[ExportResult, Dict[str, bytes]]:
-        """构造所有 JSON bytes，在内存中完成全部 preflight。"""
         result = ExportResult(status="ok")
         file_map: Dict[str, bytes] = {}
         planned = 0
 
-        # Node graph mirror (latest version)
         for nid in node_ids:
             try:
                 history = self._history.get_node_history(nid, conn=conn)
@@ -198,7 +289,6 @@ class KnowledgeMirrorExporter:
             file_map[path] = self._json_bytes(latest)
             planned += 1
 
-            # history mirror
             hist_path = f"{_EXPORT_HISTORY_NODE_DIR}/{self._encode_filename(nid)}.json"
             hist_payload = {
                 "object_id": nid,
@@ -209,7 +299,6 @@ class KnowledgeMirrorExporter:
             file_map[hist_path] = self._json_bytes(hist_payload)
             planned += 1
 
-        # Edge graph mirror (latest version)
         for eid in edge_ids:
             try:
                 history = self._history.get_edge_history(eid, conn=conn)
@@ -237,7 +326,6 @@ class KnowledgeMirrorExporter:
             file_map[path] = self._json_bytes(latest)
             planned += 1
 
-            # history mirror
             hist_path = (
                 f"{_EXPORT_HISTORY_EDGE_DIR}/{self._encode_filename(eid)}.json"
             )
@@ -257,7 +345,6 @@ class KnowledgeMirrorExporter:
 
     @staticmethod
     def _json_bytes(payload: Any) -> bytes:
-        """确定性 JSON 字节序列化。"""
         return (
             json.dumps(
                 payload,
@@ -270,23 +357,18 @@ class KnowledgeMirrorExporter:
 
     @staticmethod
     def _encode_filename(object_id: str) -> str:
-        """百分比编码文件名（Windows colon 安全）。"""
         return urllib.parse.quote(object_id, safe="-._~")
 
     @staticmethod
     def _latest_version(history) -> Optional[Dict[str, Any]]:
-        """返回最大 version 的 payload，若无版本返回 None。"""
         if not history.versions:
             return None
-        latest_entry = history.versions[-1]  # version ASC 已排序
-        return latest_entry.payload
+        return history.versions[-1].payload
 
     # ── filesystem ──────────────────────────────────────────
 
     def _write_mirror(self, file_map: Dict[str, bytes]) -> int:
-        """全量替换 managed 目录。staging → replace 模式。"""
-        # 写入 staging dir
-        staging = Path(tempfile.mkdtemp(dir=self._knowledge_root.parent))
+        staging = Path(tempfile.mkdtemp(dir=self._project_root))
 
         try:
             for rel_path, content in file_map.items():
@@ -294,23 +376,19 @@ class KnowledgeMirrorExporter:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
 
-            # 替换 managed directories
             for managed_dir in _MANAGED_DIRS:
                 staging_dir = staging / managed_dir
-                target_dir = self._knowledge_root / managed_dir
+                target_dir = self._knowledge_root_resolved / managed_dir
 
-                # Remove old target directory
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
 
                 if staging_dir.exists():
-                    # move staging → target
                     shutil.move(str(staging_dir), str(target_dir))
 
             return len(file_map)
 
         finally:
-            # Cleanup staging
             if staging.exists():
                 shutil.rmtree(staging)
 
@@ -318,11 +396,6 @@ class KnowledgeMirrorExporter:
 
     @staticmethod
     def _compute_tree_sha256(file_map: Dict[str, bytes]) -> str:
-        """计算导出树的确定性 SHA256。
-
-        按 relative path lexical sort：
-        relative_path UTF-8 + NUL + file bytes + NUL 串联。
-        """
         hasher = hashlib.sha256()
         for path in sorted(file_map.keys()):
             hasher.update(path.encode("utf-8"))

@@ -1531,3 +1531,21 @@ Graph→Research 不实现，JSON mirror 不实现。
 - Online official Evidence verification: PASS 或 ONLINE_ACCEPTANCE_NEEDED（禁止无网络时造假）
 - M10 完成状态：READY_FOR_INDEPENDENT_ACCEPTANCE（非 Phase5 PASS）
 - JSON_MIRROR 状态：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE
+
+### 40.7 M10-R1 Final E2E & Export Authority Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R1 AUTHORIZED。R1 关闭范围：
+> - Export CLI 永远使用 SQLite mode=ro；移除 `db.initialize()`；旧 DB（user_version<6）→ EXPORT_READ_FAILED
+> - Exporter 内部自开 read-only Database，不接受 writable DB handle
+> - `project_root` + `knowledge_root` containment 检查（symlink / 非目录 / 外逃 → EXPORT_PATH_INVALID）
+> - Managed path preflight（全部 4 个 managed dirs + 2 个 parent dirs 在写前统一检）
+> - 真实 exporter WAL snapshot 并发测试（`KnowledgeMirrorExporter.export()` 完整调用）
+> - Symlink containment test（knowledge_root symlink → 拒绝；managed subdir symlink → 拒绝）
+> - Path escape test（knowledge_root outside project_root → 拒绝）
+> - Case B/C edge proposals 使用 CandidatePipeline + FakeLlmProvider
+> - Case D conflict 使用两个 persisted incompatible sources → CandidatePipeline → proposal.conflicts 非空
+> - Case B/C/D review 使用 ReviewWorkflow Markdown export/import
+> - Case B online verification versioned（verified_at / http_status / content_type / page_count）
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS

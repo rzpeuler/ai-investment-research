@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import urllib.parse
@@ -84,9 +85,12 @@ def _count_json_files(dir_path: Path) -> int:
     return len([p for p in dir_path.glob("*.json") if p.is_file()])
 
 
-def _export(db, graph_repo, history, knowledge_root,
+def _export(db_path, tmp_path, knowledge_root,
             dry_run=False) -> ExportResult:
-    exp = KnowledgeMirrorExporter(db, graph_repo, history, knowledge_root)
+    exp = KnowledgeMirrorExporter(
+        project_root=tmp_path, knowledge_root=knowledge_root,
+        db_path=db_path,
+    )
     return exp.export(dry_run=dry_run)
 
 
@@ -97,27 +101,27 @@ class TestExportFreshSeed:
 
     def test_fresh_seed_export_node_count(self, tmp_path):
         """1. fresh migrated DB + governance seed → export 34 node identities。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         assert r.status == "ok"
         assert r.node_identity_count == 34
 
     def test_fresh_seed_export_edge_count(self, tmp_path):
         """2. fresh migrated DB + governance seed → export 31 edge identities。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         assert r.edge_identity_count == 31
 
     def test_node_mirror_latest_version(self, tmp_path):
         """3. node graph mirror = latest version per identity。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         # 读取一个 node JSON 确认是单个 payload（不是 list）
         nodes_dir = kroot / "graph" / "nodes"
         for f in nodes_dir.glob("*.json"):
@@ -129,10 +133,10 @@ class TestExportFreshSeed:
 
     def test_edge_mirror_latest_version(self, tmp_path):
         """4. edge graph mirror = latest version per identity。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         edges_dir = kroot / "graph" / "edges"
         for f in edges_dir.glob("*.json"):
             data = json.loads(f.read_text(encoding="utf-8"))
@@ -142,10 +146,10 @@ class TestExportFreshSeed:
 
     def test_node_history_v1_present(self, tmp_path):
         """5. node history mirror 含 version 1。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         hist_dir = kroot / "history" / "nodes"
         files = list(hist_dir.glob("*.json"))
         assert len(files) >= 1
@@ -158,10 +162,10 @@ class TestExportFreshSeed:
 
     def test_edge_history_v1_present(self, tmp_path):
         """6. edge history mirror 含 version 1。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         hist_dir = kroot / "history" / "edges"
         files = list(hist_dir.glob("*.json"))
         assert len(files) >= 1
@@ -173,10 +177,10 @@ class TestExportFreshSeed:
 
     def test_repeat_export_byte_identical(self, tmp_path):
         """7. 重复 export → byte-identical（无 wall clock 污染）。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r1 = _export(db, graph_repo, history, kroot)
+        r1 = _export(db_path, tmp_path, kroot)
         sha_a = r1.tree_sha256
         # 第二次
         # 先删除输出目录以便 clean write
@@ -185,16 +189,16 @@ class TestExportFreshSeed:
             dp = kroot / d
             if dp.exists():
                 shutil.rmtree(dp)
-        r2 = _export(db, graph_repo, history, kroot)
+        r2 = _export(db_path, tmp_path, kroot)
         assert r2.status == "ok"
         assert r2.tree_sha256 == sha_a, f"tree_sha256 不一致: {sha_a} vs {r2.tree_sha256}"
 
     def test_repeat_tree_sha256_identical(self, tmp_path):
         """8. tree_sha256 确定性（同 snapshot → 同 hash）。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r1 = _export(db, graph_repo, history, kroot)
+        r1 = _export(db_path, tmp_path, kroot)
         sha = r1.tree_sha256
         # 两个 consecutive export, DB unchanged → 相同 hash
         import shutil
@@ -202,25 +206,25 @@ class TestExportFreshSeed:
             dp = kroot / d
             if dp.exists():
                 shutil.rmtree(dp)
-        r2 = _export(db, graph_repo, history, kroot)
+        r2 = _export(db_path, tmp_path, kroot)
         assert r2.tree_sha256 == sha
 
     def test_repeat_seed_does_not_create_v2(self, tmp_path):
         """9. 重复 seed 不创建 version 2。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r1 = _export(db, graph_repo, history, kroot)
+        r1 = _export(db_path, tmp_path, kroot)
         prev_versions = r1.node_version_count
 
         _seed_ontology(graph_repo)
-        r2 = _export(db, graph_repo, history, kroot)
+        r2 = _export(db_path, tmp_path, kroot)
         assert r2.node_version_count == prev_versions
         assert r2.node_identity_count == 34
 
     def test_export_zero_db_writes(self, tmp_path):
         """10. export 不写入 DB。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
         # 检查 graph_nodes count
@@ -228,16 +232,16 @@ class TestExportFreshSeed:
             return db._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         n_before = _count("graph_nodes")
         e_before = _count("graph_edges")
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         assert _count("graph_nodes") == n_before
         assert _count("graph_edges") == e_before
 
     def test_dry_run_zero_files(self, tmp_path):
         """11. dry-run 0 文件写入。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        r = _export(db, graph_repo, history, kroot, dry_run=True)
+        r = _export(db_path, tmp_path, kroot, dry_run=True)
         assert r.status == "ok"
         assert r.files_written == 0
         assert r.tree_sha256 != ""
@@ -253,14 +257,14 @@ class TestExportFreshSeed:
 
     def test_dry_run_does_not_mutate_db(self, tmp_path):
         """dry-run DB table counts unchanged。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
         n_before = db._conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
         e_before = db._conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0]
 
-        _export(db, graph_repo, history, kroot, dry_run=True)
+        _export(db_path, tmp_path, kroot, dry_run=True)
 
         n_after = db._conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
         e_after = db._conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0]
@@ -273,10 +277,10 @@ class TestExportDeterministic:
 
     def test_no_wall_clock_dependence(self, tmp_path):
         """no wall-clock / now / timestamp in JSON output。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         # 抽样几个 node 和 edge 文件，验证无 random ID 或 wall clock
         node_dir = kroot / "graph" / "nodes"
         for f in list(node_dir.glob("*.json"))[:3]:
@@ -289,10 +293,10 @@ class TestExportDeterministic:
 
     def test_json_sort_keys_true(self, tmp_path):
         """export JSON sort_keys=True 确定性排序。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         node_dir = kroot / "graph" / "nodes"
         for f in list(node_dir.glob("*.json"))[:1]:
             text = f.read_text(encoding="utf-8")
@@ -304,7 +308,7 @@ class TestExportDeterministic:
 
     def test_export_does_not_touch_ontology(self, tmp_path):
         """export 不修改 knowledge/ontology/。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
         # 在 ontology 目录创建哨兵文件
@@ -312,19 +316,19 @@ class TestExportDeterministic:
         ont_dir.mkdir(parents=True, exist_ok=True)
         sentinel = ont_dir / "sentinel.txt"
         sentinel.write_text("export must not touch this", encoding="utf-8")
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         assert sentinel.read_text() == "export must not touch this"
 
     def test_export_does_not_touch_candidates(self, tmp_path):
         """export 不修改 knowledge/candidates/。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
         cand_dir = kroot / "candidates"
         cand_dir.mkdir(parents=True, exist_ok=True)
         sentinel = cand_dir / "sentinel.txt"
         sentinel.write_text("export must not touch", encoding="utf-8")
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         assert sentinel.read_text() == "export must not touch"
 
 
@@ -332,12 +336,14 @@ class TestExportCorruptionFailClosed:
     """Corruption fail-closed 测试。"""
 
     def _setup_and_export(self, db, graph_repo, history, kroot):
-        exp = KnowledgeMirrorExporter(db, graph_repo, history, kroot)
+        exp = KnowledgeMirrorExporter(
+            project_root=tmp_path, knowledge_root=kroot, db_path=db_path,
+        )
         return exp.export()
 
     def test_malformed_node_payload_fails(self, tmp_path):
         """18. malformed node payload → 整 export 失败。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
@@ -348,14 +354,14 @@ class TestExportCorruptionFailClosed:
         )
         db._conn.commit()
 
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         assert r.status == "error"
         assert len(r.errors) >= 1
         assert r.files_written == 0
 
     def test_malformed_edge_payload_fails(self, tmp_path):
         """19. malformed edge payload → 整 export 失败。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
@@ -365,12 +371,12 @@ class TestExportCorruptionFailClosed:
         )
         db._conn.commit()
 
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         assert r.status == "error"
 
     def test_denormalized_column_mismatch_fails(self, tmp_path):
         """20. denormalized column/payload mismatch → fail。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
@@ -383,7 +389,7 @@ class TestExportCorruptionFailClosed:
 
         # 注意: corrupted node_id 替换了旧 identity → 旧 identity 消失
         # 但 corrupted 的 payload node_id 仍指向旧值 → HistoryService strict parse 会检测
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         # 可能 success（corrupted identity 被读出）或 error（取决于 strict identity check）
         # 至少 proof: no partial output
         if r.status == "error":
@@ -391,7 +397,7 @@ class TestExportCorruptionFailClosed:
 
     def test_history_gap_corruption_fails(self, tmp_path):
         """21. history gap → export fails。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
@@ -409,14 +415,14 @@ class TestExportCorruptionFailClosed:
         )
         db._conn.commit()
 
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         # HistoryService 应该因 version gap 抛出 HISTORY_VERSION_GAP
         assert r.status == "error"
         assert r.files_written == 0
 
     def test_origin_integrity_corruption_fails(self, tmp_path):
         """22. origin integrity corruption → fail。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
@@ -434,18 +440,18 @@ class TestExportCorruptionFailClosed:
         )
         db._conn.commit()
 
-        r = _export(db, graph_repo, history, kroot)
+        r = _export(db_path, tmp_path, kroot)
         # governance_seed expected origin_kind=governance_seed
         assert r.status == "error"
 
     def test_preflight_does_not_modify_prior_mirror(self, tmp_path):
         """23. 失败 preflight 不修改已有 mirror 文件。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
         # 第一次成功 export
-        r1 = _export(db, graph_repo, history, kroot)
+        r1 = _export(db_path, tmp_path, kroot)
         assert r1.status == "ok"
         first_sha = r1.tree_sha256
 
@@ -454,7 +460,7 @@ class TestExportCorruptionFailClosed:
         db._conn.commit()
 
         # 第二次 export 失败
-        r2 = _export(db, graph_repo, history, kroot)
+        r2 = _export(db_path, tmp_path, kroot)
         assert r2.status == "error"
 
         # 验证之前的 mirror 仍然完好（重新 inspect）
@@ -472,28 +478,28 @@ class TestExportFileOperations:
 
     def test_stale_json_removed_after_replace(self, tmp_path):
         """24. 旧 JSON 在成功全量替换后被删除。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
         # 第一次 export
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         node_dir = kroot / "graph" / "nodes"
         first_count = _count_json_files(node_dir)
         assert first_count >= 1
 
         # 第二次 export（相同的 DB → 应全量替换，相同数量）
         # 通过重新部署来测试 replacement
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         second_count = _count_json_files(node_dir)
         assert second_count == first_count
 
     def test_percent_encoded_filenames(self, tmp_path):
         """25. node_id 含特殊字符 → percent encoded filename。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
 
         # 所有文件名必须是合法文件名（无冒号、无 ../ 等）
         for subdir in ["graph/nodes", "graph/edges", "history/nodes", "history/edges"]:
@@ -516,35 +522,80 @@ class TestExportFileOperations:
         assert decoded == "company:688981.SH"
 
     def test_path_traversal_rejected(self, tmp_path):
-        """26. ../ 路径 → EXPORT_PATH_INVALID。"""
+        """26. knowledge_root 在 project_root 外 → EXPORT_PATH_INVALID。"""
         db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
-        # 用 os.path 拼接制造 ../ 路径（避免 Path 自动 resolve）
-        raw = str(tmp_path) + "/knowledge/../magic_escape"
-        kroot = Path(raw)
-        with pytest.raises(ExportError) as exc_info:
-            KnowledgeMirrorExporter(db, graph_repo, history, kroot)
-        assert "EXPORT_PATH_INVALID" in exc_info.value.error_code
+        # 使用临时目录外的路径
+        outside = Path(tempfile.mkdtemp())
+        try:
+            kroot = outside / "knowledge"
+            kroot.mkdir(parents=True, exist_ok=True)
+            with pytest.raises(ExportError) as exc_info:
+                KnowledgeMirrorExporter(
+                    project_root=tmp_path, knowledge_root=kroot,
+                    db_path=db_path,
+                )
+            assert "EXPORT_PATH_INVALID" in exc_info.value.error_code
+        finally:
+            shutil.rmtree(outside)
 
     def test_symlink_escape_rejected(self, tmp_path):
-        """27. symlink → OS symlink 存在性确认。"""
+        """27. knowledge_root symlink → EXPORT_PATH_INVALID。"""
         db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         external = tmp_path / "outside"
         external.mkdir(parents=True, exist_ok=True)
+        (external / "knowledge").mkdir(parents=True, exist_ok=True)
         link = tmp_path / "knowledge_link"
         try:
-            os.symlink(str(external), str(link))
+            os.symlink(str(external / "knowledge"), str(link))
         except OSError:
             pytest.skip("Symlink not available on this platform")
-        # 存在 symlink → 解析其指向
-        assert Path(link).resolve() == external
+        with pytest.raises(ExportError) as exc_info:
+            KnowledgeMirrorExporter(
+                project_root=tmp_path, knowledge_root=link,
+                db_path=db_path,
+            )
+        assert "EXPORT_PATH_INVALID" in exc_info.value.error_code
 
-    def test_manual_edit_json_no_db_effect(self, tmp_path):
-        """28. 手动编辑 mirror JSON 不影响 SQLite。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+    def test_managed_subdir_symlink_rejected(self, tmp_path):
+        """managed subdir symlink → export reject before replacement。"""
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
-        _export(db, graph_repo, history, kroot)
+        # 先创建正常 mirror
+        exp = KnowledgeMirrorExporter(
+            project_root=tmp_path, knowledge_root=kroot, db_path=db_path,
+        )
+        r = exp.export(dry_run=False)
+        assert r.status == "ok"
+
+        # 把 graph/edges 替换为 symlink 指向外部
+        external = tmp_path / "outside"
+        external.mkdir(parents=True, exist_ok=True)
+        edges_dir = kroot / "graph" / "edges"
+        if edges_dir.exists():
+            shutil.rmtree(edges_dir)
+        try:
+            os.symlink(str(external), str(edges_dir))
+        except OSError:
+            pytest.skip("Symlink not available on this platform")
+
+        # export 必须拒绝 → prior mirror 不变
+        with pytest.raises(ExportError) as exc_info:
+            exp2 = KnowledgeMirrorExporter(
+                project_root=tmp_path, knowledge_root=kroot,
+                db_path=db_path,
+            )
+            exp2.export(dry_run=False)
+        assert "EXPORT_PATH_INVALID" in exc_info.value.error_code
+
+    def test_manual_edit_json_no_db_effect(self, tmp_path):
+        """28. 手动编辑 mirror JSON 不影响 SQLite。"""
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        _seed_ontology(graph_repo)
+        kroot = _make_knowledge_root(tmp_path)
+
+        _export(db_path, tmp_path, kroot)
         # 手动修改一个 JSON
         node_dir = kroot / "graph" / "nodes"
         first_file = next(node_dir.glob("*.json"), None)
@@ -553,18 +604,18 @@ class TestExportFileOperations:
         first_file.write_text('{"manual": "edit"}', encoding="utf-8")
 
         # Export again → overwrites manual edit
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         data = json.loads(first_file.read_text(encoding="utf-8"))
         assert "manual" not in data
         assert "node_id" in data
 
     def test_rerun_export_overwrites_manual_edit(self, tmp_path):
         """29. 重 export 从 SQLite 覆盖手动编辑。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         node_dir = kroot / "graph" / "nodes"
         first_file = next(node_dir.glob("*.json"), None)
         if first_file is None:
@@ -572,7 +623,7 @@ class TestExportFileOperations:
         first_file.write_text('{"corrupted": "yes"}', encoding="utf-8")
 
         # DB unchanged → re-export should restore
-        _export(db, graph_repo, history, kroot)
+        _export(db_path, tmp_path, kroot)
         data = json.loads(first_file.read_text(encoding="utf-8"))
         assert data.get("corrupted") is None, "Manual edit should be overwritten"
 
@@ -586,7 +637,9 @@ class TestExportSnapshotConcurrency:
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
-        exp = KnowledgeMirrorExporter(db, graph_repo, history, kroot)
+        exp = KnowledgeMirrorExporter(
+            project_root=tmp_path, knowledge_root=kroot, db_path=db_path,
+        )
         conn = db._conn
 
         # Start read txn
@@ -631,11 +684,11 @@ class TestExportSnapshotConcurrency:
 
     def test_export_snapshot_consistency(self, tmp_path):
         """31. export sees coherent old snapshot during concurrent write。"""
-        _, db, graph_repo, history = _setup_fresh_db(tmp_path)
+        db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         kroot = _make_knowledge_root(tmp_path)
 
-        r1 = _export(db, graph_repo, history, kroot)
+        r1 = _export(db_path, tmp_path, kroot)
         assert r1.status == "ok"
         assert r1.node_identity_count == 34
 

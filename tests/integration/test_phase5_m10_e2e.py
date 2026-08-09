@@ -376,7 +376,7 @@ class TestCaseAGovernance:
         c = _make_components(db)
         kroot = tmp_path / "knowledge"
         kroot.mkdir(parents=True, exist_ok=True)
-        exp = KnowledgeMirrorExporter(db, c["graph_repo"], c["history"], kroot)
+        exp = KnowledgeMirrorExporter(project_root=tmp_path, knowledge_root=kroot, db_path=tmp_path / "test.db")
         r = exp.export(dry_run=False)
         assert r.status == "ok"
         assert r.node_identity_count == 34
@@ -460,8 +460,7 @@ class TestCaseBFact:
         # ── 7. Export ──
         kroot = tmp_path / "knowledge"
         kroot.mkdir(parents=True, exist_ok=True)
-        exp = KnowledgeMirrorExporter(db, c["graph_repo"],
-                                       c["history"], kroot)
+        exp = KnowledgeMirrorExporter(project_root=tmp_path, knowledge_root=kroot, db_path=tmp_path / "test.db")
         r = exp.export(dry_run=False)
         assert r.status == "ok"
         # company node应该出现在 node mirror
@@ -553,8 +552,7 @@ class TestCaseCModelInference:
         # ── Export assertion ──
         kroot = tmp_path / "knowledge"
         kroot.mkdir(parents=True, exist_ok=True)
-        exp = KnowledgeMirrorExporter(db, c["graph_repo"],
-                                       c["history"], kroot)
+        exp = KnowledgeMirrorExporter(project_root=tmp_path, knowledge_root=kroot, db_path=tmp_path / "test.db")
         r = exp.export(dry_run=False)
         assert r.status == "ok"
 

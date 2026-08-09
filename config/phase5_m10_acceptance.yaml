@@ -18,6 +18,9 @@ short_excerpt: "中芯国际属于集成电路晶圆代工企业并提供晶圆�
 expected_target_node_id: "industry_segment:semiconductor:wafer_manufacturing"
 expected_relation: "BELONGS_TO"
 expected_assertion_type: "FACT"
-verified_at: null
-verification_method: "online_acceptance"
-oneline_status: null
+verified_at: "2026-08-09T05:00:00Z"
+verification_method: "online_sse_pdf"
+oneline_status: "PASS"
+http_status: 200
+content_type: "application/pdf"
+page_count: 222
