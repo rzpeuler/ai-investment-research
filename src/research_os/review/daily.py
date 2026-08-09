@@ -71,18 +71,23 @@ def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
                          as_of: str) -> Optional[str]:
     """从 previous_run_ids 的 artifact metadata 推导真实 business cutoff。
 
-    必须通过 prior run acceptance gate 后才可引用其 cutoff：
-    1. run directory 存在
-    2. task.json 存在
-    3. validation.json 存在且 status 为 pass-equivalent
-    4. business cutoff 字段有效（window_end / as_of / research_cutoff / data_cutoff）
-    5. cutoff <= current as_of
+    acceptance gate（任一不通过 → reject）：
+    1. run directory name == previous_run_id == task.json.task_id
+    2. task.json.status == "completed"
+    3. task.json.scenario in {morning_brief, evening_brief}
+    4. validation.json exists, status in {ok, pass, pass_with_warnings}
+    5. if validation.json has task_id, it must match previous_run_id
 
-    永久禁止使用 finished_at / created_at / updated_at 等运行完成时间戳作为 cutoff。
+    cutoff extraction priority：
+    P1 — scenario Run artifact (evening_brief_run.json.window_end)
+    P2 — task.json.time_window.end
+    P3 — task.json.as_of（morning legacy fallback）
+
+    永久禁止：finished_at, created_at, updated_at, requested_at, runtime timestamp。
     未通过 acceptance gate 的 prior run 不产生有效 cutoff（返回 None）。
     """
     _PASS_EQUIVALENT = {"ok", "pass", "pass_with_warnings"}
-    _CUTOFF_KEYS = ("window_end", "as_of", "research_cutoff", "data_cutoff")
+    _ELIGIBLE_SCENARIOS = {"morning_brief", "evening_brief"}
     try:
         as_of_dt = parse_iso(as_of)
     except ValueError:
@@ -94,42 +99,100 @@ def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
         if not run_dir.exists():
             continue
 
-        # ── acceptance gate: validation must exist and be pass-equivalent ──
-        vp = run_dir / "validation.json"
-        if not vp.exists():
-            continue
-        try:
-            vdata = json.loads(vp.read_text(encoding="utf-8"))
-            vstatus = str(vdata.get("status") or vdata.get("validation_status") or "").strip()
-            if vstatus not in _PASS_EQUIVALENT:
-                continue
-        except (ValueError, OSError):
-            continue
-
-        # ── task.json lineage check ──
+        # ── gate 1: task.json exists + lineage ──
         tp = run_dir / "task.json"
         if not tp.exists():
             continue
         try:
             tdata = json.loads(tp.read_text(encoding="utf-8"))
-            # lineage: task_id must be non-empty, scenario must be present
-            if not tdata.get("task_id") or not tdata.get("scenario"):
-                continue
         except (ValueError, OSError):
+            continue
+        t_task_id = str(tdata.get("task_id") or "")
+        if t_task_id != run_id:
+            continue  # directory/task.json mismatch → reject
+
+        # ── gate 2: task completed ──
+        t_status = str(tdata.get("status") or "").strip()
+        if t_status != "completed":
+            continue
+
+        # ── gate 3: scenario eligible ──
+        t_scenario = str(tdata.get("scenario") or "").strip()
+        if t_scenario not in _ELIGIBLE_SCENARIOS:
+            continue
+
+        # ── gate 4: validation pass-equivalent ──
+        vp = run_dir / "validation.json"
+        if not vp.exists():
+            continue
+        try:
+            vdata = json.loads(vp.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        vstatus = str(vdata.get("status") or vdata.get("validation_status") or "").strip()
+        if vstatus not in _PASS_EQUIVALENT:
+            continue
+
+        # ── gate 5: validation task_id match (if present) ──
+        v_task_id = vdata.get("task_id")
+        if v_task_id and str(v_task_id) != run_id:
             continue
 
         # ── extract business cutoff ──
-        for key in _CUTOFF_KEYS:
-            val = tdata.get(key)
-            if not val:
-                continue
-            try:
-                dt = parse_iso(val)
-            except ValueError:
-                continue
-            if dt <= as_of_dt and (best is None or dt > best):
-                best = dt
+        cutoff_dt = _extract_business_cutoff(tdata, run_dir, t_scenario, as_of_dt)
+        if cutoff_dt and (best is None or cutoff_dt > best):
+            best = cutoff_dt
+
     return best.isoformat(timespec="seconds") if best else None
+
+
+def _extract_business_cutoff(
+    tdata: dict, run_dir: Path, scenario: str, as_of_dt: datetime,
+) -> Optional[datetime]:
+    """P1: scenario Run artifact window_end → P2: task time_window.end → P3: task as_of."""
+    # P1 — scenario Run artifact
+    if scenario == "evening_brief":
+        ep = run_dir / "evening_brief_run.json"
+        if ep.exists():
+            try:
+                edata = json.loads(ep.read_text(encoding="utf-8"))
+                if str(edata.get("task_id") or "") == tdata.get("task_id"):
+                    we = edata.get("window_end")
+                    if we:
+                        dt = parse_iso(we)
+                        if dt <= as_of_dt:
+                            return dt
+            except (ValueError, OSError):
+                pass
+    # P2 — task time_window.end
+    tw = tdata.get("time_window") or {}
+    twe = tw.get("end") if isinstance(tw, dict) else None
+    if twe:
+        try:
+            dt = parse_iso(twe)
+            if dt <= as_of_dt:
+                return dt
+        except ValueError:
+            pass
+    # P3 — task as_of (legacy fallback)
+    tao = tdata.get("as_of")
+    if tao:
+        try:
+            dt = parse_iso(tao)
+            if dt <= as_of_dt:
+                return dt
+        except ValueError:
+            pass
+    # P3.5 — legacy morning window_end at task top level
+    we = tdata.get("window_end")
+    if we:
+        try:
+            dt = parse_iso(we)
+            if dt <= as_of_dt:
+                return dt
+        except ValueError:
+            pass
+    return None
 
 
 def _claim_text(claim: Optional[dict]) -> str:

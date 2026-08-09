@@ -40,15 +40,24 @@ class _FakeDb:
 
 def _prev_run(project_root: Path, run_id: str, claims,
               task_json: dict | None = None,
-              validation_status: str | None = "pass") -> Path:
+              validation_status: str | None = "ok") -> Path:
     d = project_root / "reports" / "runs" / run_id
     d.mkdir(parents=True, exist_ok=True)
     (d / "claims.json").write_text(json.dumps(claims, ensure_ascii=False), encoding="utf-8")
     if task_json is not None:
+        # Auto-inject required lineage fields if missing
+        if "task_id" not in task_json:
+            task_json["task_id"] = run_id
+        if "scenario" not in task_json:
+            task_json["scenario"] = "morning_brief"
+        if "status" not in task_json:
+            task_json["status"] = "completed"
         (d / "task.json").write_text(json.dumps(task_json, ensure_ascii=False), encoding="utf-8")
     if validation_status is not None:
+        vdata = {"status": validation_status}
+        vdata["task_id"] = run_id  # Match lineage
         (d / "validation.json").write_text(
-            json.dumps({"status": validation_status}, ensure_ascii=False),
+            json.dumps(vdata, ensure_ascii=False),
             encoding="utf-8")
     return d
 
@@ -196,9 +205,6 @@ def test_derived_prior_cutoff_from_run_metadata(tmp_path):
         _evidence("e1", "2026-08-06T10:00:00+08:00", "新证据", ["macro:cpi"]),
     ])
     _prev_run(tmp_path, "run-morning-1", [], task_json={
-        "task_id": "task-morning",
-        "scenario": "morning_brief",
-        "as_of": "2026-08-06T08:00:00+08:00",
         "window_end": "2026-08-06T08:00:00+08:00",
     })
     artifacts = DailyReviewPipeline(tmp_path, db).run(
@@ -267,9 +273,6 @@ def test_finished_at_not_used_as_prior_cutoff(tmp_path):
         _evidence("e-0805", "2026-08-06T08:05:00+08:00", "08:05 证据", ["macro:cpi"]),
     ])
     _prev_run(tmp_path, "run-morning", [], task_json={
-        "task_id": "task-morning",
-        "scenario": "morning_brief",
-        "as_of": "2026-08-06T08:00:00+08:00",
         "window_end": "2026-08-06T08:00:00+08:00",
         "finished_at": "2026-08-06T08:15:00+08:00",
     })
@@ -286,8 +289,6 @@ def test_window_end_preferred_over_finished_at(tmp_path):
     """window_end 优先于 finished_at。"""
     db = _FakeDb([])
     _prev_run(tmp_path, "run-morning", [], task_json={
-        "task_id": "task-morning",
-        "scenario": "morning_brief",
         "window_end": "2026-08-06T08:00:00+08:00",
         "finished_at": "2026-08-06T09:00:00+08:00",
     })
@@ -301,8 +302,6 @@ def test_as_of_preferred_over_completion_timestamps(tmp_path):
     """as_of=08:00, finished_at=09:00 → cutoff=08:00 而非 09:00。"""
     db = _FakeDb([])
     _prev_run(tmp_path, "run-morning", [], task_json={
-        "task_id": "task-morning",
-        "scenario": "morning_brief",
         "as_of": "2026-08-06T08:00:00+08:00",
         "finished_at": "2026-08-06T09:00:00+08:00",
     })

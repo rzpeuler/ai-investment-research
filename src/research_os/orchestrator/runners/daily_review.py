@@ -73,6 +73,7 @@ class DailyReviewScenarioRunner:
         request_payload = DailyReviewRequest(
             request_id=new_uuid(), task_id=task.task_id,
             review_business_date=day.isoformat(), as_of=as_of,
+            previous_cutoff=request.get("previous_cutoff"),
             previous_run_ids=list(request.get("previous_run_ids") or []),
             previous_report_paths=list(request.get("previous_report_paths") or []),
             entities=list(request.get("entities") or []),
@@ -86,7 +87,7 @@ class DailyReviewScenarioRunner:
             day, as_of, task_id=task.task_id,
             previous_run_ids=request_payload.previous_run_ids,
             previous_report_paths=request_payload.previous_report_paths,
-            previous_cutoff=request.get("previous_cutoff"),
+            previous_cutoff=request_payload.previous_cutoff,
             entities=request_payload.entities,
         )
 
