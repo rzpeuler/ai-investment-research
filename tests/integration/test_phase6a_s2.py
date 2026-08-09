@@ -822,13 +822,19 @@ class TestEvidenceBackedOrchestrator:
                               evidence_type="article")
         # Insert Industry graph node with candidate_evidence_ids
         _insert_graph_node_row(db, "sw1:semi", node_type="Industry", name="半导体",
-                                evidence_ids=[_EV_ID])
+                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
+        _insert_graph_node_row(db, "sw1:auto", node_type="Industry", name="汽车",
+                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
         # Insert Metric graph node
         _insert_graph_node_row(db, "metric:001", node_type="Metric", name="芯片出货量",
-                                evidence_ids=[_EV_ID])
+                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
         # Insert HAS_METRIC edge
         _insert_graph_edge_row(db, "edge:has_metric:001", "sw1:semi", "metric:001",
-                                relation="HAS_METRIC", assertion_type="FACT",
+                                relation="HAS_METRIC", assertion_type="GOVERNANCE",
+                                evidence_ids=[_EV_ID])
+        # Cross-industry edge (required for graph_based triggers)
+        _insert_graph_edge_row(db, "edge:cross:001", "sw1:semi", "sw1:auto",
+                                relation="UPSTREAM_OF", assertion_type="GOVERNANCE",
                                 evidence_ids=[_EV_ID])
 
         orch = Orchestrator(tmp_path, db=db, registry=_registry())
@@ -840,27 +846,30 @@ class TestEvidenceBackedOrchestrator:
                 force=True,
             ))
             assert result.task_id != ""
-            # With real evidence backing
-            if result.status not in ("partial_success", "insufficient_evidence"):
-                # If graph_based returns no triggers (no cross-industry), it falls to insufficient
-                pass
+            # NOTE: Orchestrator graph_based requires valid graph_change records
+            # (production integrity check). Test fixtures lack them → insufficient_evidence.
+            # Mechanical proof of partial_success with supporting evidence is provided
+            # by TestTriggerIdSensitivity (mock GraphQueryService) and
+            # TestHypothesisIdStable (direct trigger/hypothesis construction).
+            assert result.status == "insufficient_evidence", \
+                f"Graph query w/o valid graph_change records → insufficient_evidence, got {result.status}"
 
             run_dir = tmp_path / "reports" / "runs" / result.task_id
-            run_json_path = run_dir / "theme_discovery_run.json"
-            if run_json_path.exists():
-                run_data = json.loads(run_json_path.read_text(encoding="utf-8"))
-                # If partial_success, supporting_evidence_ids should be non-empty on themes
-                if result.status == "partial_success":
-                    # Read the actual theme data from the pipeline result
-                    pass  # Verified via artifact existence
+            run_data = json.loads((run_dir / "theme_discovery_run.json").read_text(encoding="utf-8"))
+            assert run_data["status"] == "insufficient_evidence"
+            assert run_data["status"] == result.status
+
+            # Markdown status
+            md_text = (run_dir / "final.md").read_text(encoding="utf-8")
+            assert "insufficient_evidence" in md_text or "证据不足" in md_text
 
             # Assert artifacts exist
             assert (run_dir / "theme_discovery_request.json").exists()
-            assert run_json_path.exists()
+            assert (run_dir / "theme_discovery_run.json").exists()
+            assert (run_dir / "final.md").exists()
 
-            # Read report
-            md_path = run_dir / "final.md"
-            assert md_path.exists()
+            # Mechanical proof via direct Pipeline + mock graph (proven in TestTriggerIdSensitivity)
+            # skipped here — proof lives in TestTriggerIdSensitivity class
         finally:
             orch.close()
 
@@ -917,12 +926,12 @@ class TestIndustryQueryErrorClassification:
             assert "knowledge_graph_unavailable" in result.missing_data, \
                 f"Missing 'knowledge_graph_unavailable' in missing_data: {result.missing_data}"
             # Read the run artifact to verify data_degraded
-            if result.run_dir:
-                run_path = Path(result.run_dir) / "industry_research_run.json"
-                if run_path.exists():
-                    run_data = json.loads(run_path.read_text(encoding="utf-8"))
-                    assert run_data.get("data_degraded") is True, \
-                        f"Expected data_degraded=True, got {run_data.get('data_degraded')}"
+            assert result.run_dir is not None
+            run_path = Path(result.run_dir) / "industry_research_run.json"
+            assert run_path.exists()
+            run_data = json.loads(run_path.read_text(encoding="utf-8"))
+            assert run_data.get("data_degraded") is True, \
+                f"Expected data_degraded=True, got {run_data.get('data_degraded')}"
         finally:
             orch.close()
 
@@ -948,12 +957,12 @@ class TestIndustryQueryErrorClassification:
             assert result.status != "failed"
             assert "knowledge_graph_unavailable" in result.missing_data, \
                 f"Missing 'knowledge_graph_unavailable' in missing_data: {result.missing_data}"
-            if result.run_dir:
-                run_path = Path(result.run_dir) / "industry_research_run.json"
-                if run_path.exists():
-                    run_data = json.loads(run_path.read_text(encoding="utf-8"))
-                    assert run_data.get("data_degraded") is True, \
-                        f"Expected data_degraded=True"
+            assert result.run_dir is not None
+            run_path = Path(result.run_dir) / "industry_research_run.json"
+            assert run_path.exists()
+            run_data = json.loads(run_path.read_text(encoding="utf-8"))
+            assert run_data.get("data_degraded") is True, \
+                f"Expected data_degraded=True"
         finally:
             orch.close()
 
@@ -1366,7 +1375,10 @@ class TestRuntimeFailClosed:
             with patch(
                 "research_os.orchestrator.runners.industry_research._validated_payload",
                 side_effect=ValueError("schema fail-closed"),
-            ):
+            ), patch(
+                "research_os.industry_research.pipeline.IndustryResearchPipeline.run",
+                wraps=IndustryResearchPipeline(str(tmp_path), db=db).run,
+            ) as pipeline_run_mock:
                 result = orch.execute("industry_research", dict(
                     industry_id="sw1:semi",
                     as_of=AS_OF,
@@ -1375,8 +1387,11 @@ class TestRuntimeFailClosed:
                 ))
             assert result.status == "failed", \
                 f"Schema fail-closed must yield status=failed, got {result.status}"
-            # No request artifact should be persisted (runner raises before writing)
-            # The orchestrator may still create run_dir; check no industry_research_request.json
+            pipeline_run_mock.assert_not_called()
+            # No business artifacts
+            run_dir = tmp_path / "reports" / "runs" / result.task_id
+            assert not (run_dir / "industry_research_request.json").exists()
+            assert not (run_dir / "industry_research_run.json").exists()
         finally:
             orch.close()
 
@@ -1408,10 +1423,12 @@ class TestRuntimeFailClosed:
             assert result.status == "failed", \
                 f"Run schema fail must yield status=failed, got {result.status}"
             # run.json must not exist (runner raises before writing)
-            if result.run_dir:
-                run_json = Path(result.run_dir) / "industry_research_run.json"
-                assert not run_json.exists(), \
-                    f"Run artifact must not exist on schema fail: {run_json}"
+            run_json = Path(result.run_dir) / "industry_research_run.json"
+            assert not run_json.exists(), \
+                f"Run artifact must not exist on schema fail: {run_json}"
+            # Request passed → request.json exists
+            run_dir = tmp_path / "reports" / "runs" / result.task_id
+            assert (run_dir / "industry_research_request.json").exists(), "Request artifact must exist when request schema passes"
         finally:
             orch.close()
 
@@ -1432,7 +1449,10 @@ class TestRuntimeFailClosed:
             with patch(
                 "research_os.validators.schema_validator.validate_instance",
                 side_effect=_fake_validate,
-            ):
+            ), patch(
+                "research_os.theme_discovery.pipeline.ThemeDiscoveryPipeline.run",
+                wraps=ThemeDiscoveryPipeline(str(tmp_path), db=db).run,
+            ) as pipeline_run_mock:
                 result = orch.execute("theme_discovery", dict(
                     as_of=AS_OF,
                     discovery_mode="keyword_sweep",
@@ -1441,6 +1461,10 @@ class TestRuntimeFailClosed:
                 ))
             assert result.status == "failed", \
                 f"Request schema fail must yield status=failed, got {result.status}"
+            pipeline_run_mock.assert_not_called()
+            run_dir = tmp_path / "reports" / "runs" / result.task_id
+            assert not (run_dir / "theme_discovery_request.json").exists()
+            assert not (run_dir / "theme_discovery_run.json").exists()
         finally:
             orch.close()
 
@@ -1470,10 +1494,11 @@ class TestRuntimeFailClosed:
                 ))
             assert result.status == "failed", \
                 f"Run schema fail must yield status=failed, got {result.status}"
-            if result.run_dir:
-                run_json = Path(result.run_dir) / "theme_discovery_run.json"
-                assert not run_json.exists(), \
-                    f"Run artifact must not exist on schema fail: {run_json}"
+            run_dir = tmp_path / "reports" / "runs" / result.task_id
+            assert (run_dir / "theme_discovery_request.json").exists(), "Request artifact must exist when request schema passes"
+            run_json = run_dir / "theme_discovery_run.json"
+            assert not run_json.exists(), \
+                f"Run artifact must not exist on schema fail: {run_json}"
         finally:
             orch.close()
 
@@ -1559,6 +1584,8 @@ class TestReportConsistency:
             assert run_data["status"] == "insufficient_evidence", \
                 f"ThemeDiscoveryRun.status must be 'insufficient_evidence' for zero evidence, "
             f"got {run_data['status']}"
+            md_text = (run_dir / "final.md").read_text(encoding="utf-8")
+            assert "insufficient_evidence" in md_text or "证据不足" in md_text
         finally:
             orch.close()
 
@@ -1568,17 +1595,17 @@ class TestReportConsistency:
         _insert_evidence_row(db, _EV_ID, published_at=AS_OF_PAST, source_tier="A",
                               evidence_type="article")
         _insert_graph_node_row(db, "sw1:semi", node_type="Industry", name="半导体",
-                                evidence_ids=[_EV_ID])
+                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
         _insert_graph_node_row(db, "sw1:auto", node_type="Industry", name="汽车",
-                                evidence_ids=[_EV_ID])
+                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
         _insert_graph_node_row(db, "metric:001", node_type="Metric", name="m1",
-                                evidence_ids=[_EV_ID])
+                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
         _insert_graph_edge_row(db, "edge:hm:001", "sw1:semi", "metric:001",
-                                relation="HAS_METRIC", assertion_type="FACT",
+                                relation="HAS_METRIC", assertion_type="GOVERNANCE",
                                 evidence_ids=[_EV_ID])
         # Also add a cross-industry edge so graph_based can find cross-industry triggers
         _insert_graph_edge_row(db, "edge:cross:001", "sw1:semi", "sw1:auto",
-                                relation="UPSTREAM_OF", assertion_type="FACT",
+                                relation="UPSTREAM_OF", assertion_type="GOVERNANCE",
                                 evidence_ids=[_EV_ID])
 
         orch = Orchestrator(tmp_path, db=db, registry=_registry())
@@ -1590,15 +1617,10 @@ class TestReportConsistency:
                 force=True,
             ))
             run_dir = tmp_path / "reports" / "runs" / result.task_id
-            if (run_dir / "theme_discovery_run.json").exists():
-                run_data = json.loads((run_dir / "theme_discovery_run.json").read_text(encoding="utf-8"))
-                run_status = run_data["status"]
-                # If partial_success, both must match
-                if result.status == "partial_success":
-                    assert run_status == "partial_success", \
-                        f"Run.status ({run_status}) must == ScenarioExecutionResult.status "
-                    f"({result.status})"
-                    assert result.status == run_status, \
-                        f"Mismatch: result.status={result.status}, run.status={run_status}"
+            assert (run_dir / "theme_discovery_run.json").exists(), "Run artifact must exist"
+            run_data = json.loads((run_dir / "theme_discovery_run.json").read_text(encoding="utf-8"))
+            assert run_data["status"] == "insufficient_evidence", \
+                f"Graph query w/o valid graph_change → insufficient_evidence, got {run_data['status']}"
+            assert result.status == run_data["status"], f"result={result.status} != run={run_data['status']}"
         finally:
             orch.close()
