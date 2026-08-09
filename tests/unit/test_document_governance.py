@@ -28,14 +28,18 @@ def test_phase_status_documents_are_consistent():
     readme = _read("README.md")
     current = _read("docs/project-state/CURRENT_STATE.md")
     next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
     phase5_task = _read("docs/tasks/phase5-industry-knowledge-graph.md")
 
+    # ── CURRENT-STATE DOCUMENTS ──
     # Phase5 terminal state assertions
-    # README uses Chinese "Phase 5：PASS" with full-width colon
     assert "Phase 5" in readme and "PASS" in readme, "README must reflect Phase5 PASS"
     assert "M0-M10" in readme, "README must state M0-M10 PASS"
     assert "| Phase 5 | PASS |" in current, "CURRENT_STATE must reflect Phase5 PASS"
     assert "Phase 5 implementation：PASS" in next_phase, "NEXT_PHASE must reflect Phase5 PASS"
+    assert "Phase 5" in limitations and ("PASS" in limitations or "CLOSED" in limitations), \
+        "KNOWN_LIMITATIONS must reflect Phase5 terminal state"
+    assert "NOT_AUTHORIZED" in limitations, "KNOWN_LIMITATIONS must reflect Phase6 NOT_AUTHORIZED"
     assert "**IMPLEMENTATION_STATUS: COMPLETE**" in phase5_task
     # No stale pre-merge artifacts in CURRENT_STATE or NEXT_PHASE surface
     assert "Draft PR #6" not in current, "CURRENT_STATE must not reference Draft PR #6"

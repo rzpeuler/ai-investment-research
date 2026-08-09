@@ -1712,7 +1712,12 @@ Graph→Research 不实现，JSON mirror 不实现。
 >   NEXT_PHASE stale `禁止 merge PR5C`；
 >   governance test 将 KNOWN_LIMITATIONS 错分为 historical；
 >   CURRENT_STATE `code_baseline` 语义不清。
-> - 本轮关闭以上缺口。
+> - 本 closure 经独立复核发现第一次提交仅关闭 KNOWN_LIMITATIONS。
+>   随后在同一 Phase 5 Final Governance Closure 工作项内补齐：
+>   NEXT_PHASE stale PR5C gate 替换为当前门禁、
+>   CURRENT_STATE baseline 语义拆分、
+>   governance test KNOWN_LIMITATIONS 重分类为 current-state authority。
+> - 最终独立验收通过后，Phase 5 governance 方可标记 CLOSED / PASS。
 > - Phase 5 engineering acceptance 不变。M10 acceptance 不变。
 > - Schema / migration / DB / runtime 均不变。
 > - Phase 5 = CLOSED / PASS。Phase 6 implementation = NOT_AUTHORIZED。

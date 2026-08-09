@@ -2,7 +2,9 @@
 
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
-> 当前统一结论（2026-08-07）：Phase 4 engineering foundation = PASS；
+> 当前统一结论（2026-08-09）：Phase 4 engineering foundation = PASS；
+> Phase 5 = CLOSED / PASS；Phase 6 implementation = NOT_AUTHORIZED；
+> Graph→Research production integration: NOT YET ENABLED
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
 > Phase 5 = CLOSED / PASS。
 
