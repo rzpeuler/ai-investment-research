@@ -40,6 +40,42 @@ def load_evidence_in_range(db: Any, start: str, end: str) -> List[dict]:
     return out
 
 
+def load_evidence_with_entities_in_range(db: Any, start: str, end: str) -> List[dict]:
+    """按发布时间 [start, end) 读取 Evidence，并 JOIN raw_items 获取 entities。
+
+    Evidence Schema 不含 entities，需从 raw_items 关联提取。
+    """
+    if db is None:
+        return []
+    rows = db.query(
+        "SELECT e.payload AS evidence_payload, "
+        "r.payload AS raw_item_payload "
+        "FROM evidence e "
+        "LEFT JOIN raw_items r ON e.raw_item_id = r.raw_item_id "
+        "WHERE json_extract(e.payload, '$.published_at') >= ? "
+        "AND json_extract(e.payload, '$.published_at') < ? "
+        "ORDER BY json_extract(e.payload, '$.published_at')",
+        (start, end),
+    )
+    out = []
+    for row in rows:
+        try:
+            ep = json.loads(row["evidence_payload"]) if isinstance(row["evidence_payload"], str) else row["evidence_payload"]
+        except (TypeError, ValueError):
+            continue
+        # 从 raw_items 提取 entities 注入
+        if row["raw_item_payload"]:
+            try:
+                rp = json.loads(row["raw_item_payload"]) if isinstance(row["raw_item_payload"], str) else row["raw_item_payload"]
+                ep["entities"] = rp.get("entities") or []
+            except (TypeError, ValueError):
+                ep["entities"] = []
+        else:
+            ep["entities"] = []
+        out.append(ep)
+    return out
+
+
 def load_previous_views(project_root: Path, run_ids: List[str],
                         report_paths: List[str]) -> List[dict]:
     """读取 previous research views（claims 列表）。

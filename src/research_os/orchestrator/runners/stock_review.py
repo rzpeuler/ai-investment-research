@@ -109,7 +109,7 @@ class StockReviewScenarioRunner:
             review_start=request["review_start"], review_end=request["review_end"],
             as_of=as_of, previous_cutoff=request_payload.previous_cutoff,
             what_changed=artifacts.what_changed,
-            new_evidence_count=len(artifacts.window_evidence),
+            new_evidence_count=len(artifacts.new_evidence),
             thesis_supported=artifacts.thesis_supported,
             thesis_weakened=artifacts.thesis_weakened,
             risk_changed=artifacts.risk_changed,

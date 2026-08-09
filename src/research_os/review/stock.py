@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from research_os.review.evidence import (
     cutoff_after,
     entity_overlap,
-    load_evidence_in_range,
+    load_evidence_with_entities_in_range,
     load_research_findings,
     opposite_signal,
 )
@@ -50,6 +50,7 @@ class StockReviewArtifacts:
     review_end: str
     as_of: str
     previous_cutoff: Optional[str]
+    effective_end: str = ""
     findings: List[dict] = field(default_factory=list)
     window_evidence: List[dict] = field(default_factory=list)
     new_evidence: List[dict] = field(default_factory=list)
@@ -106,10 +107,11 @@ class StockReviewPipeline:
             task_id=task_id, entity=entity,
             review_start=review_start.isoformat(), review_end=review_end.isoformat(),
             as_of=as_of, previous_cutoff=previous_cutoff,
+            effective_end=effective_end,
         )
 
         # 1. 窗口内 Evidence（load_evidence_in_range 已 ≤ effective_end）
-        artifacts.window_evidence = load_evidence_in_range(self.db, day_start, effective_end)
+        artifacts.window_evidence = load_evidence_with_entities_in_range(self.db, day_start, effective_end)
         # B3-3: what_changed 只保留 target entity 的 Evidence
         for ev in artifacts.window_evidence:
             ev_entities = ev.get("entities") or []
@@ -124,6 +126,14 @@ class StockReviewPipeline:
                 if (cutoff_after(previous_cutoff, ev.get("published_at", ""))
                         and _entity_relevant(entity, ev.get("entities") or [])):
                     artifacts.new_evidence.append(ev)
+        else:
+            # B3-R2: prior cutoff 不可用 → No incremental judgment
+            artifacts.missing_data.append(
+                "prior_cutoff_unavailable: 无法界定新增 Evidence；增量判断降级")
+            artifacts.remaining_questions = _remaining_questions(artifacts)
+            artifacts.markdown = render_stock_review(artifacts)
+            artifacts.report_path = report_path_for(entity, review_end, self.project_root)
+            return artifacts
 
         # 2. Phase 4 已验收产物
         artifacts.findings = load_research_findings(self.db, entity)
@@ -226,7 +236,7 @@ def render_stock_review(artifacts: StockReviewArtifacts) -> str:
         f"as_of: {artifacts.as_of}",
         "timezone: Asia/Shanghai",
         "entities: []",
-        f"time_window: {{start: {artifacts.review_start}T00:00:00+08:00, end: {artifacts.review_end}T23:59:59+08:00}}",
+        f"time_window: {{start: {artifacts.review_start}T00:00:00+08:00, end: {artifacts.effective_end}}}",
         f"entity: {artifacts.entity}",
         f"review_start: {artifacts.review_start}",
         f"review_end: {artifacts.review_end}",

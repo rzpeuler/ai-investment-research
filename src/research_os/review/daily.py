@@ -39,6 +39,7 @@ class DailyReviewArtifacts:
     review_business_date: str
     as_of: str
     previous_cutoff: Optional[str]
+    effective_end: str = ""
     observed_facts: List[dict] = field(default_factory=list)
     previous_views: List[dict] = field(default_factory=list)
     new_evidence: List[dict] = field(default_factory=list)
@@ -86,7 +87,7 @@ def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
                 continue
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
-                for key in ("as_of", "window_end", "finished_at"):
+                for key in ("as_of", "window_end"):
                     val = data.get(key)
                     if val:
                         try:
@@ -167,6 +168,7 @@ class DailyReviewPipeline:
                 review_business_date=review_business_date.isoformat(),
                 as_of=as_of,
                 previous_cutoff=None,
+                effective_end=effective_end,
             )
             artifacts.observed_facts = load_evidence_in_range(self.db, day_start, effective_end)
             artifacts.missing_data.append(
@@ -193,6 +195,7 @@ class DailyReviewPipeline:
                 review_business_date=review_business_date.isoformat(),
                 as_of=as_of,
                 previous_cutoff=cutoff,
+                effective_end=effective_end,
             )
             artifacts.observed_facts = load_evidence_in_range(self.db, day_start, effective_end)
             artifacts.previous_views = load_previous_views(
@@ -264,7 +267,7 @@ def render_daily_review(artifacts: DailyReviewArtifacts) -> str:
         f"as_of: {artifacts.as_of}",
         "timezone: Asia/Shanghai",
         "entities: []",
-        f"time_window: {{start: {artifacts.review_business_date}T00:00:00+08:00, end: {artifacts.review_business_date}T23:59:59+08:00}}",
+        f"time_window: {{start: {artifacts.review_business_date}T00:00:00+08:00, end: {artifacts.effective_end}}}",
         f"review_business_date: {artifacts.review_business_date}",
         f"previous_cutoff: {artifacts.previous_cutoff or 'null'}",
         f"data_status: {'partial' if artifacts.missing_data else 'ok'}",

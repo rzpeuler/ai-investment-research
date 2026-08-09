@@ -250,3 +250,62 @@ def test_fact_view_interpretation_separation(tmp_path):
     assert len(artifacts.previous_views) == 1
     # updated_interpretation 是 verdict（非事实）
     assert artifacts.interpretations[0]["verdict"] in ("supported", "weakened", "unchanged", "unknown")
+
+
+# ---------- B2-R2 finished_at exclusion ----------
+
+def test_finished_at_not_used_as_prior_cutoff(tmp_path):
+    """prior artifact 有 window_end=08:00 和 finished_at=08:15 → cutoff=08:00 而非 08:15。"""
+    db = _FakeDb([
+        _evidence("e-0805", "2026-08-06T08:05:00+08:00", "08:05 证据", ["macro:cpi"]),
+    ])
+    _prev_run(tmp_path, "run-morning", [], task_json={
+        "as_of": "2026-08-06T08:00:00+08:00",
+        "window_end": "2026-08-06T08:00:00+08:00",
+        "finished_at": "2026-08-06T08:15:00+08:00",
+    })
+    artifacts = DailyReviewPipeline(tmp_path, db).run(
+        date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+        task_id="t1", previous_run_ids=["run-morning"])
+    assert artifacts.previous_cutoff == "2026-08-06T08:00:00"
+    # 08:05 在 cutoff 之后 → new_evidence
+    assert len(artifacts.new_evidence) == 1
+    assert artifacts.new_evidence[0]["title"] == "08:05 证据"
+
+
+def test_window_end_preferred_over_finished_at(tmp_path):
+    """window_end 优先于 finished_at。"""
+    db = _FakeDb([])
+    _prev_run(tmp_path, "run-morning", [], task_json={
+        "window_end": "2026-08-06T08:00:00+08:00",
+        "finished_at": "2026-08-06T09:00:00+08:00",
+    })
+    artifacts = DailyReviewPipeline(tmp_path, db).run(
+        date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+        task_id="t1", previous_run_ids=["run-morning"])
+    assert artifacts.previous_cutoff == "2026-08-06T08:00:00"
+
+
+def test_as_of_preferred_over_completion_timestamps(tmp_path):
+    """as_of=08:00, finished_at=09:00 → cutoff=08:00 而非 09:00。"""
+    db = _FakeDb([])
+    _prev_run(tmp_path, "run-morning", [], task_json={
+        "as_of": "2026-08-06T08:00:00+08:00",
+        "finished_at": "2026-08-06T09:00:00+08:00",
+    })
+    artifacts = DailyReviewPipeline(tmp_path, db).run(
+        date(2026, 8, 6), "2026-08-06T20:00:00+08:00",
+        task_id="t1", previous_run_ids=["run-morning"])
+    assert artifacts.previous_cutoff == "2026-08-06T08:00:00"
+
+
+def test_effective_end_in_time_window_metadata(tmp_path):
+    """time_window.end 反映真实 effective_end，而非硬编码 23:59:59。"""
+    db = _FakeDb([
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "上午", ["macro:cpi"]),
+    ])
+    artifacts = DailyReviewPipeline(tmp_path, db).run(
+        date(2026, 8, 6), "2026-08-06T12:00:00+08:00",
+        task_id="t1", previous_cutoff="2026-08-05T20:00:00+08:00")
+    assert artifacts.effective_end.endswith("12:00:00+08:00") or "12:00:00" in artifacts.effective_end
+    assert "T23:59:59" not in artifacts.markdown

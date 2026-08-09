@@ -28,13 +28,28 @@ class _FakeDb:
     def __init__(self, evidences=None, findings=None):
         self._evidences = evidences or []
         self._findings = findings or []
+        # raw_items：从 evidence 的 raw_item_id 派生（模拟 JOIN）
+        self._raw_items = {ev["raw_item_id"]: {"entities": ev.get("entities") or []}
+                          for ev in self._evidences}
 
     def query(self, sql, params=()):
         if "research_findings" in sql:
             return [{"payload": json.dumps(f)} for f in self._findings]
         start, end = params
+        if "raw_items" in sql:
+            # JOIN 查询：返回 evidence_payload + raw_item_payload
+            rows = []
+            for ev in self._evidences:
+                if start <= ev["published_at"] <= end:
+                    ri = self._raw_items.get(ev["raw_item_id"], {"entities": []})
+                    rows.append({
+                        "evidence_payload": json.dumps(ev),
+                        "raw_item_payload": json.dumps(ri),
+                    })
+            return rows
+        # 简单查询（daily_review 用的）
         return [{"payload": json.dumps(ev)} for ev in self._evidences
-                if start <= ev["published_at"] <= end]
+                if start <= ev["published_at"] < end]
 
 
 def _finding(finding_id: str, finding_type: str, statement: str,
@@ -238,3 +253,80 @@ def test_missing_prior_cutoff_degraded(tmp_path):
         "2026-08-06T20:00:00+08:00", task_id="t1")
     # new_evidence 为空（无 cutoff 不做伪精确）
     assert artifacts.new_evidence == []
+
+
+# ---------- B3-R2 prior cutoff degraded ----------
+
+def test_missing_prior_cutoff_degrades(tmp_path):
+    """previous_cutoff=None → missing_data + no incremental judgment。"""
+    db = _FakeDb(evidences=[
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "某公告",
+                  ["company:600519.SH"]),
+    ], findings=[
+        _finding("f1", "catalyst", "某催化剂", entities=["company:600519.SH"]),
+    ])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1")
+    assert artifacts.new_evidence == []
+    assert any("prior_cutoff_unavailable" in m for m in artifacts.missing_data)
+    assert artifacts.thesis_supported == []
+    assert artifacts.thesis_weakened == []
+    assert artifacts.risk_changed == []
+    assert artifacts.catalyst_changed == []
+    assert artifacts.valuation_assumption_changed == []
+
+
+def test_missing_prior_cutoff_pipeline_returns_early(tmp_path):
+    """early return 确保 _evaluate 不被调用。"""
+    db = _FakeDb(evidences=[
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "某公告",
+                  ["company:600519.SH"]),
+    ], findings=[
+        _finding("f1", "catalyst", "某催化剂", entities=["company:600519.SH"]),
+    ])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1")
+    assert artifacts.markdown
+    assert "prior_cutoff_unavailable" in artifacts.markdown
+
+
+# ---------- B3-R3 new_evidence_count ----------
+
+def test_new_evidence_count_uses_new_evidence(tmp_path):
+    """Run artifact 记录真正参与增量判断的 Evidence 数量。"""
+    db = _FakeDb(evidences=[
+        _evidence("e-old", "2026-08-06T09:00:00+08:00", "旧证据",
+                  ["company:600519.SH"]),
+        _evidence("e-new1", "2026-08-06T14:00:00+08:00", "新证据1",
+                  ["company:600519.SH"]),
+        _evidence("e-new2", "2026-08-06T15:00:00+08:00", "新证据2",
+                  ["company:600519.SH"]),
+        _evidence("e-other", "2026-08-06T16:00:00+08:00", "其他公司",
+                  ["company:000001.SZ"]),
+    ], findings=[
+        _finding("f1", "catalyst", "某催化剂", entities=["company:600519.SH"]),
+    ])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-06T12:00:00+08:00")
+    # window_evidence: 4 条（旧 + 新1 + 新2 + 其他公司被过滤）
+    # new_evidence: 2 条（新1 + 新2）—— entity 相关 + cutoff 之后
+    assert len(artifacts.window_evidence) == 4
+    assert len(artifacts.new_evidence) == 2
+
+
+def test_effective_end_in_time_window_metadata(tmp_path):
+    """stock time_window.end 反映真实 effective_end。"""
+    db = _FakeDb(evidences=[
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "上午",
+                  ["company:600519.SH"]),
+    ], findings=[])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T12:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-05T20:00:00+08:00")
+    assert "T23:59:59" not in artifacts.markdown
+    assert "12:00:00" in artifacts.markdown or artifacts.effective_end.endswith("12:00:00+08:00")
