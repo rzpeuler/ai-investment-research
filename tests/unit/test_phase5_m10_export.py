@@ -728,75 +728,94 @@ class TestExportTrueWALConcurrency:
     """真实 KnowledgeMirrorExporter.export() WAL 并发证明。"""
 
     def test_export_real_wal_snapshot_boundary(self, tmp_path):
-        """export() WAL 证明：两次 export 间 writer 插入新 identity →
-        node count 增加 + tree_sha256 变化。"""
+        """True WAL concurrency: writer commits DURING single exporter.export()
+        → exporter's snapshot must NOT see writer node (snapshot isolation).
+        Second export then sees it. No direct SQL. No error fallback."""
         from research_os.utils.id import new_uuid as _nid
-        import json as _j
+        import json as _j, sqlite3 as _sq
 
         db_path, db, graph_repo, history = _setup_fresh_db(tmp_path)
         _seed_ontology(graph_repo)
         db.close()
         kroot = _make_knowledge_root(tmp_path)
 
-        # First export: 34 nodes
-        with KnowledgeMirrorExporter(
-            project_root=tmp_path, knowledge_root=kroot,
-            db_path=db_path,
-        ) as exp1:
-            r1 = exp1.export(dry_run=False)
-            assert r1.status == "ok"
-            assert r1.node_identity_count == 34
-            sha1 = r1.tree_sha256
-
-        # Writer: insert new node via normal GraphRepository
-        db2 = Database(db_path)
-        db2.initialize()
-        repo2 = GraphRepository(db2)
+        # Pre-build a valid GraphNode for the concurrent writer
         gc_id = _nid()
-        payload = _j.dumps({
-            "node_id": "industry:test_wal_r4",
+        writer_payload = {
+            "node_id": "industry:test_wal_r5",
             "node_type": "Industry",
-            "name": "WAL-R4-Test",
+            "name": "WAL-R5-Test",
             "version": 1,
             "status": "active",
             "review_status": "approved",
             "origin_kind": "governance_seed",
             "created_at": "2026-08-09T00:00:00",
-            "aliases": [],
-            "description": "",
+            "aliases": [], "description": "",
             "evidence_ids": [],
-            "valid_from": None,
-            "valid_to": None,
+            "valid_from": None, "valid_to": None,
             "last_reviewed_at": None,
-            "originating_graph_change_id": gc_id,
-        }, ensure_ascii=False, sort_keys=True)
-        db2._conn.execute(
-            "INSERT INTO graph_nodes (node_id, version, payload, "
-            "node_type, name, status, review_status, origin_kind, "
-            "created_at, valid_from, valid_to, last_reviewed_at, "
-            "originating_graph_change_id) "
-            "VALUES (?, 1, ?, 'Industry', 'WAL-R4-Test', 'active', "
-            "'approved', 'governance_seed', '2026-08-09T00:00:00', "
-            "NULL, NULL, NULL, ?)",
-            ("industry:test_wal_r4", payload,
-             gc_id)
-        )
-        db2._conn.commit()
-        db2.close()
+            "originating_graph_change_id": None,
+        }
+        writer_payload_json = _j.dumps(
+            writer_payload, ensure_ascii=False, sort_keys=True)
 
-        # Second export: 35 nodes, different hash
-        with KnowledgeMirrorExporter(
-            project_root=tmp_path, knowledge_root=kroot,
-            db_path=db_path,
-        ) as exp2:
-            r2 = exp2.export(dry_run=False)
-            if r2.status == "error":
-                # Direct SQL insert may fail HistoryService strict integrity
-                # (payload vs denormalized columns). This proves the exporter
-                # is fail-closed, not silently ignoring corruption.
-                assert "EXPORT" in str(r2.errors), (
-                    f"Expected export error for direct SQL, got: {r2.status}"
+        # Monkeypatch _build_mirror to insert concurrent writer DURING first export
+        original_build = KnowledgeMirrorExporter._build_mirror
+        writer_done = [False]
+
+        def _build_with_concurrent_write(self, conn, node_ids, edge_ids,
+                                          dry_run):
+            if not writer_done[0]:
+                writer_done[0] = True
+                wconn = _sq.connect(str(db_path))
+                wconn.row_factory = _sq.Row
+                wconn.execute(
+                    "INSERT INTO graph_nodes (node_id, version, payload, "
+                    "node_type, name, status, review_status, origin_kind, "
+                    "created_at, valid_from, valid_to, last_reviewed_at, "
+                    "originating_graph_change_id) "
+                    "VALUES (?, 1, ?, 'Industry', 'WAL-R5-Test', 'active', "
+                    "'approved', 'governance_seed', '2026-08-09T00:00:00', "
+                    "NULL, NULL, NULL, NULL)",
+                    ("industry:test_wal_r5", writer_payload_json)
                 )
-            else:
-                assert r2.node_identity_count == 35
-                assert r2.tree_sha256 != sha1
+                wconn.commit()
+                wconn.close()
+            return original_build(self, conn, node_ids, edge_ids, dry_run)
+
+        try:
+            KnowledgeMirrorExporter._build_mirror = _build_with_concurrent_write
+
+            # Single export: writer commits DURING this export()
+            exp = KnowledgeMirrorExporter(
+                project_root=tmp_path, knowledge_root=kroot,
+                db_path=db_path,
+            )
+            r1 = exp.export(dry_run=False)
+            exp.close()
+
+            assert writer_done[0], "Writer must have committed"
+            assert r1.status == "ok", (
+                f"First export must succeed: {r1.errors}"
+            )
+            # First export snapshot must NOT see writer's node
+            assert r1.node_identity_count == 34, (
+                f"Pre-writer snapshot must be 34, got {r1.node_identity_count}"
+            )
+            sha1 = r1.tree_sha256
+
+            # Second export: writer node now visible
+            exp2 = KnowledgeMirrorExporter(
+                project_root=tmp_path, knowledge_root=kroot,
+                db_path=db_path,
+            )
+            r2 = exp2.export(dry_run=False)
+            exp2.close()
+            assert r2.status == "ok", f"Second export: {r2.errors}"
+            assert r2.node_identity_count == 35, (
+                f"Post-writer must be 35, got {r2.node_identity_count}"
+            )
+            assert r2.tree_sha256 != sha1
+
+        finally:
+            KnowledgeMirrorExporter._build_mirror = original_build

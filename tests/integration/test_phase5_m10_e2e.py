@@ -87,11 +87,14 @@ def _persist_entity(db: Database, entity_id: str, name: str) -> None:
 def _persist_source(db: Database,
                     source_id: str = "sse_disclosure",
                     source_tier: str = "S",
-                    name: str = "上海证券交易所") -> None:
+                    name: str = "上海证券交易所",
+                    platform: str = "sse",
+                    base_domain: str = "https://star.sse.com.cn",
+                    source_type: str = "official_disclosure") -> None:
     source = Source(
         source_id=source_id, name=name,
-        platform="sse", base_domain="https://star.sse.com.cn",
-        source_type="official_disclosure", source_tier=source_tier,
+        platform=platform, base_domain=base_domain,
+        source_type=source_type, source_tier=source_tier,
     )
     db.upsert(source)
 
@@ -143,8 +146,21 @@ def _persist_evidence(db: Database, raw_item_id: str,
     return ev_id
 
 
+def _persist_synthetic_source(db: Database, source_id: str,
+                               source_tier: str,
+                               name: str,
+                               platform: str = "synthetic_fixture",
+                               base_domain: str = "https://synthetic.example.com") -> None:
+    """Synthetic source for M10 acceptance testing (NOT real data)."""
+    _persist_source(db, source_id=source_id, source_tier=source_tier,
+                    name=name, platform=platform,
+                    base_domain=base_domain,
+                    source_type="test_fixture")
+
+
 def _persist_company_profile(db: Database, entity_id: str, name: str,
-                              evidence_ids: List[str]) -> str:
+                              evidence_ids: List[str],
+                              source_ids: List[str] = None) -> str:
     """通过正常持久化 API 创建 CompanyProfile（M3 正式 structured source）。"""
     from research_os.models.companies import CompanyProfile
     cp = CompanyProfile(
@@ -158,7 +174,7 @@ def _persist_company_profile(db: Database, entity_id: str, name: str,
         valid_from="2025-01-01",
         created_at="2026-08-09T00:00:00",
         updated_at="2026-08-09T00:00:00",
-        source_ids=["sse_disclosure"],
+        source_ids=source_ids or ["sse_disclosure"],
         evidence_ids=evidence_ids,
     )
     db.upsert(cp)
@@ -233,7 +249,7 @@ def _review_and_apply(c: Dict[str, Any], candidate_gc_id: str,
 
     # Also fill Review Notes
     md_text = md_text.replace(
-        "_（待填写）_",
+        "_（请在此填写审核意见）_",
         "TEST HUMAN REVIEW FIXTURE — NOT PRODUCTION HUMAN APPROVAL."
     )
 
@@ -246,8 +262,8 @@ def _review_and_apply(c: Dict[str, Any], candidate_gc_id: str,
     assert import_r.review_id
     # Verify Review Notes contains TEST HUMAN REVIEW FIXTURE
     stored_review = c["graph_repo"].get_review(import_r.review_id)
-    if stored_review and stored_review.get("notes"):
-        assert "TEST HUMAN REVIEW FIXTURE" in str(stored_review["notes"]),             f"Review notes must contain fixture marker: {stored_review['notes']}"
+    assert stored_review is not None, "Review must be persisted"
+    assert "TEST HUMAN REVIEW FIXTURE" in str(stored_review.get("notes", "")),         f"Review notes must contain fixture marker: {stored_review.get('notes')}"
 
     # 5. Apply — applied_at = reviewed_at (= created_at, KGV-012 equality OK)
     apply_r = c["apply"].apply(
@@ -304,8 +320,12 @@ class TestCaseBFact:
             "industry_segment:semiconductor:wafer_manufacturing",
         ], url=M10_SSE_688981_URL)
         ev_id = _persist_evidence(db, raw_id, url=M10_SSE_688981_URL)
-        # URL lineage: evidence persisted with official SSE URL (see acceptance metadata)
         assert ev_id
+        # URL lineage: load Evidence from SQLite payload
+        ev_rows = db.query(
+            "SELECT payload FROM evidence WHERE evidence_id=?", (ev_id,)
+        )
+        assert ev_rows, "Evidence must be persisted"
         # CompanyProfile 提供 company_entity_id（builder identity resolution）
         cp_id = _persist_company_profile(
             db, "company:688981.SH", "中芯国际", [ev_id]
@@ -414,19 +434,24 @@ class TestCaseCModelInference:
         c = _make_components(db)
 
         _persist_entity(db, "company:600519.SH", "贵州茅台")
-        _persist_source(db)
+        _persist_synthetic_source(db, source_id="m10_synthetic_mi",
+                                  source_tier="B",
+                                  name="M10 Synthetic Model Inference Source")
         raw_id = _persist_raw_item(db, [
             "company:600519.SH",
             "industry_segment:ai_software:enterprise_software",
         ], title="TEST SYNTHETIC MODEL INFERENCE INPUT",
-           excerpt="TEST FIXTURE ONLY — company:600519.SH is modeled as adopting enterprise AI software for this acceptance test.",
-           source_id="sse_disclosure")
+           excerpt="company:600519.SH is modeled as adopting enterprise AI software.",
+           source_id="m10_synthetic_mi",
+           url="https://synthetic.example.com/model-inference")
         ev_id = _persist_evidence(db, raw_id,
             title="TEST SYNTHETIC MODEL INFERENCE INPUT",
-            excerpt="TEST FIXTURE ONLY — company:600519.SH is modeled as adopting enterprise AI software for this acceptance test.",
-            url="https://synthetic.example.com/mi-test")
+            excerpt="company:600519.SH is modeled as adopting enterprise AI software.",
+            source_id="m10_synthetic_mi", source_tier="B",
+            url="https://synthetic.example.com/model-inference")
         cp_id = _persist_company_profile(
-            db, "company:600519.SH", "贵州茅台", [ev_id]
+            db, "company:600519.SH", "贵州茅台", [ev_id],
+            source_ids=["m10_synthetic_mi"]
         )
 
         # ── add_node ──
@@ -541,8 +566,8 @@ class TestCaseDConflict:
 
         _persist_entity(db, "company:600519.SH", "贵州茅台")
         # Synthetic sources for conflict test (NOT SSE)
-        _persist_source(db, source_id="source_a", source_tier="A", name="M10 Synthetic Source A")
-        _persist_source(db, source_id="source_b", source_tier="B", name="M10 Synthetic Source B")
+        _persist_source(db, source_id="m10_synthetic_a", source_tier="A", name="M10 Synthetic Source A")
+        _persist_source(db, source_id="m10_synthetic_b", source_tier="B", name="M10 Synthetic Source B")
 
         # Evidence A: official S-tier — explicitly states X
         raw_a = _persist_raw_item(db, [
@@ -550,30 +575,31 @@ class TestCaseDConflict:
             "industry_segment:ai_hardware:compute_chip",
         ], title="TEST SYNTHETIC RAW A",
           excerpt="TEST FIXTURE — consumer products, no compute chip.",
-          source_id="source_a",
-          url="https://source-a.example.com/evidence")
+          source_id="m10_synthetic_a",
+          url="https://source-a.example.com/evidence-a")
         ev_a = _persist_evidence(db, raw_a,
             title="TEST SYNTHETIC CONFLICT EVIDENCE A",
-            excerpt="TEST FIXTURE — company:600519.SH does NOT supply compute chips. Main business is consumer products.",
-            source_id="source_a",
-            independence_group="official-a",
-            url="https://source-a.example.com/evidence")
+            excerpt="TEST FIXTURE — 600519 does NOT supply compute chips. Consumer products only.",
+            source_id="m10_synthetic_a",
+            independence_group="m10-synthetic-a",
+            url="https://source-a.example.com/evidence-a")
 
         # Evidence B: B-tier — contradicts, claims compute chip
         raw_b = _persist_raw_item(db, ["company:600519.SH"],
             title="TEST SYNTHETIC RAW B",
             excerpt="TEST FIXTURE — company IS involved in AI compute chips.",
-            source_id="source_b",
-            url="https://source-b.example.com/report")
+            source_id="m10_synthetic_b",
+            url="https://source-b.example.com/evidence-b")
         ev_b = _persist_evidence(db, raw_b,
             title="TEST SYNTHETIC CONFLICT EVIDENCE B",
-            excerpt="TEST FIXTURE — company:600519.SH IS involved in AI compute chip supply through cloud partnership.",
-            source_tier="B", source_id="source_b",
-            independence_group="analyst-b",
-            url="https://source-b.example.com/report")
+            excerpt="TEST FIXTURE — 600519 IS involved in compute chip via cloud partnership.",
+            source_tier="B", source_id="m10_synthetic_b",
+            independence_group="m10-synthetic-b",
+            url="https://source-b.example.com/evidence-b")
 
         cp_id = _persist_company_profile(
-            db, "company:600519.SH", "贵州茅台", [ev_a]
+            db, "company:600519.SH", "贵州茅台", [ev_a],
+            source_ids=["m10_synthetic_a"]
         )
 
         # ── add_node via CompanyProfile ──
@@ -617,9 +643,10 @@ class TestCaseDConflict:
             )
             assert ev_a in req_dump, f"Provider must receive ev_a: {ev_a} not in request"
             assert ev_b in req_dump, f"Provider must receive ev_b: {ev_b} not in request"
-            # Distinctive excerpts present
-            assert "does NOT supply compute chips" in req_dump.lower() or "consumer" in req_dump.lower(),                 f"Evidence A content missing from provider context"
-            assert "compute chip" in req_dump.lower(),                 f"Evidence B content missing from provider context"
+            # Unique distinctive excerpts per evidence (NOT shared tokens)
+            req_lower = req_dump.lower()
+            assert "does not supply compute chips" in req_lower,                 "Evidence A unique excerpt missing"
+            assert "cloud partnership" in req_lower,                 "Evidence B unique excerpt missing"
             return {
                 "proposal_type": "add_edge",
                 "source_object_ids": [
