@@ -158,7 +158,7 @@ def _persist_synthetic_source(db: Database, source_id: str,
     _persist_source(db, source_id=source_id, source_tier=source_tier,
                     name=name, platform=platform,
                     base_domain=base_domain,
-                    source_type="test_fixture")
+                    source_type="news_report")
 
 
 def _persist_company_profile(db: Database, entity_id: str, name: str,
@@ -446,12 +446,15 @@ class TestCaseCModelInference:
         ], title="TEST SYNTHETIC MODEL INFERENCE INPUT",
            excerpt="company:600519.SH is modeled as adopting enterprise AI software.",
            source_id="m10_synthetic_mi",
-           url="https://synthetic.example.com/model-inference")
+           url="https://synthetic.example.com/model-inference",
+           publisher="M10 Synthetic Fixture")
         ev_id = _persist_evidence(db, raw_id,
             title="TEST SYNTHETIC MODEL INFERENCE INPUT",
             excerpt="company:600519.SH is modeled as adopting enterprise AI software.",
             source_id="m10_synthetic_mi", source_tier="B",
-            url="https://synthetic.example.com/model-inference")
+            url="https://synthetic.example.com/model-inference",
+            publisher="M10 Synthetic Fixture",
+            evidence_type="news_report")
         cp_id = _persist_company_profile(
             db, "company:600519.SH", "贵州茅台", [ev_id],
             source_ids=["m10_synthetic_mi"]
@@ -569,8 +572,12 @@ class TestCaseDConflict:
 
         _persist_entity(db, "company:600519.SH", "贵州茅台")
         # Synthetic sources for conflict test (NOT SSE)
-        _persist_source(db, source_id="m10_synthetic_a", source_tier="A", name="M10 Synthetic Source A")
-        _persist_source(db, source_id="m10_synthetic_b", source_tier="B", name="M10 Synthetic Source B")
+        _persist_synthetic_source(db, source_id="m10_synthetic_a",
+                                  source_tier="A", name="M10 Synthetic Source A",
+                                  base_domain="https://source-a.example.com")
+        _persist_synthetic_source(db, source_id="m10_synthetic_b",
+                                  source_tier="B", name="M10 Synthetic Source B",
+                                  base_domain="https://source-b.example.com")
 
         # Evidence A: official S-tier — explicitly states X
         raw_a = _persist_raw_item(db, [
@@ -579,11 +586,14 @@ class TestCaseDConflict:
         ], title="TEST SYNTHETIC RAW A",
           excerpt="TEST FIXTURE — consumer products, no compute chip.",
           source_id="m10_synthetic_a",
-          url="https://source-a.example.com/evidence-a")
+          url="https://source-a.example.com/evidence-a",
+          publisher="M10 Synthetic Fixture A")
         ev_a = _persist_evidence(db, raw_a,
             title="TEST SYNTHETIC CONFLICT EVIDENCE A",
             excerpt="TEST FIXTURE — 600519 does NOT supply compute chips. Consumer products only.",
-            source_id="m10_synthetic_a",
+            source_id="m10_synthetic_a", source_tier="A",
+            publisher="M10 Synthetic Fixture A",
+            evidence_type="news_report",
             independence_group="m10-synthetic-a",
             url="https://source-a.example.com/evidence-a")
 
@@ -592,11 +602,14 @@ class TestCaseDConflict:
             title="TEST SYNTHETIC RAW B",
             excerpt="TEST FIXTURE — company IS involved in AI compute chips.",
             source_id="m10_synthetic_b",
-            url="https://source-b.example.com/evidence-b")
+            url="https://source-b.example.com/evidence-b",
+            publisher="M10 Synthetic Fixture B")
         ev_b = _persist_evidence(db, raw_b,
             title="TEST SYNTHETIC CONFLICT EVIDENCE B",
             excerpt="TEST FIXTURE — 600519 IS involved in compute chip via cloud partnership.",
             source_tier="B", source_id="m10_synthetic_b",
+            publisher="M10 Synthetic Fixture B",
+            evidence_type="news_report",
             independence_group="m10-synthetic-b",
             url="https://source-b.example.com/evidence-b")
 
@@ -671,7 +684,7 @@ class TestCaseDConflict:
                     "茅台 SUPPLIES compute_chip (conflicting evidence)",
                 "impact_scope": ["FACT"],
                 "conflicts": [
-                    "EVIDENCE_CONFLICT: source_a (S tier) states 白酒消费品; "
+                    "EVIDENCE_CONFLICT: source_a (A tier) states 白酒消费品; "
                     "source_b (B tier) claims AI算力芯片 involvement.",
                     "SOURCE_TIER_MISMATCH: Two sources present "
                     "incompatible information.",
@@ -783,7 +796,7 @@ class TestCaseCSyntheticProvenance:
             source_id="m10_synthetic_mi", source_tier="B",
             url="https://synthetic.example.com/mi",
             publisher="M10 Synthetic Fixture",
-            evidence_type="test_fixture")
+            evidence_type="news_report")
         for table, cols in [
             ("raw_items", [("raw_item_id", raw_id)]),
             ("evidence", [("evidence_id", ev_id)]),
@@ -797,7 +810,7 @@ class TestCaseCSyntheticProvenance:
         ev_rows = db.query("SELECT payload FROM evidence WHERE evidence_id=?", (ev_id,))
         assert ev_rows
         ep = json.loads(ev_rows[0]["payload"]) if ev_rows[0].get("payload") else {}
-        assert ep.get("evidence_type") == "test_fixture"
+        assert ep.get("evidence_type") == "news_report"
 
 
 class TestCaseDSyntheticProvenance:
@@ -825,13 +838,13 @@ class TestCaseDSyntheticProvenance:
             title="TEST SYNTHETIC A", excerpt="does NOT supply compute chips",
             source_id="m10_synthetic_a", source_tier="A",
             url="https://source-a.example.com/ea",
-            publisher="M10 Synthetic Fixture A", evidence_type="test_fixture",
+            publisher="M10 Synthetic Fixture A", evidence_type="news_report",
             independence_group="m10-synthetic-a")
         ev_b = _persist_evidence(db, raw_b,
             title="TEST SYNTHETIC B", excerpt="cloud partnership for chips",
             source_id="m10_synthetic_b", source_tier="B",
             url="https://source-b.example.com/eb",
-            publisher="M10 Synthetic Fixture B", evidence_type="test_fixture",
+            publisher="M10 Synthetic Fixture B", evidence_type="news_report",
             independence_group="m10-synthetic-b")
         sa = db.query("SELECT payload FROM sources WHERE source_id=?", ("m10_synthetic_a",))
         assert sa
@@ -842,8 +855,8 @@ class TestCaseDSyntheticProvenance:
         ev_b_p = json.loads(db.query("SELECT payload FROM evidence WHERE evidence_id=?", (ev_b,))[0]["payload"])
         assert ev_a_p.get("source_tier") == "A"
         assert ev_b_p.get("source_tier") == "B"
-        assert ev_a_p.get("evidence_type") == "test_fixture"
-        assert ev_b_p.get("evidence_type") == "test_fixture"
+        assert ev_a_p.get("evidence_type") == "news_report"
+        assert ev_b_p.get("evidence_type") == "news_report"
         for table, cols in [
             ("sources", [("source_id", "m10_synthetic_a"), ("source_id", "m10_synthetic_b")]),
             ("raw_items", [("raw_item_id", raw_a), ("raw_item_id", raw_b)]),
