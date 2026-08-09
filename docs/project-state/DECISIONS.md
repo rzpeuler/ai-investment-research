@@ -1649,3 +1649,31 @@ Graph→Research 不实现，JSON mirror 不实现。
 > - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+
+### 40.14 M10 Independent Acceptance（2026-08-09）
+
+> M10_INDEPENDENT_ACCEPTANCE: **PASS**
+>
+> **ACCEPTED_SHA**: `156ea358590b90457720a28630f9cc698951a825`
+> **OFFLINE_CI**: `31292861813`
+> **TEST_RESULT**: 2110 passed / 5 skipped / 0 failed / 0 xfail
+> **SCHEMAS**: 55/55
+> **DB_VERSION**: 6
+> **PRO_FINAL_REVIEW**: 0 blocker / 0 should-fix
+>
+> **Deterministic JSON Mirror Option A**: RESOLVED_BY_M10。
+> SQLite remains ONLY authority。JSON mirror: read-only deterministic export、
+> no JSON→SQLite import、no reverse sync、no active graph write。
+>
+> **Case A Governance**: PASS / **Case B official SSE FACT**: PASS /
+> **Case C MODEL_INFERENCE**: PASS / **Case D blocking conflict**: PASS。
+> **True same-identity v1→v2 WAL snapshot**: PASS。
+> **CandidatePipeline full lineage**: PASS / **ReviewWorkflow full lineage**: PASS。
+>
+> **Graph→Research**: NOT_IMPLEMENTED。
+> **Schema**: unchanged / 55。**Migration**: unchanged。**DB**: v6。
+>
+> **M0-M10**: ALL PASS。
+> **PHASE5_ENGINEERING_ACCEPTANCE**: PASS。
+> **PR5C_MERGE**: AUTHORIZED by user on 2026-08-09。

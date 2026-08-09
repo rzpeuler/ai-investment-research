@@ -53,7 +53,7 @@ RawItem/Evidence 血缘、按 Provider 实际调用计数的 Flash/Pro 预算、
 `SUCCESS`，688981.SH 在受控缺失下取得 `INSUFFICIENT_DATA`。单次输入不足或 Provider
 故障时仍必须降级，不得沿用历史成功状态。
 Schema 30→51，迁移 user_version=5。
-**Phase 5：IN_PROGRESS**。
+**Phase 5：PASS**。
 **PR5B**：MERGED（squash merge → `cfdeeba7`）。
 **M0-M8**：**PASS**（M8 SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
 **M9**：**PASS**（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。

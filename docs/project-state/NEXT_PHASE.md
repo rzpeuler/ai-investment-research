@@ -43,7 +43,7 @@ PR5B 已 squash merge 进入 master（`cfdeeba7`）。
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前准入：**M10 AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，JSON Mirror Option A）。
+当前准入：**M10 PASS**（PR5C `phase5/pipeline-integration`，JSON Mirror Option A）。
 
 PR5B closeout 已完成：
 
@@ -62,7 +62,7 @@ Graph→Research NOT implemented in M9。
 PR5B MERGED（master cfdeeba7）。
 PR5C phase5/pipeline-integration（Draft PR #6）。
 M0-M9 PASS。
-M10 AUTHORIZED / IN_PROGRESS。
+M10 PASS。
 
 禁止：
 merge PR5C / Schema change / migration /
