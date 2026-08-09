@@ -126,8 +126,27 @@ class KnowledgeMirrorExporter:
                 "knowledge_root 不得为 symlink",
             )
 
+        # canonical knowledge_root must == <project_root>/knowledge
+        canonical = (self._project_root / "knowledge").resolve(strict=False)
+        if self._knowledge_root_resolved != canonical:
+            raise ExportError(
+                "EXPORT_PATH_INVALID",
+                f"knowledge_root 必须为 canonical {canonical}，"
+                f"实际为 {self._knowledge_root_resolved}",
+            )
+
         # open read-only DB
         self._db = Database.open_read_only(db_path)
+
+        # explicit DB version gate: PRAGMA user_version must == 6
+        ver_row = self._db._conn.execute("PRAGMA user_version").fetchone()
+        db_version = ver_row[0] if ver_row else -1
+        if db_version != 6:
+            raise ExportError(
+                "EXPORT_READ_FAILED",
+                f"数据库 user_version 为 {db_version}，期望 6。"
+                f"导出器不会自动迁移。",
+            )
         self._graph_repo = GraphRepository(self._db)
         self._history = HistoryService(self._db, self._graph_repo)
         self._db_path = db_path
@@ -175,6 +194,19 @@ class KnowledgeMirrorExporter:
                 return result
 
         return result
+
+    def close(self) -> None:
+        """关闭内部 read-only Database connection。"""
+        if hasattr(self, "_db") and self._db is not None:
+            self._db.close()
+            self._db = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
     # ── path preflight ──────────────────────────────────────
 

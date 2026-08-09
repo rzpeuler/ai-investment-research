@@ -1549,3 +1549,17 @@ Graph→Research 不实现，JSON mirror 不实现。
 > - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+### 40.8 M10-R2 True E2E Proof Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R2 AUTHORIZED。R2 关闭范围：
+> - Case B/C/D add_node + add_edge 使用 CandidatePipeline + FakeLlmProvider（provider 真实被调用）
+> - Case B/C/D 使用 ReviewWorkflow.review_export（生成正式 Markdown artifact）
+> - Case D conflict 来自 controlled provider proposal（两个 persisted Evidence 输入）
+> - Exporter DB version explicit gate（PRAGMA user_version == 6；v5 → EXPORT_READ_FAILED）
+> - canonical knowledge_root 强制（必须 == <project_root>/knowledge）
+> - Exporter close() / context manager
+> - Case B online verification timestamp 修正
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
