@@ -203,8 +203,13 @@ from research_os.models.phase6a import (
 from research_os.models.phase6c import (
     EarningsExpectationRequest,
     EarningsExpectationRun,
+    FirstCoverageComponentStatus,
+    FirstCoverageEarningsInput,
+    FirstCoverageRequest,
+    FirstCoverageRun,
     ForecastPeriod,
     HistoricalInputPeriod,
+    ProjectionLineage,
 )
 
 __all__ = [
@@ -326,6 +331,11 @@ __all__ = [
     "ThemeDiscoveryRun",
     "EarningsExpectationRequest",
     "EarningsExpectationRun",
+    "FirstCoverageComponentStatus",
+    "FirstCoverageEarningsInput",
+    "FirstCoverageRequest",
+    "FirstCoverageRun",
     "ForecastPeriod",
     "HistoricalInputPeriod",
+    "ProjectionLineage",
 ]

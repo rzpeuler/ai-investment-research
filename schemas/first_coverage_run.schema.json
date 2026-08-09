@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/first_coverage_run.schema.json",
+  "title": "FirstCoverageRun",
+  "type": "object", "additionalProperties": false,
+  "required": ["run_id", "request_id", "task_id", "company_entity_id", "security_entity_id", "as_of", "company_profile_id", "security_profile_id", "phase4_result_id", "phase4_request_id", "phase4_run_id", "phase4_as_of", "industry_id", "industry_component_run_id", "industry_component_status", "industry_dimensions_covered", "industry_dimensions_missing", "industry_evidence_quality", "peer_selection_id", "peer_status", "peer_company_ids", "earnings_component_request_id", "earnings_component_run_id", "earnings_component_status", "earnings_scenarios", "earnings_projection_lineage", "valuation_snapshot_id", "valuation_status", "valuation_applicability_notes", "catalyst_ids", "risk_ids", "counter_evidence_ids", "open_questions", "evidence_ids", "component_statuses", "idempotency_key", "run_version", "started_at", "finished_at", "status", "artifact_paths", "input_versions", "model_route", "validation_status", "error_codes", "warnings", "missing_data", "version"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1}, "request_id": {"type": "string", "minLength": 1}, "task_id": {"type": "string", "minLength": 1},
+    "company_entity_id": {"type": "string", "pattern": "^company:"}, "security_entity_id": {"type": "string", "pattern": "^security:"},
+    "as_of": {"type": "string", "format": "date-time"},
+    "company_profile_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "security_profile_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "phase4_result_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "phase4_request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "phase4_run_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "phase4_as_of": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+    "industry_id": {"type": "string"}, "industry_component_run_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "industry_component_status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
+    "industry_dimensions_covered": {"type": "array", "items": {"type": "string"}}, "industry_dimensions_missing": {"type": "array", "items": {"type": "string"}}, "industry_evidence_quality": {"type": "object"},
+    "peer_selection_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "peer_status": {"type": "string", "enum": ["full", "limited", "insufficient"]}, "peer_company_ids": {"type": "array", "items": {"type": "string"}},
+    "earnings_component_request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "earnings_component_run_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "earnings_component_status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
+    "earnings_scenarios": {"type": "array", "items": {"$ref": "forecast_scenario.schema.json"}}, "earnings_projection_lineage": {"type": "array", "items": {"$ref": "earnings_expectation_run.schema.json#/definitions/projectionLineage"}},
+    "valuation_snapshot_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}, "valuation_status": {"type": "string", "enum": ["complete", "partial", "not_applicable", "insufficient_data"]}, "valuation_applicability_notes": {"type": "array", "items": {"type": "string"}},
+    "catalyst_ids": {"type": "array", "items": {"type": "string"}}, "risk_ids": {"type": "array", "items": {"type": "string"}}, "counter_evidence_ids": {"type": "array", "items": {"type": "string"}}, "open_questions": {"type": "array", "items": {"type": "string"}}, "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "component_statuses": {"type": "array", "items": {"$ref": "#/definitions/componentStatus"}},
+    "idempotency_key": {"type": "string", "minLength": 1}, "run_version": {"type": "integer", "minimum": 1}, "started_at": {"type": "string", "format": "date-time"}, "finished_at": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+    "status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
+    "artifact_paths": {"type": "array", "items": {"type": "string"}}, "input_versions": {"type": "object"}, "model_route": {"type": "object"}, "validation_status": {"type": "string", "enum": ["pending", "pass", "pass_with_warnings", "fail"]}, "error_codes": {"type": "array", "items": {"type": "string"}}, "warnings": {"type": "array", "items": {"type": "string"}}, "missing_data": {"type": "array", "items": {"type": "string"}}, "version": {"type": "integer", "minimum": 1}
+  },
+  "definitions": {
+    "componentStatus": {"type": "object", "additionalProperties": false, "required": ["component", "status", "source_object_ids", "warnings", "missing_data"], "properties": {
+      "component": {"type": "string", "enum": ["profile", "phase4_baseline", "industry_research", "peer_context", "earnings_expectation", "valuation", "catalysts", "risks", "counter_evidence", "open_questions"]},
+      "status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
+      "source_object_ids": {"type": "array", "items": {"type": "string"}}, "warnings": {"type": "array", "items": {"type": "string"}}, "missing_data": {"type": "array", "items": {"type": "string"}}
+    }}
+  }
+}
