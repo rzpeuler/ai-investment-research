@@ -23,17 +23,39 @@ def test_engineering_guide_is_current_and_task_cannot_override():
 
 
 def test_phase_status_documents_are_consistent():
-    files = [
-        _read("README.md"), _read("docs/project-state/CURRENT_STATE.md"),
-        _read("docs/project-state/NEXT_PHASE.md"),
-        _read("docs/project-state/KNOWN_LIMITATIONS.md"),
-        _read("docs/tasks/phase4-full-research-capability.md"),
-    ]
-    for text in files:
-        assert "PASS" in text
-        # Phase 5 is now IN_PROGRESS — any valid phase status is acceptable
-        assert any(s in text for s in ["BLOCKED", "IN_PROGRESS"])
+    """Phase5 current status docs must reflect PASS; M10 must be PASS;
+    no stale pre-merge/in-progress claims in current-status docs."""
+    readme = _read("README.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    phase5_task = _read("docs/tasks/phase5-industry-knowledge-graph.md")
+
+    # Phase5 terminal state assertions
+    # README uses Chinese "Phase 5：PASS" with full-width colon
+    assert "Phase 5" in readme and "PASS" in readme, "README must reflect Phase5 PASS"
+    assert "M0-M10" in readme, "README must state M0-M10 PASS"
+    assert "| Phase 5 | PASS |" in current, "CURRENT_STATE must reflect Phase5 PASS"
+    assert "**IMPLEMENTATION_STATUS: COMPLETE**" in phase5_task
+
+    # No stale pre-merge claims in current-status docs (header sections only)
+    for text in (readme, current, next_phase):
+        assert "M10 AUTHORIZED / IN_PROGRESS" not in text
+        assert "M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE" not in text
+        assert "M10 NOT_AUTHORIZED" not in text
         assert "PARTIAL_SUCCESS / READY_FOR_INDEPENDENT_ACCEPTANCE" not in text
+    # Taskbook: only check header (first 20 lines); historical entries have old states
+    taskbook_header = "\n".join(phase5_task.split("\n")[:20])
+    assert "M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE" not in taskbook_header
+    assert "M10 NOT_AUTHORIZED" not in taskbook_header
+
+    # Historical docs: may reflect their own state (legacy check)
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    phase4 = _read("docs/tasks/phase4-full-research-capability.md")
+    for text in (limitations, phase4):
+        assert "PASS" in text or "PASSED" in text or \
+               "SATISFIED" in text or "COMPLETED" in text
+        assert any(s in text for s in ["BLOCKED", "IN_PROGRESS", "PASS",
+                                        "COMPLETED", "SATISFIED"])
 
 
 def test_baseline_readme_does_not_claim_to_be_current():

@@ -6,7 +6,7 @@
 **NEXT_MILESTONE: NONE_WITHIN_PHASE5**
 **NEXT_MILESTONE_AUTHORIZATION: NOT_APPLICABLE**
 
-> M1 PASS（SHA `b097996`）。M2 PASS（SHA `565d500`）。M3 PASS（SHA `242e039`）。M4 PASS（SHA `20b7a15`）。M5 PASS（SHA `92649a7`，Offline CI `31251491357`，1725 passed / 5 skipped / 0 xfail，55/55 schemas）。M6 PASS（SHA `480b209`，Offline CI `31257395650`，1809 passed / 5 skipped / 0 xfail，55/55 schemas）。M7 PASS（SHA `651e9a1`，Offline CI `31262745492`，1911 passed / 5 skipped / 0 xfail，55/55 schemas）。M8 PASS（SHA `eac18e2`，Offline CI `31269460005`，2009 passed / 5 skipped / 0 xfail，55/55 schemas）。M9 PASS（SHA `d097ca8`，Offline CI `31275096225`，2068 passed / 5 skipped / 0 xfail，55/55 schemas）。**M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE**（JSON Mirror Option A）。
+> M1 PASS（SHA `b097996`）。M2 PASS（SHA `565d500`）。M3 PASS（SHA `242e039`）。M4 PASS（SHA `20b7a15`）。M5 PASS（SHA `92649a7`，Offline CI `31251491357`，1725 passed / 5 skipped / 0 xfail，55/55 schemas）。M6 PASS（SHA `480b209`，Offline CI `31257395650`，1809 passed / 5 skipped / 0 xfail，55/55 schemas）。M7 PASS（SHA `651e9a1`，Offline CI `31262745492`，1911 passed / 5 skipped / 0 xfail，55/55 schemas）。M8 PASS（SHA `eac18e2`，Offline CI `31269460005`，2009 passed / 5 skipped / 0 xfail，55/55 schemas）。M9 PASS（SHA `d097ca8`，Offline CI `31275096225`，2068 passed / 5 skipped / 0 xfail，55/55 schemas）。**M10 PASS**（SHA `156ea35`，CI `31292861813`，2110 passed / 5 skipped / 0 xfail，55/55 schemas，DB v6，Pro 0 blocker 0 should-fix）。
 
 **任务书创建基线：**
 
