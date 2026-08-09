@@ -64,9 +64,20 @@ PR5C #6 MERGED。
 M0-M9 PASS。
 M10 PASS。
 
-禁止：
-merge PR5C / Schema change / migration /
-Phase2/3/4 behavioral change / source whitelist expansion / Graph→Research
+当前阶段门禁：
+
+Phase 5: CLOSED / PASS
+Phase 6 top-level design: SEPARATE GOVERNANCE WORK
+Phase 6 implementation: NOT_AUTHORIZED
+
+Graph→Research: NOT IMPLEMENTED
+
+未经正式 Phase 6 design decision、taskbook 和用户显式实施授权：
+- 不得新增 Phase 6 production scenario；
+- 不得新增 Schema / migration；
+- 不得改变 Phase2/3/4/5 已验收行为；
+- 不得扩张 source whitelist；
+- 不得启用 Graph→Research production path。
 ```
 
 ## Phase 4 独立验收记录

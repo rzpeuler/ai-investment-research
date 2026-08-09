@@ -6,7 +6,10 @@
 
 ## 工程基线
 
-- `code_baseline`: `4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`
+- `phase4_accepted_master_sha`: `4dfe84f7e53ec2ede04f1e8522b37116d04c87f7`
+- `pre_phase5_engineering_baseline`: `ea026f18ce09efd2f0a24bab8a38255e75233911`
+- `phase5_accepted_code_master_sha`: `1e1d4f9b77425d6800182055f8c4dd96aeb54a50`
+- Phase5 之后的 governance-only commits 不改变 `phase5_accepted_code_master_sha`。
 - 基线来源：PR #3 以 Squash merge 合入 `master`，提交标题为
   `feat: complete phase4 full research capability`；上一工程基线为 `ce656b1`。
 - 基线范围：保留统一控制面和 Evidence 治理补修，并完成真实 DeepSeek Provider、官方
