@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/daily_review_request.schema.json",
+  "title": "DailyReviewRequest",
+  "description": "每日复盘请求（Phase 6B）。review_business_date 为所复盘交易日；as_of 为研究时点。previous_run_ids / previous_report_paths 指向此前 morning_brief / evening_brief 产物（previous_research_view 来源）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id", "task_id", "review_business_date", "as_of", "previous_cutoff", "timezone",
+    "previous_run_ids", "previous_report_paths", "entities", "depth",
+    "force", "dry_run", "status", "warnings", "requested_at"
+  ],
+  "properties": {
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "review_business_date": { "type": "string", "format": "date" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "previous_cutoff": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+    "timezone": { "type": "string", "const": "Asia/Shanghai" },
+    "previous_run_ids": { "type": "array", "items": { "type": "string" } },
+    "previous_report_paths": { "type": "array", "items": { "type": "string" } },
+    "entities": { "type": "array", "items": { "type": "string" } },
+    "depth": { "type": "string", "enum": ["fast", "standard", "deep"] },
+    "force": { "type": "boolean" },
+    "dry_run": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["planned", "validated", "rejected"] },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "requested_at": { "type": "string", "format": "date-time" }
+  }
+}
