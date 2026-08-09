@@ -1550,6 +1550,24 @@ Graph→Research 不实现，JSON mirror 不实现。
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
+### 40.13 M10-R7 Full-Lineage Provenance Final Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R7 AUTHORIZED。R7 关闭范围 + #40.12 勘误：
+> - #40.12 已完成 helper 参数化与独立 provenance tests，但独立验收发现
+>   Case C/D 主 full-lineage tests 仍调用 helper 默认 publisher/evidence_type/source metadata，
+>   因此 #40.12 "full provenance complete" 表述过早。
+>   **R7 将相同 synthetic metadata 直接接入 Case C/D 实际 CandidatePipeline full lineage。**
+> - Case C full pipeline：raw_item publisher="M10 Synthetic Fixture"、
+>   evidence publisher="M10 Synthetic Fixture"、evidence_type="news_report"（Schema enum 合法值）。
+> - Case D full pipeline：使用  替代 、
+>   raw_item/evidence publisher 分别设为 A/B synthetic、evidence_type="news_report"、
+>   source_tier A/A + B/B 一致、conflict 文本 S→A。
+> - evidence_type 选型说明：Schema enum 不含 "test_fixture"，选择 "news_report" 作为
+>   最通用非官方类型，不暗示 real SSE/official provenance。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
 ### 40.12 M10-R6 Final Proof Correction（2026-08-09）
 
 > 用户 REQUEST_CHANGES / R6 AUTHORIZED。R6 关闭范围 + #40.11 勘误：
