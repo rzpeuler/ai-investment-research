@@ -1550,7 +1550,25 @@ Graph→Research 不实现，JSON mirror 不实现。
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
-### 40.10 M10-R4 Evidence Provenance + Snapshot Proof Closure（2026-08-09）
+### 40.11 M10-R5 Proof Integrity Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R5 AUTHORIZED。R5 关闭范围 + #40.10 勘误：
+> - #40.10 所称 "export → 34 → writer → export → 35" 只证明 sequential snapshot change，
+>   并非 in-transaction concurrent-writer proof。
+>   **R5 完成首次 single KnowledgeMirrorExporter.export() with writer commit during active read transaction。**
+>   writer 通过 monkeypatched `_build_mirror` 插入合法 GraphNode（governance_seed, originating=NULL），
+>   第一次 export snapshot 不受影响（34 nodes），第二次 export 才看到 writer node（35 nodes）。
+> - #40.10 Case C/D "R4 only changed title/name" — R5 完全去除 SSE/official provenance，
+>   source/platform/domain/source_type/evidence_type 全部切换为 synthetic。
+>   Case C: m10_synthetic_mi（tier B, test_fixture）。
+>   Case D: m10_synthetic_a (tier A) / m10_synthetic_b (tier B)。
+>   Evidence tier = Source tier 一致。
+> - Provider distinct-excerpt proof：A unique "does not supply compute chips" / B unique "cloud partnership"。
+> - Review Notes 精确占位符 `_（请在此填写审核意见）_` + 无条件 assert persisted。
+> - Case B persisted URL assertion from SQLite evidence table。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
 > 用户 REQUEST_CHANGES / R4 AUTHORIZED。R4 关闭范围 + 40.7 勘误：
 > - Decision #40.7 曾声明 "真实 exporter WAL snapshot 并发测试"；
