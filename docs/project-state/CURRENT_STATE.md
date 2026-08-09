@@ -1,6 +1,6 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-09（PR5B merged / M9 authorized）
+> 更新日期：2026-08-09（Phase5 closed / PR5C + governance hotfix merged）
 > 权威规范：`docs/engineering-guide.md` V1.1
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -37,7 +37,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | PASS | **PR5B MERGED**（squash merge → master `cfdeeba7`）。M0-M9 PASS（M9 SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。**PR5C** `phase5/pipeline-integration`（Draft PR #6）。**M10 PASS**。
+| Phase 5 | PASS | **PR5B MERGED**（squash merge → master `cfdeeba7`）。M0-M9 PASS（M9 SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。**PR5C** `phase5/pipeline-integration`（）。**M10 PASS**。
 
 ## 2026-08-07 修复后的关键事实
 
@@ -94,7 +94,7 @@ M0-M9 全部通过独立验收。
 M9 PASS（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
 M9 scope：existing structured research objects → GraphChange candidate；
 Graph→Research NOT implemented；no Schema/migration change；source whitelist frozen。
-M10 PASS（PR5C `phase5/pipeline-integration`，Draft PR #6）。
+M10 PASS（PR5C `phase5/pipeline-integration`，）。
 
 ## 2026-08-07 最终工程与在线验收
 
@@ -115,4 +115,4 @@ M5 Human Review Workflow 已通过验收（SHA `92649a7`，CI `31251491357`，17
 M6 Deterministic Apply Engine 已通过独立验收（SHA `480b209`，CI `31257395650`，1809 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
 M7 Supersede / Expire / History 已通过独立验收（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
 M8 Query + Knowledge Context Builder 已通过独立验收（SHA `eac18e26fd9696094d3bfe5edbe662c84731c106`，Offline CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
-PR5B 已 squash merge（master `cfdeeba7`）。M0-M9 PASS。M10 PASS（PR5C）。Phase5 engineering acceptance PASS. PR5C #6 merge authorized; closeout commit pending merge.。
+PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQUASH (master `1e1d4f9`)。Post-merge governance hotfix #7 MERGED (master `2c55c55`)。Phase5 CLOSED / PASS。
