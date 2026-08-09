@@ -101,6 +101,7 @@ class DailyReviewRequest(StrictModel):
     task_id: str
     review_business_date: str
     as_of: str
+    previous_cutoff: Optional[str] = None
     timezone: str = "Asia/Shanghai"
     previous_run_ids: List[str] = Field(default_factory=list)
     previous_report_paths: List[str] = Field(default_factory=list)
@@ -196,7 +197,9 @@ class StockReviewRequest(StrictModel):
 
     @field_validator("as_of", "previous_cutoff", "requested_at")
     @classmethod
-    def _iso_v(cls, value: str) -> str:
+    def _iso_v(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         return _iso(value)
 
 

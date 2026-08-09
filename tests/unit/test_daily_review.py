@@ -39,12 +39,17 @@ class _FakeDb:
 
 
 def _prev_run(project_root: Path, run_id: str, claims,
-              task_json: dict | None = None) -> Path:
+              task_json: dict | None = None,
+              validation_status: str | None = "pass") -> Path:
     d = project_root / "reports" / "runs" / run_id
     d.mkdir(parents=True, exist_ok=True)
     (d / "claims.json").write_text(json.dumps(claims, ensure_ascii=False), encoding="utf-8")
     if task_json is not None:
         (d / "task.json").write_text(json.dumps(task_json, ensure_ascii=False), encoding="utf-8")
+    if validation_status is not None:
+        (d / "validation.json").write_text(
+            json.dumps({"status": validation_status}, ensure_ascii=False),
+            encoding="utf-8")
     return d
 
 

@@ -15,6 +15,7 @@
     "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
     "review_business_date": { "type": "string", "format": "date" },
     "as_of": { "type": "string", "format": "date-time" },
+    "previous_cutoff": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
     "timezone": { "type": "string", "const": "Asia/Shanghai" },
     "previous_run_ids": { "type": "array", "items": { "type": "string" } },
     "previous_report_paths": { "type": "array", "items": { "type": "string" } },

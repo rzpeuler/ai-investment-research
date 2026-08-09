@@ -69,35 +69,63 @@ def _effective_end(day_end: str, as_of: str) -> str:
 
 def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
                          as_of: str) -> Optional[str]:
-    """从 previous_run_ids 的 artifact metadata (task.json / plan.json) 推导真实 cutoff。
+    """从 previous_run_ids 的 artifact metadata 推导真实 business cutoff。
 
-    取有效 prior artifacts 中 as_of / window_end 最晚且 <= current as_of 的时刻。
-    无有效 artifact 时返回 None。
+    必须通过 prior run acceptance gate 后才可引用其 cutoff：
+    1. run directory 存在
+    2. task.json 存在
+    3. validation.json 存在且 status 为 pass-equivalent
+    4. business cutoff 字段有效（window_end / as_of / research_cutoff / data_cutoff）
+    5. cutoff <= current as_of
+
+    永久禁止使用 finished_at / created_at / updated_at 等运行完成时间戳作为 cutoff。
+    未通过 acceptance gate 的 prior run 不产生有效 cutoff（返回 None）。
     """
-    best: Optional[datetime] = None
+    _PASS_EQUIVALENT = {"pass", "pass_with_warnings"}
+    _CUTOFF_KEYS = ("window_end", "as_of", "research_cutoff", "data_cutoff")
     try:
         as_of_dt = parse_iso(as_of)
     except ValueError:
         return None
+
+    best: Optional[datetime] = None
     for run_id in previous_run_ids:
         run_dir = project_root / "reports" / "runs" / run_id
-        for metadata_file in ("task.json", "plan.json"):
-            p = run_dir / metadata_file
-            if not p.exists():
+        if not run_dir.exists():
+            continue
+
+        # ── acceptance gate: validation must exist and be pass-equivalent ──
+        vp = run_dir / "validation.json"
+        if not vp.exists():
+            continue
+        try:
+            vdata = json.loads(vp.read_text(encoding="utf-8"))
+            vstatus = str(vdata.get("status") or vdata.get("validation_status") or "").strip()
+            if vstatus not in _PASS_EQUIVALENT:
+                continue
+        except (ValueError, OSError):
+            continue
+
+        # ── task.json lineage check ──
+        tp = run_dir / "task.json"
+        if not tp.exists():
+            continue
+        try:
+            tdata = json.loads(tp.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+
+        # ── extract business cutoff ──
+        for key in _CUTOFF_KEYS:
+            val = tdata.get(key)
+            if not val:
                 continue
             try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                for key in ("as_of", "window_end"):
-                    val = data.get(key)
-                    if val:
-                        try:
-                            dt = parse_iso(val)
-                        except ValueError:
-                            continue
-                        if dt <= as_of_dt and (best is None or dt > best):
-                            best = dt
-            except (ValueError, OSError):
+                dt = parse_iso(val)
+            except ValueError:
                 continue
+            if dt <= as_of_dt and (best is None or dt > best):
+                best = dt
     return best.isoformat(timespec="seconds") if best else None
 
 
