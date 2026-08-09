@@ -1550,7 +1550,22 @@ Graph→Research 不实现，JSON mirror 不实现。
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
-### 40.9 M10-R3 No-Fallback Full-Lineage Closure（2026-08-09）
+### 40.10 M10-R4 Evidence Provenance + Snapshot Proof Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R4 AUTHORIZED。R4 关闭范围 + 40.7 勘误：
+> - Decision #40.7 曾声明 "真实 exporter WAL snapshot 并发测试"；
+>   独立验收发现当时测试仅覆盖 private identity reads，
+>   未完整调用 `KnowledgeMirrorExporter.export()`。
+>   **R4 已补充真正完整 export WAL concurrency proof**
+>   （KnowledgeMirrorExporter.export() → 34 nodes → writer insert → export → 35 nodes → tree_sha256 change）。
+> - Case B Evidence URL 统一为 exact SSE 官方 URL（M10_SSE_688981_URL 常量）。
+> - Case C synthetic Evidence 明确标记 TEST SYNTHETIC MODEL INFERENCE INPUT（不冒充真实公开事实）。
+> - Case D synthetic Evidence A/B 明确标记 TEST SYNTHETIC CONFLICT EVIDENCE（不伪装 SSE / official disclosure）。
+> - Case D provider request 内 assert 包含双方 evidence ID + distinctive excerpts。
+> - Review Notes 包含 TEST HUMAN REVIEW FIXTURE marker。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
 > 用户 REQUEST_CHANGES / R3 AUTHORIZED。R3 关闭范围：
 > - Company add-node identity 通过 CompanyProfile（entity_id=company:*）显式解析，
