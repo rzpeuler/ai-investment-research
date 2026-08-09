@@ -1,7 +1,7 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.1**
-**变更日期：2026-08-07**
+**版本：V1.2**
+**变更日期：2026-08-09**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
@@ -36,7 +36,7 @@
 
 任何场景、模块、采集器和知识更新都必须受控制面约束。
 
-### 0.1 文档权威顺序（V1.1）
+### 0.1 文档权威顺序（V1.2）
 
 发生冲突时按以下顺序执行：
 
@@ -65,6 +65,37 @@
 - 在上述完整研究能力未达到最低覆盖前，Phase 4 可保持工程基础 PASS，但完整研究能力
   必须标为 `PARTIAL_SUCCESS` 或 `DATA_DEGRADED`，Phase 5 保持 `BLOCKED`。
 
+### 0.3 V1.2 Phase 6 顶层设计冻结（2026-08-09）
+
+- 正式消除“剩余场景 = 7 但旧 Phase6 路线只列部分场景”的设计歧义：Phase 6 完整
+  七场景一次性冻结为 6A / 6B / 6C 三个业务 Track。
+- 六阶段结构为 `6A（industry_research / theme_discovery）`、
+  `6B（evening_brief / daily_review / stock_review）`、
+  `6C（first_coverage / earnings_expectation）`。
+- Phase 6 并行治理拓扑冻结：P6-G0 串行 → P6-F0（共享契约冻结）串行 →
+  F0 PASS 后 6A + 6B + 6C-PREP 可并行 → 6C real integration 依赖 6A stable interface。
+- 首次正式允许 Graph→Research，但严格只读：`Versioned Graph → GraphQueryService →
+  KnowledgeContextBuilder → read-only Research Context`；`as_of` 必填；
+  SQLite 是唯一 graph authority；JSON mirror 只是 deterministic read-only export。
+- `KnowledgeContext != Evidence`：Graph 只用于研究导航、实体发现、产业坐标、关系发现、
+  检索方向与上下文组织；Graph 内容进入报告事实链必须经
+  `Graph object → evidence_ids → Evidence reload → Evidence validation → Claim/ResearchFinding → Markdown`。
+- Graph 写入永久禁止 Scenario 直接写 active GraphNode / GraphEdge，继续走
+  `RawItem → Evidence → Claim/Event/ResearchFinding → GraphChange Proposal → GraphChange
+  Candidate → Human Review → Validator → Deterministic Apply → Versioned Graph`；
+  `LLM can propose / LLM cannot approve；human can approve / human cannot bypass validator`。
+- 每个 Phase 6 新场景必须先 `Research Capability Acceptance`，再 `Candidate Integration
+  Authorization`，最后才允许 `Research → GraphChange Candidate`；active graph 永不被直接写。
+- Phase 6 时间治理：Graph→Research 强制 `as_of`，禁止 future knowledge leakage；
+  6C forecast 受 `as_of` / `historical cutoff` / `forecast period` 治理。
+- 输出永久边界不变：全部七场景继续禁止目标价、评级、仓位建议、交易建议与自动荐股；
+  `theme_discovery ≠ stock picking`、`first_coverage ≠ brokerage rating`、
+  `earnings_expectation ≠ trading signal`、`daily_review ≠ next-day trading plan`。
+- 本体与来源扩张冻结：新增 node_type / relation / relation semantic change /
+  automatic ontology expansion 均 `NOT_AUTHORIZED / PROHIBITED`；
+  Phase 6 不顺手扩张 source whitelist，新来源必须独立走
+  discovery → probe → source governance → verification → registry update。
+
 ---
 
 # 第一部分：需求确认稿
@@ -92,15 +123,16 @@
 2. 每日晨报
 3. 异动分析
 
-项目架构仍须覆盖需求文档中已经定义的其他场景：
+项目架构仍须覆盖需求文档中已经定义的其他场景（**Phase 6 完整七场景，剩余场景 = 7**，
+与 `6A / 6B / 6C` 结构一一对应，见第 69 节）：
 
-- 首次覆盖
-- 个股复盘
-- 行业研究
-- 主题挖掘
-- 每日晚报
-- 每日复盘
-- 财报预期
+- 6A：行业研究（industry_research）
+- 6A：主题挖掘（theme_discovery）
+- 6B：每日晚报（evening_brief）
+- 6B：每日复盘（daily_review）
+- 6B：个股复盘（stock_review）
+- 6C：首次覆盖（first_coverage）
+- 6C：财报预期（earnings_expectation）
 
 不增加用户未提出的业务场景。
 
@@ -2667,15 +2699,264 @@ created_at:
 - 修改不覆盖历史
 - 报告可关联图谱坐标
 
-## 69. Phase 6：其余场景
+## 69. Phase 6：研究型工作流（6A / 6B / 6C 并行治理）
 
-- 晚报
-- 每日复盘
-- 行业研究
-- 主题挖掘
-- 财报预期
-- 个股复盘
-- 首次覆盖
+### 69.1 结构与七场景分配（正式冻结）
+
+Phase 6 完整七场景，`剩余场景 = 7`，全部一次性冻结为三个业务 Track：
+
+```text
+6A：industry_research（行业研究）、theme_discovery（主题挖掘）
+6B：evening_brief（每日晚报）、daily_review（每日复盘）、stock_review（个股复盘）
+6C：first_coverage（首次覆盖）、earnings_expectation（财报预期）
+```
+
+不增加任何用户未定义的新业务场景。
+
+### 69.2 并行治理拓扑（正式冻结）
+
+```text
+P6-G0 顶层设计治理冻结（串行）
+  ↓
+P6-F0 共享契约冻结（串行）
+  ↓
+F0 PASS 后：6A + 6B + 6C-PREP 可并行
+  ↓
+6A dependency gate PASS
+  ↓
+6C real first_coverage integration
+```
+
+依赖规则：
+
+1. P6-G0 串行；
+2. P6-F0 串行（共享契约冻结，先于任何业务 Track 实施）；
+3. F0 PASS 后 6A + 6B + 6C-PREP 可并行；
+4. 6C real first_coverage integration 依赖 6A stable industry interface（hard dependency）；
+5. 6B 不 hard-depend on 6A；
+6. 6A 不依赖 6B；
+7. 6C 不 hard-depend on 6B；
+8. shared control-plane enablement 必须串行。
+
+业务实现可有限并行，但共享契约冻结与共享控制面修改必须串行；各 Track 独立验收。
+
+### 69.3 Graph→Research 设计边界（正式冻结，READ ONLY）
+
+Phase 6A 第一次正式允许 Graph→Research，但只能：
+
+```text
+Versioned Graph
+→ GraphQueryService
+→ KnowledgeContextBuilder
+→ read-only Research Context
+```
+
+必须明确：
+
+- `Graph→Research: READ ONLY`
+- `as_of: REQUIRED`（禁止 future knowledge leakage；历史研究只能看到该 `as_of`
+  时刻合法有效的知识状态）
+- `SQLite: 唯一 graph authority`
+- `JSON mirror: 非权威，只是 deterministic read-only export`
+
+禁止设计成：
+
+```text
+Scenario → raw SQL graph tables
+Scenario → JSON mirror → authoritative knowledge
+```
+
+### 69.4 KnowledgeContext / Evidence 边界（正式冻结）
+
+`KnowledgeContext != Evidence`。
+
+Graph 只能帮助：
+
+- 研究导航
+- 实体发现
+- 产业坐标
+- 关系发现
+- 检索方向
+- 上下文组织
+
+如果 Graph FACT 要进入报告事实链：
+
+```text
+Graph object
+→ evidence_ids
+→ authoritative Evidence reload
+→ Evidence validation
+→ Claim / ResearchFinding
+→ Markdown
+```
+
+不得：
+
+```text
+Graph FACT → 直接写成报告事实
+```
+
+Graph 中 `MODEL_INFERENCE` 即使已进入 active graph，也不得自动渲染成 FACT。
+
+### 69.5 时间治理（正式冻结）
+
+- Phase 6 Graph→Research 必须支持并强制 `as_of`。
+- 禁止 future knowledge leakage：历史研究只能看到该 `as_of` 时刻合法有效的知识状态。
+- Phase 6C forecast 同样受 `as_of` / `historical cutoff` / `forecast period` 治理。
+
+### 69.6 Graph Write Boundary（正式冻结）
+
+Phase 6 不允许：
+
+```text
+Scenario → active GraphNode / GraphEdge
+```
+
+永久链路继续为：
+
+```text
+RawItem
+→ Evidence
+→ Claim / Event / ResearchFinding
+→ GraphChange Proposal
+→ GraphChange Candidate
+→ Human Review
+→ Validator
+→ Deterministic Apply
+→ Versioned Graph
+```
+
+必须写明：
+
+```text
+LLM can propose
+LLM cannot approve
+
+human can approve
+human cannot bypass validator
+```
+
+### 69.7 Candidate Integration 顺序（正式冻结）
+
+每个 Phase 6 新场景必须：
+
+```text
+Research Capability Acceptance
+        ↓
+Candidate Integration Authorization
+        ↓
+Research → GraphChange Candidate
+```
+
+不得在场景第一次上线时同时开放长期图谱写入候选入口。原则：
+
+```text
+research first
+candidate integration second
+active graph never direct
+```
+
+### 69.8 6A / 6B / 6C 方法论
+
+#### 6A
+
+**industry_research** 至少覆盖：行业边界、稳定行业分类、产业链结构、关键环节、供需、
+竞争格局、技术路径、材料 / 设备、应用、政策、关键指标、关键公司产业坐标、催化剂、
+风险、核心争议、反证、待验证问题、证据质量。
+
+**theme_discovery** 正式定义为：
+
+```text
+Event / Policy / Technology Change
+→ Theme Hypothesis
+→ Evidence
+→ Industry Mapping
+→ Related Entities
+→ Support / Counter Evidence
+→ Lifecycle / Invalidating Conditions
+→ Research Questions
+```
+
+主题挖掘不是自动荐股。
+
+#### 6B
+
+**evening_brief** 不是晨报换一个时间。必须强调 `08:00 → 20:00 incremental research`，
+重点是：晨报之后的新信息、material updates、被支持/削弱的假设、新增重大公告、
+次日待验证问题。
+
+**daily_review** 必须区分：`observed_fact` / `previous_research_view` /
+`new_evidence` / `updated_interpretation` / `remaining_unknown`。
+
+**stock_review** 必须是增量复盘，不得每次重跑完整 Phase4 研报。
+
+6B 不 hard-depend on 6A。
+
+#### 6C
+
+**earnings_expectation** 属于 `HYPOTHESIS / FORECAST`，不是 FACT。预测必须记录：
+`as_of`、`forecast_period`、`historical_input_periods`、`evidence`、`assumptions`、
+`method`、`scenario`、`uncertainty`、`calculation_version`。确定性算术必须由代码完成。
+
+**first_coverage** 是编排层：
+
+```text
+Company Profile
+→ Phase4 Equity Research
+→ Phase6A Industry Research
+→ Peer Context
+→ Earnings Expectation
+→ Valuation Applicability
+→ Catalysts / Risks
+→ Counter Evidence
+→ Open Questions
+→ First Coverage Report
+```
+
+不得复制第二套 financial / valuation / evidence / LLM engine。
+
+### 69.9 输出永久边界（正式冻结）
+
+Phase 6 不改变项目输出政策。全部七场景继续禁止：目标价、买入评级、卖出评级、
+增持 / 减持建议、仓位建议、明日交易建议、自动荐股。明确写入：
+
+```text
+theme_discovery ≠ stock picking
+first_coverage ≠ brokerage rating
+earnings_expectation ≠ trading signal
+daily_review ≠ next-day trading plan
+```
+
+### 69.10 Ontology 与 Source Expansion（正式冻结）
+
+```text
+new node_type: NOT_AUTHORIZED
+new relation: NOT_AUTHORIZED
+relation semantic change: NOT_AUTHORIZED
+automatic ontology expansion: PROHIBITED
+```
+
+Phase 6 也不得顺手扩张 source whitelist。新来源必须独立：
+
+```text
+discovery → probe → source governance → verification → registry update
+```
+
+### 69.11 实施门禁
+
+```text
+TASKBOOK_STATUS: APPROVED
+IMPLEMENTATION_STATUS: NOT_STARTED
+CURRENT_MILESTONE: P6-G0
+NEXT_MILESTONE: P6-F0
+P6-F0: NOT_AUTHORIZED_UNTIL_G0_ACCEPTANCE
+P6-A: NOT_AUTHORIZED
+P6-B: NOT_AUTHORIZED
+P6-C: NOT_AUTHORIZED
+```
+
+“任务书 approved”不得被解释成整个 Phase 6 已授权开发。正式任务书见
+`docs/tasks/phase6-research-workflows.md`，正式设计决策见 `DECISIONS.md` #41。
 
 ---
 

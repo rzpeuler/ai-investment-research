@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.1" in guide
+    assert "版本：V1.2" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -86,3 +86,74 @@ def test_baseline_readme_does_not_claim_to_be_current():
     baseline = _read("docs/baselines/README.md")
     assert "唯一当前有效" in baseline
     assert "不参与覆盖当前规范" in baseline
+
+
+def test_phase6_top_level_design_governance_frozen():
+    """P6-G0: Phase 6 top-level design must be FROZEN / APPROVED; 6A/6B/6C seven
+    scenarios frozen; P6-F0 and business implementation NOT_AUTHORIZED; no
+    production Phase6 scenario implemented in src/."""
+    guide = _read("docs/engineering-guide.md")
+    decisions = _read("docs/project-state/DECISIONS.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    taskbook = _read("docs/tasks/phase6-research-workflows.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    readme = _read("README.md")
+
+    # ── ENGINEERING GUIDE V1.2 ──
+    assert "## 69. Phase 6：研究型工作流（6A / 6B / 6C 并行治理）" in guide
+    assert "6A：industry_research（行业研究）、theme_discovery（主题挖掘）" in guide
+    assert "6B：evening_brief（每日晚报）、daily_review（每日复盘）、stock_review（个股复盘）" in guide
+    assert "6C：first_coverage（首次覆盖）、earnings_expectation（财报预期）" in guide
+    assert "剩余场景 = 7" in guide
+    assert "Graph→Research: READ ONLY" in guide or "Graph→Research：READ ONLY" in guide
+    assert "as_of: REQUIRED" in guide
+    assert "SQLite: 唯一 graph authority" in guide
+    assert "JSON mirror: 非权威" in guide
+    assert "KnowledgeContext != Evidence" in guide
+    assert "LLM can propose" in guide and "LLM cannot approve" in guide
+    assert "human can approve" in guide and "human cannot bypass validator" in guide
+    assert "Research Capability Acceptance" in guide
+    assert "Candidate Integration Authorization" in guide
+    assert "theme_discovery ≠ stock picking" in guide
+    assert "first_coverage ≠ brokerage rating" in guide
+    assert "earnings_expectation ≠ trading signal" in guide
+    assert "daily_review ≠ next-day trading plan" in guide
+    assert "automatic ontology expansion: PROHIBITED" in guide
+    # dependency rules
+    assert "6C real first_coverage integration 依赖 6A stable industry interface" in guide
+    assert "6B 不 hard-depend on 6A" in guide
+
+    # ── DECISION #41 ──
+    assert "## 41. Phase 6 Top-Level Design Decision" in decisions
+    assert "6A / 6B / 6C" in decisions
+    assert "P6-F0 shared contract gate" in decisions or "P6-F0 共享契约" in decisions
+    assert "Graph→Research：READ ONLY" in decisions or "Graph→Research: READ ONLY" in decisions
+    assert "KnowledgeContext != Evidence" in decisions
+    assert "research first" in decisions
+    assert "active graph never direct" in decisions
+    assert "NOT_AUTHORIZED" in decisions
+
+    # ── TASKBOOK ──
+    assert "**TASKBOOK_STATUS: APPROVED**" in taskbook
+    assert "**IMPLEMENTATION_STATUS: NOT_STARTED**" in taskbook
+    assert "**CURRENT_MILESTONE: P6-G0**" in taskbook
+    assert "**NEXT_MILESTONE: P6-F0**" in taskbook
+    assert "P6-F0: NOT_AUTHORIZED_UNTIL_G0_ACCEPTANCE" in taskbook
+    assert "P6-A: NOT_AUTHORIZED" in taskbook
+    assert "P6-B: NOT_AUTHORIZED" in taskbook
+    assert "P6-C: NOT_AUTHORIZED" in taskbook
+    for milestone in ("P6-G0", "P6-F0", "P6-A0", "P6-A6", "P6-B0", "P6-B6",
+                      "P6-C0", "P6-C3", "P6-C4", "P6-C7", "P6-I0", "P6-I1"):
+        assert milestone in taskbook, f"taskbook must define {milestone}"
+
+    # ── CURRENT-STATE / NEXT_PHASE / README / KNOWN_LIMITATIONS ──
+    assert "Phase 6 Top-Level Design | FROZEN / APPROVED" in current
+    assert "P6-F0 | NOT_AUTHORIZED" in current
+    assert "Phase 6 Top-Level Design: FROZEN / APPROVED" in next_phase
+    assert "P6-F0: NOT_AUTHORIZED until G0 independent acceptance" in next_phase
+    assert "Phase 6 Top-Level Design：FROZEN / APPROVED" in readme
+    assert "Phase 6 implementation = NOT_AUTHORIZED" in limitations
+    # taskbook approval must not imply development authorization
+    assert "任务书 approved 不得被解释成整个 Phase 6 已授权开发" in taskbook
+    assert "NOT_AUTHORIZED" in next_phase

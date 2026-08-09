@@ -8,7 +8,7 @@
 - **Phase 5 taskbook：APPROVED**
   - 任务书路径：`docs/tasks/phase5-industry-knowledge-graph.md`
   - 正式设计决策：`DECISIONS.md` #30
-- **Phase 5 implementation：PASS**
+- **Phase 5 implementation：PASS**（terminal state，不重新打开）
   - M0：PASS（SHA `df358da`，M0 Offline CI `31159354574` PASS）
   - M1 Graph Contracts：PASS（SHA `b097996`，M1 CI `31165533237`：1281 passed / 5 skipped / 55/55 schemas）
   - M2 Persistence and ontology seed：PASS（SHA `565d500`，M2 CI `31171415215`：1351 passed / 5 skipped / 55/55 schemas）
@@ -61,23 +61,32 @@ Graph→Research NOT implemented in M9。
 当前状态：
 PR5B MERGED（master cfdeeba7）。
 PR5C #6 MERGED。
-M0-M9 PASS。
-M10 PASS。
+M0-M10 PASS。
+Phase 5: CLOSED / PASS
+
+Phase 6 Top-Level Design: FROZEN / APPROVED
+（DECISIONS.md #41 + engineering-guide V1.2 第 69 节；
+ 任务书 docs/tasks/phase6-research-workflows.md APPROVED）
 
 当前阶段门禁：
 
 Phase 5: CLOSED / PASS
-Phase 6 top-level design: SEPARATE GOVERNANCE WORK
-Phase 6 implementation: NOT_AUTHORIZED
+Phase 6 Top-Level Design: FROZEN / APPROVED
+P6-G0: implementation work item
+P6-F0: NOT_AUTHORIZED until G0 independent acceptance
+Phase 6 business implementation: NOT_AUTHORIZED
+（6A / 6B / 6C 全部 NOT_AUTHORIZED）
 
-Graph→Research: NOT IMPLEMENTED
+Graph→Research: READ-ONLY CONTRACT FROZEN / PRODUCTION NOT ENABLED
 
-未经正式 Phase 6 design decision、taskbook 和用户显式实施授权：
+未经 P6-G0 independent acceptance：
+- P6-F0 及其后一切业务实现保持 NOT_AUTHORIZED；
 - 不得新增 Phase 6 production scenario；
 - 不得新增 Schema / migration；
 - 不得改变 Phase2/3/4/5 已验收行为；
 - 不得扩张 source whitelist；
-- 不得启用 Graph→Research production path。
+- 不得启用 Graph→Research production path（Scenario → raw graph 或
+  Scenario → JSON mirror → authoritative knowledge 一律禁止）。
 ```
 
 ## Phase 4 独立验收记录

@@ -1722,3 +1722,194 @@ Graph→Research 不实现，JSON mirror 不实现。
 > - Schema / migration / DB / runtime 均不变。
 > - Phase 5 = CLOSED / PASS。Phase 6 implementation = NOT_AUTHORIZED。
 > - Governance-only PR 的未来 merge SHA 不再要求通过另一个 PR 回填。
+---
+
+## 41. Phase 6 Top-Level Design Decision（2026-08-09）
+
+> 本决策为 Phase 6 顶层设计治理冻结（P6-G0），design/governance-only，不实现任何
+> Phase 6 production scenario。编号承接 Phase 5 M10 系列（#40）之后，按仓库现有顺序递增。
+> 本决策冻结后，正式任务书见 `docs/tasks/phase6-research-workflows.md`；
+> 工程指南同步升级为 V1.2（第 69 节）。
+
+### 41.1 结构与七场景完整分配（FROZEN）
+
+Phase 6 完整七场景（`剩余场景 = 7`）一次性冻结为三个业务 Track：
+
+```text
+6A：industry_research（行业研究）、theme_discovery（主题挖掘）
+6B：evening_brief（每日晚报）、daily_review（每日复盘）、stock_review（个股复盘）
+6C：first_coverage（首次覆盖）、earnings_expectation（财报预期）
+```
+
+不增加任何用户未定义的新业务场景。
+
+### 41.2 并行拓扑（FROZEN）
+
+```text
+P6-G0（串行）→ P6-F0 Shared Contract Freeze（串行）
+→ F0 PASS 后 6A + 6B + 6C-PREP 可并行
+→ 6A dependency gate PASS
+→ 6C real first_coverage integration
+```
+
+依赖规则：
+
+1. P6-G0 串行；
+2. P6-F0 串行；
+3. F0 PASS 后 6A + 6B + 6C-PREP 可并行；
+4. 6C real first_coverage integration 依赖 6A stable industry interface
+   （**hard dependency**）；
+5. 6B 不 hard-depend on 6A；
+6. 6A 不依赖 6B；
+7. 6C 不 hard-depend on 6B；
+8. shared control-plane enablement 必须串行。
+
+共享契约串行冻结、业务实现有限并行、共享控制面修改串行、各 Track 独立验收。
+
+### 41.3 P6-F0 shared contract gate
+
+- P6-F0 是共享契约冻结里程碑：场景注册、Task 契约、输出边界、Graph→Research
+  接口等共享契约先于任何业务 Track 冻结。
+- F0 未 PASS 前，任何 6A / 6B / 6C 业务实现均 `NOT_AUTHORIZED`（6C-PREP 亦不例外）。
+- "任务书 approved" 不等于整个 Phase 6 已授权开发。
+
+### 41.4 Graph→Research：READ ONLY（FROZEN）
+
+Phase 6A 第一次正式允许 Graph→Research，但只能：
+
+```text
+Versioned Graph
+→ GraphQueryService
+→ KnowledgeContextBuilder
+→ read-only Research Context
+```
+
+- `Graph→Research: READ ONLY`
+- `as_of: REQUIRED`
+- `SQLite: 唯一 graph authority`
+- `JSON mirror: 非权威，只是 deterministic read-only export`
+
+禁止：
+
+```text
+Scenario → raw SQL graph tables
+Scenario → JSON mirror → authoritative knowledge
+```
+
+### 41.5 KnowledgeContext != Evidence（FROZEN）
+
+Graph 只能帮助研究导航、实体发现、产业坐标、关系发现、检索方向、上下文组织。
+Graph FACT 进入报告事实链必须：
+
+```text
+Graph object → evidence_ids → authoritative Evidence reload
+→ Evidence validation → Claim / ResearchFinding → Markdown
+```
+
+禁止 `Graph FACT → 直接写成报告事实`。Graph 中 `MODEL_INFERENCE` 即使已进入
+active graph，也不得自动渲染成 FACT。
+
+### 41.6 时间治理（FROZEN）
+
+- Graph→Research 必须支持并强制 `as_of`；禁止 future knowledge leakage；
+  历史研究只能看到该 `as_of` 时刻合法有效的知识状态。
+- 6C forecast 受 `as_of` / `historical cutoff` / `forecast period` 治理。
+
+### 41.7 Graph Write Boundary（FROZEN）
+
+禁止 `Scenario → active GraphNode / GraphEdge`。永久链路：
+
+```text
+RawItem → Evidence → Claim / Event / ResearchFinding → GraphChange Proposal
+→ GraphChange Candidate → Human Review → Validator → Deterministic Apply
+→ Versioned Graph
+```
+
+```text
+LLM can propose
+LLM cannot approve
+
+human can approve
+human cannot bypass validator
+```
+
+### 41.8 Candidate Integration 顺序（FROZEN）
+
+每个 Phase 6 新场景必须：
+
+```text
+Research Capability Acceptance
+        ↓
+Candidate Integration Authorization
+        ↓
+Research → GraphChange Candidate
+```
+
+原则：`research first`、`candidate integration second`、`active graph never direct`。
+
+### 41.9 6A / 6B / 6C 方法论（FROZEN）
+
+- **6A industry_research**：行业边界、稳定行业分类、产业链结构、关键环节、供需、
+  竞争格局、技术路径、材料/设备、应用、政策、关键指标、关键公司产业坐标、催化剂、
+  风险、核心争议、反证、待验证问题、证据质量。
+- **6A theme_discovery**：
+  `Event / Policy / Technology Change → Theme Hypothesis → Evidence → Industry Mapping
+  → Related Entities → Support / Counter Evidence → Lifecycle / Invalidating Conditions
+  → Research Questions`。主题挖掘不是自动荐股。
+- **6B evening_brief**：`08:00 → 20:00 incremental research`，不是晨报换时间；
+  重点是晨报之后的新信息、material updates、被支持/削弱的假设、新增重大公告、
+  次日待验证问题。
+- **6B daily_review**：区分 `observed_fact / previous_research_view / new_evidence /
+  updated_interpretation / remaining_unknown`。
+- **6B stock_review**：增量复盘，不得每次重跑完整 Phase4 研报。6B 不 hard-depend on 6A。
+- **6C earnings_expectation**：`HYPOTHESIS / FORECAST`，不是 FACT；记录
+  `as_of / forecast_period / historical_input_periods / evidence / assumptions /
+  method / scenario / uncertainty / calculation_version`；确定性算术必须由代码完成。
+- **6C first_coverage**：编排层（Company Profile → Phase4 Equity Research →
+  Phase6A Industry Research → Peer Context → Earnings Expectation → Valuation
+  Applicability → Catalysts / Risks → Counter Evidence → Open Questions →
+  First Coverage Report）；不得复制第二套 financial / valuation / evidence /
+  LLM engine。
+
+### 41.10 Output Safety（FROZEN，不变）
+
+Phase 6 全部七场景继续禁止：目标价、买入/卖出评级、增持/减持建议、仓位建议、
+明日交易建议、自动荐股。明确：
+
+```text
+theme_discovery ≠ stock picking
+first_coverage ≠ brokerage rating
+earnings_expectation ≠ trading signal
+daily_review ≠ next-day trading plan
+```
+
+### 41.11 Ontology / Source Expansion（FROZEN）
+
+```text
+new node_type: NOT_AUTHORIZED
+new relation: NOT_AUTHORIZED
+relation semantic change: NOT_AUTHORIZED
+automatic ontology expansion: PROHIBITED
+```
+
+Phase 6 不得顺手扩张 source whitelist；新来源必须独立
+discovery → probe → source governance → verification → registry update。
+
+### 41.12 实施门禁（NOT_AUTHORIZED）
+
+```text
+TASKBOOK_STATUS: APPROVED
+IMPLEMENTATION_STATUS: NOT_STARTED
+CURRENT_MILESTONE: P6-G0
+NEXT_MILESTONE: P6-F0
+P6-F0: NOT_AUTHORIZED_UNTIL_G0_ACCEPTANCE
+P6-A: NOT_AUTHORIZED
+P6-B: NOT_AUTHORIZED
+P6-C: NOT_AUTHORIZED
+```
+
+Phase 5：CLOSED / PASS（terminal state 不重新打开）。
+Phase 6 Top-Level Design：FROZEN / APPROVED。
+P6-G0：implementation work item（本决策即其产物之一）。
+P6-F0：NOT_AUTHORIZED until G0 independent acceptance。
+Phase 6 business implementation：NOT_AUTHORIZED。

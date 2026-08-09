@@ -1,7 +1,7 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-09（Phase5 closed / PR5C + governance hotfix merged）
-> 权威规范：`docs/engineering-guide.md` V1.1
+> 更新日期：2026-08-09（Phase5 closed / PR5C + governance hotfix merged；P6-G0 顶层设计治理冻结）
+> 权威规范：`docs/engineering-guide.md` V1.2
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -40,7 +40,11 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | PASS | **PR5B MERGED** (cfdeeba7)。M0-M10 PASS。**PR5C #6 MERGED / SQUASH** (master 1e1d4f9)。Post-merge governance hotfixes #7, #8 merged (master 1087520)。**M10 PASS** (accepted SHA 156ea35, CI 31292861813)。
+| Phase 5 | PASS | **PR5B MERGED** (cfdeeba7)。M0-M10 PASS。**PR5C #6 MERGED / SQUASH** (master 1e1d4f9)。Post-merge governance hotfixes #7, #8 merged (master 1087520)。**M10 PASS** (accepted SHA 156ea35, CI 31292861813)。Phase 5 terminal state 不重新打开。 |
+| Phase 6 Top-Level Design | FROZEN / APPROVED | DECISIONS.md #41 + engineering-guide V1.2（第 69 节）冻结 6A / 6B / 6C 七场景、并行拓扑、Graph→Research READ ONLY、KnowledgeContext != Evidence、Candidate-only 写入、时间治理、输出安全、ontology/source 冻结。任务书 `docs/tasks/phase6-research-workflows.md` APPROVED。 |
+| P6-G0 | implementation work item | Phase 6 顶层设计治理冻结，design/governance-only，无 production scenario。 |
+| P6-F0 | NOT_AUTHORIZED | 共享契约冻结，until G0 independent acceptance。 |
+| Phase 6 business implementation | NOT_AUTHORIZED | 6A / 6B / 6C 全部 NOT_AUTHORIZED。 |
 
 ## 2026-08-07 修复后的关键事实
 
