@@ -43,6 +43,17 @@ def test_phase_status_documents_are_consistent():
     # Merge facts present
     assert "1e1d4f9" in current, "CURRENT_STATE must record PR5C master SHA"
     assert "2c55c55" in current, "CURRENT_STATE must record post-hotfix master SHA"
+    assert "1087520" in current, "CURRENT_STATE must record final governance master SHA"
+    # NEXT_PHASE: M10 must be PASS, not IN_PROGRESS
+    assert "M10 Deterministic JSON Mirror + E2E Acceptance" in next_phase
+    assert "AUTHORIZED / IN_PROGRESS" not in next_phase
+    # No malformed empty PR status
+    for text in (current, next_phase):
+        assert "（）。" not in text, "Malformed empty PR status found"
+        assert "Draft PR #6" not in text
+        assert "AUTHORIZED / IN_PROGRESS" not in text
+    # Merge facts in NEXT_PHASE
+    assert "MERGED" in next_phase, "NEXT_PHASE must document PR5C merged"
 
     # No stale pre-merge claims in current-status docs (header sections only)
     for text in (readme, current, next_phase):

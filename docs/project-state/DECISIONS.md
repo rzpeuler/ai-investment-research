@@ -1693,3 +1693,14 @@ Graph→Research 不实现，JSON mirror 不实现。
 > - Phase5: CLOSED / PASS.
 > - Graph→Research: NOT IMPLEMENTED.
 > - Phase6: NOT_AUTHORIZED.
+
+### 40.16 Phase5 Final Governance Truth Correction（2026-08-09）
+
+> - PR #8 merged (head b988dee, squash 1087520, CI 31294484007 PASS).
+> - Independent post-merge inspection found PR #8 used mechanical deletion
+>   leaving malformed current-state strings (`（）。`),
+>   and NEXT_PHASE still retained `M10 AUTHORIZED / IN_PROGRESS`.
+> - #40.15 statement that documentation drift was fully closed was premature.
+> - This correction replaces remaining stale claims with explicit terminal state.
+> - No runtime, schema, migration, or M10 acceptance semantics changed.
+> - Phase5: CLOSED / PASS. Phase6: NOT_AUTHORIZED.
