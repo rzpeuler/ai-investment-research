@@ -103,14 +103,15 @@ def _persist_raw_item(db: Database, entities: List[str],
                       title: str = "中芯国际2024年年度报告",
                       excerpt: str = "中芯国际属于集成电路晶圆代工企业。",
                       source_id: str = "sse_disclosure",
-                      url: str = None) -> str:
+                      url: str = None,
+                      publisher: str = "上海证券交易所") -> str:
     if url is None:
         url = "https://sse.example.com/test"
     raw_id = new_uuid()
     raw_item = RawItem(
         raw_item_id=raw_id, source_id=source_id,
         external_id=new_uuid(), url=url, title=title,
-        publisher="上海证券交易所", author=None,
+        publisher=publisher, author=None,
         published_at="2025-03-28T00:00:00",
         retrieved_at="2026-08-09T00:00:00",
         content_hash=content_sha256(title),
@@ -129,16 +130,18 @@ def _persist_evidence(db: Database, raw_item_id: str,
                       source_id: str = "sse_disclosure",
                       published_at: str = "2025-03-28T00:00:00",
                       url: str = None,
-                      independence_group: str = "") -> str:
+                      independence_group: str = "",
+                      publisher: str = "上海证券交易所",
+                      evidence_type: str = "official_disclosure") -> str:
     ev_id = new_uuid()
     evidence = Evidence(
         evidence_id=ev_id, source_id=source_id,
         raw_item_id=raw_item_id,
-        title=title, publisher="上海证券交易所",
+        title=title, publisher=publisher,
         published_at=published_at,
         retrieved_at="2026-08-09T00:00:00", url=url,
         excerpt=excerpt or "中芯国际属于集成电路晶圆代工企业。",
-        evidence_type="official_disclosure",
+        evidence_type=evidence_type,
         independence_group=independence_group or f"grp-{ev_id[:8]}",
         source_tier=source_tier, access_status="ok",
     )
@@ -723,3 +726,132 @@ class TestCaseDConflict:
                 (eid,)
             ).fetchone()[0]
             assert row == 1, f"Evidence {eid} should still exist"
+
+
+# ══════════════════════════════════════════════════════════════
+#  R6 Independent Provenance Tests
+# ══════════════════════════════════════════════════════════════
+
+class TestCaseBUrlLineage:
+    '''Case B: official URL lineage matches acceptance metadata.'''
+
+    def test_case_b_official_url_lineage_matches_acceptance_metadata(self, tmp_path):
+        import yaml
+        db = _fresh_db(tmp_path)
+        _seed_ontology(db)
+        _persist_entity(db, "company:688981.SH", "中芯国际")
+        _persist_source(db)
+        raw_id = _persist_raw_item(db, [
+            "company:688981.SH",
+            "industry_segment:semiconductor:wafer_manufacturing",
+        ], url=M10_SSE_688981_URL)
+        ev_id = _persist_evidence(db, raw_id, url=M10_SSE_688981_URL)
+        ri = db.query(
+            "SELECT payload FROM raw_items WHERE raw_item_id=?", (raw_id,)
+        )
+        assert ri, "RawItem not found"
+        p1 = json.loads(ri[0]["payload"]) if ri[0].get("payload") else {}
+        assert p1.get("url") == M10_SSE_688981_URL, f"RawItem URL: {p1.get('url')}"
+        ev = db.query(
+            "SELECT payload FROM evidence WHERE evidence_id=?", (ev_id,)
+        )
+        assert ev, "Evidence not found"
+        p2 = json.loads(ev[0]["payload"]) if ev[0].get("payload") else {}
+        assert p2.get("url") == M10_SSE_688981_URL, f"Evidence URL: {p2.get('url')}"
+        with open("config/phase5_m10_acceptance.yaml", encoding="utf-8") as f:
+            acceptance = yaml.safe_load(f)
+        assert acceptance["source_url"] == M10_SSE_688981_URL
+
+
+class TestCaseCSyntheticProvenance:
+    '''Case C: fully synthetic provenance, no SSE contamination.'''
+
+    def test_case_c_synthetic_provenance_is_not_official(self, tmp_path):
+        db = _fresh_db(tmp_path)
+        _seed_ontology(db)
+        _persist_entity(db, "company:600519.SH", "贵州茅台")
+        _persist_synthetic_source(db, source_id="m10_synthetic_mi",
+                                  source_tier="B",
+                                  name="M10 Synthetic Model Inference Source")
+        raw_id = _persist_raw_item(db, ["company:600519.SH"],
+            title="TEST SYNTHETIC MI", excerpt="synthetic test only",
+            source_id="m10_synthetic_mi",
+            url="https://synthetic.example.com/mi",
+            publisher="M10 Synthetic Fixture")
+        ev_id = _persist_evidence(db, raw_id,
+            title="TEST SYNTHETIC MI", excerpt="synthetic test only",
+            source_id="m10_synthetic_mi", source_tier="B",
+            url="https://synthetic.example.com/mi",
+            publisher="M10 Synthetic Fixture",
+            evidence_type="test_fixture")
+        for table, cols in [
+            ("raw_items", [("raw_item_id", raw_id)]),
+            ("evidence", [("evidence_id", ev_id)]),
+        ]:
+            for col, val in cols:
+                rows = db.query(f"SELECT payload FROM {table} WHERE {col}=?", (val,))
+                for row in rows:
+                    p = str(row.get("payload", "") or "").lower()
+                    assert "sse" not in p, f"SSE found in {table}"
+                    assert "official_disclosure" not in p, f"official_disclosure in {table}"
+        ev_rows = db.query("SELECT payload FROM evidence WHERE evidence_id=?", (ev_id,))
+        assert ev_rows
+        ep = json.loads(ev_rows[0]["payload"]) if ev_rows[0].get("payload") else {}
+        assert ep.get("evidence_type") == "test_fixture"
+
+
+class TestCaseDSyntheticProvenance:
+    '''Case D: A/A B/B tier consistency, no SSE.'''
+
+    def test_case_d_synthetic_provenance_and_tiers(self, tmp_path):
+        db = _fresh_db(tmp_path)
+        _seed_ontology(db)
+        _persist_entity(db, "company:600519.SH", "贵州茅台")
+        _persist_synthetic_source(db, source_id="m10_synthetic_a",
+                                  source_tier="A", name="M10 Synthetic Source A",
+                                  base_domain="https://source-a.example.com")
+        _persist_synthetic_source(db, source_id="m10_synthetic_b",
+                                  source_tier="B", name="M10 Synthetic Source B",
+                                  base_domain="https://source-b.example.com")
+        raw_a = _persist_raw_item(db, ["company:600519.SH"],
+            title="TEST SYNTHETIC A", excerpt="does NOT supply compute chips",
+            source_id="m10_synthetic_a", url="https://source-a.example.com/ea",
+            publisher="M10 Synthetic Fixture A")
+        raw_b = _persist_raw_item(db, ["company:600519.SH"],
+            title="TEST SYNTHETIC B", excerpt="cloud partnership for chips",
+            source_id="m10_synthetic_b", url="https://source-b.example.com/eb",
+            publisher="M10 Synthetic Fixture B")
+        ev_a = _persist_evidence(db, raw_a,
+            title="TEST SYNTHETIC A", excerpt="does NOT supply compute chips",
+            source_id="m10_synthetic_a", source_tier="A",
+            url="https://source-a.example.com/ea",
+            publisher="M10 Synthetic Fixture A", evidence_type="test_fixture",
+            independence_group="m10-synthetic-a")
+        ev_b = _persist_evidence(db, raw_b,
+            title="TEST SYNTHETIC B", excerpt="cloud partnership for chips",
+            source_id="m10_synthetic_b", source_tier="B",
+            url="https://source-b.example.com/eb",
+            publisher="M10 Synthetic Fixture B", evidence_type="test_fixture",
+            independence_group="m10-synthetic-b")
+        sa = db.query("SELECT payload FROM sources WHERE source_id=?", ("m10_synthetic_a",))
+        assert sa
+        sb = db.query("SELECT payload FROM sources WHERE source_id=?", ("m10_synthetic_b",))
+        assert sb
+        # Tier consistency verified via payload inspection
+        ev_a_p = json.loads(db.query("SELECT payload FROM evidence WHERE evidence_id=?", (ev_a,))[0]["payload"])
+        ev_b_p = json.loads(db.query("SELECT payload FROM evidence WHERE evidence_id=?", (ev_b,))[0]["payload"])
+        assert ev_a_p.get("source_tier") == "A"
+        assert ev_b_p.get("source_tier") == "B"
+        assert ev_a_p.get("evidence_type") == "test_fixture"
+        assert ev_b_p.get("evidence_type") == "test_fixture"
+        for table, cols in [
+            ("sources", [("source_id", "m10_synthetic_a"), ("source_id", "m10_synthetic_b")]),
+            ("raw_items", [("raw_item_id", raw_a), ("raw_item_id", raw_b)]),
+            ("evidence", [("evidence_id", ev_a), ("evidence_id", ev_b)]),
+        ]:
+            for col, val in cols:
+                rows = db.query(f"SELECT payload FROM {table} WHERE {col}=?", (val,))
+                for row in rows:
+                    p = str(row.get("payload", "") or "").lower()
+                    assert "sse" not in p, f"SSE in {table}/{val}"
+                    assert "official_disclosure" not in p
