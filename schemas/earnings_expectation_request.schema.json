@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/earnings_expectation_request.schema.json",
+  "title": "EarningsExpectationRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "task_id", "company_entity_id", "as_of", "as_of_basis", "timezone", "historical_selection_policy", "forecast_period", "assumptions", "metric_code", "scenario_name", "live", "dry_run", "force", "source_policy", "status", "warnings", "rule_versions", "requested_at", "version"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "company_entity_id": {"type": "string", "pattern": "^company:"},
+    "as_of": {"type": "string", "format": "date-time"},
+    "as_of_basis": {"type": "string", "enum": ["user_provided"]},
+    "timezone": {"type": "string", "enum": ["Asia/Shanghai"]},
+    "historical_selection_policy": {"type": "string", "enum": ["eligible_reports_published_by_as_of"]},
+    "forecast_period": {"$ref": "#/definitions/forecastPeriod"},
+    "assumptions": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/assumption"}},
+    "metric_code": {"type": "string", "minLength": 1},
+    "scenario_name": {"type": "string", "minLength": 1},
+    "live": {"type": "boolean"},
+    "dry_run": {"type": "boolean"},
+    "force": {"type": "boolean"},
+    "source_policy": {"type": "string", "enum": ["authoritative_db_only"]},
+    "status": {"type": "string", "enum": ["validated"]},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "rule_versions": {"type": "object"},
+    "requested_at": {"type": "string", "format": "date-time"},
+    "version": {"type": "integer", "minimum": 1}
+  },
+  "definitions": {
+    "forecastPeriod": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start", "end", "periods"],
+      "properties": {
+        "start": {"type": "string", "format": "date"},
+        "end": {"type": "string", "format": "date"},
+        "periods": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^FY\\d{4}$"}}
+      }
+    },
+    "assumption": {
+      "type": "object", "additionalProperties": false,
+      "required": ["driver", "value", "unit", "period", "source_type", "source_ref_ids", "evidence_ids", "confidence", "invalidates_when", "known_at"],
+      "properties": {
+        "driver": {"type": "string", "minLength": 1},
+        "value": {"type": "string", "pattern": "^-?\\d+(\\.\\d+)?$"},
+        "unit": {"type": "string", "minLength": 1},
+        "period": {"type": "string", "minLength": 1},
+        "source_type": {"type": "string", "enum": ["company_guidance", "external_opinion", "user_input", "deterministic_extrapolation", "model_generated"]},
+        "source_ref_ids": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "invalidates_when": {"type": "string", "minLength": 1},
+        "known_at": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"source_type": {"const": "user_input"}}},
+          "then": {"properties": {"known_at": {"type": "string", "format": "date-time"}}}
+        }
+      ]
+    }
+  }
+}

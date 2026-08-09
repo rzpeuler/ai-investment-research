@@ -105,6 +105,9 @@ SCHEMA_NAMES = [
     "industry_research_run",
     "theme_discovery_request",
     "theme_discovery_run",
+    # Phase 6C: earnings expectation
+    "earnings_expectation_request",
+    "earnings_expectation_run",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -249,6 +252,8 @@ def validate_model(model: Any) -> List[str]:
         "IndustryResearchRun": "industry_research_run",
         "ThemeDiscoveryRequest": "theme_discovery_request",
         "ThemeDiscoveryRun": "theme_discovery_run",
+        "EarningsExpectationRequest": "earnings_expectation_request",
+        "EarningsExpectationRun": "earnings_expectation_run",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")
