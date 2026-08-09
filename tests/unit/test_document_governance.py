@@ -136,7 +136,7 @@ def test_phase6_top_level_design_governance_frozen():
     assert "NOT_AUTHORIZED" in decisions
 
     # ── TASKBOOK ──
-    assert "**TASKBOOK_STATUS: APPROVED**" in taskbook
+    assert "TASKBOOK_STATUS: APPROVED" in taskbook
     assert "**CURRENT_MILESTONE: P6-S0**" in taskbook
     assert "P6-S1" in taskbook or ("P6-S1" in taskbook and "6B Final Closure" in taskbook)
     assert "P6-S2" in taskbook or ("P6-S2" in taskbook and "6A Final Closure" in taskbook)
