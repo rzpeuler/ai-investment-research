@@ -169,12 +169,18 @@ class ThemeDiscoveryPipeline:
         result.themes = themes
         result.sort_metrics = sort_metrics
 
-        # Status mapping (R1-7 + R2-9): capability_unavailable→degraded,
-        # no_eligible_evidence→insufficient_evidence,
-        # deterministic-only path (llm_called=false) → partial_success,
-        # never success — even when evidence-backed.
-        result.status = (
-            "partial_success" if themes else "insufficient_evidence")
+        # Status mapping (R1-7 + R2-9 + R3-1):
+        # capability_unavailable→degraded (handled earlier)
+        # no_eligible_evidence→insufficient_evidence
+        # eligible evidence exists + deterministic-only (llm_called=false)→partial_success
+        has_eligible_support = any(
+            bool(theme.supporting_evidence_ids) for theme in themes)
+        if not themes:
+            result.status = "insufficient_evidence"
+        elif not has_eligible_support:
+            result.status = "insufficient_evidence"
+        else:
+            result.status = "partial_success"  # deterministic-only, no llm semantic enrichment
         result.model_route = {"mode": "deterministic_fallback", "llm_called": False}
         result.exit_code = 0
         result.message = f"Discovered {len(themes)} themes (mode={discovery_mode})"
