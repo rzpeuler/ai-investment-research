@@ -684,21 +684,28 @@ from research_os.industry_research import INDUSTRY_DIMENSIONS
 AS_OF = "2026-08-06T08:00:00+08:00"
 AS_OF_PAST = "2025-06-01T00:00:00+08:00"
 AS_OF_FUTURE = "2027-06-01T00:00:00+08:00"
-_EV_ID = "ev:test:0001"
-_EV_ID2 = "ev:test:0002"
-_EV_ID3 = "ev:test:0003"
+_EV_ID = "11111111-1111-4111-8111-111111111111"
+_EV_ID2 = "22222222-2222-4222-8222-222222222222"
+_EV_ID3 = "33333333-3333-4333-8333-333333333333"
 _EV_TRIG1 = "b1b2b3b4-c5d6-41e1-8fcd-ef1234567890"
 _EV_TRIG2 = "c1c2c3c4-d5e6-41f1-8abc-def1234567890"
+_RAW_ITEM_ID = "44444444-4444-4444-8444-444444444444"
+_GRAPH_CHANGE_ID = "55555555-5555-4555-8555-555555555555"
+_GRAPH_REVIEW_ID = "66666666-6666-4666-8666-666666666666"
+_FACT_EDGE_ID = "edge:phase6a:r8:upstream"
+_GRAPH_CHANGE_CREATED_AT = "2026-08-05T10:00:00+08:00"
+_GRAPH_REVIEWED_AT = "2026-08-05T12:00:00+08:00"
+_GRAPH_APPLIED_AT = "2026-08-05T13:00:00+08:00"
 
 
 def _make_evidence_payload(evidence_id, published_at=AS_OF_PAST, source_tier="A",
-                            evidence_type="article", industry_tags=None):
+                            evidence_type="news_report", industry_tags=None):
     """Build a valid Evidence payload dict for raw SQL insert."""
     import json as _json
     return _json.dumps({
         "evidence_id": evidence_id,
         "source_id": "src:test",
-        "raw_item_id": "ri:test:001",
+        "raw_item_id": _RAW_ITEM_ID,
         "title": "Test Evidence " + evidence_id,
         "publisher": "Test Publisher",
         "published_at": published_at,
@@ -809,6 +816,224 @@ def _insert_graph_edge_row(db, edge_id, source_node_id, target_node_id, relation
     db._conn.commit()
 
 
+def _seed_valid_governed_theme_graph(db):
+    """Create the R8 positive graph through the governed Phase 5 write path."""
+    from research_os.knowledge.apply_engine import ApplyEngine
+    from research_os.knowledge.candidate_repository import (
+        GraphChangeCandidateRepository,
+    )
+    from research_os.knowledge.knowledge_validator import KnowledgeValidator
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.models import (
+        Evidence,
+        GraphChange,
+        GraphEdge,
+        GraphNode,
+        GraphReview,
+        GraphReviewer,
+        RawItem,
+    )
+
+    raw_item = RawItem(
+        raw_item_id=_RAW_ITEM_ID,
+        source_id="src:test",
+        external_id="phase6a-r8-evidence",
+        url="https://example.com/phase6a-r8",
+        title="半导体上游关系测试证据",
+        publisher="Test Publisher",
+        published_at=AS_OF_PAST,
+        retrieved_at="2025-06-01T01:00:00+08:00",
+        content_hash="0" * 64,
+        content_excerpt="半导体行业与汽车行业存在测试用上游关系。",
+        content_storage="metadata_and_excerpt",
+        language="zh-CN",
+        access_status="ok",
+        entities=["sw1:semi", "sw1:auto"],
+        raw_category="news",
+    )
+    assert validate_instance(raw_item.model_dump(), "raw_item") == []
+    db.upsert(raw_item)
+
+    evidence = Evidence(
+        evidence_id=_EV_ID,
+        source_id="src:test",
+        raw_item_id=_RAW_ITEM_ID,
+        title="半导体上游关系测试证据",
+        publisher="Test Publisher",
+        published_at=AS_OF_PAST,
+        retrieved_at="2025-06-01T01:00:00+08:00",
+        url="https://example.com/phase6a-r8",
+        excerpt="半导体行业与汽车行业存在测试用上游关系。",
+        evidence_type="news_report",
+        independence_group="phase6a-r8-governed-fact",
+        source_tier="A",
+        access_status="ok",
+    )
+    assert validate_instance(evidence.model_dump(), "evidence") == []
+    db.upsert(evidence)
+
+    graph_repo = GraphRepository(db)
+    nodes = [
+        GraphNode(
+            node_id="sw1:semi",
+            node_type="Industry",
+            name="半导体",
+            aliases=[],
+            description="测试行业根节点",
+            status="active",
+            valid_from=AS_OF_PAST,
+            valid_to=None,
+            evidence_ids=[],
+            version=1,
+            last_reviewed_at=AS_OF_PAST,
+            review_status="approved",
+            origin_kind="governance_seed",
+            originating_graph_change_id=None,
+            created_at=AS_OF_PAST,
+        ),
+        GraphNode(
+            node_id="sw1:auto",
+            node_type="Industry",
+            name="汽车",
+            aliases=[],
+            description="测试行业相邻节点",
+            status="active",
+            valid_from=AS_OF_PAST,
+            valid_to=None,
+            evidence_ids=[],
+            version=1,
+            last_reviewed_at=AS_OF_PAST,
+            review_status="approved",
+            origin_kind="governance_seed",
+            originating_graph_change_id=None,
+            created_at=AS_OF_PAST,
+        ),
+    ]
+    for node in nodes:
+        assert validate_instance(node.model_dump(), "graph_node") == []
+        assert node.evidence_ids == []
+        graph_repo.append_node(node)
+
+    candidate_edge = GraphEdge(
+        edge_id=_FACT_EDGE_ID,
+        source_node_id="sw1:semi",
+        relation="UPSTREAM_OF",
+        target_node_id="sw1:auto",
+        attributes={},
+        assertion_type="FACT",
+        valid_from=AS_OF_PAST,
+        valid_to=None,
+        confidence=0.9,
+        evidence_ids=[_EV_ID],
+        review_status="candidate",
+        version=1,
+        originating_graph_change_id=_GRAPH_CHANGE_ID,
+        created_at=_GRAPH_CHANGE_CREATED_AT,
+        last_reviewed_at=None,
+    )
+    graph_change = GraphChange(
+        graph_change_id=_GRAPH_CHANGE_ID,
+        change_type="add_edge",
+        node=None,
+        edge=candidate_edge,
+        current_knowledge="",
+        new_evidence_ids=[_EV_ID],
+        suggested_change="添加半导体到汽车的测试上游关系",
+        impact_scope=["sw1:semi", "sw1:auto"],
+        conflicts=[],
+        verification_points=["核验测试证据与两个行业端点的关联"],
+        review_status="candidate",
+        created_at=_GRAPH_CHANGE_CREATED_AT,
+        reviewed_at=None,
+    )
+    assert validate_instance(candidate_edge.model_dump(), "graph_edge") == []
+    assert validate_instance(graph_change.model_dump(), "graph_change") == []
+
+    candidate_repo = GraphChangeCandidateRepository(db)
+    validator = KnowledgeValidator(db, graph_repo)
+    candidate_validation = validator.validate_candidate(
+        graph_change, as_of=_GRAPH_REVIEWED_AT)
+    assert candidate_validation.review_eligible, candidate_validation.issues
+    candidate_repo.append_candidate(graph_change)
+
+    review = GraphReview(
+        review_id=_GRAPH_REVIEW_ID,
+        graph_change_id=_GRAPH_CHANGE_ID,
+        decision="approved",
+        reviewer=GraphReviewer(
+            reviewer_type="human",
+            reviewer_id="phase6a-r8-reviewer",
+            display_name="Phase 6A R8 Test Reviewer",
+        ),
+        reviewed_at=_GRAPH_REVIEWED_AT,
+        candidate_hash=validator.compute_candidate_hash(graph_change),
+        review_patch=[],
+        notes="Approve the schema-valid R8 positive-path fixture.",
+        resulting_graph_change_id=None,
+    )
+    assert validate_instance(review.model_dump(), "graph_review") == []
+    review_validation = validator.validate_review(
+        graph_change, review, as_of=_GRAPH_REVIEWED_AT)
+    assert review_validation.apply_eligible, review_validation.issues
+    graph_repo.append_review(review)
+
+    apply_result = ApplyEngine(
+        db, candidate_repo, graph_repo, validator).apply(
+            _GRAPH_CHANGE_ID,
+            review_id=_GRAPH_REVIEW_ID,
+            applied_at=_GRAPH_APPLIED_AT,
+        )
+    assert apply_result.status == "applied", (
+        apply_result.error_code, apply_result.errors)
+
+    final_edge_payload = graph_repo.get_edge_version(_FACT_EDGE_ID, 1)
+    assert final_edge_payload is not None
+    final_edge = GraphEdge(**final_edge_payload)
+    assert validate_instance(final_edge.model_dump(), "graph_edge") == []
+    assert final_edge.review_status == "approved"
+    assert final_edge.originating_graph_change_id == _GRAPH_CHANGE_ID
+
+    return {
+        "evidence": evidence,
+        "nodes": nodes,
+        "graph_change": graph_change,
+        "review": review,
+        "edge": final_edge,
+    }
+
+
+class TestValidGovernedGraphFixture:
+    def test_contracts_and_public_query(self, tmp_path):
+        """The positive fixture is schema-valid and visible through the public query API."""
+        from research_os.knowledge.query import GraphQueryService
+
+        db = _make_db(tmp_path)
+        fixture = _seed_valid_governed_theme_graph(db)
+
+        assert validate_instance(fixture["evidence"].model_dump(), "evidence") == []
+        assert all(
+            validate_instance(node.model_dump(), "graph_node") == []
+            for node in fixture["nodes"]
+        )
+        assert validate_instance(
+            fixture["graph_change"].model_dump(), "graph_change") == []
+        assert validate_instance(fixture["review"].model_dump(), "graph_review") == []
+        assert validate_instance(fixture["edge"].model_dump(), "graph_edge") == []
+
+        qr = GraphQueryService(db).query_graph(
+            root_node_id="sw1:semi",
+            as_of=AS_OF,
+            max_depth=1,
+            direction="both",
+        )
+        assert qr.edges
+        assert _EV_ID in qr.evidence_ids
+        assert any(
+            edge["payload"]["originating_graph_change_id"] == _GRAPH_CHANGE_ID
+            for edge in qr.edges
+        )
+
+
 # ═══════════════════════════════════════════════════════════════
 # SECTION A: Theme evidence-backed Orchestrator
 # ═══════════════════════════════════════════════════════════════
@@ -816,26 +1041,31 @@ def _insert_graph_edge_row(db, edge_id, source_node_id, target_node_id, relation
 class TestEvidenceBackedOrchestrator:
     def test_evidence_backed_orchestrator(self, tmp_path):
         """Theme discovery with real DB evidence → supporting_evidence_ids != [], lifecycle=supported."""
+        from research_os.knowledge.query import GraphQueryService
+
         db = _make_db(tmp_path)
-        # Insert Evidence
-        _insert_evidence_row(db, _EV_ID, published_at=AS_OF_PAST, source_tier="A",
-                              evidence_type="article")
-        # Insert Industry graph node with candidate_evidence_ids
-        _insert_graph_node_row(db, "sw1:semi", node_type="Industry", name="半导体",
-                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
-        _insert_graph_node_row(db, "sw1:auto", node_type="Industry", name="汽车",
-                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
-        # Insert Metric graph node
-        _insert_graph_node_row(db, "metric:001", node_type="Metric", name="芯片出货量",
-                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
-        # Insert HAS_METRIC edge
-        _insert_graph_edge_row(db, "edge:has_metric:001", "sw1:semi", "metric:001",
-                                relation="HAS_METRIC", assertion_type="GOVERNANCE",
-                                evidence_ids=[_EV_ID])
-        # Cross-industry edge (required for graph_based triggers)
-        _insert_graph_edge_row(db, "edge:cross:001", "sw1:semi", "sw1:auto",
-                                relation="UPSTREAM_OF", assertion_type="GOVERNANCE",
-                                evidence_ids=[_EV_ID])
+        _seed_valid_governed_theme_graph(db)
+
+        qr = GraphQueryService(db).query_graph(
+            root_node_id="sw1:semi", as_of=AS_OF,
+            max_depth=1, direction="both")
+        assert qr.edges
+        assert _EV_ID in qr.evidence_ids
+
+        pipeline_result = ThemeDiscoveryPipeline(tmp_path, db=db).run({
+            "task_id": "77777777-7777-4777-8777-777777777777",
+            "as_of": AS_OF,
+            "discovery_mode": "graph_based",
+            "industry_ids": ["sw1:semi"],
+        })
+        assert pipeline_result.themes
+        assert pipeline_result.status == "partial_success"
+        assert pipeline_result.model_route["llm_called"] is False
+        assert any(
+            _EV_ID in theme.supporting_evidence_ids
+            and theme.lifecycle_state == "supported"
+            for theme in pipeline_result.themes
+        )
 
         orch = Orchestrator(tmp_path, db=db, registry=_registry())
         try:
@@ -846,30 +1076,32 @@ class TestEvidenceBackedOrchestrator:
                 force=True,
             ))
             assert result.task_id != ""
-            # NOTE: Orchestrator graph_based requires valid graph_change records
-            # (production integrity check). Test fixtures lack them → insufficient_evidence.
-            # Mechanical proof of partial_success with supporting evidence is provided
-            # by TestTriggerIdSensitivity (mock GraphQueryService) and
-            # TestHypothesisIdStable (direct trigger/hypothesis construction).
-            assert result.status == "insufficient_evidence", \
-                f"Graph query w/o valid graph_change records → insufficient_evidence, got {result.status}"
+            assert result.status == "partial_success"
 
             run_dir = tmp_path / "reports" / "runs" / result.task_id
+            task_data = json.loads(
+                (run_dir / "task.json").read_text(encoding="utf-8"))
+            request_data = json.loads(
+                (run_dir / "theme_discovery_request.json").read_text(
+                    encoding="utf-8"))
             run_data = json.loads((run_dir / "theme_discovery_run.json").read_text(encoding="utf-8"))
-            assert run_data["status"] == "insufficient_evidence"
+            assert run_data["status"] == "partial_success"
             assert run_data["status"] == result.status
+            assert (
+                task_data["task_id"]
+                == request_data["task_id"]
+                == run_data["task_id"]
+                == result.task_id
+            )
 
             # Markdown status
             md_text = (run_dir / "final.md").read_text(encoding="utf-8")
-            assert "insufficient_evidence" in md_text or "证据不足" in md_text
+            assert "**Status**: partial_success" in md_text
 
             # Assert artifacts exist
             assert (run_dir / "theme_discovery_request.json").exists()
             assert (run_dir / "theme_discovery_run.json").exists()
             assert (run_dir / "final.md").exists()
-
-            # Mechanical proof via direct Pipeline + mock graph (proven in TestTriggerIdSensitivity)
-            # skipped here — proof lives in TestTriggerIdSensitivity class
         finally:
             orch.close()
 
@@ -1592,21 +1824,7 @@ class TestReportConsistency:
     def test_evidence_backed_report_consistency(self, tmp_path):
         """With evidence backing → Run.status == partial_success == ScenarioExecutionResult.status."""
         db = _make_db(tmp_path)
-        _insert_evidence_row(db, _EV_ID, published_at=AS_OF_PAST, source_tier="A",
-                              evidence_type="article")
-        _insert_graph_node_row(db, "sw1:semi", node_type="Industry", name="半导体",
-                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
-        _insert_graph_node_row(db, "sw1:auto", node_type="Industry", name="汽车",
-                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
-        _insert_graph_node_row(db, "metric:001", node_type="Metric", name="m1",
-                                evidence_ids=[_EV_ID], origin_kind="governance_seed")
-        _insert_graph_edge_row(db, "edge:hm:001", "sw1:semi", "metric:001",
-                                relation="HAS_METRIC", assertion_type="GOVERNANCE",
-                                evidence_ids=[_EV_ID])
-        # Also add a cross-industry edge so graph_based can find cross-industry triggers
-        _insert_graph_edge_row(db, "edge:cross:001", "sw1:semi", "sw1:auto",
-                                relation="UPSTREAM_OF", assertion_type="GOVERNANCE",
-                                evidence_ids=[_EV_ID])
+        _seed_valid_governed_theme_graph(db)
 
         orch = Orchestrator(tmp_path, db=db, registry=_registry())
         try:
@@ -1619,8 +1837,9 @@ class TestReportConsistency:
             run_dir = tmp_path / "reports" / "runs" / result.task_id
             assert (run_dir / "theme_discovery_run.json").exists(), "Run artifact must exist"
             run_data = json.loads((run_dir / "theme_discovery_run.json").read_text(encoding="utf-8"))
-            assert run_data["status"] == "insufficient_evidence", \
-                f"Graph query w/o valid graph_change → insufficient_evidence, got {run_data['status']}"
+            assert run_data["status"] == "partial_success"
             assert result.status == run_data["status"], f"result={result.status} != run={run_data['status']}"
+            md_text = (run_dir / "final.md").read_text(encoding="utf-8")
+            assert "**Status**: partial_success" in md_text
         finally:
             orch.close()
