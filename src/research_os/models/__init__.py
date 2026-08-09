@@ -200,6 +200,12 @@ from research_os.models.phase6a import (
     ThemeDiscoveryRequest,
     ThemeDiscoveryRun,
 )
+from research_os.models.phase6c import (
+    EarningsExpectationRequest,
+    EarningsExpectationRun,
+    ForecastPeriod,
+    HistoricalInputPeriod,
+)
 
 __all__ = [
     "AccessLevel",
@@ -318,4 +324,8 @@ __all__ = [
     "IndustryResearchRun",
     "ThemeDiscoveryRequest",
     "ThemeDiscoveryRun",
+    "EarningsExpectationRequest",
+    "EarningsExpectationRun",
+    "ForecastPeriod",
+    "HistoricalInputPeriod",
 ]

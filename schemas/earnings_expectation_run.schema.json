@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/earnings_expectation_run.schema.json",
+  "title": "EarningsExpectationRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "request_id", "task_id", "company_entity_id", "as_of", "historical_input_periods", "forecast_period", "scenario_ids", "scenarios", "evidence_ids", "method", "uncertainty", "calculation_version", "generated_by", "model_route", "idempotency_key", "run_version", "started_at", "finished_at", "status", "stage_statuses", "artifact_paths", "input_versions", "validation_status", "error_codes", "warnings", "missing_data", "version"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "company_entity_id": {"type": "string", "pattern": "^company:"},
+    "as_of": {"type": "string", "format": "date-time"},
+    "historical_input_periods": {"type": "array", "items": {"$ref": "#/definitions/historicalInputPeriod"}},
+    "forecast_period": {"$ref": "earnings_expectation_request.schema.json#/definitions/forecastPeriod"},
+    "scenario_ids": {"type": "array", "items": {"type": "string"}},
+    "scenarios": {"type": "array", "items": {"$ref": "forecast_scenario.schema.json"}},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "method": {"type": "string", "minLength": 1},
+    "uncertainty": {"type": "array", "items": {"type": "string"}},
+    "calculation_version": {"type": "string", "minLength": 1},
+    "generated_by": {"type": "string", "enum": ["deterministic_code"]},
+    "model_route": {"type": "object"},
+    "idempotency_key": {"type": "string", "minLength": 1},
+    "run_version": {"type": "integer", "minimum": 1},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+    "status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
+    "stage_statuses": {"type": "array", "items": {"type": "object"}},
+    "artifact_paths": {"type": "array", "items": {"type": "string"}},
+    "input_versions": {"type": "object"},
+    "validation_status": {"type": "string"},
+    "error_codes": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "missing_data": {"type": "array", "items": {"type": "string"}},
+    "version": {"type": "integer", "minimum": 1}
+  },
+  "definitions": {
+    "historicalInputPeriod": {
+      "type": "object", "additionalProperties": false,
+      "required": ["period_label", "period_start", "period_end", "financial_report_ids", "financial_fact_ids", "financial_metric_ids", "evidence_ids", "latest_published_at", "eligibility_status", "warnings", "input_versions"],
+      "properties": {
+        "period_label": {"type": "string", "minLength": 1},
+        "period_start": {"anyOf": [{"type": "string", "format": "date"}, {"type": "null"}]},
+        "period_end": {"type": "string", "format": "date"},
+        "financial_report_ids": {"type": "array", "items": {"type": "string"}},
+        "financial_fact_ids": {"type": "array", "items": {"type": "string"}},
+        "financial_metric_ids": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "latest_published_at": {"type": "string", "format": "date-time"},
+        "eligibility_status": {"type": "string", "enum": ["eligible", "conflict", "excluded"]},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "input_versions": {"type": "object", "additionalProperties": {"type": "integer"}}
+      }
+    }
+  }
+}
