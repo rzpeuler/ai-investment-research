@@ -107,7 +107,8 @@
       "enum": [
         "success",
         "partial_success",
-        "insufficient_data",
+        "degraded",
+        "insufficient_evidence",
         "failed"
       ]
     }

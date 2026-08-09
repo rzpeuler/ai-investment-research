@@ -17,7 +17,7 @@ from research_os.models.core import StrictModel
 from research_os.utils.time import validate_iso
 
 RequestStatus = Literal["planned", "validated", "rejected"]
-RunStatus = Literal["success", "partial_success", "insufficient_data", "failed"]
+RunStatus = Literal["success", "partial_success", "degraded", "insufficient_evidence", "failed"]
 ReviewStatus = Literal["supported", "weakened", "falsified", "unchanged", "unknown"]
 
 

@@ -36,7 +36,7 @@
     "warnings": { "type": "array", "items": { "type": "string" } },
     "status": {
       "type": "string",
-      "enum": ["success", "partial_success", "insufficient_data", "failed"]
+      "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]
     }
   }
 }
