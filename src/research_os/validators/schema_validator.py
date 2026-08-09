@@ -98,13 +98,6 @@ SCHEMA_NAMES = [
     "industry_research_run",
     "theme_discovery_request",
     "theme_discovery_run",
-    # Phase 6B：周期复盘（6B-owned Schemas）
-    "evening_brief_request",
-    "evening_brief_run",
-    "daily_review_request",
-    "daily_review_run",
-    "stock_review_request",
-    "stock_review_run",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -242,13 +235,6 @@ def validate_model(model: Any) -> List[str]:
         "IndustryResearchRun": "industry_research_run",
         "ThemeDiscoveryRequest": "theme_discovery_request",
         "ThemeDiscoveryRun": "theme_discovery_run",
-        # Phase 6B
-        "EveningBriefRequest": "evening_brief_request",
-        "EveningBriefRun": "evening_brief_run",
-        "DailyReviewRequest": "daily_review_request",
-        "DailyReviewRun": "daily_review_run",
-        "StockReviewRequest": "stock_review_request",
-        "StockReviewRun": "stock_review_run",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")
