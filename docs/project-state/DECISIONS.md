@@ -1913,3 +1913,114 @@ Phase 6 Top-Level Design：FROZEN / APPROVED。
 P6-G0：implementation work item（本决策即其产物之一）。
 P6-F0：NOT_AUTHORIZED until G0 independent acceptance。
 Phase 6 business implementation：NOT_AUTHORIZED。
+
+---
+
+## 42. Phase 6 Shared Contract Freeze（P6-F0，2026-08-09）
+
+> P6-F0 为 6A / 6B / 6C-PREP 三个业务 Track 并行前的最后一个共享契约冻结 Gate。
+> 契约权威文档：`docs/contracts/phase6-shared-contract.md`（FROZEN）。
+> 本决策只冻结契约，不实现任何 Phase 6 业务研究能力；F0 验收 PASS 前各 Track 不得开始。
+
+### 42.1 场景 ID 冻结（FROZEN）
+
+七个唯一正式名称（snake_case）已存在于 `schemas/task.schema.json` scenario enum 与
+CLI `--scenario` choices：industry_research / theme_discovery（6A）、
+evening_brief / daily_review / stock_review（6B）、first_coverage /
+earnings_expectation（6C）。F0 及后续不得再修改 enum，不得创造同义名称。
+
+### 42.2 统一控制面冻结（FROZEN）
+
+Phase 6 只复用既有 Task / Plan / ScenarioRunner / ScenarioRegistry /
+Orchestrator.execute() / ScenarioExecutionResult / RunDirectory；
+禁止 Phase6Orchestrator 等第二套控制面、第二套任务状态机、第二套执行结果类型。
+
+### 42.3 并行开发 Registry 机制（FROZEN）
+
+各 Track 业务分支开发时不得修改默认中央注册表（`runners/__init__.py`、
+`orchestrator.py`）；测试通过 isolated registry 注入：
+
+```python
+registry = ScenarioRegistry()
+registry.register(MyScenarioRunner())
+orch = Orchestrator(project_root, db=db, registry=registry)
+```
+
+中央注册统一留给 P6-I0 serial enablement。
+
+### 42.4 Shared-file Ownership（CONFLICT ZONE，FROZEN）
+
+业务 Track 并行阶段默认不得修改：orchestrator.py、runners/__init__.py、cli/main.py、
+task.schema.json、models/core.py、migration files、shared model-routing config、
+shared source registry、shared ontology allowlist。必须修改时 STOP → shared contract
+change proposal → 串行审查 → 先 merge → 各 Track rebase。
+
+### 42.5 Artifact Naming 冻结（FROZEN）
+
+沿用既有 convention：`<scenario>_request.json` / `<scenario>_run.json` +
+统一 `scenario_execution_result.json`。七个场景文件名见契约文档 §8。
+
+### 42.6 Task ID Lineage 冻结（FROZEN）
+
+Task.task_id = Plan.task_id = Request.task_id = Run.task_id = ExecutionResult.task_id；
+业务 artifact（ResearchFinding / Candidate / report metadata）必须可回溯至该 Task；
+禁止 Runner 自生第二个 task_id。
+
+### 42.7 as_of 与时间治理冻结（FROZEN）
+
+- as_of = explicit business cutoff（Asia/Shanghai）；禁止业务 Pipeline 内静默 now；
+  复用 Orchestrator 既有 as_of 构造 contract；Runner validate_request 必须显式归一化 as_of。
+- 6A Graph as_of = business validity time，继承 Phase 5 HistoryService 语义，禁止第二套
+  生命周期算法。
+- 6B：evening_brief 窗口 `[08:00, 20:00)`（inclusive/exclusive 明确，补跑不漂移）；
+  daily_review 区分 review_business_date 与实际执行日期；stock_review 冻结
+  entity / review window / as_of / previous research cutoff。
+- 6C earnings_expectation 三时间：as_of / historical_input_period / forecast_period，
+  future leakage blocker；确定性算术由代码完成。
+
+### 42.8 Evidence 与 Graph 边界冻结（FROZEN）
+
+- 永久路径：RawItem → Evidence → Claim → ResearchFinding / Event → Markdown；
+  Claim/ResearchFinding/Graph/Candidate ID 均 != Evidence ID。
+- KnowledgeContext != Evidence；Graph→Research 唯一路径
+  GraphQueryService → KnowledgeContextBuilder → Research Context（READ ONLY）。
+- Graph FACT 使用必须 back-resolve：evidence_ids → Evidence reload → eligibility/time/
+  source validation → Claim/ResearchFinding；禁止 Graph payload → Markdown FACT。
+- MODEL_INFERENCE 永不自动升级 FACT（即使 human reviewed / active graph）。
+- 6A 复用 GraphQueryService / KnowledgeContextBuilder / HistoryService / GraphRepository；
+  禁止 scenario direct SQL graph 读取、JSON mirror 当权威、第二套 traversal/lifecycle/loader。
+
+### 42.9 DB / Schema / 模型治理冻结（FROZEN）
+
+- DB 保持 v6，F0 及业务 Track 均不得自行迁移；无法实现时 BLOCKED + JUSTIFICATION 交回。
+- JSON Schema = authoritative / Pydantic = constructor / model_dump → validate；
+  Track 可建自有 schema，禁止并行修改 shared schema；F0 判定无新增 shared Schema 必要。
+- 模型治理：deterministic first / Flash default / Pro escalation only，复用 LlmClient /
+  routing policy / task-level shared budget；禁止第二套 LlmClient；Provider failure 不得
+  成为自动升级 Pro 的业务理由。
+
+### 42.10 输出安全 / Research→Graph / Ontology / Source（FROZEN）
+
+- 七场景统一禁止目标价、评级、仓位、交易建议、自动荐股、诱导性语言；
+  theme_discovery != stock picking 等四等式成立；复用既有 report validator。
+- Research Capability PASS → 独立授权 → Research → GraphChange Candidate；
+  禁止首次实现与 candidate integration 一起上线；禁止 active graph direct write。
+- Ontology：不得新增 node type / relation / semantics / seed；无法表达时 record
+  limitation → architecture review。
+- Source：不得因业务需要直接加网站；走既有 source-governance 流程。F0 无扩张。
+
+### 42.11 F0 状态
+
+```text
+P6-F0: IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE
+P6-A: NOT_STARTED
+P6-B: NOT_STARTED
+P6-C_PREP: NOT_STARTED
+DB: v6 / unchanged
+MIGRATIONS_CHANGED: NONE
+SHARED_CORE_SCHEMA_CHANGED: NONE
+PHASE6_BUSINESS_IMPLEMENTATION: NONE
+CENTRAL_PHASE6_ENABLEMENT: NONE
+ONTOLOGY_EXPANSION: NONE
+SOURCE_EXPANSION: NONE
+```
