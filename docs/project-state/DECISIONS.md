@@ -1550,6 +1550,24 @@ Graph→Research 不实现，JSON mirror 不实现。
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
+### 40.12 M10-R6 Final Proof Correction（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R6 AUTHORIZED。R6 关闭范围 + #40.11 勘误：
+> - #40.11 writer 确实发生于 active export，但新增的是 node_ids 已冻结后才出现的新 identity，
+>   不足以证明 identity discovery 与 history reads 共享同一 SQLite snapshot；
+>   且 writer 实际使用 direct SQL（#40.11 声称 "NONE" 不成立）。
+>   **R6 完成 same-identity v1→v2 proof**：pre-create v1 via GraphRepository.append_node，
+>   第一次 export 内 writer 通过 GraphRepository 追加 v2 到同一 identity，
+>   第一次 export mirror version==1 / history==[1]，第二次 export mirror version==2 / history==[1,2]。
+> - **R6 实现 CONCURRENCY_DIRECT_SQL: NONE**（writer 全程使用 GraphRepository）。
+> - #40.11 Case C/D "synthetic Source renamed but RawItem.publisher / Evidence.publisher /
+>   Evidence.evidence_type 仍残留 SSE metadata" — R6 完整清除，publisher/evidence_type 全部参数化。
+> - **新增独立 provenance tests**：Case B URL lineage（3 方 exact match）、Case C synthetic（0 SSE）、
+>   Case D synthetic + tier consistency（A/A, B/B）。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
 ### 40.11 M10-R5 Proof Integrity Closure（2026-08-09）
 
 > 用户 REQUEST_CHANGES / R5 AUTHORIZED。R5 关闭范围 + #40.10 勘误：
