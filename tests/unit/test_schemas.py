@@ -168,4 +168,4 @@ def test_all_schema_files_present():
 
     for name in SCHEMA_NAMES:
         assert schema_path(name).exists(), f"缺少 {name}.schema.json"
-    assert len(SCHEMA_NAMES) == 55
+    assert len(SCHEMA_NAMES) == 61

@@ -47,11 +47,15 @@
       "format": "date-time"
     },
     "previous_cutoff": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "date-time"
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time"
+        }
+      ]
     },
     "timezone": {
       "type": "string",
