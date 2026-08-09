@@ -35,7 +35,14 @@ def test_phase_status_documents_are_consistent():
     assert "Phase 5" in readme and "PASS" in readme, "README must reflect Phase5 PASS"
     assert "M0-M10" in readme, "README must state M0-M10 PASS"
     assert "| Phase 5 | PASS |" in current, "CURRENT_STATE must reflect Phase5 PASS"
+    assert "Phase 5 implementation：PASS" in next_phase, "NEXT_PHASE must reflect Phase5 PASS"
     assert "**IMPLEMENTATION_STATUS: COMPLETE**" in phase5_task
+    # No stale pre-merge artifacts in CURRENT_STATE or NEXT_PHASE surface
+    assert "Draft PR #6" not in current, "CURRENT_STATE must not reference Draft PR #6"
+    assert "Draft PR #6" not in next_phase, "NEXT_PHASE must not reference Draft PR #6"
+    # Merge facts present
+    assert "1e1d4f9" in current, "CURRENT_STATE must record PR5C master SHA"
+    assert "2c55c55" in current, "CURRENT_STATE must record post-hotfix master SHA"
 
     # No stale pre-merge claims in current-status docs (header sections only)
     for text in (readme, current, next_phase):

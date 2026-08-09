@@ -1677,3 +1677,19 @@ Graph→Research 不实现，JSON mirror 不实现。
 > **M0-M10**: ALL PASS。
 > **PHASE5_ENGINEERING_ACCEPTANCE**: PASS。
 > **PR5C_MERGE**: AUTHORIZED by user on 2026-08-09。
+
+### 40.15 Phase5 Post-Merge Governance Finalization（2026-08-09）
+
+> - M10 independent acceptance remains PASS.
+> - PR #6 squash merged to master: 1e1d4f9b77425d6800182055f8c4dd96aeb54a50.
+> - PR5C closeout CI 31293718399 failed only because test_document_governance.py
+>   still assumed Phase5 BLOCKED / IN_PROGRESS.
+> - No production/runtime Phase5 test failed.
+> - Post-merge hotfix #7 corrected the stale governance test and README/taskbook state.
+>   PR #7 squash merged: 2c55c55cb831cb94790cabdbe100fb324ae71dcd.
+>   PR #7 exact-head Offline CI: 31294096674 PASS.
+> - Result: 2110 passed / 5 skipped / 0 failed / 0 xfail, 55/55 schemas, compileall PASS, DB v6.
+> - CURRENT_STATE / NEXT_PHASE final synchronization closes remaining documentation drift.
+> - Phase5: CLOSED / PASS.
+> - Graph→Research: NOT IMPLEMENTED.
+> - Phase6: NOT_AUTHORIZED.
