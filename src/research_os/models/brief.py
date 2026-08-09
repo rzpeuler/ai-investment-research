@@ -133,7 +133,7 @@ class DailyReviewRun(StrictModel):
     task_id: str
     review_business_date: str
     as_of: str
-    previous_cutoff: str
+    previous_cutoff: Optional[str] = None
     observed_fact_count: int = 0
     previous_view_count: int = 0
     new_evidence_count: int = 0
@@ -157,7 +157,9 @@ class DailyReviewRun(StrictModel):
 
     @field_validator("as_of", "previous_cutoff")
     @classmethod
-    def _iso_v(cls, value: str) -> str:
+    def _iso_v(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         return _iso(value)
 
 
@@ -231,5 +233,7 @@ class StockReviewRun(StrictModel):
 
     @field_validator("as_of", "previous_cutoff")
     @classmethod
-    def _iso_v(cls, value: str) -> str:
+    def _iso_v(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         return _iso(value)

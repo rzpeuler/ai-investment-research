@@ -4,13 +4,18 @@
 thesis strengthened|weakened / risk changed / catalyst changed /
 valuation assumption changed / remaining questions。
 
-复用 Phase3（abnormal_move）与 Phase4（equity_research）已验收产物，
-不重跑完整 Phase4 研报。确定性近似实现，语义归纳留 LLM 扩展接口。
+复用 Phase3/Phase4 已验收产物，不重跑完整 Phase4 研报。
+确定性近似实现，语义归纳留 LLM 扩展接口。
+
+BLOCKER 修复（验收 2026-08-10）：
+- B3-1: effective_end = min(window_end, as_of)，禁止 future Evidence
+- B3-2: _evaluate 只使用 new_evidence（≤ as_of + > previous_cutoff）
+- B3-3: what_changed 按 entity 过滤（只看 target entity 的 Evidence）
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -21,7 +26,9 @@ from research_os.review.evidence import (
     load_research_findings,
     opposite_signal,
 )
-from research_os.utils.time import now_iso
+from research_os.utils.time import now_iso, parse_iso
+
+_SHANGHAI = timezone(timedelta(hours=8), name="Asia/Shanghai")
 
 # Phase 4 finding_type 与复盘维度的映射（复用已验收产物分类）
 _FINDING_DIMENSION = {
@@ -45,6 +52,7 @@ class StockReviewArtifacts:
     previous_cutoff: Optional[str]
     findings: List[dict] = field(default_factory=list)
     window_evidence: List[dict] = field(default_factory=list)
+    new_evidence: List[dict] = field(default_factory=list)
     what_changed: List[str] = field(default_factory=list)
     thesis_supported: List[str] = field(default_factory=list)
     thesis_weakened: List[str] = field(default_factory=list)
@@ -56,6 +64,21 @@ class StockReviewArtifacts:
     report_path: Optional[str] = None
     missing_data: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+
+
+def _entity_relevant(entity: str, ev_entities: List[str]) -> bool:
+    """Evidence 是否与目标 entity 相关（BLOCKER B3-3 entity 过滤）。"""
+    if not ev_entities:
+        return False
+    norm_entity = entity.lower().replace(":", "_").replace(".", "_")
+    for e in ev_entities:
+        norm_e = e.lower().replace(":", "_").replace(".", "_")
+        if norm_entity == norm_e:
+            return True
+        # 模糊匹配：entity 是 ev_entity 的子串或反之（如 "company:600519.SH" vs "600519.SH"）
+        if norm_entity in norm_e or norm_e in norm_entity:
+            return True
+    return False
 
 
 class StockReviewPipeline:
@@ -76,28 +99,40 @@ class StockReviewPipeline:
         previous_cutoff: Optional[str] = None,
     ) -> StockReviewArtifacts:
         day_start = f"{review_start.isoformat()}T00:00:00+08:00"
-        day_end = f"{review_end.isoformat()}T23:59:59+08:00"
+        day_end_raw = f"{review_end.isoformat()}T23:59:59+08:00"
+        # B3-1: effective_end = min(window_end, as_of)
+        effective_end = _min_iso(day_end_raw, as_of)
         artifacts = StockReviewArtifacts(
             task_id=task_id, entity=entity,
             review_start=review_start.isoformat(), review_end=review_end.isoformat(),
             as_of=as_of, previous_cutoff=previous_cutoff,
         )
 
-        # 1. 窗口内 Evidence（新增信息；previous_cutoff 之后才算 new）
-        artifacts.window_evidence = load_evidence_in_range(self.db, day_start, day_end)
+        # 1. 窗口内 Evidence（load_evidence_in_range 已 ≤ effective_end）
+        artifacts.window_evidence = load_evidence_in_range(self.db, day_start, effective_end)
+        # B3-3: what_changed 只保留 target entity 的 Evidence
         for ev in artifacts.window_evidence:
-            artifacts.what_changed.append(
-                f"{ev.get('published_at', '')} | {ev.get('title', '')} "
-                f"（Evidence ID: `{ev.get('evidence_id', '')}`）")
+            ev_entities = ev.get("entities") or []
+            if _entity_relevant(entity, ev_entities):
+                artifacts.what_changed.append(
+                    f"{ev.get('published_at', '')} | {ev.get('title', '')} "
+                    f"（Evidence ID: `{ev.get('evidence_id', '')}`）")
 
-        # 2. Phase 4 已验收产物（research_findings）
+        # B3-2: new_evidence = previous_cutoff 之后 + ≤ as_of
+        if previous_cutoff:
+            for ev in artifacts.window_evidence:
+                if (cutoff_after(previous_cutoff, ev.get("published_at", ""))
+                        and _entity_relevant(entity, ev.get("entities") or [])):
+                    artifacts.new_evidence.append(ev)
+
+        # 2. Phase 4 已验收产物
         artifacts.findings = load_research_findings(self.db, entity)
         if not artifacts.findings:
             artifacts.missing_data.append(
                 f"Phase4 research_findings: 实体 {entity} 无已验收研报产物；"
                 "thesis/risk/catalyst/valuation 复盘无法对照（不虚构）")
 
-        # 3. 增量对照（确定性近似）
+        # 3. 增量对照（B3-2: 只用 new_evidence）
         self._evaluate(artifacts)
 
         # 4. remaining questions
@@ -109,12 +144,13 @@ class StockReviewPipeline:
         return artifacts
 
     def _evaluate(self, artifacts: StockReviewArtifacts) -> None:
+        """B3-2: 只使用 new_evidence（previous_cutoff 之后 + ≤ as_of + entity 相关）。"""
         for finding in artifacts.findings:
             dimension = _FINDING_DIMENSION.get(str(finding.get("finding_type", "")), "thesis")
             statement = str(finding.get("statement") or finding.get("title") or "")
             f_entities = _finding_entities(finding)
             related = []
-            for ev in artifacts.window_evidence:
+            for ev in artifacts.new_evidence:
                 ev_text = f"{ev.get('title', '')} {ev.get('excerpt', '')}"
                 ev_entities = ev.get("entities") or []
                 if entity_overlap(f_entities, ev_entities):
@@ -122,7 +158,6 @@ class StockReviewPipeline:
                 elif any(tok in ev_text for tok in statement.split() if len(tok) >= 4):
                     related.append(ev_text)
             if not related:
-                # 无相关新增证据：维持原判断（明确标注非"没有变化"）
                 continue
             weakened = any(opposite_signal(statement, r) for r in related)
             line = (f"{statement[:80]}"
@@ -138,6 +173,15 @@ class StockReviewPipeline:
                 artifacts.thesis_weakened.append(line)
             else:
                 artifacts.thesis_supported.append(line)
+
+
+def _min_iso(a: str, b: str) -> str:
+    try:
+        da = parse_iso(a)
+        db = parse_iso(b)
+        return a if da <= db else b
+    except ValueError:
+        return a
 
 
 def _finding_entities(finding: dict) -> List[str]:
@@ -215,20 +259,17 @@ def render_stock_review(artifacts: StockReviewArtifacts) -> str:
         if len(artifacts.what_changed) > 30:
             out.append(f"- …（共 {len(artifacts.what_changed)} 条）")
     else:
-        out.append("- 窗口内未检索到新增 Evidence（不得解释为'没有变化'）")
+        out.append("- 窗口内未检索到与目标 entity 相关的 Evidence（不得解释为'没有变化'）")
     out += ["", "## 二、new_evidence（新增 Evidence）", ""]
-    if artifacts.window_evidence:
-        new = [ev for ev in artifacts.window_evidence
-               if cutoff_after(artifacts.previous_cutoff, ev.get("published_at", ""))]
-        if new:
-            out.extend(f"- {ev.get('published_at', '')} | {ev.get('title', '')} "
-                       f"（Evidence ID: `{ev.get('evidence_id', '')}`）" for ev in new[:30])
-            if len(new) > 30:
-                out.append(f"- …（共 {len(new)} 条）")
-        else:
-            out.append("- previous_cutoff 之后无新增 Evidence（不得解释为'没有变化'）")
+    if artifacts.new_evidence:
+        out.extend(f"- {ev.get('published_at', '')} | {ev.get('title', '')} "
+                   f"（Evidence ID: `{ev.get('evidence_id', '')}`）" for ev in artifacts.new_evidence[:30])
+        if len(artifacts.new_evidence) > 30:
+            out.append(f"- …（共 {len(artifacts.new_evidence)} 条）")
+    elif artifacts.previous_cutoff is None:
+        out.append("- previous_cutoff 未提供；不做伪精确新增标注")
     else:
-        out.append("- 无（窗口内无 Evidence）")
+        out.append("- previous_cutoff 之后无新增 Evidence（不得解释为'没有变化'）")
     out += ["", "## 三、thesis（核心判断 strengthened / weakened）", ""]
     if artifacts.thesis_supported:
         out.append("- **strengthened（获支持）**：")
@@ -242,17 +283,17 @@ def render_stock_review(artifacts: StockReviewArtifacts) -> str:
     if artifacts.risk_changed:
         out.extend(f"- {line}" for line in artifacts.risk_changed)
     else:
-        out.append("- 窗口内无与已记录风险相关的证据")
+        out.append("- 窗口内无与已记录风险相关的新增证据")
     out += ["", "## 五、catalyst changed（催化剂变化）", ""]
     if artifacts.catalyst_changed:
         out.extend(f"- {line}" for line in artifacts.catalyst_changed)
     else:
-        out.append("- 窗口内无与已记录催化剂相关的证据")
+        out.append("- 窗口内无与已记录催化剂相关的新增证据")
     out += ["", "## 六、valuation assumption changed（估值假设变化）", ""]
     if artifacts.valuation_assumption_changed:
         out.extend(f"- {line}" for line in artifacts.valuation_assumption_changed)
     else:
-        out.append("- 窗口内无与已记录估值假设相关的证据")
+        out.append("- 窗口内无与已记录估值假设相关的新增证据")
     out += ["", "## 七、remaining questions（仍待验证）", ""]
     if artifacts.remaining_questions:
         out.extend(f"- {q}" for q in artifacts.remaining_questions)

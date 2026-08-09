@@ -7,9 +7,15 @@ Evidence、哪些假设得到支持、哪些被削弱/证伪、哪些仍未知�
 
 daily_review != 次日交易计划（输出安全校验覆盖）。
 previous_research_view 无来源时明确降级，不虚构历史判断。
+
+as_of 语义：observed_fact 截止 = min(day_end, as_of)；所有观察/新增/解读
+不得使用 published_at > as_of 的 Evidence（BLOCKER B2-1 修复）。
+previous_cutoff 优先显式值；否则从 previous_run_ids 的 artifact metadata
+推导；无法确定时降级为 unavailable，不做伪精确分类（BLOCKER B2-2 修复）。
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -22,10 +28,9 @@ from research_os.review.evidence import (
     load_previous_views,
     opposite_signal,
 )
-from research_os.utils.time import now_iso
+from research_os.utils.time import now_iso, parse_iso
 
 _SHANGHAI = timezone(timedelta(hours=8), name="Asia/Shanghai")
-_DEFAULT_PREVIOUS_CUTOFF_HOUR = 20  # 默认上次研究截止 = 复盘日前一日 20:00（晨报窗口结束）
 
 
 @dataclass
@@ -33,7 +38,7 @@ class DailyReviewArtifacts:
     task_id: str
     review_business_date: str
     as_of: str
-    previous_cutoff: str
+    previous_cutoff: Optional[str]
     observed_facts: List[dict] = field(default_factory=list)
     previous_views: List[dict] = field(default_factory=list)
     new_evidence: List[dict] = field(default_factory=list)
@@ -45,16 +50,54 @@ class DailyReviewArtifacts:
     warnings: List[str] = field(default_factory=list)
 
 
-def previous_cutoff_for(review_business_date: date) -> str:
-    """默认上次研究截止：复盘日前一日 20:00:00（晨报信息窗口结束）。"""
-    dt = datetime.combine(review_business_date - timedelta(days=1), time(20, 0), tzinfo=_SHANGHAI)
-    return dt.isoformat(timespec="seconds")
-
-
 def _day_range(review_business_date: date) -> tuple[str, str]:
     start = datetime.combine(review_business_date, time(0, 0), tzinfo=_SHANGHAI)
     end = datetime.combine(review_business_date + timedelta(days=1), time(0, 0), tzinfo=_SHANGHAI)
     return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")
+
+
+def _effective_end(day_end: str, as_of: str) -> str:
+    """observed_fact 截止 = min(day_end, as_of)（BLOCKER B2-1）。"""
+    try:
+        de = parse_iso(day_end)
+        ao = parse_iso(as_of)
+        return (day_end if de <= ao else as_of)
+    except ValueError:
+        return day_end
+
+
+def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
+                         as_of: str) -> Optional[str]:
+    """从 previous_run_ids 的 artifact metadata (task.json / plan.json) 推导真实 cutoff。
+
+    取有效 prior artifacts 中 as_of / window_end 最晚且 <= current as_of 的时刻。
+    无有效 artifact 时返回 None。
+    """
+    best: Optional[datetime] = None
+    try:
+        as_of_dt = parse_iso(as_of)
+    except ValueError:
+        return None
+    for run_id in previous_run_ids:
+        run_dir = project_root / "reports" / "runs" / run_id
+        for metadata_file in ("task.json", "plan.json"):
+            p = run_dir / metadata_file
+            if not p.exists():
+                continue
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                for key in ("as_of", "window_end", "finished_at"):
+                    val = data.get(key)
+                    if val:
+                        try:
+                            dt = parse_iso(val)
+                        except ValueError:
+                            continue
+                        if dt <= as_of_dt and (best is None or dt > best):
+                            best = dt
+            except (ValueError, OSError):
+                continue
+    return best.isoformat(timespec="seconds") if best else None
 
 
 def _claim_text(claim: Optional[dict]) -> str:
@@ -72,16 +115,7 @@ def _claim_entities(claim: Optional[dict]) -> List[str]:
 
 
 def _interpret(claim: dict, new_evidence: List[dict]) -> str:
-    """确定性近似判断：supported / weakened / falsified / unchanged / unknown。
-
-    规则（明确为近似，不宣称语义判断）：
-    - 无 claim 内容可解析 -> unknown
-    - 与新增证据实体重叠且无相反信号 -> supported（获得新证据）
-    - 与新增证据实体重叠且有相反信号 -> weakened（出现削弱信号；直接矛盾按
-      opposite_signal 命中处理，确认为削弱而非证伪——证伪需要更强证据，此处
-      不越权判定）
-    - 无相关新增证据 -> unchanged（未见新证据，不代表没有变化）
-    """
+    """确定性近似判断：supported / weakened / falsified / unchanged / unknown。"""
     text = _claim_text(claim)
     if not text:
         return "unknown"
@@ -118,39 +152,68 @@ class DailyReviewPipeline:
         entities: Optional[List[str]] = None,
     ) -> DailyReviewArtifacts:
         day_start, day_end = _day_range(review_business_date)
-        cutoff = previous_cutoff or previous_cutoff_for(review_business_date)
-        artifacts = DailyReviewArtifacts(
-            task_id=task_id,
-            review_business_date=review_business_date.isoformat(),
-            as_of=as_of,
-            previous_cutoff=cutoff,
-        )
+        effective_end = _effective_end(day_end, as_of)
 
-        # 1. observed_fact：复盘日全天 Evidence（DB 只读复用）
-        artifacts.observed_facts = load_evidence_in_range(self.db, day_start, day_end)
-        for ev in artifacts.observed_facts:
-            if cutoff_after(cutoff, ev.get("published_at", "")):
-                artifacts.new_evidence.append(ev)
-
-        # 2. previous_research_view：morning/evening 已验收产物（claims.json / 报告路径）
-        artifacts.previous_views = load_previous_views(
-            self.project_root, list(previous_run_ids or []), list(previous_report_paths or []))
-        if not artifacts.previous_views:
+        # previous_cutoff 三优先级（BLOCKER B2-2）
+        if previous_cutoff:
+            cutoff = previous_cutoff
+        else:
+            cutoff = _derive_prior_cutoff(
+                self.project_root, list(previous_run_ids or []), as_of)
+        if cutoff is None:
+            # 无法确定 cutoff 时不标记 new_evidence（不伪造"新增"）
+            artifacts = DailyReviewArtifacts(
+                task_id=task_id,
+                review_business_date=review_business_date.isoformat(),
+                as_of=as_of,
+                previous_cutoff=None,
+            )
+            artifacts.observed_facts = load_evidence_in_range(self.db, day_start, effective_end)
             artifacts.missing_data.append(
-                "previous_research_view: 无前序研究产物（previous_run_ids / previous_report_paths "
-                "为空或不可读），updated_interpretation 无法执行，不虚构历史判断")
-
-        # 3. updated_interpretation：确定性近似
-        for view in artifacts.previous_views:
-            claim = view.get("claim")
-            verdict = _interpret(claim, artifacts.new_evidence)
-            artifacts.interpretations.append({
-                "source_run_id": view.get("source_run_id"),
-                "source_report_path": view.get("source_report_path"),
-                "claim_id": (claim or {}).get("claim_id"),
-                "verdict": verdict,
-                "note": _interpret_note(verdict),
-            })
+                "prior_cutoff_unavailable: 无法确定上次研究截止；"
+                "new_evidence 不做伪精确分类；updated_interpretation 降级")
+            artifacts.previous_views = load_previous_views(
+                self.project_root, list(previous_run_ids or []), list(previous_report_paths or []))
+            if not artifacts.previous_views:
+                artifacts.missing_data.append(
+                    "previous_research_view: 无前序研究产物（previous_run_ids / previous_report_paths "
+                    "为空或不可读），updated_interpretation 无法执行，不虚构历史判断")
+            for view in artifacts.previous_views:
+                claim = view.get("claim")
+                artifacts.interpretations.append({
+                    "source_run_id": view.get("source_run_id"),
+                    "source_report_path": view.get("source_report_path"),
+                    "claim_id": (claim or {}).get("claim_id"),
+                    "verdict": "unknown",
+                    "note": "prior_cutoff 不可用，无法界定新增范围；不做伪精确判断",
+                })
+        else:
+            artifacts = DailyReviewArtifacts(
+                task_id=task_id,
+                review_business_date=review_business_date.isoformat(),
+                as_of=as_of,
+                previous_cutoff=cutoff,
+            )
+            artifacts.observed_facts = load_evidence_in_range(self.db, day_start, effective_end)
+            artifacts.previous_views = load_previous_views(
+                self.project_root, list(previous_run_ids or []), list(previous_report_paths or []))
+            if not artifacts.previous_views:
+                artifacts.missing_data.append(
+                    "previous_research_view: 无前序研究产物（previous_run_ids / previous_report_paths "
+                    "为空或不可读），updated_interpretation 无法执行，不虚构历史判断")
+            for ev in artifacts.observed_facts:
+                if cutoff_after(cutoff, ev.get("published_at", "")):
+                    artifacts.new_evidence.append(ev)
+            for view in artifacts.previous_views:
+                claim = view.get("claim")
+                verdict = _interpret(claim, artifacts.new_evidence)
+                artifacts.interpretations.append({
+                    "source_run_id": view.get("source_run_id"),
+                    "source_report_path": view.get("source_report_path"),
+                    "claim_id": (claim or {}).get("claim_id"),
+                    "verdict": verdict,
+                    "note": _interpret_note(verdict),
+                })
 
         # 4. remaining_unknown
         artifacts.remaining_unknown = _remaining_unknown(artifacts)
@@ -168,7 +231,7 @@ def _interpret_note(verdict: str) -> str:
         "falsified": "当日新增 Evidence 直接推翻（本版不越权判定，需更强证据）",
         "unchanged": "当日未见相关新增 Evidence；不代表没有变化",
         "unknown": "前序判断内容无法解析或缺少结构化 Claim",
-    }[verdict]
+    }.get(verdict, verdict)
 
 
 def _remaining_unknown(artifacts: DailyReviewArtifacts) -> List[str]:
@@ -183,7 +246,6 @@ def _remaining_unknown(artifacts: DailyReviewArtifacts) -> List[str]:
 
 
 def report_path_for(review_business_date: date, root: str | Path) -> str:
-    """工程指南报告路径：reports/daily_review/YYYY/YYYY-MM/YYYY-MM-DD_review.md。"""
     p = (Path(root) / "reports" / "daily_review" / str(review_business_date.year)
          / f"{review_business_date.year:04d}-{review_business_date.month:02d}"
          / f"{review_business_date.isoformat()}_review.md")
@@ -204,7 +266,7 @@ def render_daily_review(artifacts: DailyReviewArtifacts) -> str:
         "entities: []",
         f"time_window: {{start: {artifacts.review_business_date}T00:00:00+08:00, end: {artifacts.review_business_date}T23:59:59+08:00}}",
         f"review_business_date: {artifacts.review_business_date}",
-        f"previous_cutoff: {artifacts.previous_cutoff}",
+        f"previous_cutoff: {artifacts.previous_cutoff or 'null'}",
         f"data_status: {'partial' if artifacts.missing_data else 'ok'}",
         "source_coverage: {}",
         "model_route:",
@@ -221,7 +283,7 @@ def render_daily_review(artifacts: DailyReviewArtifacts) -> str:
         "## 执行说明", "",
         f"- 复盘交易日：{artifacts.review_business_date}（不得与实际执行日期混为一体）",
         f"- 研究时点 as_of：{artifacts.as_of}",
-        f"- 上次研究截止 previous_cutoff：{artifacts.previous_cutoff}",
+        f"- 上次研究截止 previous_cutoff：{artifacts.previous_cutoff or '不可用'}",
         f"- 数据覆盖状态：{'部分缺失' if artifacts.missing_data else '正常'}",
         "- 降级与缺失：" + ("；".join(artifacts.missing_data) or "无"),
         "- 判断变化为确定性近似（实体重叠 + 相反信号），语义归纳未接入",
@@ -255,6 +317,8 @@ def render_daily_review(artifacts: DailyReviewArtifacts) -> str:
                        f"（Evidence ID: `{ev.get('evidence_id', '')}`）")
         if len(artifacts.new_evidence) > 30:
             out.append(f"- …（共 {len(artifacts.new_evidence)} 条）")
+    elif artifacts.previous_cutoff is None:
+        out.append("- prior_cutoff 不可用，不做伪精确新增标注")
     else:
         out.append("- previous_cutoff 之后无新增 Evidence（不得解释为'没有变化'）")
     out += ["", "## 四、updated_interpretation（判断变化）", ""]
@@ -272,8 +336,7 @@ def render_daily_review(artifacts: DailyReviewArtifacts) -> str:
         out.append("- 无前序判断可对照（不虚构）")
     out += ["", "## 五、remaining_unknown（仍未知）", ""]
     if artifacts.remaining_unknown:
-        for item in artifacts.remaining_unknown:
-            out.append(f"- {item}")
+        out.extend(f"- {item}" for item in artifacts.remaining_unknown)
     else:
         out.append("- 无（本期无明确未知项）")
     out.append("")

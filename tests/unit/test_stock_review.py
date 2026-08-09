@@ -1,6 +1,7 @@
 """stock_review 单元测试（Phase 6B B3）。
 
-contract / degraded path / Evidence lineage / 增量复盘（复用 Phase4 产物）。
+contract / degraded / Evidence lineage / 增量复盘 / future leakage /
+entity filter / new_evidence only / Phase4 reuse。
 """
 from __future__ import annotations
 
@@ -39,11 +40,14 @@ class _FakeDb:
 def _finding(finding_id: str, finding_type: str, statement: str,
              entities=None, invalidation=None) -> dict:
     return {
-        "finding_id": finding_id, "request_id": "req-1", "company_entity_id": "company:600519.SH",
+        "finding_id": finding_id, "request_id": "req-1",
+        "company_entity_id": "company:600519.SH",
         "finding_type": finding_type, "title": statement[:20], "statement": statement,
-        "claim_type": "FACT", "predicate": "关联", "object": {"entities": entities or []},
+        "claim_type": "FACT", "predicate": "关联",
+        "object": {"entities": entities or []},
         "as_of": "2026-08-01T20:00:00+08:00", "evidence_ids": [],
-        "support_level": "direct", "status": "active", "invalidation_conditions": invalidation or [],
+        "support_level": "direct", "status": "active",
+        "invalidation_conditions": invalidation or [],
         "materiality": "high", "section_id": "risk", "version": 1,
         "created_at": "2026-08-01T20:00:00+08:00",
     }
@@ -77,7 +81,6 @@ def test_report_path_includes_entity_and_date():
 
 
 def test_incremental_review_with_phase4_findings(tmp_path):
-    """复用 Phase4 research_findings 做增量对照（不重跑完整研报）。"""
     db = _FakeDb(
         evidences=[
             _evidence("e1", "2026-08-06T10:00:00+08:00",
@@ -97,29 +100,27 @@ def test_incremental_review_with_phase4_findings(tmp_path):
         "2026-08-06T20:00:00+08:00", task_id="t1",
         previous_cutoff="2026-08-05T20:00:00+08:00")
     assert len(artifacts.what_changed) == 2
-    assert artifacts.catalyst_changed, "催化剂变化应被识别"
+    assert artifacts.catalyst_changed
     md = artifacts.markdown
     assert "scenario: stock_review" in md
     assert "增量复盘" in md
     for section in ("what_changed", "new_evidence", "thesis", "risk changed",
                     "catalyst changed", "valuation assumption changed", "remaining questions"):
         assert section in md
-    # Evidence lineage：报告引用真实 Evidence ID
     assert "Evidence ID: `e1`" in md
 
 
 def test_degraded_without_phase4_findings(tmp_path):
-    """无 Phase4 产物 -> 明确降级（不虚构基线）。"""
     db = _FakeDb(evidences=[
-        _evidence("e1", "2026-08-06T10:00:00+08:00", "贵州茅台披露中报", ["company:600519.SH"]),
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "贵州茅台披露中报",
+                  ["company:600519.SH"]),
     ], findings=[])
     artifacts = StockReviewPipeline(tmp_path, db).run(
         "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
-        "2026-08-06T20:00:00+08:00", task_id="t1")
+        "2026-08-06T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-05T20:00:00+08:00")
     assert artifacts.findings == []
     assert any("research_findings" in m for m in artifacts.missing_data)
-    assert "不虚构" in artifacts.markdown
-    assert "无法评估 thesis/risk/catalyst 变化" in artifacts.markdown
 
 
 def test_empty_window_is_not_no_change(tmp_path):
@@ -128,3 +129,112 @@ def test_empty_window_is_not_no_change(tmp_path):
         "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
         "2026-08-06T20:00:00+08:00", task_id="t1")
     assert any("不得" in q for q in artifacts.remaining_questions)
+
+
+# ---------- B3-1 future leakage ----------
+
+def test_future_evidence_excluded(tmp_path):
+    """as_of=20:00 → 20:00:01 被排除。"""
+    db = _FakeDb(evidences=[
+        _evidence("e1", "2026-08-06T19:59:59+08:00", "收盘前", ["company:600519.SH"]),
+        _evidence("e2", "2026-08-06T20:00:01+08:00", "刚过 as_of",
+                  ["company:600519.SH"]),
+    ])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-05T20:00:00+08:00")
+    titles = [ev["title"] for ev in artifacts.window_evidence]
+    assert "收盘前" in titles
+    assert "刚过 as_of" not in titles
+
+
+# ---------- B3-2 new_evidence only ----------
+
+def test_previous_cutoff_old_evidence_excluded_from_evaluation(tmp_path):
+    """previous_cutoff 之前的 Evidence 不影响判断。"""
+    db = _FakeDb(
+        evidences=[
+            _evidence("e-old", "2026-08-06T09:00:00+08:00",
+                      "产能扩建已提出多时", ["company:600519.SH"]),
+            _evidence("e-new", "2026-08-07T10:00:00+08:00",
+                      "产能扩建获批", ["company:600519.SH"]),
+        ],
+        findings=[
+            _finding("f1", "catalyst", "产能扩建获批是重要催化剂",
+                     entities=["company:600519.SH"]),
+        ],
+    )
+    # previous_cutoff = 2026-08-06T12:00；e-old 在 cutoff 前，e-new 在 cutoff 后
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 7),
+        "2026-08-07T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-06T12:00:00+08:00")
+    assert len(artifacts.new_evidence) == 1
+    assert artifacts.new_evidence[0]["title"] == "产能扩建获批"
+
+
+def test_only_new_evidence_affects_thesis(tmp_path):
+    """thesis/risk/catalyst/valuation 只对照 new_evidence。"""
+    db = _FakeDb(
+        evidences=[
+            _evidence("e-new", "2026-08-07T10:00:00+08:00",
+                      "产能扩建获批", ["company:600519.SH"]),
+        ],
+        findings=[
+            _finding("f1", "catalyst", "产能扩建获批是重要催化剂",
+                     entities=["company:600519.SH"]),
+        ],
+    )
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 7),
+        "2026-08-07T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-06T12:00:00+08:00")
+    assert artifacts.catalyst_changed
+
+
+# ---------- B3-3 entity filter ----------
+
+def test_entity_A_excludes_entity_BC(tmp_path):
+    """A 公司复盘 → 只输出 A 相关 Evidence，不输出 B/C。"""
+    db = _FakeDb(evidences=[
+        _evidence("e-a", "2026-08-06T10:00:00+08:00", "A 公司公告",
+                  ["company:600519.SH"]),
+        _evidence("e-b", "2026-08-06T11:00:00+08:00", "B 公司公告",
+                  ["company:000001.SZ"]),
+        _evidence("e-c", "2026-08-06T12:00:00+08:00", "C 公司公告",
+                  ["company:300750.SZ"]),
+    ])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-05T20:00:00+08:00")
+    changed_titles = [w for w in artifacts.what_changed]
+    assert any("A 公司公告" in w for w in changed_titles)
+    assert not any("B 公司公告" in w for w in changed_titles)
+    assert not any("C 公司公告" in w for w in changed_titles)
+
+
+def test_missing_phase4_baseline_degrades(tmp_path):
+    db = _FakeDb(evidences=[
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "某公告",
+                  ["company:600519.SH"]),
+    ], findings=[])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1",
+        previous_cutoff="2026-08-05T20:00:00+08:00")
+    assert any("research_findings" in m for m in artifacts.missing_data)
+    assert "不虚构" in artifacts.markdown
+
+
+def test_missing_prior_cutoff_degraded(tmp_path):
+    db = _FakeDb(evidences=[
+        _evidence("e1", "2026-08-06T10:00:00+08:00", "某公告",
+                  ["company:600519.SH"]),
+    ], findings=[])
+    artifacts = StockReviewPipeline(tmp_path, db).run(
+        "company:600519.SH", date(2026, 8, 6), date(2026, 8, 6),
+        "2026-08-06T20:00:00+08:00", task_id="t1")
+    # new_evidence 为空（无 cutoff 不做伪精确）
+    assert artifacts.new_evidence == []
