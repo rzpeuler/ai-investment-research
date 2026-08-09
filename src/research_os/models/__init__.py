@@ -194,6 +194,12 @@ from research_os.models.brief import (
     StockReviewRequest,
     StockReviewRun,
 )
+from research_os.models.phase6a import (
+    IndustryResearchRequest,
+    IndustryResearchRun,
+    ThemeDiscoveryRequest,
+    ThemeDiscoveryRun,
+)
 
 __all__ = [
     "AccessLevel",
@@ -308,4 +314,8 @@ __all__ = [
     "StockReviewRequest",
     "StockReviewRun",
     "ReviewStatus",
+    "IndustryResearchRequest",
+    "IndustryResearchRun",
+    "ThemeDiscoveryRequest",
+    "ThemeDiscoveryRun",
 ]
