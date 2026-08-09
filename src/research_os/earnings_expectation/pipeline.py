@@ -8,7 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import json
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
+
+from pydantic import ValidationError
 
 from research_os.equity_research.forecast import (
     FORECAST_RULES_VERSION,
@@ -18,11 +20,14 @@ from research_os.equity_research.forecast import (
     deterministic_projection,
 )
 from research_os.models import (
+    Evidence,
     EarningsExpectationRequest,
-    ForecastPeriod,
+    FinancialFact,
+    FinancialReport,
     ForecastScenario,
     HistoricalInputPeriod,
 )
+from research_os.models.phase6c import ProjectionLineage
 from research_os.storage import Database
 from research_os.utils.time import now_iso, parse_iso
 from research_os.validators.schema_validator import validate_instance
@@ -31,6 +36,18 @@ from research_os.validators.schema_validator import validate_instance
 PIPELINE_VERSION = "1.0.0"
 ELIGIBLE_GUIDANCE_TIERS = {"S", "A"}
 ELIGIBLE_OPINION_TIERS = {"S", "A", "B"}
+GUIDANCE_EVIDENCE_TYPES = {"official_disclosure", "company_official"}
+OPINION_EVIDENCE_TYPES = {"institution_material", "news_report", "media_report"}
+FINANCIAL_EVIDENCE_TYPES = {
+    "official_disclosure", "company_official", "institution_material", "manual_input",
+}
+
+
+@dataclass
+class GovernedAssumptionInput(AssumptionInput):
+    """Phase 4 assumption input plus S3 knowledge-time audit metadata."""
+
+    known_at: Optional[str] = None
 
 
 @dataclass
@@ -39,6 +56,7 @@ class EarningsExpectationOutcome:
     status: str
     historical_input_periods: List[HistoricalInputPeriod] = field(default_factory=list)
     scenarios: List[ForecastScenario] = field(default_factory=list)
+    projection_lineage: List[ProjectionLineage] = field(default_factory=list)
     evidence_ids: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     missing_data: List[str] = field(default_factory=list)
@@ -48,14 +66,40 @@ class EarningsExpectationOutcome:
     markdown: str = ""
 
 
-def _payloads(db: Database, table: str, needle: str) -> Iterable[dict]:
-    for row in db.query(f"SELECT payload FROM {table} WHERE payload LIKE ?", (f"%{needle}%",)):
+def _strict_company_payloads(
+    db: Database,
+    table: str,
+    company_entity_id: str,
+    model_type: Type[Any],
+    schema_name: str,
+) -> Tuple[List[dict], List[str]]:
+    """Reload structured company rows through Pydantic and authoritative Schema."""
+    if table not in {"financial_reports", "financial_facts"}:
+        raise ValueError(f"unsupported financial authority table: {table}")
+    payloads: List[dict] = []
+    warnings: List[str] = []
+    rows = db.query(
+        f"SELECT payload FROM {table} WHERE company_entity_id = ?",
+        (company_entity_id,),
+    )
+    for index, row in enumerate(rows):
         try:
             value = json.loads(row["payload"])
-        except (KeyError, TypeError, json.JSONDecodeError):
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            warnings.append(f"{table} row {index}: invalid JSON payload: {exc}")
             continue
-        if isinstance(value, dict):
-            yield value
+        try:
+            model = model_type(**value)
+        except (TypeError, ValidationError, ValueError) as exc:
+            warnings.append(f"{table} row {index}: Pydantic validation failed: {exc}")
+            continue
+        payload = model.model_dump()
+        errors = validate_instance(payload, schema_name)
+        if errors:
+            warnings.append(f"{table} row {index}: Schema validation failed: {errors}")
+            continue
+        payloads.append(payload)
+    return payloads, warnings
 
 
 def _not_after(timestamp: Optional[str], as_of: str) -> bool:
@@ -63,15 +107,6 @@ def _not_after(timestamp: Optional[str], as_of: str) -> bool:
         return False
     try:
         return parse_iso(timestamp) <= parse_iso(as_of)
-    except ValueError:
-        return False
-
-
-def _after(timestamp: Optional[str], as_of: str) -> bool:
-    if not timestamp:
-        return False
-    try:
-        return parse_iso(timestamp) > parse_iso(as_of)
     except ValueError:
         return False
 
@@ -95,7 +130,11 @@ def _report_rank(report: dict) -> Tuple[int, int, int, str]:
 
 
 def _evidence_eligible(
-    db: Database, evidence_ids: List[str], as_of: str, eligible_tiers: set[str],
+    db: Database,
+    evidence_ids: List[str],
+    as_of: str,
+    eligible_tiers: set[str],
+    eligible_types: set[str],
 ) -> Tuple[List[str], List[str]]:
     eligible: List[str] = []
     warnings: List[str] = []
@@ -104,13 +143,26 @@ def _evidence_eligible(
         if evidence is None:
             warnings.append(f"missing evidence: {evidence_id}")
             continue
-        if evidence.get("access_status") != "ok":
+        try:
+            evidence_model = Evidence(**evidence)
+        except (TypeError, ValidationError, ValueError) as exc:
+            warnings.append(f"schema-invalid evidence {evidence_id}: Pydantic validation failed: {exc}")
+            continue
+        evidence = evidence_model.model_dump()
+        schema_errors = validate_instance(evidence, "evidence")
+        if schema_errors:
+            warnings.append(f"schema-invalid evidence {evidence_id}: {schema_errors}")
+            continue
+        if evidence["access_status"] != "ok":
             warnings.append(f"ineligible evidence access: {evidence_id}")
             continue
-        if evidence.get("source_tier") not in eligible_tiers:
+        if evidence["source_tier"] not in eligible_tiers:
             warnings.append(f"ineligible evidence tier: {evidence_id}")
             continue
-        if not _not_after(evidence.get("published_at"), as_of):
+        if evidence["evidence_type"] not in eligible_types:
+            warnings.append(f"ineligible evidence type: {evidence_id}")
+            continue
+        if not _not_after(evidence["published_at"], as_of):
             warnings.append(f"evidence after as_of: {evidence_id}")
             continue
         eligible.append(evidence_id)
@@ -126,8 +178,12 @@ class HistoricalInputResolver:
     def resolve(
         self, company_entity_id: str, as_of: str,
     ) -> Tuple[List[HistoricalInputPeriod], List[dict], List[str]]:
+        report_payloads, report_warnings = _strict_company_payloads(
+            self.db, "financial_reports", company_entity_id,
+            FinancialReport, "financial_report",
+        )
         reports = [
-            report for report in _payloads(self.db, "financial_reports", company_entity_id)
+            report for report in report_payloads
             if report.get("company_entity_id") == company_entity_id
             and report.get("data_status") in {"complete", "partial"}
             and _not_after(report.get("published_at"), as_of)
@@ -147,8 +203,12 @@ class HistoricalInputResolver:
         ]
         report_by_id = {r["financial_report_id"]: r for r in selected_reports}
 
+        fact_payloads, fact_warnings = _strict_company_payloads(
+            self.db, "financial_facts", company_entity_id,
+            FinancialFact, "financial_fact",
+        )
         facts = [
-            fact for fact in _payloads(self.db, "financial_facts", company_entity_id)
+            fact for fact in fact_payloads
             if fact.get("company_entity_id") == company_entity_id
             and fact.get("financial_report_id") in report_by_id
             and str(fact.get("period_end") or "9999-99-99") <= as_of[:10]
@@ -160,11 +220,12 @@ class HistoricalInputResolver:
 
         # Keep only facts whose Evidence can be authoritatively reloaded at as_of.
         eligible_facts: List[dict] = []
-        warnings: List[str] = []
+        warnings: List[str] = [*report_warnings, *fact_warnings]
         for fact in facts:
             requested_ids = list(fact.get("evidence_ids") or [])
             evidence_ids, evidence_warnings = _evidence_eligible(
                 self.db, requested_ids, as_of, {"S", "A", "B"},
+                FINANCIAL_EVIDENCE_TYPES,
             )
             if not requested_ids or len(evidence_ids) != len(set(requested_ids)):
                 warnings.extend(
@@ -174,6 +235,14 @@ class HistoricalInputResolver:
                 continue
             fact = dict(fact)
             fact["evidence_ids"] = evidence_ids
+            report = report_by_id[fact["financial_report_id"]]
+            fact["_report_metadata"] = {
+                "financial_report_id": report["financial_report_id"],
+                "fiscal_year": report["fiscal_year"],
+                "fiscal_period": report["fiscal_period"],
+                "duration_months": report["duration_months"],
+                "published_at": report["published_at"],
+            }
             eligible_facts.append(fact)
 
         # Select a single current fact per period/scope/taxonomy.  An exact rank tie
@@ -251,8 +320,10 @@ def _validated_assumptions(
                 continue
             tiers = (ELIGIBLE_GUIDANCE_TIERS if assumption.source_type == "company_guidance"
                      else ELIGIBLE_OPINION_TIERS)
+            types = (GUIDANCE_EVIDENCE_TYPES if assumption.source_type == "company_guidance"
+                     else OPINION_EVIDENCE_TYPES)
             valid_ids, evidence_warnings = _evidence_eligible(
-                db, evidence_ids, request.as_of, tiers,
+                db, evidence_ids, request.as_of, tiers, types,
             )
             if not evidence_ids or len(valid_ids) != len(set(evidence_ids)):
                 warnings.extend(evidence_warnings or [
@@ -266,16 +337,17 @@ def _validated_assumptions(
                 continue
             evidence_ids = historical_evidence
             source_ref_ids = sorted(set(source_ref_ids) | set(historical_refs))
-        result.append(AssumptionInput(
+        result.append(GovernedAssumptionInput(
             driver=assumption.driver,
             value=assumption.value,
             unit=assumption.unit,
             period=assumption.period,
             source_type=assumption.source_type,
-            source_ref_ids=source_ref_ids,
-            evidence_ids=evidence_ids,
+            source_ref_ids=sorted(set(source_ref_ids)),
+            evidence_ids=sorted(set(evidence_ids)),
             confidence=assumption.confidence,
             invalidates_when=assumption.invalidates_when,
+            known_at=assumption.known_at,
         ))
     return result, warnings
 
@@ -285,13 +357,25 @@ def idempotency_key(
     periods: List[HistoricalInputPeriod],
     assumptions: List[AssumptionInput],
 ) -> str:
+    canonical_assumptions: List[Dict[str, Any]] = []
+    for assumption in assumptions:
+        item = dict(vars(assumption))
+        item["source_ref_ids"] = sorted(set(item.get("source_ref_ids") or []))
+        item["evidence_ids"] = sorted(set(item.get("evidence_ids") or []))
+        canonical_assumptions.append(item)
+    canonical_assumptions.sort(
+        key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
     material = {
         "company_entity_id": request.company_entity_id,
         "as_of": request.as_of,
-        "historical_inputs": [p.model_dump() for p in periods],
+        "historical_inputs": [
+            p.model_dump() for p in sorted(periods, key=lambda item: item.period_label)
+        ],
         "forecast_period": request.forecast_period.model_dump(),
         "metric_code": request.metric_code,
-        "assumptions": [vars(a) for a in assumptions],
+        "scenario_name": request.scenario_name,
+        "assumptions": canonical_assumptions,
         "calculation_version": FORECAST_RULES_VERSION,
         "model_state": {"mode": "deterministic_only", "llm_called": False},
     }
@@ -303,6 +387,7 @@ def _render(
     request: EarningsExpectationRequest,
     periods: List[HistoricalInputPeriod],
     scenarios: List[ForecastScenario],
+    projection_lineage: List[ProjectionLineage],
     warnings: List[str],
 ) -> str:
     created_at = now_iso()
@@ -326,7 +411,7 @@ def _render(
         "  mode: deterministic_only",
         "  llm_called: false",
         "runtime_seconds: 0.0",
-        "validator_status: pass",
+        "validator_status: pending",
         "knowledge_coordinates:",
         f"  as_of: '{request.as_of}'",
         "  assertion_type: HYPOTHESIS",
@@ -334,26 +419,61 @@ def _render(
         "",
         "# Earnings Expectation",
         "",
-        "> 本报告中的 earnings expectation 均为显式预测假设，不属于事实陈述、投资评级或交易建议。",
+        "> Every numeric expectation is a conditional HYPOTHESIS, not a FACT, rating, or trading instruction.",
         "",
-        f"- 公司实体：{request.company_entity_id}",
-        f"- 知识截止时间：{request.as_of}",
-        f"- 预测区间：{request.forecast_period.start} 至 {request.forecast_period.end}",
-        f"- 计算规则：{FORECAST_RULES_VERSION}",
-        f"- 生成方式：deterministic_code（llm_called=false）",
+        f"- Company entity: {request.company_entity_id}",
+        f"- Knowledge cutoff: {request.as_of}",
+        f"- Forecast window: {request.forecast_period.start} to {request.forecast_period.end}",
+        f"- Calculation rules: {FORECAST_RULES_VERSION}",
+        f"- Generated by: deterministic_code (llm_called=false)",
         "",
-        "## 历史输入",
+        "## Historical Inputs",
         "",
     ]
     if periods:
         for period in periods:
             lines.append(
-                f"- {period.period_label}（截至 {period.latest_published_at} 已披露；"
-                f"facts={len(period.financial_fact_ids)}；evidence={len(period.evidence_ids)}）"
+                f"- {period.period_label}: published_by={period.latest_published_at}; "
+                f"facts={len(period.financial_fact_ids)}; evidence={len(period.evidence_ids)}"
             )
     else:
-        lines.append("- INSUFFICIENT_EVIDENCE：截止时间前无合格历史财务输入。")
-    lines.extend(["", "## 预测情景", ""])
+        lines.append("- INSUFFICIENT_EVIDENCE: no eligible historical financial inputs.")
+
+    lines.extend(["", "## Historical Projection Baseline", ""])
+    if projection_lineage:
+        for lineage in projection_lineage:
+            lines.extend([
+                f"### Scenario {lineage.scenario_id}",
+                "",
+                f"- Baseline period: {lineage.baseline_fiscal_period}{lineage.baseline_period_end[:4]}",
+                f"- Baseline report: {lineage.baseline_financial_report_id}",
+                f"- Baseline fact: {lineage.baseline_financial_fact_id}",
+                f"- Baseline value: {lineage.baseline_normalized_value} {lineage.baseline_normalized_unit}",
+                f"- Formula version: {lineage.formula_version}",
+                "",
+            ])
+    else:
+        lines.append("- INSUFFICIENT_EVIDENCE: no eligible annual FY projection baseline.")
+
+    lines.extend(["", "## Assumptions & Sources", ""])
+    if scenarios:
+        for scenario in scenarios:
+            lines.append(f"### {scenario.name}")
+            lines.append("")
+            for assumption in scenario.assumptions:
+                lines.extend([
+                    f"- Assumption ID: {assumption.assumption_id}",
+                    f"  - Driver: {assumption.driver} = {assumption.value} {assumption.unit} ({assumption.period})",
+                    f"  - Source type: {assumption.source_type}",
+                    f"  - Claim type: {assumption.claim_type}",
+                    f"  - Source references: {', '.join(assumption.source_ref_ids) or 'none'}",
+                    f"  - Evidence IDs: {', '.join(assumption.evidence_ids) or 'none'}",
+                    f"  - Invalidation condition: {assumption.invalidates_when}",
+                ])
+    else:
+        lines.append("- No validated assumptions produced a numeric scenario.")
+
+    lines.extend(["", "## Forecast Outputs", ""])
     if scenarios:
         for scenario in scenarios:
             lines.append(f"### {scenario.name}")
@@ -361,15 +481,36 @@ def _render(
             for output in scenario.outputs:
                 lines.append(
                     f"- {output.period} {output.metric_code}: {output.value} {output.unit} "
-                    f"（HYPOTHESIS；formula={output.formula_version}）"
+                    f"(HYPOTHESIS; formula={output.formula_version})"
                 )
-            lines.append("")
-            lines.append("不确定性：结果取决于显式增长假设；假设失效时应重新计算。")
-            lines.append("")
     else:
-        lines.append("- INSUFFICIENT_EVIDENCE：未形成有效预测情景。")
+        lines.append("- INSUFFICIENT_EVIDENCE: no valid forecast scenario.")
+
+    lines.extend(["", "## Evidence Lineage", ""])
+    if projection_lineage:
+        for lineage in projection_lineage:
+            lines.append(
+                f"- {lineage.scenario_id}: {', '.join(lineage.evidence_ids) or 'none'}"
+            )
+    else:
+        lines.append("- No accepted projection lineage.")
+
+    lines.extend([
+        "", "## Uncertainty", "",
+        "- Outputs remain conditional on the explicit annual ratio assumption and comparable FY baseline.",
+        "- New authoritative disclosures require deterministic recomputation.",
+        "", "## Invalidation Conditions", "",
+    ])
+    invalidations = [
+        assumption.invalidates_when
+        for scenario in scenarios for assumption in scenario.assumptions
+    ]
+    lines.extend(
+        [f"- {condition}" for condition in invalidations]
+        or ["- No accepted scenario; invalidation conditions are not applicable."]
+    )
     if warnings:
-        lines.extend(["", "## 数据与假设警告", ""])
+        lines.extend(["", "## Data and Assumption Warnings", ""])
         lines.extend(f"- {warning}" for warning in warnings)
     return "\n".join(lines).rstrip() + "\n"
 
@@ -408,20 +549,46 @@ class EarningsExpectationPipeline:
             missing.append("valid_forecast_assumptions")
 
         scenarios: List[ForecastScenario] = []
+        projection_lineage: List[ProjectionLineage] = []
         if periods and assumptions:
-            # A final numeric output is only driven by an explicit growth assumption.
-            growth = next((a for a in assumptions if a.driver in {
+            growth_candidates = [a for a in assumptions if a.driver in {
                 "growth_rate", f"{request.metric_code}_growth", "revenue_growth",
-            }), None)
-            baseline = next((
-                fact for fact in sorted(facts, key=lambda f: str(f.get("period_end")), reverse=True)
-                if fact.get("taxonomy_code") == request.metric_code
-            ), None)
-            if growth is None:
+            }]
+            for candidate in growth_candidates:
+                if candidate.period != "annual":
+                    missing.append("growth_period_not_annual")
+                if candidate.unit != "ratio":
+                    missing.append("growth_unit_not_ratio")
+            eligible_growth = [
+                candidate for candidate in growth_candidates
+                if candidate.period == "annual" and candidate.unit == "ratio"
+            ]
+            growth = eligible_growth[0] if len(eligible_growth) == 1 else None
+            if len(eligible_growth) > 1:
+                missing.append("ambiguous_growth_assumptions")
+            elif growth is None:
                 missing.append("growth_assumption")
+
+            annual_facts = [
+                fact for fact in facts
+                if fact.get("taxonomy_code") == request.metric_code
+                and fact.get("_report_metadata", {}).get("fiscal_period") == "FY"
+                and fact.get("_report_metadata", {}).get("duration_months") == 12
+            ]
+            baseline = next(iter(sorted(
+                annual_facts, key=lambda fact: str(fact.get("period_end")), reverse=True,
+            )), None)
             if baseline is None:
                 missing.append(f"historical_{request.metric_code}_baseline")
-            if growth is not None and baseline is not None:
+
+            period_aligned = False
+            if baseline is not None:
+                baseline_year = int(baseline["_report_metadata"]["fiscal_year"])
+                first_forecast_year = int(request.forecast_period.periods[0][2:])
+                period_aligned = first_forecast_year == baseline_year + 1
+                if not period_aligned:
+                    missing.append("forecast_period_not_after_comparable_baseline")
+            if growth is not None and baseline is not None and period_aligned:
                 scenario_type = {
                     "company_guidance": "company_guidance",
                     "external_opinion": "external_view",
@@ -460,8 +627,34 @@ class EarningsExpectationPipeline:
                     errors = validate_instance(scenario.model_dump(), "forecast_scenario")
                     if errors:
                         raise ValueError(f"ForecastScenario schema validation failed: {errors}")
-                    self.db.upsert(scenario)
                     scenarios.append(scenario)
+                    forecast_growth = next(
+                        assumption for assumption in scenario.assumptions
+                        if assumption.driver == growth.driver
+                        and str(assumption.value) == str(growth.value)
+                        and assumption.unit == growth.unit
+                        and assumption.period == growth.period
+                        and assumption.source_type == growth.source_type
+                    )
+                    report_metadata = baseline["_report_metadata"]
+                    projection_lineage.append(ProjectionLineage(
+                        scenario_id=scenario.scenario_id,
+                        metric_code=request.metric_code,
+                        baseline_financial_report_id=report_metadata["financial_report_id"],
+                        baseline_financial_fact_id=baseline["fact_id"],
+                        baseline_period_end=baseline["period_end"],
+                        baseline_fiscal_period="FY",
+                        baseline_duration_months=12,
+                        baseline_normalized_value=str(baseline["normalized_value"]),
+                        baseline_normalized_unit=str(baseline["normalized_unit"]),
+                        assumption_ids=[forecast_growth.assumption_id],
+                        output_periods=[output.period for output in scenario.outputs],
+                        formula_version=FORECAST_RULES_VERSION,
+                        evidence_ids=sorted(set(
+                            list(baseline.get("evidence_ids") or [])
+                            + list(forecast_growth.evidence_ids)
+                        )),
+                    ))
         stages.append({
             "stage": "build_forecast_scenario",
             "status": "success" if scenarios else "insufficient_evidence",
@@ -480,11 +673,12 @@ class EarningsExpectationPipeline:
             status=status,
             historical_input_periods=periods,
             scenarios=scenarios,
+            projection_lineage=projection_lineage,
             evidence_ids=evidence_ids,
             warnings=warnings,
             missing_data=sorted(set(missing)),
             error_codes=[],
             stage_statuses=stages,
             idempotency_key=key,
-            markdown=_render(request, periods, scenarios, warnings),
+            markdown=_render(request, periods, scenarios, projection_lineage, warnings),
         )

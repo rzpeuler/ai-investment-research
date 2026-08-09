@@ -46,8 +46,19 @@ class EarningsExpectationScenarioRunner:
         if not assumptions:
             raise ValueError("earnings_expectation requires at least one explicit assumption")
         cutoff = parse_iso(request["as_of"])
+        if any(item.source_type == "user_input" and item.known_at is None for item in assumptions):
+            raise ValueError("user_input assumption requires explicit known_at")
         if any(item.known_at and parse_iso(item.known_at) > cutoff for item in assumptions):
             raise ValueError("assumption known_at must not be after as_of")
+
+        controls = {
+            "timezone": "Asia/Shanghai",
+            "historical_selection_policy": "eligible_reports_published_by_as_of",
+            "source_policy": "authoritative_db_only",
+        }
+        for field_name, supported in controls.items():
+            if field_name in request and request[field_name] != supported:
+                raise ValueError(f"unsupported {field_name}: {request[field_name]!r}")
 
         normalized = dict(request)
         normalized["forecast_period"] = forecast_period.model_dump()
@@ -95,6 +106,7 @@ class EarningsExpectationScenarioRunner:
         )
         from research_os.equity_research.forecast import FORECAST_RULES_VERSION
         from research_os.models import EarningsExpectationRequest, EarningsExpectationRun
+        from research_os.reports import validate_report
         from research_os.storage import Database
         from research_os.utils.id import new_uuid
         from research_os.utils.time import now_iso
@@ -154,6 +166,33 @@ class EarningsExpectationScenarioRunner:
             if ephemeral_db is not None:
                 ephemeral_db.close()
 
+        # Candidate report safety is a production acceptance gate.  The temporary
+        # file is always removed and is never exposed as a successful artifact.
+        candidate_path = run_dir.root / ".earnings_expectation_candidate.md"
+        candidate_path.write_text(outcome.markdown, encoding="utf-8")
+        try:
+            report_validation = validate_report(candidate_path)
+        finally:
+            candidate_path.unlink(missing_ok=True)
+        if not report_validation.ok:
+            raise ValueError(
+                f"earnings expectation report validation failed: {report_validation.errors}"
+            )
+        final_markdown = outcome.markdown.replace(
+            "validator_status: pending", "validator_status: pass", 1,
+        )
+        final_candidate_path = run_dir.root / ".earnings_expectation_final_candidate.md"
+        final_candidate_path.write_text(final_markdown, encoding="utf-8")
+        try:
+            final_report_validation = validate_report(final_candidate_path)
+        finally:
+            final_candidate_path.unlink(missing_ok=True)
+        if not final_report_validation.ok:
+            raise ValueError(
+                f"final earnings expectation report validation failed: "
+                f"{final_report_validation.errors}"
+            )
+
         artifact_paths = [
             str(run_dir.root / "earnings_expectation_request.json"),
             str(run_dir.root / "earnings_expectation_run.json"),
@@ -178,6 +217,7 @@ class EarningsExpectationScenarioRunner:
             forecast_period=request_model.forecast_period,
             scenario_ids=[scenario.scenario_id for scenario in outcome.scenarios],
             scenarios=outcome.scenarios,
+            projection_lineage=outcome.projection_lineage,
             evidence_ids=outcome.evidence_ids,
             method="Phase4 deterministic_projection over as_of-governed historical baseline",
             uncertainty=[
@@ -206,8 +246,12 @@ class EarningsExpectationScenarioRunner:
         )
         # Run schema validation must happen before any successful run artifact is persisted.
         run_payload = _validated_payload(run_model, "earnings_expectation_run")
+        # ForecastScenario persistence is allowed only after scenario Schema,
+        # shared report validation, and Run Pydantic/Schema have all passed.
+        for scenario in outcome.scenarios:
+            db.upsert(scenario)
         run_dir.write_json("earnings_expectation_run.json", run_payload)
-        run_dir.write_final(outcome.markdown)
+        run_dir.write_final(final_markdown)
         run_dir.write_validation({
             "status": "ok" if outcome.status == "success" else outcome.status,
             "task_id": task.task_id,

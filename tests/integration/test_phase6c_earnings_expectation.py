@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import NAMESPACE_DNS, uuid5
 
 from research_os.models import Evidence, FinancialFact, FinancialReport
 from research_os.orchestrator.orchestrator import Orchestrator
@@ -16,6 +17,8 @@ from research_os.validators.schema_validator import validate_instance
 COMPANY = "company:600000.SH"
 PUBLISHED = "2025-03-30T10:00:00+08:00"
 AS_OF = "2025-08-01T12:00:00+08:00"
+E24 = str(uuid5(NAMESPACE_DNS, "phase6c-integration:e24"))
+RAW_E24 = str(uuid5(NAMESPACE_DNS, "phase6c-integration:raw-e24"))
 
 
 def _setup(tmp_path):
@@ -27,15 +30,15 @@ def _setup(tmp_path):
 
 
 def _seed(db):
-    db.upsert(Evidence(
-        evidence_id="e24", source_id="cninfo", raw_item_id="raw-e24",
+    evidence = Evidence(
+        evidence_id=E24, source_id="cninfo", raw_item_id=RAW_E24,
         title="2024 annual report", publisher="listed company",
         published_at=PUBLISHED, retrieved_at=PUBLISHED,
         url="https://example.test/e24", excerpt="revenue 100",
         evidence_type="official_disclosure", independence_group="report:2024",
         source_tier="A", access_status="ok",
-    ))
-    db.upsert(FinancialReport(
+    )
+    report = FinancialReport(
         financial_report_id="r24", company_entity_id=COMPANY,
         document_id="doc-r24", manifest_id=None, report_type="annual",
         period_start="2024-01-01", period_end="2024-12-31", fiscal_year=2024,
@@ -43,10 +46,10 @@ def _seed(db):
         accounting_standard="CAS", currency="CNY", unit_scale=1,
         audit_status="audited", audit_opinion="unmodified",
         restatement_status="original", supersedes_report_id=None,
-        filing_version="v1", source_ids=["cninfo"], evidence_ids=["e24"],
+        filing_version="v1", source_ids=["cninfo"], evidence_ids=[E24],
         data_status="complete", version=1, published_at=PUBLISHED, created_at=PUBLISHED,
-    ))
-    db.upsert(FinancialFact(
+    )
+    fact = FinancialFact(
         fact_id="f24", fact_key="revenue|2024|FY|consolidated",
         financial_report_id="r24", company_entity_id=COMPANY,
         statement_type="income_statement", taxonomy_code="revenue",
@@ -56,10 +59,16 @@ def _seed(db):
         raw_value="100", normalized_value="100", normalized_unit="yuan",
         value_status="reported", sign_convention="reported", audit_status="audited",
         segment_id=None, source_document_id="doc-r24", source_block_ids=["block-f24"],
-        evidence_ids=["e24"], source_priority=1, restatement_version=1,
+        evidence_ids=[E24], source_priority=1, restatement_version=1,
         valid_from=PUBLISHED, valid_to=None, conflict_group_id=None,
         warnings=[], version=1, created_at=PUBLISHED,
-    ))
+    )
+    assert validate_instance(evidence.model_dump(), "evidence") == []
+    assert validate_instance(report.model_dump(), "financial_report") == []
+    assert validate_instance(fact.model_dump(), "financial_fact") == []
+    db.upsert(evidence)
+    db.upsert(report)
+    db.upsert(fact)
 
 
 def _request(**extra):
@@ -103,6 +112,23 @@ def test_orchestrator_happy_path_and_lineage(tmp_path):
         assert run["as_of"] == AS_OF
         assert run["historical_input_periods"][0]["financial_report_ids"] == ["r24"]
         assert [o["value"] for o in run["scenarios"][0]["outputs"]] == ["110", "121"]
+        assert run["projection_lineage"] == [{
+            "scenario_id": run["scenarios"][0]["scenario_id"],
+            "metric_code": "revenue",
+            "baseline_financial_report_id": "r24",
+            "baseline_financial_fact_id": "f24",
+            "baseline_period_end": "2024-12-31",
+            "baseline_fiscal_period": "FY",
+            "baseline_duration_months": 12,
+            "baseline_normalized_value": "100",
+            "baseline_normalized_unit": "yuan",
+            "assumption_ids": [run["scenarios"][0]["assumptions"][0]["assumption_id"]],
+            "output_periods": ["FY2025", "FY2026"],
+            "formula_version": run["calculation_version"],
+            "evidence_ids": [E24],
+        }]
+        persisted = db.get("forecast_scenarios", run["scenario_ids"][0])
+        assert persisted == run["scenarios"][0]
         assert run["model_route"]["llm_called"] is False
         assert validate_report(run_dir / "final.md").ok
     finally:
@@ -168,5 +194,27 @@ def test_run_schema_failure_cannot_persist_success_artifact(tmp_path, monkeypatc
         run_dir = tmp_path / "reports" / "runs" / task_id
         assert (run_dir / "earnings_expectation_request.json").exists()
         assert not (run_dir / "earnings_expectation_run.json").exists()
+        assert db.query("SELECT COUNT(*) AS count FROM forecast_scenarios")[0]["count"] == 0
+    finally:
+        orchestrator.close()
+
+
+def test_report_safety_failure_cannot_persist_run_or_scenario(tmp_path):
+    db, orchestrator = _setup(tmp_path)
+    _seed(db)
+    try:
+        task_id = "00000000-0000-4000-8000-000000000098"
+        result = orchestrator.execute(
+            "earnings_expectation",
+            _request(task_id=task_id, scenario_name="建议买入"),
+        )
+        assert result.status == "failed"
+        assert result.exit_code == 5
+        run_dir = tmp_path / "reports" / "runs" / task_id
+        assert (run_dir / "earnings_expectation_request.json").exists()
+        assert not (run_dir / "earnings_expectation_run.json").exists()
+        assert (run_dir / "final.md").exists()
+        assert (run_dir / "final.md").read_text("utf-8") == "# 待生成报告\n"
+        assert db.query("SELECT COUNT(*) AS count FROM forecast_scenarios")[0]["count"] == 0
     finally:
         orchestrator.close()
