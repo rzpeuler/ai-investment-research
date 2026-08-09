@@ -4,7 +4,7 @@
 
 > 当前统一结论（2026-08-07）：Phase 4 engineering foundation = PASS；
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
-> Phase 5 = BLOCKED。
+> Phase 5 = CLOSED / PASS。
 
 ## 1. 真实 LLM Provider 已接入但存在外部稳定性风险
 
