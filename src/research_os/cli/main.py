@@ -3,6 +3,7 @@
 命令：
   research run [--task-id UUID] [--scenario SCENARIO] [--entity CODE ...]
                [--depth fast|standard|deep] [--as-of ISO] [--force]
+  research execute --scenario SCENARIO --request-file REQUEST.json [--task-id UUID]
   research validate [--report PATH | --schemas]
   research probe-sources [--source SOURCE_ID]
 
@@ -20,11 +21,15 @@ from pathlib import Path
 import click
 
 from research_os.orchestrator import Orchestrator
+from research_os.orchestrator.runners import DEFAULT_SCENARIOS
 from research_os.reports import validate_report as validate_report_file
 from research_os.validators.schema_validator import (
     SCHEMA_NAMES,
     validate_all_schemas,
 )
+
+
+SCENARIO_CHOICES = DEFAULT_SCENARIOS
 
 
 def _project_root() -> Path:
@@ -64,12 +69,7 @@ def _validate_uuid(ctx: click.Context, param: click.Parameter, value: Optional[s
 @click.option("--task-id", default=None, callback=_validate_uuid,
               help="任务 ID（UUID）。相同 ID 重复执行幂等。")
 @click.option("--scenario", default="morning_brief",
-              type=click.Choice([
-                  "morning_brief", "evening_brief", "daily_review",
-                  "abnormal_move_analysis", "stock_research_report",
-                  "first_coverage", "stock_review", "industry_research",
-                  "theme_discovery", "earnings_expectation",
-              ], case_sensitive=False))
+              type=click.Choice(SCENARIO_CHOICES, case_sensitive=False))
 @click.option("--entity", "entities", multiple=True, help="实体 ID（可重复）。")
 @click.option("--depth", default="standard", type=click.Choice(["fast", "standard", "deep"]))
 @click.option("--as-of", default=None, help="数据截止时间 ISO-8601。")
@@ -105,6 +105,66 @@ def run(ctx, task_id, scenario, entities, depth, as_of, force) -> None:
     click.echo(f"[OK] 任务 {outcome.task.task_id} 完成")
     click.echo(f"[OK] 运行目录: {outcome.run_dir}")
     click.echo(f"[OK] Plan: {outcome.plan.plan_id}")
+
+
+@cli.command("execute")
+@click.option(
+    "--scenario",
+    required=True,
+    type=click.Choice(SCENARIO_CHOICES, case_sensitive=True),
+    help="要执行的已注册研究场景。",
+)
+@click.option(
+    "--request-file",
+    required=True,
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True, path_type=Path),
+    help="包含完整场景请求的 UTF-8 JSON object 文件。",
+)
+@click.option(
+    "--task-id",
+    default=None,
+    callback=_validate_uuid,
+    help="可选任务 UUID；不得与请求文件中的 task_id 冲突。",
+)
+def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str]) -> None:
+    """通过默认 Orchestrator 执行公共研究场景。"""
+    if not request_file.is_file():
+        _param_error(f"request-file 不是普通文件: {request_file}")
+    try:
+        raw_request = request_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        _param_error(f"request-file 必须是可读 UTF-8 文件: {exc}")
+    try:
+        payload = json.loads(raw_request)
+    except json.JSONDecodeError as exc:
+        _param_error(f"request-file 不是合法 JSON: {exc.msg} (line {exc.lineno}, column {exc.colno})")
+    if not isinstance(payload, dict):
+        _param_error("request-file JSON 根节点必须是 object")
+
+    request_scenario = payload.pop("scenario", None)
+    if request_scenario is not None and request_scenario != scenario:
+        _param_error(
+            f"scenario 冲突: --scenario={scenario}, request.scenario={request_scenario}"
+        )
+
+    if task_id is not None:
+        request_task_id = payload.get("task_id")
+        if request_task_id is None:
+            payload["task_id"] = task_id
+        elif request_task_id != task_id:
+            _param_error(
+                f"task_id 冲突: --task-id={task_id}, request.task_id={request_task_id}"
+            )
+
+    root = _project_root()
+    orchestrator = Orchestrator(root)
+    try:
+        result = orchestrator.execute(scenario, payload)
+    finally:
+        orchestrator.close()
+    click.echo(json.dumps(result.model_dump(), ensure_ascii=False, sort_keys=True))
+    if result.exit_code:
+        raise SystemExit(result.exit_code)
 
 
 @cli.command()
