@@ -19,7 +19,7 @@
   - M7 Supersede / Expire / History：PASS（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
   - M8 Query + Knowledge Context Builder：PASS（SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
   - M9 Structured Research Candidate Integration：**PASS**（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变）
-  - M10 Deterministic JSON Mirror + E2E Acceptance：**AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，）
+  - M10 Deterministic JSON Mirror + E2E Acceptance：**PASS**（accepted SHA 156ea35, CI 31292861813, 2110/5/0/0）
 
 Phase 5 正式任务书已由用户批准。M1-M9 全部通过独立架构验收。
 PR5B 已 squash merge 进入 master（`cfdeeba7`）。
@@ -43,7 +43,7 @@ PR5B 已 squash merge 进入 master（`cfdeeba7`）。
 Phase 5 implementation authorization gate: SATISFIED
 ```
 
-当前准入：**M10 PASS**（PR5C `phase5/pipeline-integration`，JSON Mirror Option A）。
+当前状态：**M10 PASS**。PR5C #6 MERGED / SQUASH。JSON Mirror Option A PASS。
 
 PR5B closeout 已完成：
 
@@ -60,7 +60,7 @@ Graph→Research NOT implemented in M9。
 ```
 当前状态：
 PR5B MERGED（master cfdeeba7）。
-PR5C phase5/pipeline-integration（）。
+PR5C #6 MERGED。
 M0-M9 PASS。
 M10 PASS。
 

@@ -37,7 +37,7 @@
 | Phase 3 | PASS | 异动分析保持既有完成状态 |
 | Phase 4 engineering foundation | PASS | 统一控制面、财务确定性能力、Evidence 血缘、Validator、正式语义任务入口、状态机和专业评审已接入 |
 | Phase 4 full research capability | PASS | 两个真实 SUCCESS 和一个预期降级通过在线复验，独立验收已签字 |
-| Phase 5 | PASS | **PR5B MERGED**（squash merge → master `cfdeeba7`）。M0-M9 PASS（M9 SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。**PR5C** `phase5/pipeline-integration`（）。**M10 PASS**。
+| Phase 5 | PASS | **PR5B MERGED** (cfdeeba7)。M0-M10 PASS。**PR5C #6 MERGED / SQUASH** (master 1e1d4f9)。Post-merge governance hotfixes #7, #8 merged (master 1087520)。**M10 PASS** (accepted SHA 156ea35, CI 31292861813)。
 
 ## 2026-08-07 修复后的关键事实
 
@@ -94,7 +94,7 @@ M0-M9 全部通过独立验收。
 M9 PASS（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
 M9 scope：existing structured research objects → GraphChange candidate；
 Graph→Research NOT implemented；no Schema/migration change；source whitelist frozen。
-M10 PASS（PR5C `phase5/pipeline-integration`，）。
+M10 PASS。PR5C #6 MERGED。Governance hotfixes #7, #8 MERGED。
 
 ## 2026-08-07 最终工程与在线验收
 
