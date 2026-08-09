@@ -60,7 +60,10 @@ class IndustryResearchScenarioRunner:
         normalized = dict(request)
         normalized["depth"] = request.get("depth", "standard")
         if normalized["depth"] not in {"fast", "standard", "deep"}:
-            normalized["depth"] = "standard"
+            raise ValueError(
+                f"Invalid depth: {normalized['depth']!r}. "
+                f"Must be one of: fast, standard, deep"
+            )
         normalized["industry_name"] = request.get(
             "industry_name", request.get("industry_id", "unknown")
         )

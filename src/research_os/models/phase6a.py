@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import Field, field_validator
 
@@ -38,7 +38,7 @@ class IndustryResearchRequest(StrictModel):
     as_of: str
     as_of_basis: str = "user_provided"
     timezone: str = "Asia/Shanghai"
-    depth: str = "standard"
+    depth: Literal['fast','standard','deep'] = "standard"
     deterministic_only: bool = False
     live: bool = False
     dry_run: bool = False
@@ -70,12 +70,12 @@ class IndustryResearchRun(StrictModel):
     industry_id: str = ""
     industry_name: str = ""
     as_of: str
-    depth: str = "standard"
+    depth: Literal['fast','standard','deep'] = "standard"
     idempotency_key: str
     run_version: int = Field(1, ge=1)
     started_at: str
     finished_at: Optional[str] = None
-    status: str = "running"
+    status: Literal['success','partial_success','degraded','insufficient_evidence','failed'] = "failed"
     stage_statuses: List[Dict[str, Any]] = Field(default_factory=list)
     artifact_paths: List[str] = Field(default_factory=list)
     input_versions: Dict[str, Any] = Field(default_factory=dict)
@@ -117,8 +117,8 @@ class ThemeDiscoveryRequest(StrictModel):
     as_of: str
     as_of_basis: str = "user_provided"
     timezone: str = "Asia/Shanghai"
-    depth: str = "standard"
-    discovery_mode: str = "graph_based"
+    depth: Literal['fast','standard','deep'] = "standard"
+    discovery_mode: Literal['graph_based','evidence_driven','keyword_sweep','peer_diffusion'] = "graph_based"
     industry_ids: List[str] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
     live: bool = False
@@ -149,12 +149,12 @@ class ThemeDiscoveryRun(StrictModel):
     request_id: str
     task_id: str
     as_of: str
-    discovery_mode: str = "graph_based"
+    discovery_mode: Literal['graph_based','evidence_driven','keyword_sweep','peer_diffusion'] = "graph_based"
     idempotency_key: str
     run_version: int = Field(1, ge=1)
     started_at: str
     finished_at: Optional[str] = None
-    status: str = "running"
+    status: Literal['success','partial_success','degraded','insufficient_evidence','failed'] = "failed"
     stage_statuses: List[Dict[str, Any]] = Field(default_factory=list)
     artifact_paths: List[str] = Field(default_factory=list)
     input_versions: Dict[str, Any] = Field(default_factory=dict)

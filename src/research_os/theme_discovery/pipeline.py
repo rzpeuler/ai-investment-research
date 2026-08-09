@@ -250,9 +250,17 @@ class ThemeDiscoveryPipeline:
                     desc_parts.append(f"跨行业关联: {', '.join(sorted(cross_inds)[:5])}")
                 if relations:
                     desc_parts.append(f"关系类型: {', '.join(sorted(relations)[:5])}")
+                trig_canonical = "|".join([
+                    "graph_anomaly",
+                    ind_id.lower().strip(),
+                    ",".join(sorted({ind_id} | cross_inds)),
+                    ",".join(sorted(node_ids)),
+                    ",".join(sorted(qr.evidence_ids)),
+                    ",".join(sorted(relations)),
+                    as_of,
+                ])
                 triggers.append(ThemeTrigger(
-                    trigger_id="trig:" + content_sha256(
-                        f"graph_anomaly|{ind_id}|{','.join(sorted(cross_inds))}|{as_of}"),
+                    trigger_id="trig:" + content_sha256(trig_canonical),
                     trigger_type="graph_anomaly", keyword=ind_id,
                     industry_ids=sorted({ind_id} | cross_inds),
                     evidence_ids=list(qr.evidence_ids),
@@ -294,9 +302,16 @@ class ThemeDiscoveryPipeline:
                             if nid and nid not in matched_nodes:
                                 matched_nodes.append(nid)
                     if matched_kws:
+                        trig_canonical = "|".join([
+                            "keyword_sweep",
+                            ",".join(sorted(matched_kws)),
+                            ind_id,
+                            ",".join(sorted(matched_nodes)),
+                            ",".join(sorted(qr.evidence_ids)),
+                            as_of,
+                        ])
                         triggers.append(ThemeTrigger(
-                            trigger_id="trig:" + content_sha256(
-                                f"keyword_sweep|{','.join(sorted(matched_kws))}|{ind_id}|{as_of}"),
+                            trigger_id="trig:" + content_sha256(trig_canonical),
                             trigger_type="keyword_sweep",
                             keyword=", ".join(sorted(matched_kws)),
                             industry_ids=[ind_id],
@@ -312,9 +327,14 @@ class ThemeDiscoveryPipeline:
                 pass
         else:
             for kw in keywords:
+                trig_canonical = "|".join([
+                    "keyword_sweep",
+                    kw.lower().strip(),
+                    ",".join(sorted(industry_ids)),
+                    as_of,
+                ])
                 triggers.append(ThemeTrigger(
-                    trigger_id="trig:" + content_sha256(
-                        f"keyword_sweep|{kw}|{as_of}"),
+                    trigger_id="trig:" + content_sha256(trig_canonical),
                     trigger_type="keyword_sweep", keyword=kw,
                     industry_ids=list(industry_ids),
                     description=f"关键词触发: {kw}",
@@ -380,28 +400,18 @@ class ThemeDiscoveryPipeline:
         statement = self._derive_statement(name, len(cluster), cross_count)
         confidence = self._cluster_confidence(cluster)
 
-        # R2-14: canonical hash includes trigger_type, keywords, industry_ids,
-        # graph_node_ids, candidate evidence_ids, observed relations, as_of.
-        hash_parts: List[str] = []
-        for t in sorted(cluster, key=lambda x: x.trigger_id):
-            hash_parts.append("|".join([
-                t.trigger_type,
-                t.keyword or "",
-                ",".join(sorted(t.industry_ids)),
-                ",".join(sorted(t.graph_node_ids)),
-                ",".join(sorted(t.evidence_ids)),
-            ]))
-        # observed relations = cross-industry pairs derived from industry_ids
-        sorted_inds = sorted(all_inds)
-        rel_pairs: List[str] = []
-        for i in range(len(sorted_inds)):
-            for j in range(i + 1, len(sorted_inds)):
-                rel_pairs.append(f"{sorted_inds[i]}<->{sorted_inds[j]}")
-        hash_parts.append(",".join(rel_pairs))
-        hash_parts.append(as_of)
+        # R4-4: canonical hypothesis hash = sorted trigger_ids + normalized theme name + sorted industry_ids
+        sorted_trigger_ids = sorted([t.trigger_id for t in cluster])
+        normalized_name = name.lower().strip()
+        sorted_inds_str = ",".join(sorted(all_inds))
+        hypo_canonical = "|".join([
+            ",".join(sorted_trigger_ids),
+            normalized_name,
+            sorted_inds_str,
+        ])
 
         return ThemeHypothesis(
-            hypothesis_id="hyp:" + content_sha256("||".join(hash_parts)),
+            hypothesis_id="hyp:" + content_sha256(hypo_canonical),
             theme_name=name, statement=statement, claim_type="HYPOTHESIS",
             lifecycle_state="forming", triggers=list(cluster),
             cross_industry_count=cross_count,

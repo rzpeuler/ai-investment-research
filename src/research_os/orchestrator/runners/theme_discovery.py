@@ -65,12 +65,18 @@ class ThemeDiscoveryScenarioRunner:
         if normalized["discovery_mode"] not in {
             "graph_based", "evidence_driven", "keyword_sweep", "peer_diffusion",
         }:
-            normalized["discovery_mode"] = "graph_based"
+            raise ValueError(
+                f"Invalid discovery_mode: {normalized['discovery_mode']!r}. "
+                f"Must be one of: graph_based, evidence_driven, keyword_sweep, peer_diffusion"
+            )
         normalized["industry_ids"] = list(request.get("industry_ids") or [])
         normalized["keywords"] = list(request.get("keywords") or [])
         normalized.setdefault("depth", "standard")
         if normalized["depth"] not in {"fast", "standard", "deep"}:
-            normalized["depth"] = "standard"
+            raise ValueError(
+                f"Invalid depth: {normalized['depth']!r}. "
+                f"Must be one of: fast, standard, deep"
+            )
         normalized.setdefault("dry_run", False)
         normalized.setdefault("live", False)
         normalized.setdefault("force", False)

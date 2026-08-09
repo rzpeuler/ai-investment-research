@@ -141,11 +141,53 @@ class IndustryResearchPipeline:
                 max_depth=max_depth,
             )
         except QueryError as e:
+            # R4-3: 根据 error_code 精确分类，禁止通配为 failed
+            _user_input_codes = {
+                "QUERY_AS_OF_REQUIRED", "QUERY_AS_OF_INVALID",
+                "QUERY_DEPTH_INVALID", "QUERY_FILTER_INVALID",
+            }
+            _degraded_codes = {
+                "QUERY_READ_FAILED", "QUERY_INTEGRITY_CONFLICT",
+                "QUERY_VERSION_GAP", "QUERY_EVIDENCE_MISSING",
+                "QUERY_ENDPOINT_MISSING", "QUERY_ENDPOINT_INACTIVE",
+                "QUERY_RESULT_LIMIT_EXCEEDED", "QUERY_ACTIVE_TRANSACTION_CONFLICT",
+            }
+            if e.error_code == "QUERY_ROOT_NOT_FOUND":
+                return PipelineOutcome(
+                    status="insufficient_evidence",
+                    run_id=run_id,
+                    industry_name=industry_name,
+                    warnings=[f"行业节点不存在: {e.error_code} — {e}"],
+                    missing_data=["industry_node_not_found"],
+                    data_degraded=True,
+                    model_route={"mode": "deterministic_fallback", "llm_called": False},
+                    evidence_quality={"overall_quality": "poor", "valid_evidence_count": 0},
+                )
+            if e.error_code in _user_input_codes:
+                return PipelineOutcome(
+                    status="failed",
+                    run_id=run_id,
+                    industry_name=industry_name,
+                    warnings=[f"查询参数非法: {e.error_code} — {e}"],
+                    missing_data=[],
+                    model_route={"mode": "deterministic_fallback", "llm_called": False},
+                )
+            if e.error_code in _degraded_codes:
+                return PipelineOutcome(
+                    status="degraded",
+                    run_id=run_id,
+                    industry_name=industry_name,
+                    warnings=[f"图谱查询降级: {e.error_code} — {e}"],
+                    missing_data=["knowledge_graph_unavailable"],
+                    data_degraded=True,
+                    model_route={"mode": "deterministic_fallback", "llm_called": False},
+                )
+            # 未识别的 error_code → fail-closed（保守）
             return PipelineOutcome(
                 status="failed",
                 run_id=run_id,
                 industry_name=industry_name,
-                warnings=[f"图谱查询失败: {e.error_code} — {e}"],
+                warnings=[f"图谱查询失败（未识别 code）: {e.error_code} — {e}"],
                 missing_data=["knowledge_graph_unavailable"],
                 model_route={"mode": "deterministic_fallback", "llm_called": False},
             )
