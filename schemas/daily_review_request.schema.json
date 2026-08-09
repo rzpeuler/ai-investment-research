@@ -6,7 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "request_id", "task_id", "review_business_date", "as_of", "timezone",
+    "request_id", "task_id", "review_business_date", "as_of", "previous_cutoff", "timezone",
     "previous_run_ids", "previous_report_paths", "entities", "depth",
     "force", "dry_run", "status", "warnings", "requested_at"
   ],

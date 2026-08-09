@@ -80,6 +80,7 @@ class EveningBriefScenarioRunner:
         from research_os.brief.pipeline import BriefPipeline, PipelineConfig
         from research_os.collectors.manual import ManualInboxService
         from research_os.models import EveningBriefRequest, EveningBriefRun
+        from research_os.brief import validated_payload
         from research_os.orchestrator.run_directory import RunDirectory
         from research_os.reports import validate_report
         from research_os.utils.id import new_uuid
@@ -115,7 +116,7 @@ class EveningBriefScenarioRunner:
             warnings=list(request.get("warnings") or []),
             requested_at=now_iso(),
         )
-        run_dir.write_json("evening_brief_request.json", request_payload.model_dump())
+        run_dir.write_json("evening_brief_request.json", validated_payload(request_payload, "evening_brief_request"))
 
         artifacts = BriefPipeline(PipelineConfig(
             source_tiers=BRIEF_SOURCE_TIERS, source_status={}, channel_map=BRIEF_CHANNEL_MAP,
@@ -142,7 +143,7 @@ class EveningBriefScenarioRunner:
             missing_data=artifacts.missing_data, warnings=artifacts.warnings,
             status="success" if check.ok else "failed",
         )
-        run_dir.write_json("evening_brief_run.json", run_payload.model_dump())
+        run_dir.write_json("evening_brief_run.json", validated_payload(run_payload, "evening_brief_run"))
 
         task.status = "completed" if check.ok else "failed"
         task.finished_at = now_iso()

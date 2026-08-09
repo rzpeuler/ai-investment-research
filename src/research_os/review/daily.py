@@ -81,7 +81,7 @@ def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
     永久禁止使用 finished_at / created_at / updated_at 等运行完成时间戳作为 cutoff。
     未通过 acceptance gate 的 prior run 不产生有效 cutoff（返回 None）。
     """
-    _PASS_EQUIVALENT = {"pass", "pass_with_warnings"}
+    _PASS_EQUIVALENT = {"ok", "pass", "pass_with_warnings"}
     _CUTOFF_KEYS = ("window_end", "as_of", "research_cutoff", "data_cutoff")
     try:
         as_of_dt = parse_iso(as_of)
@@ -112,6 +112,9 @@ def _derive_prior_cutoff(project_root: Path, previous_run_ids: List[str],
             continue
         try:
             tdata = json.loads(tp.read_text(encoding="utf-8"))
+            # lineage: task_id must be non-empty, scenario must be present
+            if not tdata.get("task_id") or not tdata.get("scenario"):
+                continue
         except (ValueError, OSError):
             continue
 

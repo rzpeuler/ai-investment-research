@@ -42,6 +42,7 @@ class DailyReviewScenarioRunner:
 
     def execute(self, request: Dict[str, Any], context: Dict[str, Any]) -> ScenarioExecutionResult:
         from research_os.models import DailyReviewRequest, DailyReviewRun
+        from research_os.brief import validated_payload
         from research_os.orchestrator.run_directory import RunDirectory
         from research_os.reports import validate_report
         from research_os.review.daily import DailyReviewPipeline, report_path_for
@@ -79,7 +80,7 @@ class DailyReviewScenarioRunner:
             dry_run=False, status="validated",
             warnings=list(request.get("warnings") or []), requested_at=now_iso(),
         )
-        run_dir.write_json("daily_review_request.json", request_payload.model_dump())
+        run_dir.write_json("daily_review_request.json", validated_payload(request_payload, "daily_review_request"))
 
         artifacts = DailyReviewPipeline(root, db).run(
             day, as_of, task_id=task.task_id,
@@ -116,7 +117,7 @@ class DailyReviewScenarioRunner:
             missing_data=artifacts.missing_data, warnings=artifacts.warnings,
             status="partial_success" if artifacts.missing_data else "success",
         )
-        run_dir.write_json("daily_review_run.json", run_payload.model_dump())
+        run_dir.write_json("daily_review_run.json", validated_payload(run_payload, "daily_review_run"))
 
         task.status = "completed" if check.ok else "failed"
         task.finished_at = now_iso()

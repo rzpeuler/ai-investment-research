@@ -126,6 +126,13 @@ class DailyReviewRequest(StrictModel):
     def _iso_v(cls, value: str) -> str:
         return _iso(value)
 
+    @field_validator("previous_cutoff")
+    @classmethod
+    def _prev_cutoff_v(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return _iso(value)
+
 
 class DailyReviewRun(StrictModel):
     """每日复盘运行记录。"""

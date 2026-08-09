@@ -196,6 +196,8 @@ def test_derived_prior_cutoff_from_run_metadata(tmp_path):
         _evidence("e1", "2026-08-06T10:00:00+08:00", "新证据", ["macro:cpi"]),
     ])
     _prev_run(tmp_path, "run-morning-1", [], task_json={
+        "task_id": "task-morning",
+        "scenario": "morning_brief",
         "as_of": "2026-08-06T08:00:00+08:00",
         "window_end": "2026-08-06T08:00:00+08:00",
     })
@@ -265,6 +267,8 @@ def test_finished_at_not_used_as_prior_cutoff(tmp_path):
         _evidence("e-0805", "2026-08-06T08:05:00+08:00", "08:05 证据", ["macro:cpi"]),
     ])
     _prev_run(tmp_path, "run-morning", [], task_json={
+        "task_id": "task-morning",
+        "scenario": "morning_brief",
         "as_of": "2026-08-06T08:00:00+08:00",
         "window_end": "2026-08-06T08:00:00+08:00",
         "finished_at": "2026-08-06T08:15:00+08:00",
@@ -282,6 +286,8 @@ def test_window_end_preferred_over_finished_at(tmp_path):
     """window_end 优先于 finished_at。"""
     db = _FakeDb([])
     _prev_run(tmp_path, "run-morning", [], task_json={
+        "task_id": "task-morning",
+        "scenario": "morning_brief",
         "window_end": "2026-08-06T08:00:00+08:00",
         "finished_at": "2026-08-06T09:00:00+08:00",
     })
@@ -295,6 +301,8 @@ def test_as_of_preferred_over_completion_timestamps(tmp_path):
     """as_of=08:00, finished_at=09:00 → cutoff=08:00 而非 09:00。"""
     db = _FakeDb([])
     _prev_run(tmp_path, "run-morning", [], task_json={
+        "task_id": "task-morning",
+        "scenario": "morning_brief",
         "as_of": "2026-08-06T08:00:00+08:00",
         "finished_at": "2026-08-06T09:00:00+08:00",
     })
