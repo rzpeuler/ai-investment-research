@@ -351,7 +351,52 @@ def test_corrupt_financial_payloads_fail_closed_on_strict_reload(
     db._conn.commit()
     periods, facts, warnings = HistoricalInputResolver(db).resolve(COMPANY, AS_OF)
     assert periods == [] and facts == []
-    assert any("Pydantic validation failed" in warning for warning in warnings)
+    assert any("raw Schema validation failed" in warning for warning in warnings)
+    db.close()
+
+
+@pytest.mark.parametrize(
+    ("table", "primary_key", "primary_value", "field", "model_type", "schema_name", "default"),
+    [
+        (
+            "evidence", "evidence_id", _uuid("evidence:e24"), "source_tier",
+            Evidence, "evidence", "B",
+        ),
+        (
+            "evidence", "evidence_id", _uuid("evidence:e24"), "access_status",
+            Evidence, "evidence", "ok",
+        ),
+        (
+            "financial_reports", "financial_report_id", "r24", "data_status",
+            FinancialReport, "financial_report", "complete",
+        ),
+        (
+            "financial_facts", "fact_id", "f24", "value_status",
+            FinancialFact, "financial_fact", "reported",
+        ),
+    ],
+)
+def test_default_maskable_raw_corruption_fails_closed_in_pipeline(
+    tmp_path, table, primary_key, primary_value, field, model_type, schema_name, default,
+):
+    db = _db(tmp_path)
+    _seed_period(db, "r24", "f24", "e24", "2024-12-31", "2025-03-30T10:00:00+08:00", "100")
+    payload = db.get(table, primary_value)
+    del payload[field]
+    assert validate_instance(payload, schema_name)
+    assert model_type(**payload).model_dump()[field] == default
+    db._conn.execute(
+        f"UPDATE {table} SET payload = ? WHERE {primary_key} = ?",
+        (json.dumps(payload), primary_value),
+    )
+    db._conn.commit()
+
+    outcome = EarningsExpectationPipeline(db).run(_request())
+
+    assert outcome.status == "insufficient_evidence"
+    assert outcome.scenarios == []
+    assert outcome.projection_lineage == []
+    assert any("raw Schema validation failed" in warning for warning in outcome.warnings)
     db.close()
 
 

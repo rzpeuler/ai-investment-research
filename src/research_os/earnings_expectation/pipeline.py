@@ -66,6 +66,26 @@ class EarningsExpectationOutcome:
     markdown: str = ""
 
 
+def _strict_reload_payload(
+    raw: Any,
+    model_type: Type[Any],
+    schema_name: str,
+) -> Tuple[Optional[dict], Optional[str]]:
+    """Validate persisted authority before construction can supply defaults."""
+    raw_errors = validate_instance(raw, schema_name)
+    if raw_errors:
+        return None, f"raw Schema validation failed: {raw_errors}"
+    try:
+        model = model_type(**raw)
+    except (TypeError, ValidationError, ValueError) as exc:
+        return None, f"Pydantic validation failed: {exc}"
+    payload = model.model_dump()
+    roundtrip_errors = validate_instance(payload, schema_name)
+    if roundtrip_errors:
+        return None, f"roundtrip Schema validation failed: {roundtrip_errors}"
+    return payload, None
+
+
 def _strict_company_payloads(
     db: Database,
     table: str,
@@ -73,7 +93,7 @@ def _strict_company_payloads(
     model_type: Type[Any],
     schema_name: str,
 ) -> Tuple[List[dict], List[str]]:
-    """Reload structured company rows through Pydantic and authoritative Schema."""
+    """Reload structured company rows through raw Schema and model roundtrip."""
     if table not in {"financial_reports", "financial_facts"}:
         raise ValueError(f"unsupported financial authority table: {table}")
     payloads: List[dict] = []
@@ -88,16 +108,11 @@ def _strict_company_payloads(
         except (KeyError, TypeError, json.JSONDecodeError) as exc:
             warnings.append(f"{table} row {index}: invalid JSON payload: {exc}")
             continue
-        try:
-            model = model_type(**value)
-        except (TypeError, ValidationError, ValueError) as exc:
-            warnings.append(f"{table} row {index}: Pydantic validation failed: {exc}")
+        payload, error = _strict_reload_payload(value, model_type, schema_name)
+        if error:
+            warnings.append(f"{table} row {index}: {error}")
             continue
-        payload = model.model_dump()
-        errors = validate_instance(payload, schema_name)
-        if errors:
-            warnings.append(f"{table} row {index}: Schema validation failed: {errors}")
-            continue
+        assert payload is not None
         payloads.append(payload)
     return payloads, warnings
 
@@ -143,16 +158,11 @@ def _evidence_eligible(
         if evidence is None:
             warnings.append(f"missing evidence: {evidence_id}")
             continue
-        try:
-            evidence_model = Evidence(**evidence)
-        except (TypeError, ValidationError, ValueError) as exc:
-            warnings.append(f"schema-invalid evidence {evidence_id}: Pydantic validation failed: {exc}")
+        evidence, error = _strict_reload_payload(evidence, Evidence, "evidence")
+        if error:
+            warnings.append(f"schema-invalid evidence {evidence_id}: {error}")
             continue
-        evidence = evidence_model.model_dump()
-        schema_errors = validate_instance(evidence, "evidence")
-        if schema_errors:
-            warnings.append(f"schema-invalid evidence {evidence_id}: {schema_errors}")
-            continue
+        assert evidence is not None
         if evidence["access_status"] != "ok":
             warnings.append(f"ineligible evidence access: {evidence_id}")
             continue
