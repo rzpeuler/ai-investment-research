@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/daily_review_run.schema.json",
+  "title": "DailyReviewRun",
+  "description": "每日复盘运行记录（Phase 6B）。五段结构：observed_fact / previous_research_view / new_evidence / updated_interpretation / remaining_unknown。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "task_id",
+    "review_business_date",
+    "as_of",
+    "previous_cutoff",
+    "observed_fact_count",
+    "previous_view_count",
+    "new_evidence_count",
+    "supported_count",
+    "weakened_count",
+    "falsified_count",
+    "unchanged_count",
+    "unknown_count",
+    "report_path",
+    "missing_data",
+    "warnings",
+    "status"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "review_business_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "previous_cutoff": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time"
+        }
+      ]
+    },
+    "observed_fact_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "previous_view_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "new_evidence_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "supported_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "weakened_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "falsified_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unchanged_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unknown_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "report_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "missing_data": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "partial_success",
+        "insufficient_data",
+        "failed"
+      ]
+    }
+  }
+}

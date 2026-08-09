@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/stock_review_request.schema.json",
+  "title": "StockReviewRequest",
+  "description": "个股增量复盘请求（Phase 6B）。entity 为证券/公司标识；review_start / review_end 为增量窗口；previous_cutoff 为上次研究截止。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "task_id",
+    "entity",
+    "review_start",
+    "review_end",
+    "as_of",
+    "previous_cutoff",
+    "timezone",
+    "depth",
+    "force",
+    "dry_run",
+    "status",
+    "warnings",
+    "requested_at"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "entity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_start": {
+      "type": "string",
+      "format": "date"
+    },
+    "review_end": {
+      "type": "string",
+      "format": "date"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "previous_cutoff": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time"
+        }
+      ]
+    },
+    "timezone": {
+      "type": "string",
+      "const": "Asia/Shanghai"
+    },
+    "depth": {
+      "type": "string",
+      "enum": [
+        "fast",
+        "standard",
+        "deep"
+      ]
+    },
+    "force": {
+      "type": "boolean"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "validated",
+        "rejected"
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

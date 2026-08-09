@@ -140,7 +140,10 @@ def test_validate_schemas_ok(project_root):
     runner = CliRunner()
     result = runner.invoke(cli, ["validate"])
     assert result.exit_code == 0, result.output
-    assert "55 个 Schema 通过" in result.output
+    from research_os.validators.schema_validator import SCHEMA_NAMES
+
+    expected = len(SCHEMA_NAMES)
+    assert f"全部 {expected} 个 Schema 通过" in result.output
 
 
 def test_validate_report_missing_frontmatter_fails(project_root):
