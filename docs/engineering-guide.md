@@ -1572,17 +1572,15 @@ market_price:
 
 ## 31. 每日晚报
 
-流程与晨报一致，默认窗口：
+晚报与晨报**流程、方法论、输出模板完全同构**，唯一业务差异为信息采集时间窗口：
 
-- 当日 08:00 至 20:00
+- 当日 08:00 至 20:00（Asia/Shanghai，含开始不含结束）
 - 建议触发 20:10
 
-晚报重点增加：
-
-- 当日信息与市场表现是否形成反馈
-- 早间预期是否被证实
-- 晚间新增公告
-- 次日待验证事项
+晚报只处理自身窗口（当日 08:00 → 20:00）内的信息，窗口内部继续使用晨报既有
+去重、聚类与筛选机制；不得设置 morning/evening cross-report dedup、
+material_update、new_since_morning、already_known_in_morning、早间预期验证或
+市场表现反馈分析等晚报专属研究判断层——这些属于每日复盘（daily_review）的职责。
 
 ---
 
@@ -2881,9 +2879,15 @@ Event / Policy / Technology Change
 
 #### 6B
 
-**evening_brief** 不是晨报换一个时间。必须强调 `08:00 → 20:00 incremental research`，
-重点是：晨报之后的新信息、material updates、被支持/削弱的假设、新增重大公告、
-次日待验证问题。
+**evening_brief** 是 morning_brief 的**同构复用场景**：采集逻辑、来源体系、
+标准化、精确去重、语义聚类、分类体系、硬性过滤、信息价值评分、事件合并、
+Evidence / Claim、模型路由、报告筛选、报告结构、数量控制、Validator、失败降级、
+输出安全全部复用晨报已验收实现。唯一业务差异为信息采集时间窗口：
+`[08:00, 20:00) Asia/Shanghai`（inclusive start, exclusive end，补跑不漂移）。
+禁止设置 material_update / new_since_morning / already_known_in_morning /
+morning-evening cross-report dedup / 早间预期验证 / 市场表现反馈分析等晚报专属
+研究判断层——这些属于 daily_review 的职责。（用户 2026-08-10 明确批准本设计
+纠正，见 DECISIONS.md #43。）
 
 **daily_review** 必须区分：`observed_fact` / `previous_research_view` /
 `new_evidence` / `updated_interpretation` / `remaining_unknown`。

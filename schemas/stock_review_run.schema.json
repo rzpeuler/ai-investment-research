@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/stock_review_run.schema.json",
+  "title": "StockReviewRun",
+  "description": "个股增量复盘运行记录（Phase 6B）。增量复盘，不重跑完整 Phase4 研报；复用 Phase3/Phase4 已验收产物。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "task_id",
+    "entity",
+    "review_start",
+    "review_end",
+    "as_of",
+    "previous_cutoff",
+    "what_changed",
+    "new_evidence_count",
+    "thesis_supported",
+    "thesis_weakened",
+    "risk_changed",
+    "catalyst_changed",
+    "valuation_assumption_changed",
+    "remaining_questions",
+    "report_path",
+    "missing_data",
+    "warnings",
+    "status"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F-]{36}$"
+    },
+    "entity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_start": {
+      "type": "string",
+      "format": "date"
+    },
+    "review_end": {
+      "type": "string",
+      "format": "date"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "previous_cutoff": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "what_changed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "new_evidence_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "thesis_supported": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "thesis_weakened": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risk_changed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "catalyst_changed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "valuation_assumption_changed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "remaining_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "report_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "missing_data": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "partial_success",
+        "insufficient_data",
+        "failed"
+      ]
+    }
+  }
+}

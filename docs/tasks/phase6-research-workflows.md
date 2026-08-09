@@ -1,13 +1,13 @@
 # Phase 6：研究型工作流（6A / 6B / 6C）——正式工程任务书
 
 **TASKBOOK_STATUS: APPROVED**
-**IMPLEMENTATION_STATUS: IN_PROGRESS（P6-F0 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE）**
-**CURRENT_MILESTONE: P6-F0**
-**NEXT_MILESTONE: 6A / 6B / 6C-PREP（待 F0 独立验收 PASS 后另行授权）**
+**IMPLEMENTATION_STATUS: IN_PROGRESS（P6-F0 IMPLEMENTED / 6B B1-B3 IN_PROGRESS）**
+**CURRENT_MILESTONE: P6-B（B1 / B2 / B3）**
+**NEXT_MILESTONE: 6B B4 Research Capability Acceptance（独立验收）**
 
 **P6-F0: IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE**
 **P6-A: NOT_AUTHORIZED**
-**P6-B: NOT_AUTHORIZED**
+**P6-B: IN_PROGRESS（B1 / B2 / B3 用户已授权；B4 待独立验收；B5 / B6 NOT_AUTHORIZED）**
 **P6-C: NOT_AUTHORIZED**
 
 > 正式设计决策：`DECISIONS.md` #41（Phase 6 Top-Level Design Decision，2026-08-09）。
@@ -140,15 +140,21 @@ F0 未 PASS 前，任何 6A / 6B / 6C 业务实现均 NOT_AUTHORIZED。
 
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
-| P6-B0 | 6B 顶层设计与场景契约细化 | NOT_AUTHORIZED |
-| P6-B1 | evening_brief 场景实现（08:00 → 20:00 incremental research） | NOT_AUTHORIZED |
-| P6-B2 | daily_review 场景实现（observed_fact / previous_research_view / new_evidence / updated_interpretation / remaining_unknown） | NOT_AUTHORIZED |
-| P6-B3 | stock_review 场景实现（增量复盘，不重跑完整 Phase4 研报） | NOT_AUTHORIZED |
+| P6-B0 | 6B 顶层设计与场景契约细化（含设计纠偏：evening_brief = morning_brief 同构复用，见 DECISIONS #43） | DONE |
+| P6-B1 | evening_brief 场景实现（morning_brief 同构复用；窗口 [08:00, 20:00) Asia/Shanghai） | IN_PROGRESS |
+| P6-B2 | daily_review 场景实现（observed_fact / previous_research_view / new_evidence / updated_interpretation / remaining_unknown） | IN_PROGRESS |
+| P6-B3 | stock_review 场景实现（增量复盘，不重跑完整 Phase4 研报） | IN_PROGRESS |
 | P6-B4 | Research Capability Acceptance | NOT_AUTHORIZED |
 | P6-B5 | Candidate Integration Authorization | NOT_AUTHORIZED |
 | P6-B6 | optional candidate integration | NOT_AUTHORIZED |
 
 6B 不 hard-depend on 6A。
+
+> **设计纠偏（用户 2026-08-10 批准，DECISIONS #43）**：evening_brief 是
+> morning_brief 的同构复用场景，唯一业务差异为信息采集时间窗口。
+> 禁止设置 material_update / new_since_morning / already_known_in_morning /
+> morning-evening cross-report dedup / 早间预期验证 / 市场表现反馈分析等晚报专属
+> 研究判断层；这些属于 daily_review 的职责。
 
 ## 4.4 Phase 6C —— first_coverage / earnings_expectation
 

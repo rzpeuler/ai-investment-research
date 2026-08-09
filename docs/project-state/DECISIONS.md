@@ -1856,9 +1856,13 @@ Research → GraphChange Candidate
   `Event / Policy / Technology Change → Theme Hypothesis → Evidence → Industry Mapping
   → Related Entities → Support / Counter Evidence → Lifecycle / Invalidating Conditions
   → Research Questions`。主题挖掘不是自动荐股。
-- **6B evening_brief**：`08:00 → 20:00 incremental research`，不是晨报换时间；
-  重点是晨报之后的新信息、material updates、被支持/削弱的假设、新增重大公告、
-  次日待验证问题。
+- **6B evening_brief**：morning_brief 的同构复用场景——流程、方法论、输出模板
+  完全一致，唯一业务差异为信息采集时间窗口 `[08:00, 20:00) Asia/Shanghai`
+  （inclusive start, exclusive end，补跑不漂移）。不做 morning/evening
+  cross-report dedup、不做 material_update / new_since_morning /
+  already_known_in_morning、不验证早间预期、不做市场表现反馈分析；晚报只处理
+  自身窗口内的信息，窗口内继续复用晨报既有去重/聚类/筛选机制。
+  （用户 2026-08-10 明确批准本设计纠正，取代本节旧描述，见 #43。）
 - **6B daily_review**：区分 `observed_fact / previous_research_view / new_evidence /
   updated_interpretation / remaining_unknown`。
 - **6B stock_review**：增量复盘，不得每次重跑完整 Phase4 研报。6B 不 hard-depend on 6A。
@@ -2024,3 +2028,65 @@ CENTRAL_PHASE6_ENABLEMENT: NONE
 ONTOLOGY_EXPANSION: NONE
 SOURCE_EXPANSION: NONE
 ```
+
+---
+
+## 43. Phase 6B Design Correction：evening_brief 同构复用 morning_brief（2026-08-10）
+
+用户明确批准的设计纠正（非新增需求），取代 #41.9 与 engineering-guide §31/§69.8
+中的 evening_brief 旧描述。
+
+### 43.1 业务定义重新冻结
+
+```text
+evening_brief = morning_brief 的同构复用场景
+```
+
+唯一业务差异为信息采集时间窗口：
+
+```text
+morning_brief: 前一日 20:00 → 当日 08:00
+evening_brief: 当日 08:00 → 当日 20:00
+（Asia/Shanghai，含开始不含结束；延迟补跑不漂移）
+```
+
+### 43.2 晚报必须复用的晨报已验收能力
+
+采集逻辑、来源体系、标准化、精确去重、语义聚类、分类体系、硬性过滤、
+信息价值评分、事件合并、Evidence / Claim、模型路由、报告筛选、报告结构、
+数量控制、Validator、失败降级、输出安全。
+
+### 43.3 明确撤销的旧设计（禁止实现）
+
+```text
+already_known_in_morning
+new_since_morning
+material_update
+morning/evening cross-report dedup
+早间预期验证
+市场表现反馈分析
+晨报判断 strengthened/weakened
+晚报专属研究判断层
+```
+
+晚报只处理自身窗口（08:00–20:00）内的信息，窗口内部继续使用晨报既有
+去重、聚类和筛选机制。
+
+### 43.4 职责边界
+
+```text
+evening_brief = 信息收集/筛选/组织场景 = morning_brief 同构 + 不同时间窗
+daily_review  = 当日研究复盘/判断变化（observed_fact / previous_research_view /
+                new_evidence / updated_interpretation / remaining_unknown）
+stock_review  = 个股增量复盘（what_changed / new_evidence / thesis / risk /
+                catalyst / valuation assumption / remaining questions）
+```
+
+不得把 daily_review 的能力塞进 evening_brief。
+
+### 43.5 实现约束
+
+- evening_brief 必须最大化复用 morning_brief：共享 Morning/Evening Brief 核心
+  pipeline，仅窗口策略（window policy）不同；不得复制第二套晨报 Pipeline。
+- Phase2 morning_brief 已验收行为保持不变。
+- 6A / 6C 契约不受本纠正影响。

@@ -185,6 +185,15 @@ from research_os.models.equity_research import (
     ValidationStatus,
     WidelyKnown,
 )
+from research_os.models.brief import (
+    DailyReviewRequest,
+    DailyReviewRun,
+    EveningBriefRequest,
+    EveningBriefRun,
+    ReviewStatus,
+    StockReviewRequest,
+    StockReviewRun,
+)
 
 __all__ = [
     "AccessLevel",
@@ -292,4 +301,11 @@ __all__ = [
     "EquityResearchRequest",
     "EquityResearchRun",
     "EquityResearchResult",
+    "EveningBriefRequest",
+    "EveningBriefRun",
+    "DailyReviewRequest",
+    "DailyReviewRun",
+    "StockReviewRequest",
+    "StockReviewRun",
+    "ReviewStatus",
 ]

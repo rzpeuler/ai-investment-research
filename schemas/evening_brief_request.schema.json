@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/evening_brief_request.schema.json",
+  "title": "EveningBriefRequest",
+  "description": "每日晚报请求（Phase 6B）。evening_brief = morning_brief 同构复用（DECISIONS #43），唯一业务差异为信息窗口 [08:00, 20:00) Asia/Shanghai。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id", "task_id", "report_date", "as_of", "timezone",
+    "depth", "entities", "force", "dry_run", "live", "status", "warnings", "requested_at"
+  ],
+  "properties": {
+    "request_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "task_id": { "type": "string", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "report_date": { "type": "string", "format": "date" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "timezone": { "type": "string", "const": "Asia/Shanghai" },
+    "depth": { "type": "string", "enum": ["fast", "standard", "deep"] },
+    "entities": { "type": "array", "items": { "type": "string" } },
+    "force": { "type": "boolean" },
+    "dry_run": { "type": "boolean" },
+    "live": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["planned", "validated", "rejected"] },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "requested_at": { "type": "string", "format": "date-time" }
+  }
+}
