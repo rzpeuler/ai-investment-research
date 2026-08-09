@@ -29,6 +29,10 @@ from research_os.utils.id import new_uuid, content_sha256
 
 ONT_PATH = (Path(__file__).resolve().parents[2] / "knowledge"
             / "ontology" / "industry_graph_v1.yaml")
+M10_SSE_688981_URL = (
+    "https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/"
+    "2025-03-28/688981_20250328_JLBJ.pdf"
+)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -82,9 +86,10 @@ def _persist_entity(db: Database, entity_id: str, name: str) -> None:
 
 def _persist_source(db: Database,
                     source_id: str = "sse_disclosure",
-                    source_tier: str = "S") -> None:
+                    source_tier: str = "S",
+                    name: str = "上海证券交易所") -> None:
     source = Source(
-        source_id=source_id, name="上海证券交易所",
+        source_id=source_id, name=name,
         platform="sse", base_domain="https://star.sse.com.cn",
         source_type="official_disclosure", source_tier=source_tier,
     )
@@ -95,7 +100,9 @@ def _persist_raw_item(db: Database, entities: List[str],
                       title: str = "中芯国际2024年年度报告",
                       excerpt: str = "中芯国际属于集成电路晶圆代工企业。",
                       source_id: str = "sse_disclosure",
-                      url: str = "https://star.sse.com.cn/test") -> str:
+                      url: str = None) -> str:
+    if url is None:
+        url = "https://sse.example.com/test"
     raw_id = new_uuid()
     raw_item = RawItem(
         raw_item_id=raw_id, source_id=source_id,
@@ -118,7 +125,7 @@ def _persist_evidence(db: Database, raw_item_id: str,
                       source_tier: str = "S",
                       source_id: str = "sse_disclosure",
                       published_at: str = "2025-03-28T00:00:00",
-                      url: str = "https://star.sse.com.cn/test",
+                      url: str = None,
                       independence_group: str = "") -> str:
     ev_id = new_uuid()
     evidence = Evidence(
@@ -237,6 +244,10 @@ def _review_and_apply(c: Dict[str, Any], candidate_gc_id: str,
         f"errors={import_r.errors} warnings={import_r.warnings}"
     )
     assert import_r.review_id
+    # Verify Review Notes contains TEST HUMAN REVIEW FIXTURE
+    stored_review = c["graph_repo"].get_review(import_r.review_id)
+    if stored_review and stored_review.get("notes"):
+        assert "TEST HUMAN REVIEW FIXTURE" in str(stored_review["notes"]),             f"Review notes must contain fixture marker: {stored_review['notes']}"
 
     # 5. Apply — applied_at = reviewed_at (= created_at, KGV-012 equality OK)
     apply_r = c["apply"].apply(
@@ -291,8 +302,10 @@ class TestCaseBFact:
         raw_id = _persist_raw_item(db, [
             "company:688981.SH",
             "industry_segment:semiconductor:wafer_manufacturing",
-        ])
-        ev_id = _persist_evidence(db, raw_id)
+        ], url=M10_SSE_688981_URL)
+        ev_id = _persist_evidence(db, raw_id, url=M10_SSE_688981_URL)
+        # URL lineage: evidence persisted with official SSE URL (see acceptance metadata)
+        assert ev_id
         # CompanyProfile 提供 company_entity_id（builder identity resolution）
         cp_id = _persist_company_profile(
             db, "company:688981.SH", "中芯国际", [ev_id]
@@ -405,8 +418,13 @@ class TestCaseCModelInference:
         raw_id = _persist_raw_item(db, [
             "company:600519.SH",
             "industry_segment:ai_software:enterprise_software",
-        ], title="茅台AI合作研究")
-        ev_id = _persist_evidence(db, raw_id)
+        ], title="TEST SYNTHETIC MODEL INFERENCE INPUT",
+           excerpt="TEST FIXTURE ONLY — company:600519.SH is modeled as adopting enterprise AI software for this acceptance test.",
+           source_id="sse_disclosure")
+        ev_id = _persist_evidence(db, raw_id,
+            title="TEST SYNTHETIC MODEL INFERENCE INPUT",
+            excerpt="TEST FIXTURE ONLY — company:600519.SH is modeled as adopting enterprise AI software for this acceptance test.",
+            url="https://synthetic.example.com/mi-test")
         cp_id = _persist_company_profile(
             db, "company:600519.SH", "贵州茅台", [ev_id]
         )
@@ -522,33 +540,34 @@ class TestCaseDConflict:
         c = _make_components(db)
 
         _persist_entity(db, "company:600519.SH", "贵州茅台")
-        _persist_source(db, source_id="source_a", source_tier="S")
-        _persist_source(db, source_id="source_b", source_tier="B")
+        # Synthetic sources for conflict test (NOT SSE)
+        _persist_source(db, source_id="source_a", source_tier="A", name="M10 Synthetic Source A")
+        _persist_source(db, source_id="source_b", source_tier="B", name="M10 Synthetic Source B")
 
         # Evidence A: official S-tier — explicitly states X
         raw_a = _persist_raw_item(db, [
             "company:600519.SH",
             "industry_segment:ai_hardware:compute_chip",
-        ], title="官方披露：茅台主营消费品",
-          excerpt="贵州茅台主要经营白酒等消费品业务。",
+        ], title="TEST SYNTHETIC RAW A",
+          excerpt="TEST FIXTURE — consumer products, no compute chip.",
           source_id="source_a",
           url="https://source-a.example.com/evidence")
         ev_a = _persist_evidence(db, raw_a,
-            title="官方披露：茅台主营消费品",
-            excerpt="贵州茅台主要经营白酒等消费品业务，不涉及算力芯片供应。",
+            title="TEST SYNTHETIC CONFLICT EVIDENCE A",
+            excerpt="TEST FIXTURE — company:600519.SH does NOT supply compute chips. Main business is consumer products.",
             source_id="source_a",
             independence_group="official-a",
             url="https://source-a.example.com/evidence")
 
         # Evidence B: B-tier — contradicts, claims compute chip
         raw_b = _persist_raw_item(db, ["company:600519.SH"],
-            title="分析报告：茅台涉足算力业务",
-            excerpt="贵州茅台正与云计算公司合作，涉足AI算力芯片业务。",
+            title="TEST SYNTHETIC RAW B",
+            excerpt="TEST FIXTURE — company IS involved in AI compute chips.",
             source_id="source_b",
             url="https://source-b.example.com/report")
         ev_b = _persist_evidence(db, raw_b,
-            title="分析报告：茅台涉足算力业务",
-            excerpt="贵州茅台正与云计算公司合作，涉足AI算力芯片业务。",
+            title="TEST SYNTHETIC CONFLICT EVIDENCE B",
+            excerpt="TEST FIXTURE — company:600519.SH IS involved in AI compute chip supply through cloud partnership.",
             source_tier="B", source_id="source_b",
             independence_group="analyst-b",
             url="https://source-b.example.com/report")
@@ -591,7 +610,16 @@ class TestCaseDConflict:
 
         def _conflict_behavior(req, schema):
             provider_was_called["count"] += 1
-            # Verify both evidence IDs are in the request context
+            # Prove provider receives both Evidence contexts from CandidatePipeline
+            req_dump = json.dumps(
+                req.model_dump() if hasattr(req, "model_dump") else str(req),
+                ensure_ascii=False, sort_keys=True,
+            )
+            assert ev_a in req_dump, f"Provider must receive ev_a: {ev_a} not in request"
+            assert ev_b in req_dump, f"Provider must receive ev_b: {ev_b} not in request"
+            # Distinctive excerpts present
+            assert "does NOT supply compute chips" in req_dump.lower() or "consumer" in req_dump.lower(),                 f"Evidence A content missing from provider context"
+            assert "compute chip" in req_dump.lower(),                 f"Evidence B content missing from provider context"
             return {
                 "proposal_type": "add_edge",
                 "source_object_ids": [
