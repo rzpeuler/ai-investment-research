@@ -6,8 +6,9 @@ ThemeDiscoveryScenarioRunner 是编排层 adapter：
 核心约束：
 - as_of 必填（禁止默认 now()），fail-closed，保证审计可追溯
 - 在 pipeline 执行前写入 theme_discovery_request.json artifact（血缘：Task=Plan=Request=Run=Result）
-- Pydantic 构造 + validated_payload 双重校验，schema fail-closed（errors ≠ [] 则 raise ValueError）
+- Pydantic 构造 + validate_instance 双重校验，schema fail-closed（errors ≠ [] 则 raise ValueError）
 - 不提供 _default_as_of 辅助函数
+- discovery_mode 透传 verbatim：graph_based / evidence_driven / keyword_sweep / peer_diffusion
 """
 from __future__ import annotations
 
@@ -15,15 +16,6 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
-
-# ── pipeline discovery_mode → schema discovery_mode 映射 ──
-_PIPELINE_TO_SCHEMA_MODE: Dict[str, str] = {
-    "graph_based": "scanning",
-    "keyword_sweep": "scanning",
-    "evidence_driven": "scanning",
-    "peer_diffusion": "monitoring",
-}
-
 
 class ThemeDiscoveryScenarioRunner:
     """主题发现 ScenarioRunner。
@@ -122,19 +114,19 @@ class ThemeDiscoveryScenarioRunner:
         """执行主题发现编排流程。
 
         1. 创建运行目录并写入 task/plan
-        2. Pydantic 构造 ThemeDiscoveryRequest → validated_payload → 写入 artifact
+        2. Pydantic 构造 ThemeDiscoveryRequest → validate_instance → 写入 artifact
         3. Schema fail-closed（errors ≠ [] 则 raise ValueError）
         4. 调用 ThemeDiscoveryPipeline.run(DICT)
-        5. Pydantic 构造 ThemeDiscoveryRun → validated_payload → 写入 artifact
+        5. Pydantic 构造 ThemeDiscoveryRun → validate_instance → 写入 artifact
         6. 写入产出报告，返回 ScenarioExecutionResult
         """
-        from research_os.brief import validated_payload
         from research_os.models import ThemeDiscoveryRequest, ThemeDiscoveryRun
         from research_os.orchestrator.run_directory import RunDirectory
         from research_os.storage import Database
         from research_os.theme_discovery.pipeline import ThemeDiscoveryPipeline
         from research_os.utils.id import new_uuid
         from research_os.utils.time import now_iso
+        from research_os.validators.schema_validator import validate_instance
 
         root: Path = context["project_root"]
         task = context["task"]
@@ -158,15 +150,14 @@ class ThemeDiscoveryScenarioRunner:
         run_dir.write_task(task.model_dump())
         run_dir.write_plan(context["plan"].model_dump())
 
-        # ----- 2. Pydantic 构造请求 → validated_payload → fail-closed 写入 artifact -----
-        schema_mode = _PIPELINE_TO_SCHEMA_MODE.get(discovery_mode, "scanning")
+        # ----- 2. Pydantic 构造请求 → validate_instance → fail-closed 写入 artifact -----
         request_id = new_uuid()
         requested_at = now_iso()
         request_model = ThemeDiscoveryRequest(
             request_id=request_id,
             task_id=task.task_id,
             as_of=request["as_of"],
-            discovery_mode=schema_mode,
+            discovery_mode=discovery_mode,
             industry_ids=list(request.get("industry_ids") or []),
             keywords=list(request.get("keywords") or []),
             depth=request.get("depth", "standard"),
@@ -179,8 +170,11 @@ class ThemeDiscoveryScenarioRunner:
             requested_at=requested_at,
             version=1,
         )
-        run_dir.write_json("theme_discovery_request.json",
-                           validated_payload(request_model, "theme_discovery_request"))
+        _payload = request_model.model_dump()
+        _errs = validate_instance(_payload, "theme_discovery_request")
+        if _errs:
+            raise ValueError(f"theme_discovery_request schema fail-closed: {_errs}")
+        run_dir.write_json("theme_discovery_request.json", _payload)
 
         # ----- 3. 调用 ThemeDiscoveryPipeline -----
         ephemeral_db = None
@@ -196,18 +190,19 @@ class ThemeDiscoveryScenarioRunner:
                 "discovery_mode": discovery_mode,
                 "industry_ids": request.get("industry_ids", []),
                 "keywords": request.get("keywords", []),
+                "task_id": task.task_id,
             })
         finally:
             if ephemeral_db is not None:
                 ephemeral_db.close()
 
-        # ----- 4. Pydantic 构造运行记录 → validated_payload → 写入 artifact -----
+        # ----- 4. Pydantic 构造运行记录 → validate_instance → 写入 artifact -----
         run_model = ThemeDiscoveryRun(
             run_id=outcome.run_id,
             request_id=request_id,
             task_id=task.task_id,
             as_of=request["as_of"],
-            discovery_mode=schema_mode,
+            discovery_mode=discovery_mode,
             status=outcome.status,
             themes_discovered=len(outcome.themes),
             sort_metrics_count=getattr(outcome, "sort_metrics_count", 0),
@@ -218,8 +213,11 @@ class ThemeDiscoveryScenarioRunner:
             data_degraded=bool(getattr(outcome, "data_degraded", False)),
             version=1,
         )
-        run_dir.write_json("theme_discovery_run.json",
-                           validated_payload(run_model, "theme_discovery_run"))
+        _rpayload = run_model.model_dump()
+        _rerrs = validate_instance(_rpayload, "theme_discovery_run")
+        if _rerrs:
+            raise ValueError(f"theme_discovery_run schema fail-closed: {_rerrs}")
+        run_dir.write_json("theme_discovery_run.json", _rpayload)
 
         # ----- 5. 写入产出报告 -----
         report_path = None

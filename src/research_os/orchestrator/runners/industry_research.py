@@ -6,7 +6,7 @@ IndustryResearchScenarioRunner 是编排层 adapter：
 核心约束：
 - as_of 必填（禁止默认 now()），保证审计可追溯，fail-closed
 - 在 pipeline 执行前写入 industry_research_request.json artifact（血缘：Task=Plan=Request=Run=Result）
-- Pydantic 构造 + validated_payload 双重校验，schema fail-closed（errors ≠ [] 则 raise ValueError）
+- Pydantic 构造 + validate_instance 双重校验，schema fail-closed（errors ≠ [] 则 raise ValueError）
 """
 from __future__ import annotations
 
@@ -14,6 +14,21 @@ from pathlib import Path
 from typing import Any, Dict
 
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
+
+
+def _validated_payload(model: Any, schema_name: str) -> dict:
+    """Pydantic model_dump → authoritative JSON Schema validation → fail-closed.
+
+    Raises ValueError if schema validation fails.  Artifact must not be persisted
+    on the success path until this passes.
+    """
+    from research_os.validators.schema_validator import validate_instance
+
+    payload = model.model_dump()
+    errors = validate_instance(payload, schema_name)
+    if errors:
+        raise ValueError(f"Schema validation failed for {schema_name}: {errors}")
+    return payload
 
 
 class IndustryResearchScenarioRunner:
@@ -103,13 +118,12 @@ class IndustryResearchScenarioRunner:
         """执行行业研究编排流程。
 
         1. 创建 RunDirectory 并写入 task/plan
-        2. Pydantic 构造 IndustryResearchRequest → validated_payload → 写入 artifact
+        2. Pydantic 构造 IndustryResearchRequest → validate_instance → 写入 artifact
         3. Schema fail-closed（errors ≠ [] 则 raise ValueError）
         4. 调用 pipeline.run(dict)
-        5. Pydantic 构造 IndustryResearchRun → validated_payload → 写入 artifact
+        5. Pydantic 构造 IndustryResearchRun → validate_instance → 写入 artifact
         6. 返回 ScenarioExecutionResult
         """
-        from research_os.brief import validated_payload
         from research_os.industry_research.pipeline import IndustryResearchPipeline
         from research_os.models import IndustryResearchRequest, IndustryResearchRun
         from research_os.orchestrator.run_directory import RunDirectory
@@ -140,7 +154,7 @@ class IndustryResearchScenarioRunner:
         run_dir.write_task(task.model_dump())
         run_dir.write_plan(context["plan"].model_dump())
 
-        # 2. Pydantic 构造请求 → validated_payload → fail-closed 写入 artifact
+        # 2. Pydantic 构造请求 → validate_instance → fail-closed 写入 artifact
         requested_at = now_iso()
         request_id = new_uuid()
         request_model = IndustryResearchRequest(
@@ -149,18 +163,22 @@ class IndustryResearchScenarioRunner:
             industry_id=request["industry_id"],
             industry_name=request["industry_name"],
             as_of=request["as_of"],
+            as_of_basis=request.get("as_of_basis", "user_provided"),
+            timezone=request.get("timezone", "Asia/Shanghai"),
             depth=request["depth"],
+            deterministic_only=bool(request.get("deterministic_only", True)),
             live=bool(request.get("live", False)),
             dry_run=False,
             force=bool(request.get("force", False)),
             source_policy=request.get("source_policy", "public_first"),
             status="validated",
             warnings=list(request.get("warnings") or []),
+            rule_versions=dict(request.get("rule_versions") or {}),
             requested_at=requested_at,
             version=int(request.get("version", 1)),
         )
         run_dir.write_json("industry_research_request.json",
-                           validated_payload(request_model, "industry_research_request"))
+                           _validated_payload(request_model, "industry_research_request"))
 
         # 3. 调用 IndustryResearchPipeline
         ephemeral_db = None
@@ -183,27 +201,43 @@ class IndustryResearchScenarioRunner:
             if ephemeral_db is not None:
                 ephemeral_db.close()
 
-        # 4. Pydantic 构造运行记录 → validated_payload → 写入 artifact
+        # 4. Pydantic 构造运行记录 → validate_instance → 写入 artifact
+        run_id = outcome.run_id
+        started_at = requested_at
         run_model = IndustryResearchRun(
-            run_id=outcome.run_id,
+            run_id=run_id,
             request_id=request_id,
             task_id=task.task_id,
             industry_id=request["industry_id"],
+            industry_name=request.get("industry_name", request.get("industry_id", "")),
             as_of=request["as_of"],
             depth=request["depth"],
+            idempotency_key=f"{task.task_id}:{request['industry_id']}:{request['as_of']}",
+            run_version=1,
+            started_at=started_at,
+            finished_at=now_iso() if outcome.status in ("success", "partial_success", "degraded", "failed") else None,
             status=outcome.status,
+            stage_statuses=[],
+            artifact_paths=[
+                str(run_dir.root / "industry_research_request.json"),
+                str(run_dir.root / "industry_research_run.json"),
+            ],
+            input_versions={"pipeline_version": "1.0.0"},
+            model_route_summary=outcome.model_route if outcome.model_route else {},
+            validation_status="pending",
+            error_codes=[],
+            warnings=list(outcome.warnings),
+            missing_data=list(outcome.missing_data),
             findings_count=len(outcome.findings) if outcome.findings else 0,
             dimensions_covered=list(outcome.dimensions_covered),
             dimensions_missing=list(outcome.dimensions_missing),
-            report_path=str(run_dir.final_md) if outcome.markdown else None,
-            warnings=list(outcome.warnings),
-            missing_data=list(outcome.missing_data),
+            evidence_quality=dict(outcome.evidence_quality) if outcome.evidence_quality else {},
             model_route=dict(outcome.model_route) if outcome.model_route else {},
             data_degraded=bool(outcome.data_degraded),
             version=1,
         )
         run_dir.write_json("industry_research_run.json",
-                           validated_payload(run_model, "industry_research_run"))
+                           _validated_payload(run_model, "industry_research_run"))
 
         # 5. 写入产出报告
         report_path = None

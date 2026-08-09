@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import Field, field_validator
 
-from research_os.models.core import SourcePolicy, StrictModel, TaskDepth
+from research_os.models.core import StrictModel
 from research_os.utils.time import validate_iso
 
 
@@ -35,21 +35,25 @@ class IndustryResearchRequest(StrictModel):
     task_id: str
     industry_id: str = Field(..., min_length=1)
     industry_name: str = ""
-    as_of: Optional[str] = None
-    depth: TaskDepth = "standard"
+    as_of: str
+    as_of_basis: str = "user_provided"
+    timezone: str = "Asia/Shanghai"
+    depth: str = "standard"
+    deterministic_only: bool = False
     live: bool = False
     dry_run: bool = False
     force: bool = False
-    source_policy: SourcePolicy = "public_first"
+    source_policy: str = "public_first"
     status: str = "planned"
     warnings: List[str] = Field(default_factory=list)
+    rule_versions: Dict[str, Any] = Field(default_factory=dict)
     requested_at: str
     version: int = Field(1, ge=1)
 
     @field_validator("as_of")
     @classmethod
-    def _as_of_v(cls, value: Optional[str]) -> Optional[str]:
-        return _iso_opt(value)
+    def _as_of_v(cls, value: str) -> str:
+        return _iso(value)
 
     @field_validator("requested_at")
     @classmethod
@@ -63,23 +67,44 @@ class IndustryResearchRun(StrictModel):
     run_id: str
     request_id: str
     task_id: str
-    industry_id: str = Field(..., min_length=1)
-    as_of: Optional[str] = None
-    depth: TaskDepth = "standard"
+    industry_id: str = ""
+    industry_name: str = ""
+    as_of: str
+    depth: str = "standard"
+    idempotency_key: str
+    run_version: int = Field(1, ge=1)
+    started_at: str
+    finished_at: Optional[str] = None
     status: str = "running"
+    stage_statuses: List[Dict[str, Any]] = Field(default_factory=list)
+    artifact_paths: List[str] = Field(default_factory=list)
+    input_versions: Dict[str, Any] = Field(default_factory=dict)
+    model_route_summary: Dict[str, Any] = Field(default_factory=dict)
+    validation_status: str = "pending"
+    error_codes: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    missing_data: List[str] = Field(default_factory=list)
     findings_count: int = Field(0, ge=0)
     dimensions_covered: List[str] = Field(default_factory=list)
     dimensions_missing: List[str] = Field(default_factory=list)
-    report_path: Optional[str] = None
-    warnings: List[str] = Field(default_factory=list)
-    missing_data: List[str] = Field(default_factory=list)
+    evidence_quality: Dict[str, Any] = Field(default_factory=dict)
     model_route: Dict[str, Any] = Field(default_factory=dict)
     data_degraded: bool = False
     version: int = Field(1, ge=1)
 
     @field_validator("as_of")
     @classmethod
-    def _as_of_v(cls, value: Optional[str]) -> Optional[str]:
+    def _as_of_v(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("started_at")
+    @classmethod
+    def _started_at_v(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("finished_at")
+    @classmethod
+    def _finished_at_v(cls, value: Optional[str]) -> Optional[str]:
         return _iso_opt(value)
 
 
@@ -88,24 +113,28 @@ class ThemeDiscoveryRequest(StrictModel):
 
     request_id: str
     task_id: str
-    as_of: Optional[str] = None
-    discovery_mode: str = "scanning"
+    theme_triggers: List[Dict[str, str]] = Field(..., min_length=1)
+    as_of: str
+    as_of_basis: str = "user_provided"
+    timezone: str = "Asia/Shanghai"
+    depth: str = "standard"
+    discovery_mode: str = "graph_based"
     industry_ids: List[str] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
-    depth: TaskDepth = "standard"
     live: bool = False
     dry_run: bool = False
     force: bool = False
-    source_policy: SourcePolicy = "public_first"
+    source_policy: str = "public_first"
     status: str = "planned"
     warnings: List[str] = Field(default_factory=list)
+    rule_versions: Dict[str, Any] = Field(default_factory=dict)
     requested_at: str
     version: int = Field(1, ge=1)
 
     @field_validator("as_of")
     @classmethod
-    def _as_of_v(cls, value: Optional[str]) -> Optional[str]:
-        return _iso_opt(value)
+    def _as_of_v(cls, value: str) -> str:
+        return _iso(value)
 
     @field_validator("requested_at")
     @classmethod
@@ -119,19 +148,38 @@ class ThemeDiscoveryRun(StrictModel):
     run_id: str
     request_id: str
     task_id: str
-    as_of: Optional[str] = None
-    discovery_mode: str = "scanning"
+    as_of: str
+    discovery_mode: str = "graph_based"
+    idempotency_key: str
+    run_version: int = Field(1, ge=1)
+    started_at: str
+    finished_at: Optional[str] = None
     status: str = "running"
-    themes_discovered: int = Field(0, ge=0)
-    sort_metrics_count: int = Field(0, ge=0)
-    report_path: Optional[str] = None
+    stage_statuses: List[Dict[str, Any]] = Field(default_factory=list)
+    artifact_paths: List[str] = Field(default_factory=list)
+    input_versions: Dict[str, Any] = Field(default_factory=dict)
+    model_route_summary: Dict[str, Any] = Field(default_factory=dict)
+    validation_status: str = "pending"
+    error_codes: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     missing_data: List[str] = Field(default_factory=list)
+    themes_discovered: int = Field(0, ge=0)
+    industry_ids: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
     model_route: Dict[str, Any] = Field(default_factory=dict)
-    data_degraded: bool = False
     version: int = Field(1, ge=1)
 
     @field_validator("as_of")
     @classmethod
-    def _as_of_v(cls, value: Optional[str]) -> Optional[str]:
+    def _as_of_v(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("started_at")
+    @classmethod
+    def _started_at_v(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("finished_at")
+    @classmethod
+    def _finished_at_v(cls, value: Optional[str]) -> Optional[str]:
         return _iso_opt(value)

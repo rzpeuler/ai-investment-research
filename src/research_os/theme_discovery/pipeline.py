@@ -10,6 +10,23 @@ Phase 6A ThemeDiscoveryPipeline — 确定性只读，零 LLM / 零 Provider / �
 - Lifecycle 仅使用 THEME_LIFECYCLE_STATES:
   forming / supported / weakening / invalidated / uncertain
 - as_of 必填
+
+阶段顺序（R1-5）：
+  1. Scan Triggers — 用公开 API 扫描触发信号
+  2. Cluster Triggers — 将触发信号聚类为主题假设
+  3. Evidence Reload — 从权威 Evidence 存储重载并校验
+  4. Support/Counter/Limitations — 填充证据分析字段
+  5. Detect Lifecycle — 基于已验证证据检测生命周期
+  6. Compute Metrics — 计算每个主题的 12 项 ResearchSortMetrics
+  7. Determine Status — 设置 result.status
+  8. Render Report — 生成结构化 Markdown 报告
+
+禁止：
+  - _query_graph_locked（私有 Graph API）
+  - self.db._conn.execute（直接 SQL）
+  - 任何 LLM / Provider / Network 调用
+  - 原始图引用作为 support（仅权威 Evidence 存储）
+  - MODEL_INFERENCE 作为 support
 """
 from __future__ import annotations
 
@@ -33,19 +50,22 @@ from research_os.utils.time import now_iso, validate_iso
 class ThemeDiscoveryPipeline:
     """主题发现流水线（确定性核心，零 LLM）。
 
-    七阶段：
+    阶段顺序（R1-5）：
       1. Scan Triggers — 用公开 API 扫描触发信号
       2. Cluster Triggers — 将触发信号聚类为主题假设
-      3. Detect Lifecycle — 检测每个主题的生命周期阶段
-      4. Populate Evidence Analysis — 填充支持/反对证据与分析字段
-      5. Compute Metrics — 计算每个主题的 12 项 ResearchSortMetrics
-      6. Write Themes & Metrics — 写入结果对象（先于 render）
-      7. Render Report — 生成结构化 Markdown 报告
+      3. Evidence Reload — 从权威 Evidence 存储重载并校验
+      4. Support/Counter/Limitations — 填充证据分析字段
+      5. Detect Lifecycle — 基于已验证证据检测生命周期
+      6. Compute Metrics — 计算每个主题的 12 项 ResearchSortMetrics
+      7. Determine Status — 设置 result.status
+      8. Render Report — 生成结构化 Markdown 报告
 
     禁止：
       - _query_graph_locked（私有 Graph API）
       - self.db._conn.execute（直接 SQL）
       - 任何 LLM / Provider / Network 调用
+      - 原始图引用作为 support（仅权威 Evidence 存储）
+      - MODEL_INFERENCE 作为 support
     """
 
     def __init__(
@@ -93,11 +113,11 @@ class ThemeDiscoveryPipeline:
             as_of=as_of_str, discovery_mode=discovery_mode,
         )
 
-        # Stage 1: Scan Triggers
+        # ── Stage 1: Scan Triggers ──
         triggers = self._scan_triggers(as_of_str, discovery_mode, industry_ids, keywords)
         result.triggers = triggers
 
-        # S2-5: evidence_driven / peer_diffusion 无公开 API → degraded
+        # capability_unavailable → degraded
         if discovery_mode in ("evidence_driven", "peer_diffusion"):
             result.status = "degraded"
             result.data_degraded = True
@@ -112,6 +132,7 @@ class ThemeDiscoveryPipeline:
             result.markdown = self._render_report(result)
             return result
 
+        # no_eligible_evidence → insufficient_evidence
         if not triggers:
             result.status = "insufficient_evidence"
             result.exit_code = 4
@@ -121,29 +142,29 @@ class ThemeDiscoveryPipeline:
             result.markdown = self._render_report(result)
             return result
 
-        # Stage 2: Cluster triggers into ThemeHypothesis objects
+        # ── Stage 2: Cluster triggers → ThemeHypothesis ──
         themes = self._cluster_triggers(triggers, as_of_str)
 
-        # Stage 3: Detect lifecycle
-        for theme in themes:
-            theme.lifecycle_state = self._detect_lifecycle(theme)
-
-        # Stage 4: Populate evidence analysis
+        # ── Stage 3: Evidence Reload + Stage 4: Support/Counter/Limitations ──
         for theme in themes:
             self._populate_evidence_analysis(theme, as_of_str)
 
-        # Stage 5: Compute metrics
+        # ── Stage 5: Detect Lifecycle（基于已验证证据）──
+        for theme in themes:
+            theme.lifecycle_state = self._detect_lifecycle(theme)
+
+        # ── Stage 6: Compute Metrics ──
         sort_metrics: Dict[str, ResearchSortMetrics] = {}
         for theme in themes:
             sort_metrics[theme.hypothesis_id] = self._compute_metrics(theme)
 
-        # Stage 6: Write themes + metrics to result BEFORE render
+        # ── Stage 7: Write themes + metrics, determine status BEFORE render ──
         result.themes = themes
         result.sort_metrics = sort_metrics
 
-        # Stage 7: Render report
-        result.markdown = self._render_report(result)
-
+        # Status mapping (R1-7): capability_unavailable→degraded,
+        # no_eligible_evidence→insufficient_evidence,
+        # evidence_backed_but_no_llm→partial_success
         has_valid_evidence = any(
             t.supporting_evidence_ids for t in themes
         )
@@ -152,6 +173,9 @@ class ThemeDiscoveryPipeline:
         result.model_route = {"mode": "deterministic_fallback", "llm_called": False}
         result.exit_code = 0
         result.message = f"Discovered {len(themes)} themes (mode={discovery_mode})"
+
+        # ── Stage 8: Render Report ──
+        result.markdown = self._render_report(result)
         return result
 
     # ═══════════════════════════════════════════════════════════════
@@ -360,31 +384,37 @@ class ThemeDiscoveryPipeline:
         )
 
     # ═══════════════════════════════════════════════════════════════
-    # Stage 3: Detect Lifecycle
+    # Stage 5: Detect Lifecycle（基于已验证证据）
     # ═══════════════════════════════════════════════════════════════
 
     def _detect_lifecycle(self, theme: ThemeHypothesis) -> str:
         """确定性生命周期检测（仅 THEME_LIFECYCLE_STATES 词汇）。
 
-        规则：invalidating_conditions → invalidated；
-              counter_evidence → weakening；
-              3+ triggers with evidence → supported；
-              有 trigger 无充分证据 → forming；
-              其余 → uncertain。
+        规则（按优先级，R1-6）：
+          1. 有权威 supporting evidence → supported
+          2. 有权威 counter evidence → weakening
+          3. 有 verified actual invalidation → invalidated
+          4. 有 trigger 但无 qualifying evidence → forming
+          5. 其余 → uncertain
+
+        invalidating_conditions ≠ invalidated；不因存在 invalidating_conditions
+        即判定为 invalidated。
         """
-        if theme.invalidating_conditions:
-            return "invalidated"
+        # Has authoritative supporting evidence (validated via evidence chain)
+        if theme.supporting_evidence_ids:
+            return "supported"
+        # Has authoritative counter evidence
         if theme.counter_evidence_ids:
             return "weakening"
-        trigs_with_ev = [t for t in theme.triggers if t.evidence_ids]
-        if len(trigs_with_ev) >= 3:
-            return "supported"
+        # verified actual invalidation: requires authoritative external source
+        # (not reachable in deterministic-only mode without explicit Evidence flag)
+        # Has trigger but no qualifying evidence
         if theme.triggers:
             return "forming"
         return "uncertain"
 
     # ═══════════════════════════════════════════════════════════════
-    # Stage 4: Populate Evidence Analysis
+    # Stages 3-4: Evidence Reload + Support/Counter/Limitations
     # ═══════════════════════════════════════════════════════════════
 
     def _populate_evidence_analysis(self, theme: ThemeHypothesis, as_of: str) -> None:
@@ -400,12 +430,47 @@ class ThemeDiscoveryPipeline:
             ev_set.update(t.evidence_ids)
         all_candidate_ids = sorted(ev_set)
 
-        if all_candidate_ids and self.db is not None:
+        # R1-20: db=None → fail-closed：清空 supporting_evidence_ids，
+        # 添加 authoritative_evidence_store_unavailable limitation。
+        if self.db is None:
+            theme.supporting_evidence_ids = []
+            theme.limitations.append("authoritative_evidence_store_unavailable")
+        elif all_candidate_ids:
             chain = validate_evidence_ids_chain(all_candidate_ids, self.db, as_of)
-            theme.supporting_evidence_ids = chain["valid"]
-            # 缺失/不合格证据记录为 missing_data 层面问题（warnings 由 run() 汇总）
+            valid_raw = chain["valid"]
+
+            # R1-21: industry_tags intersection — 若 Evidence 含 industry_tags
+            # 且 theme 有 industry_mapping，仅保留 industry_tags 与
+            # theme industry_ids 有交集的 evidence。
+            if valid_raw and theme.industry_mapping:
+                theme_ind_ids = {
+                    im.get("industry_id", "") for im in theme.industry_mapping
+                    if im.get("industry_id")
+                }
+                if theme_ind_ids:
+                    filtered: List[str] = []
+                    for eid in valid_raw:
+                        try:
+                            ev = self.db.get("evidence", eid)
+                        except Exception:
+                            continue
+                        if ev is None:
+                            continue
+                        ev_tags = ev.get("industry_tags")
+                        if ev_tags is None:
+                            # 无 industry_tags → 无法判定，保留
+                            filtered.append(eid)
+                        elif isinstance(ev_tags, list) and theme_ind_ids.intersection(ev_tags):
+                            filtered.append(eid)
+                        # else: industry_tags 存在但无交集 → 排除
+                    theme.supporting_evidence_ids = filtered
+                else:
+                    theme.supporting_evidence_ids = valid_raw
+            else:
+                theme.supporting_evidence_ids = valid_raw
+
+            # 缺失/不合格证据记录为 limitations
             if chain["missing"] or chain["invalid"]:
-                # 将排除原因写入 limitations
                 for eid in chain["missing"]:
                     theme.limitations.append(
                         f"evidence {eid} 不存在（图谱指针悬挂）")
@@ -484,7 +549,7 @@ class ThemeDiscoveryPipeline:
             theme.open_questions = qs
 
     # ═══════════════════════════════════════════════════════════════
-    # Stage 5: Compute Metrics（全部 12 项 ResearchSortMetrics）
+    # Stage 6: Compute Metrics（全部 12 项 ResearchSortMetrics）
     # ═══════════════════════════════════════════════════════════════
 
     def _compute_metrics(self, theme: ThemeHypothesis) -> ResearchSortMetrics:
@@ -578,7 +643,7 @@ class ThemeDiscoveryPipeline:
         return "stable"
 
     # ═══════════════════════════════════════════════════════════════
-    # Stage 7: Render Report
+    # Stage 8: Render Report
     # ═══════════════════════════════════════════════════════════════
 
     def _render_report(self, result: ThemeDiscoveryResult) -> str:
