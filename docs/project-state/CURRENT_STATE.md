@@ -1,6 +1,6 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-09（Phase5 closed / PR5C + governance hotfix merged；P6-G0 顶层设计治理冻结）
+> 更新日期：2026-08-09
 > 权威规范：`docs/engineering-guide.md` V1.2
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -123,3 +123,21 @@ M6 Deterministic Apply Engine 已通过独立验收（SHA `480b209`，CI `312573
 M7 Supersede / Expire / History 已通过独立验收（SHA `651e9a1`，CI `31262745492`，1911 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
 M8 Query + Knowledge Context Builder 已通过独立验收（SHA `eac18e26fd9696094d3bfe5edbe662c84731c106`，Offline CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas，DB v6 不变），状态 PASS。
 PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQUASH (master `1e1d4f9`)。Post-merge governance hotfix #7 MERGED (master `2c55c55`)。Phase5 CLOSED / PASS。
+
+## Phase 6
+
+| Milestone | Status |
+|---|---|
+| P6-G0 Top-Level Design | FROZEN / APPROVED |
+| P6-F0 Shared Contract | FROZEN / APPROVED |
+| P6-S0 Serial Governance Reset | IN PROGRESS |
+| P6-S1 6B Final Closure | NOT_AUTHORIZED |
+| P6-S2 6A Final Closure | NOT_AUTHORIZED |
+| P6-S3 Earnings Expectation | NOT_AUTHORIZED |
+| P6-S4 First Coverage | NOT_AUTHORIZED |
+| P6-S5 Central Enablement | NOT_AUTHORIZED |
+| P6-S6 Governance Closeout | NOT_AUTHORIZED |
+
+Parallel Phase6 development: CANCELLED
+Serial milestone gating: ACTIVE (P6-S0 only)
+Phase6 business code on master: NONE

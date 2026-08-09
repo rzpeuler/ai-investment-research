@@ -1,9 +1,9 @@
 # Phase 6 Shared Contract（P6-F0 冻结）
 
-> 状态：**FROZEN（2026-08-09）**
+> 状态：**FROZEN → UPDATED for Serial (2026-08-09)**
 > 依据：`docs/engineering-guide.md` V1.2（第 69 节）、`docs/project-state/DECISIONS.md` #41、
 > `docs/tasks/phase6-research-workflows.md`（P6-F0 里程碑）。
-> 用途：6A / 6B / 6C-PREP 三个业务 Track 并行开发的**唯一共享边界**。
+> 用途：6A / 6B / 6C 三个业务 Track 串行开发的**唯一共享边界**。
 > 三个 Track 的 Agent 只需读取本文件 + engineering-guide V1.2 + Phase 6 taskbook，
 > 即可确定自己的共享边界。
 > 本文件只冻结契约，不实现任何 Phase 6 业务研究能力。
@@ -25,11 +25,11 @@ F0 回答四个问题：
 
 ```text
 契约串行冻结
-+ 业务 Track 并行
-+ 共享控制面串行 enablement
++ 业务 Track 串行（按 S1→S2→S3→S4 顺序）
++ 共享控制面串行 enablement（P6-S5）
 ```
 
-F0 PASS 后 6A implementation、6B implementation、6C-PREP 才允许同时开始；
+F0 PASS 后各 Track 按串行顺序依次开始（S1→S2→S3→S4），不得同时进行；
 F0 本身不实现业务研究能力。
 
 ## 2. 七个 Scenario ID（FROZEN）
@@ -124,7 +124,7 @@ Orchestrator `_finalize_execution` / `_validate_business_lineage` 已机械校�
 
 ## 7. Shared-file Ownership（CONFLICT ZONE，FROZEN）
 
-业务 Track 并行阶段默认**不得修改**以下文件。任何 Track 认为必须修改时：
+业务 Track 串行阶段默认**不得修改**以下文件。任何 Track 认为必须修改时：
 
 ```text
 STOP → shared contract change proposal → 串行审查
@@ -163,8 +163,8 @@ src/research_os/knowledge/context_builder.py
 - ontology 允许目录下存在各 Track 只读引用，但新增/修改 node type、relation、
   seed 内容均受 §25 Ontology Gate 约束。
 
-中央注册（`runners/__init__.py`）统一留给后续 serial enablement（P6-I0 阶段），
-业务 Track 不得为让自己 Runner 工作而提前修改。
+中央注册（`runners/__init__.py`）统一留给后续 serial enablement（P6-S5 阶段），
+业务 Track 不得为让自己 Runner 工作而提前修改。CONFLICT ZONE 文件保持现状，任何修改须经串行门控（仅 P6-S5）。
 
 ## 8. Request / Run / Result Artifact Naming（FROZEN）
 

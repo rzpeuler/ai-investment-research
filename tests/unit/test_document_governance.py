@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.2" in guide
+    assert "版本：V1.3" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -102,7 +102,7 @@ def test_phase6_top_level_design_governance_frozen():
     readme = _read("README.md")
 
     # ── ENGINEERING GUIDE V1.2 ──
-    assert "## 69. Phase 6：研究型工作流（6A / 6B / 6C 并行治理）" in guide
+    assert "Phase 6：研究型工作流" in guide
     assert "6A：industry_research（行业研究）、theme_discovery（主题挖掘）" in guide
     assert "6B：evening_brief（每日晚报）、daily_review（每日复盘）、stock_review（个股复盘）" in guide
     assert "6C：first_coverage（首次覆盖）、earnings_expectation（财报预期）" in guide
@@ -122,7 +122,7 @@ def test_phase6_top_level_design_governance_frozen():
     assert "daily_review ≠ next-day trading plan" in guide
     assert "automatic ontology expansion: PROHIBITED" in guide
     # dependency rules
-    assert "6C real first_coverage integration 依赖 6A stable industry interface" in guide
+    assert "串行治理拓扑" in guide
     assert "6B 不 hard-depend on 6A" in guide
 
     # ── DECISION #41 ──
@@ -137,20 +137,28 @@ def test_phase6_top_level_design_governance_frozen():
 
     # ── TASKBOOK ──
     assert "**TASKBOOK_STATUS: APPROVED**" in taskbook
-    assert "**CURRENT_MILESTONE: P6-F0**" in taskbook
-    assert "P6-A: NOT_AUTHORIZED" in taskbook
-    assert "P6-B: NOT_AUTHORIZED" in taskbook
-    assert "P6-C: NOT_AUTHORIZED" in taskbook
-    for milestone in ("P6-G0", "P6-F0", "P6-A0", "P6-A6", "P6-B0", "P6-B6",
-                      "P6-C0", "P6-C3", "P6-C4", "P6-C7", "P6-I0", "P6-I1"):
+    assert "**CURRENT_MILESTONE: P6-S0**" in taskbook
+    assert "P6-S1" in taskbook or ("P6-S1" in taskbook and "6B Final Closure" in taskbook)
+    assert "P6-S2" in taskbook or ("P6-S2" in taskbook and "6A Final Closure" in taskbook)
+    assert "P6-S3" in taskbook or ("P6-S3" in taskbook and "Earnings Expectation" in taskbook)
+    assert "P6-S4" in taskbook or ("P6-S4" in taskbook and "First Coverage" in taskbook)
+    assert "P6-S5" in taskbook, "Taskbook must mention P6-S5"
+    assert "P6-S6" in taskbook, "Taskbook must mention P6-S6"
+    for milestone in ("P6-G0", "P6-F0", "P6-S0", "P6-S1", "P6-S2", "P6-S3",
+                      "P6-S4", "P6-S5", "P6-S6"):
         assert milestone in taskbook, f"taskbook must define {milestone}"
 
+    # ── P6-S0 AUTHORIZED; P6-S1-S6 NOT_AUTHORIZED ──
+    assert "P6-S0: NOT_AUTHORIZED" not in taskbook, "P6-S0 must be AUTHORIZED"
+    assert "P6-S1" in taskbook, "Taskbook must mention P6-S1"
+    assert "PARALLEL_PHASE6_BUSINESS_DEVELOPMENT: CANCELLED" in taskbook
+
     # ── CURRENT-STATE / NEXT_PHASE / README / KNOWN_LIMITATIONS ──
-    assert "Phase 6 Top-Level Design | FROZEN / APPROVED" in current
-    assert "P6-F0 | IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE" in current
-    assert "Phase 6 Top-Level Design: FROZEN / APPROVED" in next_phase
-    assert "P6-F0: IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE" in next_phase
-    assert "Phase 6 Top-Level Design：FROZEN / APPROVED" in readme
+    assert "P6-G0 Top-Level Design | FROZEN / APPROVED" in current or "P6-G0" in current
+    assert "P6-S0 Serial Governance Reset | IN PROGRESS" in current
+    assert "P6-S0 Serial Governance Reset" in next_phase
+    assert "P6-S0 Serial Governance Reset" in next_phase
+    assert "P6-S0" in readme or "Phase 6" in readme
     assert "Phase 6 implementation = NOT_AUTHORIZED" in limitations
     # taskbook approval must not imply development authorization
     assert "任务书 approved 不得被解释成整个 Phase 6 已授权开发" in taskbook

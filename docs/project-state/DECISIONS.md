@@ -2024,3 +2024,70 @@ CENTRAL_PHASE6_ENABLEMENT: NONE
 ONTOLOGY_EXPANSION: NONE
 SOURCE_EXPANSION: NONE
 ```
+
+---
+
+## 43. Phase 6 Serial Recovery and Completion
+
+**Date**: 2026-08-09
+**Status**: FROZEN / APPROVED
+**Scope**: Phase 6 governance, milestone ordering, branch/worktree discipline
+
+### 43.1 Parallel Implementation Cancelled
+
+Phase 6 original topology (P6-G0 → P6-F0 → 6A+6B+6C-PREP parallel) is formally cancelled.
+Replaced by serial milestone gating:
+
+```text
+P6-S0  Serial Governance Reset
+   ↓
+P6-S1  6B Final Closure + Acceptance + Merge
+   ↓
+P6-S2  6A Final Closure + Acceptance + Merge
+   ↓
+P6-S3  Earnings Expectation
+   ↓
+P6-S4  First Coverage
+   ↓
+P6-S5  Central Enablement + Cross-Scenario Acceptance
+   ↓
+P6-S6  Governance Closeout
+```
+
+### 43.2 Serial Engineering Rules
+
+- MAX_ACTIVE_PHASE6_BUSINESS_BRANCHES = 1
+- MAX_ACTIVE_PHASE6_BUSINESS_WORKTREES = 1
+- Previous milestone must be PASS + MERGED before next milestone starts
+- Every milestone starts from latest accepted master
+- No parallel 6A/6B/6C execution
+- No cross-track cherry-pick
+- No stale worktree reuse
+
+### 43.3 6B → 6A → 6C Order Rationale
+
+6B (evening_brief/daily_review/stock_review) is closest to existing Phase2/3/4 capabilities
+and has existing implementation with passing CI. 6A requires Graph→Research infrastructure
+that benefits from 6B's schema registry integration being finalized first.
+6C depends on both 6A stable industry interface and Phase4 financial engines.
+
+### 43.4 evening_brief Redefinition
+
+Old (CANCELLED): evening_brief = morning-after incremental research with material_update,
+new_since_morning, already_known_in_morning, morning/evening cross-report dedup,
+早间预期验证, 市场反馈验证.
+
+New: evening_brief = morning_brief parity (same BriefPipeline), with only time window difference:
+- morning_brief: [D-1 20:00, D 08:00)
+- evening_brief: [D 08:00, D 20:00)
+
+### 43.5 Candidate Integration Deferred
+
+All Research→GraphChange Candidate integration remains DEFERRED.
+Central enablement deferred to P6-S5.
+Separate Phase 6.1 taskbook required for candidate integration.
+
+### 43.6 Abandoned 6C Workspace
+
+Previous local 6C workspace is ABANDONED. NOT a valid base.
+Future P6-S3/P6-S4 must start from fresh clean branch from then-current accepted master.
