@@ -243,6 +243,9 @@ def test_real_orchestrator_reuses_phase4_6a_and_s3(tmp_path, monkeypatch):
             item["component"]: item["status"] for item in run["component_statuses"]
         }
         assert component_statuses["industry_research"] == "partial_success"
+        report = (run_dir / "final.md").read_text("utf-8")
+        assert "Upstream status: degraded" in report
+        assert "First Coverage status: partial_success" in report
         assert run["peer_selection_id"] == "peer-1"
         assert run["peer_company_ids"] == ["company:600001.SH"]
         assert run["valuation_snapshot_id"] == "valuation-1"

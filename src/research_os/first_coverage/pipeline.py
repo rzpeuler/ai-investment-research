@@ -295,15 +295,29 @@ def _classify_industry_component(
             "interpreted it as degraded."
         )
         return "degraded", warnings, missing_data
-    if raw_status != "degraded":
-        return raw_status, warnings, missing_data
     if INDUSTRY_INFRASTRUCTURE_MISSING_DATA.intersection(missing_data):
         return "degraded", warnings, missing_data
     covered = list(getattr(industry_outcome, "dimensions_covered", []))
     missing = list(getattr(industry_outcome, "dimensions_missing", []))
+    if raw_status == "insufficient_evidence":
+        if covered:
+            warnings.append(
+                "Industry upstream raw status=insufficient_evidence conflicts "
+                "with post-revalidation covered dimensions; no authority upgrade "
+                "was applied."
+            )
+        return "insufficient_evidence", warnings, missing_data
+    if not covered and missing:
+        return "insufficient_evidence", warnings, missing_data
     if covered and missing:
         return "partial_success", warnings, missing_data
-    return "degraded", warnings, missing_data
+    if covered and not missing:
+        if raw_status == "success":
+            return "success", warnings, missing_data
+        if raw_status == "partial_success":
+            return "partial_success", warnings, missing_data
+        return "degraded", warnings, missing_data
+    return raw_status, warnings, missing_data
 
 
 def _reference_component_status(
@@ -362,12 +376,31 @@ def _finish_early(
     return outcome
 
 
+def _component_status(
+    outcome: FirstCoverageOutcome, component: str, default: str,
+) -> str:
+    """Read an already-classified component status for report rendering."""
+    return next(
+        (item.status for item in outcome.component_statuses
+         if item.component == component),
+        default,
+    )
+
+
 def _render(request: FirstCoverageRequest, outcome: FirstCoverageOutcome) -> str:
     cp, sp, p4 = outcome.company_profile, outcome.security_profile, outcome.phase4_result
     lines = ["---", f"report_id: first-coverage-{outcome.run_id}", "scenario: first_coverage", "title: First Coverage", f"created_at: '{now_iso()}'", f"as_of: '{request.as_of}'", "timezone: Asia/Shanghai", "entities:", f"  - '{request.company_entity_id}'", f"  - '{request.security_entity_id}'", "time_window:", f"  start: '{request.as_of[:10]}'", f"  end: '{request.as_of[:10]}'", f"data_status: {outcome.status}", "source_coverage:", f"  evidence_count: {len(outcome.evidence_ids)}", "model_route:", "  mode: deterministic_only", "  llm_called: false", "runtime_seconds: 0.0", "validator_status: pending", "knowledge_coordinates:", f"  as_of: '{request.as_of}'", "  assertion_type: MIXED", "---", "", "# First Coverage", "", "> Composition of accepted structured research; not a brokerage rating or trading instruction.", "", "## Company and Security", "", f"- Company profile: {cp['company_profile_id'] if cp else 'INSUFFICIENT_EVIDENCE'}", f"- Company: {cp['canonical_name'] if cp else request.company_entity_id}", f"- Security profile: {sp['security_profile_id'] if sp else 'INSUFFICIENT_EVIDENCE'}", "", "## Accepted Phase4 Baseline", "", f"- Result: {p4['result_id'] if p4 else 'INSUFFICIENT_EVIDENCE'}", f"- Status: {p4['research_status'] if p4 else 'INSUFFICIENT_EVIDENCE'}", ""]
     lines += ["## Key Findings", ""]
     lines += ([f"- {x['finding_id']} [{x['claim_type']}]: {x['statement']} | evidence={','.join(x['evidence_ids']) or 'none'}" for x in outcome.findings] or ["- INSUFFICIENT_EVIDENCE"])
-    lines += ["", "## Industry Research", "", f"- Component status: {getattr(outcome.industry_outcome, 'status', 'insufficient_evidence')}"]
+    raw_industry_status = getattr(
+        outcome.industry_outcome, "status", "insufficient_evidence")
+    validated_industry_status = _component_status(
+        outcome, "industry_research", "insufficient_evidence")
+    lines += [
+        "", "## Industry Research", "",
+        f"- Upstream status: {raw_industry_status}",
+        f"- First Coverage status: {validated_industry_status}",
+    ]
     for finding in getattr(outcome.industry_outcome, "findings", [])[:20]:
         claim_type = finding.get("claim_type", finding.get("judgment", "UNKNOWN"))
         lines.append(f"- {finding.get('dimension_id', finding.get('dimension', 'industry'))}: {finding.get('statement', finding.get('summary', ''))} [claim={claim_type}; evidence={','.join(finding.get('evidence_ids', [])) or 'none'}]")

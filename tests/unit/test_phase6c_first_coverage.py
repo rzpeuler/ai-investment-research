@@ -261,6 +261,25 @@ def test_industry_insufficient_maps_parent_to_partial_success(tmp_path, monkeypa
     db.close()
 
 
+def test_industry_insufficient_is_never_upgraded_by_conflicting_coverage(
+    tmp_path, monkeypatch,
+):
+    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db)
+    _mock_industry(
+        monkeypatch, status="insufficient_evidence", missing_data=[],
+        covered=["key_metrics"], missing=[],
+    )
+    outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    component = next(
+        item for item in outcome.component_statuses
+        if item.component == "industry_research")
+    assert outcome.industry_outcome.status == "insufficient_evidence"
+    assert component.status == "insufficient_evidence"
+    assert any("no authority upgrade" in warning for warning in component.warnings)
+    assert outcome.status == "partial_success"
+    db.close()
+
+
 def test_industry_failed_preserves_raw_status_and_maps_to_degraded(
     tmp_path, monkeypatch,
 ):
@@ -336,8 +355,55 @@ def test_industry_fact_is_downgraded_when_authoritative_evidence_fails(
         fake_industry,
     )
     outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    statuses = {item.component: item.status for item in outcome.component_statuses}
     assert outcome.industry_outcome.status == "success"
     assert outcome.industry_outcome.findings[0]["judgment"] == "INSUFFICIENT_EVIDENCE"
+    assert outcome.industry_outcome.dimensions_covered == []
+    assert outcome.industry_outcome.dimensions_missing == ["key_metrics"]
+    assert statuses["industry_research"] == "insufficient_evidence"
+    assert outcome.status == "partial_success"
+    assert "Upstream status: success" in outcome.markdown
+    assert "First Coverage status: insufficient_evidence" in outcome.markdown
     assert "Future-only metric" not in outcome.markdown
     assert "missing-evidence" not in outcome.evidence_ids
+    db.close()
+
+
+def test_post_revalidation_partial_coverage_downgrades_raw_success(
+    tmp_path, monkeypatch,
+):
+    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db); _seed_financial(db)
+    valid_evidence = _uuid("e24")
+
+    def fake_industry(_self, payload):
+        return SimpleNamespace(
+            status="success", run_id="industry-component",
+            findings=[
+                {
+                    "dimension_id": "key_metrics", "judgment": "FACT",
+                    "summary": "Validated metric", "evidence_ids": [valid_evidence],
+                },
+                {
+                    "dimension_id": "risks", "judgment": "FACT",
+                    "summary": "Invalid risk", "evidence_ids": ["missing-evidence"],
+                },
+            ],
+            warnings=[], missing_data=[],
+            dimensions_covered=["key_metrics", "risks"], dimensions_missing=[],
+            evidence_quality={},
+        )
+
+    monkeypatch.setattr(
+        "research_os.first_coverage.pipeline.IndustryResearchPipeline.run",
+        fake_industry,
+    )
+    outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    statuses = {item.component: item.status for item in outcome.component_statuses}
+    assert outcome.industry_outcome.status == "success"
+    assert outcome.industry_outcome.dimensions_covered == ["key_metrics"]
+    assert outcome.industry_outcome.dimensions_missing == ["risks"]
+    assert statuses["industry_research"] == "partial_success"
+    assert outcome.status == "partial_success"
+    assert "Upstream status: success" in outcome.markdown
+    assert "First Coverage status: partial_success" in outcome.markdown
     db.close()
