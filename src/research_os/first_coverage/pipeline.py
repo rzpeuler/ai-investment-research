@@ -29,6 +29,9 @@ COMPONENTS = (
     "earnings_expectation", "valuation", "catalysts", "risks",
     "counter_evidence", "open_questions",
 )
+INDUSTRY_INFRASTRUCTURE_MISSING_DATA = {
+    "knowledge_graph_unavailable", "research_context_build_failed",
+}
 
 
 @dataclass
@@ -265,7 +268,7 @@ def _sanitize_industry_findings(
             finding["evidence_ids"] = eligible
         sanitized.append(finding)
     industry_outcome.findings = sanitized
-    if sanitized and getattr(industry_outcome, "status", None) not in {"failed"}:
+    if sanitized:
         covered = [
             item.get("dimension_id", "") for item in sanitized
             if item.get("judgment") == "FACT" and item.get("dimension_id")
@@ -276,11 +279,51 @@ def _sanitize_industry_findings(
         ]
         industry_outcome.dimensions_covered = covered
         industry_outcome.dimensions_missing = missing
-        industry_outcome.status = (
-            "insufficient_evidence" if not covered
-            else "degraded" if missing else "success"
-        )
     return warnings
+
+
+def _classify_industry_component(
+    industry_outcome: Any,
+) -> Tuple[str, List[str], List[str]]:
+    """Interpret accepted 6A status without changing its raw upstream status."""
+    raw_status = getattr(industry_outcome, "status", "insufficient_evidence")
+    missing_data = list(getattr(industry_outcome, "missing_data", []))
+    warnings: List[str] = []
+    if raw_status == "failed":
+        warnings.append(
+            "Industry upstream raw status=failed; First Coverage composition "
+            "interpreted it as degraded."
+        )
+        return "degraded", warnings, missing_data
+    if raw_status != "degraded":
+        return raw_status, warnings, missing_data
+    if INDUSTRY_INFRASTRUCTURE_MISSING_DATA.intersection(missing_data):
+        return "degraded", warnings, missing_data
+    covered = list(getattr(industry_outcome, "dimensions_covered", []))
+    missing = list(getattr(industry_outcome, "dimensions_missing", []))
+    if covered and missing:
+        return "partial_success", warnings, missing_data
+    return "degraded", warnings, missing_data
+
+
+def _reference_component_status(
+    label: str, referenced_ids: List[str], validated_ids: List[str],
+) -> Tuple[str, List[str], List[str], Optional[str]]:
+    """Classify deterministic Phase4 reference validation completeness."""
+    referenced = sorted(set(referenced_ids))
+    validated = sorted(set(validated_ids))
+    unavailable_count = len(set(referenced) - set(validated))
+    if not referenced or unavailable_count == 0:
+        return "success", [], [], None
+    warning = (
+        f"{unavailable_count} referenced Phase4 {label} object(s) were unavailable "
+        "or failed First Coverage authoritative/as_of validation."
+    )
+    question = (
+        f"Referenced Phase4 {label} could not be validated at FirstCoverage as_of."
+    )
+    status = "partial_success" if validated else "insufficient_evidence"
+    return status, [warning], [f"referenced_{label.lower()}s_unavailable"], question
 
 
 def _canonical_key(request: FirstCoverageRequest, objects: Dict[str, Any]) -> str:
@@ -362,8 +405,21 @@ def _render(request: FirstCoverageRequest, outcome: FirstCoverageOutcome) -> str
                 f"  - Invalidation: {'; '.join(item['invalidation_conditions']) or 'none'}",
                 f"  - Confidence: {item['confidence']}; evidence={','.join(item['evidence_ids']) or 'none'}",
             ]
+        missing_count = len(set(p4["catalyst_ids"])) - len(outcome.catalysts)
+        if missing_count:
+            lines.append(
+                f"- INSUFFICIENT_EVIDENCE: {missing_count} referenced Phase4 "
+                "Catalyst object(s) were unavailable or failed First Coverage "
+                "authoritative/as_of validation."
+            )
+    elif p4 and p4["catalyst_ids"]:
+        lines.append(
+            "- INSUFFICIENT_EVIDENCE: Phase4 references Catalyst objects, but "
+            "none passed First Coverage authoritative/as_of validation."
+        )
     else:
-        lines.append("- None in accepted Phase4 baseline.")
+        lines.append(
+            "- No Catalyst object is referenced by the accepted Phase4 baseline.")
     lines += ["", "## Risks", ""]
     if outcome.risks:
         for item in outcome.risks:
@@ -376,8 +432,21 @@ def _render(request: FirstCoverageRequest, outcome: FirstCoverageOutcome) -> str
                 f"  - Invalidation: {'; '.join(item['invalidation_conditions']) or 'none'}",
                 f"  - Confidence: {item['confidence']}; evidence={','.join(item['evidence_ids']) or 'none'}; counter={','.join(item['counter_evidence_ids']) or 'none'}",
             ]
+        missing_count = len(set(p4["risk_ids"])) - len(outcome.risks)
+        if missing_count:
+            lines.append(
+                f"- INSUFFICIENT_EVIDENCE: {missing_count} referenced Phase4 Risk "
+                "object(s) were unavailable or failed First Coverage "
+                "authoritative/as_of validation."
+            )
+    elif p4 and p4["risk_ids"]:
+        lines.append(
+            "- INSUFFICIENT_EVIDENCE: Phase4 references Risk objects, but none "
+            "passed First Coverage authoritative/as_of validation."
+        )
     else:
-        lines.append("- None in accepted Phase4 baseline.")
+        lines.append(
+            "- No Risk object is referenced by the accepted Phase4 baseline.")
     lines += ["", "## Counter Evidence / Controversies", ""] + ([f"- Evidence ID: {eid}" for eid in outcome.counter_evidence_ids] or ["- No eligible counter Evidence."])
     lines += ["", "## Open Questions", ""] + ([f"- {q}" for q in outcome.open_questions] or ["- None recorded."])
     lines += ["", "## Evidence Audit", "", f"- Phase4 result ID: {p4['result_id'] if p4 else 'none'}", f"- ResearchFinding IDs: {', '.join(x['finding_id'] for x in outcome.findings) or 'none'}", f"- Industry component run ID: {getattr(outcome.industry_outcome, 'run_id', 'none')}", f"- Earnings scenario IDs: {', '.join(s.scenario_id for s in getattr(outcome.earnings_outcome, 'scenarios', [])) or 'none'}"]
@@ -454,14 +523,18 @@ class FirstCoveragePipeline:
                 "valuation_snapshot")
             outcome.warnings += w
             outcome.valuation_snapshot = vals[0] if vals else None
-        outcome.catalysts, w = _load_refs(self.db, p4["catalyst_ids"], "catalysts", Catalyst, "catalyst", request, "created_at"); outcome.warnings += w
-        outcome.risks, w = _load_refs(self.db, p4["risk_ids"], "risk_factors", RiskFactor, "risk_factor", request, "created_at"); outcome.warnings += w
+        outcome.catalysts, catalyst_warnings = _load_refs(
+            self.db, p4["catalyst_ids"], "catalysts", Catalyst, "catalyst", request)
+        outcome.warnings += catalyst_warnings
+        outcome.risks, risk_warnings = _load_refs(
+            self.db, p4["risk_ids"], "risk_factors", RiskFactor, "risk_factor", request)
+        outcome.warnings += risk_warnings
         outcome.catalysts, w = _evidence_gated_objects(
             self.db, outcome.catalysts, request.as_of, "catalyst")
-        outcome.warnings += w
+        catalyst_warnings += w; outcome.warnings += w
         outcome.risks, w = _evidence_gated_objects(
             self.db, outcome.risks, request.as_of, "risk_factor")
-        outcome.warnings += w
+        risk_warnings += w; outcome.warnings += w
         for risk in outcome.risks:
             risk["counter_evidence_ids"], w = _eligible_evidence(
                 self.db, risk["counter_evidence_ids"], request.as_of)
@@ -496,6 +569,14 @@ class FirstCoveragePipeline:
         evidence += [eid for x in getattr(outcome.industry_outcome, "findings", []) for eid in x.get("evidence_ids", [])]
         evidence += list(getattr(outcome.earnings_outcome, "evidence_ids", []))
         outcome.evidence_ids, w = _eligible_evidence(self.db, evidence, request.as_of); outcome.warnings += w
+        catalyst_status, catalyst_gap_warnings, catalyst_missing, catalyst_question = _reference_component_status(
+            "Catalyst", p4["catalyst_ids"], [x["catalyst_id"] for x in outcome.catalysts])
+        risk_status, risk_gap_warnings, risk_missing, risk_question = _reference_component_status(
+            "Risk", p4["risk_ids"], [x["risk_id"] for x in outcome.risks])
+        catalyst_warnings += catalyst_gap_warnings
+        risk_warnings += risk_gap_warnings
+        outcome.warnings += catalyst_gap_warnings + risk_gap_warnings
+        outcome.missing_data += catalyst_missing + risk_missing
         questions = list(p4["unknowns"]) + list(p4["conflicts"]) + [q for x in outcome.findings for q in x["invalidation_conditions"]]
         questions += list(getattr(outcome.industry_outcome, "dimensions_missing", [])) + list(getattr(outcome.earnings_outcome, "missing_data", []))
         for scenario in getattr(outcome.earnings_outcome, "scenarios", []):
@@ -505,8 +586,12 @@ class FirstCoveragePipeline:
             ]
         if outcome.peer_selection and outcome.peer_selection["status"] != "full": questions += outcome.peer_selection["warnings"] or ["peer context insufficient"]
         if outcome.valuation_snapshot: questions += outcome.valuation_snapshot["applicability_notes"]
+        questions += [q for q in (catalyst_question, risk_question) if q]
         outcome.open_questions = sorted(set(q for q in questions if q))
         ind_status = getattr(outcome.industry_outcome, "status", "insufficient_evidence")
+        industry_status, industry_warnings, industry_missing = _classify_industry_component(
+            outcome.industry_outcome)
+        outcome.warnings += industry_warnings
         earn_status = getattr(outcome.earnings_outcome, "status", "insufficient_evidence")
         peer_component_status = (
             "insufficient_evidence" if not outcome.peer_selection
@@ -519,15 +604,21 @@ class FirstCoveragePipeline:
             else "success"
         )
         components = [
-            ("industry_research", ind_status, [getattr(outcome.industry_outcome, "run_id", "")]),
-            ("peer_context", peer_component_status, [outcome.peer_selection["peer_selection_id"]] if outcome.peer_selection else []),
-            ("earnings_expectation", earn_status, [getattr(outcome.earnings_outcome, "run_id", "")] if outcome.earnings_outcome else []),
-            ("valuation", valuation_component_status, [outcome.valuation_snapshot["valuation_snapshot_id"]] if outcome.valuation_snapshot else []),
-            ("catalysts", "success" if len(outcome.catalysts) == len(set(p4["catalyst_ids"])) else "insufficient_evidence", [x["catalyst_id"] for x in outcome.catalysts]),
-            ("risks", "success" if len(outcome.risks) == len(set(p4["risk_ids"])) else "insufficient_evidence", [x["risk_id"] for x in outcome.risks]),
-            ("counter_evidence", "success", outcome.counter_evidence_ids), ("open_questions", "success", []),
+            ("industry_research", industry_status, [getattr(outcome.industry_outcome, "run_id", "")], industry_warnings, industry_missing),
+            ("peer_context", peer_component_status, [outcome.peer_selection["peer_selection_id"]] if outcome.peer_selection else [], [], []),
+            ("earnings_expectation", earn_status, [getattr(outcome.earnings_outcome, "run_id", "")] if outcome.earnings_outcome else [], [], []),
+            ("valuation", valuation_component_status, [outcome.valuation_snapshot["valuation_snapshot_id"]] if outcome.valuation_snapshot else [], [], []),
+            ("catalysts", catalyst_status, [x["catalyst_id"] for x in outcome.catalysts], catalyst_warnings, catalyst_missing),
+            ("risks", risk_status, [x["risk_id"] for x in outcome.risks], risk_warnings, risk_missing),
+            ("counter_evidence", "success", outcome.counter_evidence_ids, [], []),
+            ("open_questions", "success", [], [], []),
         ]
-        for name, status, ids in components: outcome.component_statuses.append(FirstCoverageComponentStatus(component=name, status=status, source_object_ids=[x for x in ids if x]))
+        for name, status, ids, item_warnings, item_missing in components:
+            outcome.component_statuses.append(FirstCoverageComponentStatus(
+                component=name, status=status,
+                source_object_ids=[x for x in ids if x],
+                warnings=item_warnings, missing_data=item_missing,
+            ))
         component_states = [item.status for item in outcome.component_statuses]
         if "failed" in component_states or "degraded" in component_states:
             outcome.status = "degraded"

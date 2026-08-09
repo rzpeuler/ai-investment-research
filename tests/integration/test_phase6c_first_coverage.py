@@ -212,8 +212,8 @@ def test_real_orchestrator_reuses_phase4_6a_and_s3(tmp_path, monkeypatch):
                 AssertionError("Phase4 full rerun prohibited")),
         )
         result = orchestrator.execute("first_coverage", _request())
-        # Accepted 6A currently has unmapped dimensions and therefore degrades by design.
-        assert result.status == "degraded", result.message
+        # Raw 6A degrades for coverage gaps; composition interprets that as partial.
+        assert result.status == "partial_success", result.message
         assert result.exit_code == 0
         run_dir = Path(result.run_dir)
         expected = {
@@ -239,6 +239,10 @@ def test_real_orchestrator_reuses_phase4_6a_and_s3(tmp_path, monkeypatch):
         assert run["phase4_as_of"] == P4_AS_OF
         assert run["industry_component_run_id"] == result.task_id
         assert run["industry_component_status"] == "degraded"
+        component_statuses = {
+            item["component"]: item["status"] for item in run["component_statuses"]
+        }
+        assert component_statuses["industry_research"] == "partial_success"
         assert run["peer_selection_id"] == "peer-1"
         assert run["peer_company_ids"] == ["company:600001.SH"]
         assert run["valuation_snapshot_id"] == "valuation-1"
@@ -367,10 +371,113 @@ def test_raw_evidence_default_masking_excludes_references(tmp_path):
         result = orchestrator.execute("first_coverage", _request())
         run = json.loads(
             (Path(result.run_dir) / "first_coverage_run.json").read_text("utf-8"))
+        report = (Path(result.run_dir) / "final.md").read_text("utf-8")
         assert EVIDENCE_ID not in run["evidence_ids"]
         assert run["catalyst_ids"] == []
         assert run["risk_ids"] == []
+        assert "INSUFFICIENT_EVIDENCE: Phase4 references Catalyst objects" in report
+        assert "INSUFFICIENT_EVIDENCE: Phase4 references Risk objects" in report
+        assert "None in accepted Phase4 baseline." not in report
+        statuses = {
+            item["component"]: item["status"] for item in run["component_statuses"]
+        }
+        assert statuses["catalysts"] == "insufficient_evidence"
+        assert statuses["risks"] == "insufficient_evidence"
+        assert "Referenced Phase4 Catalyst could not be validated at FirstCoverage as_of." in run["open_questions"]
+        assert "Referenced Phase4 Risk could not be validated at FirstCoverage as_of." in run["open_questions"]
         assert any("raw Schema validation failed (evidence)" in item for item in run["warnings"])
+    finally:
+        orchestrator.close()
+
+
+def test_historical_replay_uses_evidence_cutoff_not_object_creation_time(tmp_path):
+    db, orchestrator = _setup(tmp_path)
+    try:
+        _seed(db)
+        for table, pk_column, object_id in (
+            ("catalysts", "catalyst_id", "catalyst-1"),
+            ("risk_factors", "risk_id", "risk-1"),
+        ):
+            payload = db.get(table, object_id)
+            payload["created_at"] = "2026-01-01T00:00:00+08:00"
+            payload["updated_at"] = "2026-01-01T00:00:00+08:00"
+            db._conn.execute(
+                f"UPDATE {table} SET payload=? WHERE {pk_column}=?",
+                (json.dumps(payload), object_id),
+            )
+        db._conn.commit()
+        result = orchestrator.execute("first_coverage", _request())
+        run = json.loads(
+            (Path(result.run_dir) / "first_coverage_run.json").read_text("utf-8"))
+        assert run["catalyst_ids"] == ["catalyst-1"]
+        assert run["risk_ids"] == ["risk-1"]
+    finally:
+        orchestrator.close()
+
+
+def test_future_catalyst_and_risk_evidence_remains_excluded(tmp_path):
+    db, orchestrator = _setup(tmp_path)
+    try:
+        _seed(db)
+        future_id = _uuid("future-component-evidence")
+        _store(db, Evidence(
+            evidence_id=future_id, source_id="cninfo",
+            raw_item_id=_uuid("raw-future-component-evidence"), title="Future evidence",
+            publisher="listed company", published_at="2025-08-02T00:00:00+08:00",
+            retrieved_at="2025-08-02T00:00:00+08:00",
+            url="https://example.test/future-component-evidence",
+            excerpt="Future-only component evidence",
+            evidence_type="official_disclosure", independence_group="future-component",
+            source_tier="A", access_status="ok",
+        ), "evidence")
+        for table, pk_column, object_id in (
+            ("catalysts", "catalyst_id", "catalyst-1"),
+            ("risk_factors", "risk_id", "risk-1"),
+        ):
+            payload = db.get(table, object_id)
+            payload["evidence_ids"] = [future_id]
+            db._conn.execute(
+                f"UPDATE {table} SET payload=? WHERE {pk_column}=?",
+                (json.dumps(payload), object_id),
+            )
+        db._conn.commit()
+        result = orchestrator.execute("first_coverage", _request())
+        run = json.loads(
+            (Path(result.run_dir) / "first_coverage_run.json").read_text("utf-8"))
+        assert run["catalyst_ids"] == []
+        assert run["risk_ids"] == []
+        assert future_id not in run["evidence_ids"]
+    finally:
+        orchestrator.close()
+
+
+def test_partial_catalyst_and_risk_reference_validation(tmp_path):
+    db, orchestrator = _setup(tmp_path)
+    try:
+        _seed(db)
+        result_payload = db.get("equity_research_results", "p4-result")
+        result_payload["catalyst_ids"] = ["catalyst-1", "missing-catalyst"]
+        result_payload["risk_ids"] = ["risk-1", "missing-risk"]
+        db._conn.execute(
+            "UPDATE equity_research_results SET payload=? WHERE result_id=?",
+            (json.dumps(result_payload), "p4-result"),
+        )
+        db._conn.commit()
+        result = orchestrator.execute("first_coverage", _request())
+        run_dir = Path(result.run_dir)
+        run = json.loads((run_dir / "first_coverage_run.json").read_text("utf-8"))
+        report = (run_dir / "final.md").read_text("utf-8")
+        statuses = {
+            item["component"]: item["status"] for item in run["component_statuses"]
+        }
+        assert run["catalyst_ids"] == ["catalyst-1"]
+        assert run["risk_ids"] == ["risk-1"]
+        assert statuses["catalysts"] == "partial_success"
+        assert statuses["risks"] == "partial_success"
+        assert "1 referenced Phase4 Catalyst object(s) were unavailable" in report
+        assert "1 referenced Phase4 Risk object(s) were unavailable" in report
+        assert "Referenced Phase4 Catalyst could not be validated at FirstCoverage as_of." in run["open_questions"]
+        assert "Referenced Phase4 Risk could not be validated at FirstCoverage as_of." in run["open_questions"]
     finally:
         orchestrator.close()
 

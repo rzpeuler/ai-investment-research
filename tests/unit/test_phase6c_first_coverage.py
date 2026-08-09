@@ -165,6 +165,9 @@ def test_optional_earnings_maps_to_partial_success(tmp_path):
     assert outcome.status == "partial_success"
     status = {x.component: x.status for x in outcome.component_statuses}
     assert status["earnings_expectation"] == "insufficient_evidence"
+    assert "No Catalyst object is referenced by the accepted Phase4 baseline." in outcome.markdown
+    assert "No Risk object is referenced by the accepted Phase4 baseline." in outcome.markdown
+    assert "None in accepted Phase4 baseline." not in outcome.markdown
     db.close()
 
 
@@ -199,23 +202,81 @@ def test_pipeline_has_no_phase4_markdown_or_full_pipeline_dependency():
     assert "Orchestrator(" not in text
 
 
-@pytest.mark.parametrize("industry_status", ["degraded", "failed"])
-def test_industry_failure_maps_to_degraded(tmp_path, monkeypatch, industry_status):
-    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db)
-
+def _mock_industry(monkeypatch, *, status, missing_data, covered, missing):
     def fake_industry(*args, **kwargs):
         return SimpleNamespace(
-            status=industry_status, run_id="industry-component",
-            findings=[], warnings=[], missing_data=["industry"],
-            dimensions_covered=[], dimensions_missing=["industry"],
-            evidence_quality={},
+            status=status, run_id="industry-component", findings=[], warnings=[],
+            missing_data=missing_data, dimensions_covered=covered,
+            dimensions_missing=missing, evidence_quality={},
         )
 
     monkeypatch.setattr(
         "research_os.first_coverage.pipeline.IndustryResearchPipeline.run",
         fake_industry,
     )
+
+
+def test_industry_dimension_coverage_gap_maps_to_partial_success(
+    tmp_path, monkeypatch,
+):
+    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db)
+    _mock_industry(
+        monkeypatch, status="degraded", missing_data=[],
+        covered=["key_metrics"], missing=["open_questions"],
+    )
     outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    statuses = {item.component: item.status for item in outcome.component_statuses}
+    assert outcome.industry_outcome.status == "degraded"
+    assert statuses["industry_research"] == "partial_success"
+    assert outcome.status == "partial_success"
+    db.close()
+
+
+def test_industry_infrastructure_degradation_maps_to_degraded(
+    tmp_path, monkeypatch,
+):
+    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db)
+    _mock_industry(
+        monkeypatch, status="degraded",
+        missing_data=["knowledge_graph_unavailable"],
+        covered=["key_metrics"], missing=["open_questions"],
+    )
+    outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    statuses = {item.component: item.status for item in outcome.component_statuses}
+    assert statuses["industry_research"] == "degraded"
+    assert outcome.status == "degraded"
+    db.close()
+
+
+def test_industry_insufficient_maps_parent_to_partial_success(tmp_path, monkeypatch):
+    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db)
+    _mock_industry(
+        monkeypatch, status="insufficient_evidence", missing_data=[],
+        covered=[], missing=["key_metrics"],
+    )
+    outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    statuses = {item.component: item.status for item in outcome.component_statuses}
+    assert statuses["industry_research"] == "insufficient_evidence"
+    assert outcome.status == "partial_success"
+    db.close()
+
+
+def test_industry_failed_preserves_raw_status_and_maps_to_degraded(
+    tmp_path, monkeypatch,
+):
+    db = _db(tmp_path); _seed_profiles(db); _seed_phase4(db)
+    _mock_industry(
+        monkeypatch, status="failed", missing_data=["industry_failure"],
+        covered=[], missing=[],
+    )
+    outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
+    component = next(
+        item for item in outcome.component_statuses
+        if item.component == "industry_research")
+    assert outcome.industry_outcome.status == "failed"
+    assert component.status == "degraded"
+    assert any("raw status=failed" in warning for warning in component.warnings)
+    assert any("raw status=failed" in warning for warning in outcome.warnings)
     assert outcome.status == "degraded"
     db.close()
 
@@ -275,7 +336,7 @@ def test_industry_fact_is_downgraded_when_authoritative_evidence_fails(
         fake_industry,
     )
     outcome = FirstCoveragePipeline(tmp_path, db).run(_request())
-    assert outcome.industry_outcome.status == "insufficient_evidence"
+    assert outcome.industry_outcome.status == "success"
     assert outcome.industry_outcome.findings[0]["judgment"] == "INSUFFICIENT_EVIDENCE"
     assert "Future-only metric" not in outcome.markdown
     assert "missing-evidence" not in outcome.evidence_ids
