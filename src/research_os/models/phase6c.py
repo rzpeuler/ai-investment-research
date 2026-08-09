@@ -200,3 +200,157 @@ class EarningsExpectationRun(StrictModel):
     @classmethod
     def _finished(cls, value: Optional[str]) -> Optional[str]:
         return _iso(value) if value is not None else None
+
+
+class FirstCoverageEarningsInput(StrictModel):
+    forecast_period: ForecastPeriod
+    assumptions: List[EarningsExpectationAssumption] = Field(..., min_length=1)
+    metric_code: str = Field("revenue", min_length=1)
+    scenario_name: str = Field("base", min_length=1)
+
+
+class FirstCoverageComponentStatus(StrictModel):
+    component: Literal[
+        "profile", "phase4_baseline", "industry_research", "peer_context",
+        "earnings_expectation", "valuation", "catalysts", "risks",
+        "counter_evidence", "open_questions",
+    ]
+    status: Literal[
+        "success", "partial_success", "degraded", "insufficient_evidence", "failed",
+    ]
+    source_object_ids: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    missing_data: List[str] = Field(default_factory=list)
+
+
+class FirstCoverageRequest(StrictModel):
+    request_id: str = Field(..., min_length=1)
+    task_id: str = Field(..., min_length=1)
+    company_entity_id: str
+    security_entity_id: str
+    as_of: str
+    as_of_basis: Literal["user_provided"] = "user_provided"
+    timezone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
+    industry_id: str = Field(..., min_length=1)
+    industry_name: str = ""
+    phase4_result_id: Optional[str] = None
+    phase4_selection_policy: Literal[
+        "latest_accepted_at_or_before_as_of"
+    ] = "latest_accepted_at_or_before_as_of"
+    depth: Literal["fast", "standard", "deep"] = "standard"
+    earnings_expectation: Optional[FirstCoverageEarningsInput] = None
+    live: bool = False
+    dry_run: bool = False
+    force: bool = False
+    source_policy: Literal["authoritative_db_only"] = "authoritative_db_only"
+    status: Literal["validated"] = "validated"
+    warnings: List[str] = Field(default_factory=list)
+    rule_versions: Dict[str, Any] = Field(default_factory=dict)
+    requested_at: str
+    version: int = Field(1, ge=1)
+
+    @field_validator("company_entity_id")
+    @classmethod
+    def _fc_company(cls, value: str) -> str:
+        if not value.startswith("company:"):
+            raise ValueError("company_entity_id must start with company:")
+        return value
+
+    @field_validator("security_entity_id")
+    @classmethod
+    def _fc_security(cls, value: str) -> str:
+        if not value.startswith("security:"):
+            raise ValueError("security_entity_id must start with security:")
+        return value
+
+    @field_validator("as_of", "requested_at")
+    @classmethod
+    def _fc_times(cls, value: str) -> str:
+        return _iso(value)
+
+    @model_validator(mode="after")
+    def _fc_as_of_not_future(self) -> "FirstCoverageRequest":
+        if parse_iso(self.as_of) > parse_iso(self.requested_at):
+            raise ValueError("as_of must not be later than requested_at")
+        return self
+
+
+class FirstCoverageRun(StrictModel):
+    run_id: str = Field(..., min_length=1)
+    request_id: str = Field(..., min_length=1)
+    task_id: str = Field(..., min_length=1)
+    company_entity_id: str
+    security_entity_id: str
+    as_of: str
+    company_profile_id: Optional[str] = None
+    security_profile_id: Optional[str] = None
+    phase4_result_id: Optional[str] = None
+    phase4_request_id: Optional[str] = None
+    phase4_run_id: Optional[str] = None
+    phase4_as_of: Optional[str] = None
+    industry_id: str
+    industry_component_run_id: Optional[str] = None
+    industry_component_status: Literal[
+        "success", "partial_success", "degraded", "insufficient_evidence", "failed",
+    ]
+    industry_dimensions_covered: List[str] = Field(default_factory=list)
+    industry_dimensions_missing: List[str] = Field(default_factory=list)
+    industry_evidence_quality: Dict[str, Any] = Field(default_factory=dict)
+    peer_selection_id: Optional[str] = None
+    peer_status: Literal["full", "limited", "insufficient"]
+    peer_company_ids: List[str] = Field(default_factory=list)
+    earnings_component_request_id: Optional[str] = None
+    earnings_component_run_id: Optional[str] = None
+    earnings_component_status: Literal[
+        "success", "partial_success", "degraded", "insufficient_evidence", "failed",
+    ]
+    earnings_scenarios: List[ForecastScenario] = Field(default_factory=list)
+    earnings_projection_lineage: List[ProjectionLineage] = Field(default_factory=list)
+    valuation_snapshot_id: Optional[str] = None
+    valuation_status: Literal["complete", "partial", "not_applicable", "insufficient_data"]
+    valuation_applicability_notes: List[str] = Field(default_factory=list)
+    catalyst_ids: List[str] = Field(default_factory=list)
+    risk_ids: List[str] = Field(default_factory=list)
+    counter_evidence_ids: List[str] = Field(default_factory=list)
+    open_questions: List[str] = Field(default_factory=list)
+    evidence_ids: List[str] = Field(default_factory=list)
+    component_statuses: List[FirstCoverageComponentStatus] = Field(default_factory=list)
+    idempotency_key: str = Field(..., min_length=1)
+    run_version: int = Field(1, ge=1)
+    started_at: str
+    finished_at: Optional[str] = None
+    status: Literal[
+        "success", "partial_success", "degraded", "insufficient_evidence", "failed",
+    ]
+    artifact_paths: List[str] = Field(default_factory=list)
+    input_versions: Dict[str, Any] = Field(default_factory=dict)
+    model_route: Dict[str, Any]
+    validation_status: Literal["pending", "pass", "pass_with_warnings", "fail"] = "pending"
+    error_codes: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    missing_data: List[str] = Field(default_factory=list)
+    version: int = Field(1, ge=1)
+
+    @field_validator("as_of", "started_at")
+    @classmethod
+    def _fc_run_times(cls, value: str) -> str:
+        return _iso(value)
+
+    @field_validator("phase4_as_of", "finished_at")
+    @classmethod
+    def _fc_run_optional_times(cls, value: Optional[str]) -> Optional[str]:
+        return _iso(value) if value is not None else None
+
+    @field_validator("company_entity_id")
+    @classmethod
+    def _fc_run_company(cls, value: str) -> str:
+        if not value.startswith("company:"):
+            raise ValueError("company_entity_id must start with company:")
+        return value
+
+    @field_validator("security_entity_id")
+    @classmethod
+    def _fc_run_security(cls, value: str) -> str:
+        if not value.startswith("security:"):
+            raise ValueError("security_entity_id must start with security:")
+        return value
