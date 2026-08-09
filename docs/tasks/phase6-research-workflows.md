@@ -1,19 +1,21 @@
 # Phase 6：研究型工作流（6A / 6B / 6C）——正式工程任务书
 
 **TASKBOOK_STATUS: APPROVED**
-**IMPLEMENTATION_STATUS: NOT_STARTED**
-**CURRENT_MILESTONE: P6-G0**
-**NEXT_MILESTONE: P6-F0**
+**IMPLEMENTATION_STATUS: IN_PROGRESS（P6-F0 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE）**
+**CURRENT_MILESTONE: P6-F0**
+**NEXT_MILESTONE: 6A / 6B / 6C-PREP（待 F0 独立验收 PASS 后另行授权）**
 
-**P6-F0: NOT_AUTHORIZED_UNTIL_G0_ACCEPTANCE**
+**P6-F0: IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE**
 **P6-A: NOT_AUTHORIZED**
 **P6-B: NOT_AUTHORIZED**
 **P6-C: NOT_AUTHORIZED**
 
 > 正式设计决策：`DECISIONS.md` #41（Phase 6 Top-Level Design Decision，2026-08-09）。
 > 工程指南：`docs/engineering-guide.md` V1.2（第 69 节）。
+> 共享契约：`docs/contracts/phase6-shared-contract.md`（P6-F0 冻结）。
 > **任务书 approved 不得被解释成整个 Phase 6 已授权开发。**
-> 当前只允许执行 P6-G0；P6-F0 及其后的任何业务 Track 均须各自独立授权。
+> P6-G0 已通过独立验收（PR #13，G0 FINAL MASTER `9e5c894`）。
+> 当前只允许执行 P6-F0；F0 验收 PASS 前 6A / 6B / 6C-PREP 均不得开始。
 
 **任务书创建基线：**
 
@@ -103,14 +105,20 @@ design/governance-only。交付：
 
 ## 4.1 P6-F0 —— Shared Contract Freeze
 
-共享契约冻结里程碑，串行执行。交付：
+**IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE（2026-08-09）**
 
-- 七场景注册契约（scenario id / 输入输出 Schema / 报告 Front Matter / 运行记录）；
-- Task 契约与 as_of 治理契约（Graph→Research 强制 as_of；6C forecast 三时间治理）；
-- Graph→Research 只读接口契约（GraphQueryService / KnowledgeContextBuilder / read-only）；
-- KnowledgeContext != Evidence 血缘契约（evidence_ids → Evidence reload → validation）；
-- 输出边界与禁止项校验契约（七场景统一）；
-- 共享控制面修改清单（串行 enablement）。
+共享契约冻结里程碑，串行执行。**已交付（2026-08-09）**：
+
+- 七场景注册契约（scenario id / 输入输出 Schema / 报告 Front Matter / 运行记录）→ 冻结
+  于 `docs/contracts/phase6-shared-contract.md` §2/§8/§20；
+- Task 契约与 as_of 治理契约（Graph→Research 强制 as_of；6C forecast 三时间治理）→ §10/§11/§13；
+- Graph→Research 只读接口契约（GraphQueryService / KnowledgeContextBuilder / read-only）→ §15/§18；
+- KnowledgeContext != Evidence 血缘契约（evidence_ids → Evidence reload → validation）→ §14/§15/§16；
+- 输出边界与禁止项校验契约（七场景统一）→ §23；
+- 共享控制面修改清单（串行 enablement）→ §3/§7/§27；
+- 机械保护测试 → `tests/unit/test_document_governance.py::test_phase6_shared_contract_frozen`。
+
+F0 实现内容为契约文档 + 机械测试 + 状态同步，无业务代码、无中央 enable、无 migration。
 
 F0 未 PASS 前，任何 6A / 6B / 6C 业务实现均 NOT_AUTHORIZED。
 

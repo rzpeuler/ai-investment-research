@@ -68,8 +68,9 @@ Schema 30→51，迁移 user_version=5。
 earnings_expectation）；并行拓扑为 P6-G0 → P6-F0（共享契约冻结）→ 6A + 6B + 6C-PREP
 并行 → 6C real integration 依赖 6A stable interface。Graph→Research 契约 READ ONLY、
 `KnowledgeContext != Evidence`、Graph 写入仅 Candidate、as_of 强制、输出安全与
-ontology/source 冻结均已写入指南与决策。**P6-F0 与 Phase 6 业务实现均 NOT_AUTHORIZED，
-当前仅 P6-G0 作为 implementation work item。**
+ontology/source 冻结均已写入指南与决策。**P6-F0 已 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE**
+（共享契约冻结：`docs/contracts/phase6-shared-contract.md` + DECISIONS #42）；6A / 6B / 6C-PREP
+均 NOT_AUTHORIZED / NOT_STARTED，F0 独立验收 PASS 前不得开始。**P6-F0 之后的业务实现均未授权。**
 
 ## 快速开始
 

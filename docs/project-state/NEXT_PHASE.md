@@ -68,19 +68,23 @@ Phase 6 Top-Level Design: FROZEN / APPROVED
 （DECISIONS.md #41 + engineering-guide V1.2 第 69 节；
  任务书 docs/tasks/phase6-research-workflows.md APPROVED）
 
+P6-F0 Shared Contract: FROZEN
+（docs/contracts/phase6-shared-contract.md + DECISIONS.md #42；
+ P6-F0 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE）
+
 当前阶段门禁：
 
 Phase 5: CLOSED / PASS
 Phase 6 Top-Level Design: FROZEN / APPROVED
-P6-G0: implementation work item
-P6-F0: NOT_AUTHORIZED until G0 independent acceptance
+P6-G0: PASS（PR #13，G0 FINAL MASTER 9e5c894）
+P6-F0: IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE
 Phase 6 business implementation: NOT_AUTHORIZED
-（6A / 6B / 6C 全部 NOT_AUTHORIZED）
+（6A / 6B / 6C 全部 NOT_AUTHORIZED / NOT_STARTED）
 
 Graph→Research: READ-ONLY CONTRACT FROZEN / PRODUCTION NOT ENABLED
 
-未经 P6-G0 independent acceptance：
-- P6-F0 及其后一切业务实现保持 NOT_AUTHORIZED；
+未经 P6-F0 independent acceptance：
+- 6A / 6B / 6C-PREP 不得开始；
 - 不得新增 Phase 6 production scenario；
 - 不得新增 Schema / migration；
 - 不得改变 Phase2/3/4/5 已验收行为；
