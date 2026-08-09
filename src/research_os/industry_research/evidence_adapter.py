@@ -121,6 +121,7 @@ def validate_evidence_ids_chain(
     evidence_ids: List[str],
     db: Any,
     as_of: str,
+    industry_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """从图谱 evidence_ids 出发，重载权威 Evidence 存储并逐条校验资格。
 
@@ -131,6 +132,7 @@ def validate_evidence_ids_chain(
         evidence_ids: 图谱节点/边引用的证据 ID 列表。
         db: Database 实例。
         as_of: 时间断面 ISO-8601。
+        industry_id: 可选行业标识；传入后会对每条证据校验行业标签相关性。
 
     Returns:
         {
@@ -169,7 +171,7 @@ def validate_evidence_ids_chain(
             continue
 
         # 资格校验
-        ok, item_reasons = validate_evidence_eligibility(evidence, as_of)
+        ok, item_reasons = validate_evidence_eligibility(evidence, as_of, industry_id)
         if ok:
             valid.append(eid)
         else:

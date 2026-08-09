@@ -82,6 +82,7 @@ class PipelineOutcome:
     warnings: List[str] = field(default_factory=list)
     missing_data: List[str] = field(default_factory=list)
     model_route: Dict[str, Any] = field(default_factory=dict)
+    evidence_quality: Dict[str, Any] = field(default_factory=dict)
     data_degraded: bool = False
     dimensions_covered: List[str] = field(default_factory=list)
     dimensions_missing: List[str] = field(default_factory=list)
@@ -169,12 +170,30 @@ class IndustryResearchPipeline:
                 missing_data=["industry_node_not_found"],
                 data_degraded=True,
                 model_route={"mode": "deterministic_fallback", "llm_called": False},
+                evidence_quality={"overall_quality": "poor", "valid_evidence_count": 0},
+            )
+
+        # R2-8: _build_research_context 对 QUERY_ROOT_NOT_FOUND 返回含 build_error 的 dict
+        if isinstance(context, dict) and context.get("root_not_found"):
+            return PipelineOutcome(
+                status="insufficient_evidence",
+                run_id=run_id,
+                industry_name=industry_name,
+                warnings=[
+                    f"行业节点 {industry_id} 不存在（{context.get('build_error', 'UNKNOWN')}）："
+                    f"{context.get('message', '')}"
+                ],
+                missing_data=["industry_node_not_found"],
+                data_degraded=True,
+                model_route={"mode": "deterministic_fallback", "llm_called": False},
+                evidence_quality={"overall_quality": "poor", "valid_evidence_count": 0},
             )
 
         # ── Stage 2: 产出全部 21 维 findings ────────────────
         dimension_findings, dim_warnings = self._produce_dimension_findings(
             context=context,
             as_of=as_of,
+            industry_id=industry_id,
         )
         warnings.extend(dim_warnings)
 
@@ -244,6 +263,7 @@ class IndustryResearchPipeline:
             dimensions_covered=dimensions_covered,
             dimensions_missing=dimensions_missing,
             model_route=model_route,
+            evidence_quality=quality_assessment,
         )
 
     # ── Stage 1: _build_research_context ────────────────────
@@ -269,8 +289,22 @@ class IndustryResearchPipeline:
                 max_depth=max_depth,
                 direction="both",
             )
-        except QueryError:
-            return None
+        except QueryError as e:
+            # R2-8: 根据 error_code 区分处理，禁止通配捕获为 None
+            if e.error_code == "QUERY_ROOT_NOT_FOUND":
+                return {
+                    "build_error": e.error_code,
+                    "message": str(e),
+                    "root_not_found": True,
+                    "nodes": [],
+                    "edges": [],
+                    "evidence": [],
+                    "evidence_ids": [],
+                    "epistemic": {},
+                    "limitations": [{"code": e.error_code, "message": str(e)}],
+                }
+            # QUERY_READ_FAILED / INTEGRITY_CONFLICT / VERSION_GAP -> propagate
+            raise
 
         return knowledge_ctx.to_dict()
 
@@ -280,6 +314,7 @@ class IndustryResearchPipeline:
         self,
         context: Dict[str, Any],
         as_of: str,
+        industry_id: str = "",
     ) -> Tuple[List[Dict[str, Any]], List[str]]:
         """为全部 21 维产出 finding（FACT / INSUFFICIENT_EVIDENCE）。
 
@@ -295,6 +330,7 @@ class IndustryResearchPipeline:
                     dim_def=dim_def,
                     context=context,
                     as_of=as_of,
+                    industry_id=industry_id,
                 )
                 findings.append(finding)
             except Exception as e:
@@ -318,6 +354,7 @@ class IndustryResearchPipeline:
         dim_def: Dict[str, Any],
         context: Dict[str, Any],
         as_of: str,
+        industry_id: str = "",
     ) -> Dict[str, Any]:
         """为单个维度产出 finding。
 
@@ -332,6 +369,24 @@ class IndustryResearchPipeline:
         desc: str = dim_def["desc"]
         hint_node_types: Tuple[str, ...] = dim_def["hint_node_types"]
         hint_relations: Tuple[str, ...] = dim_def["hint_relations"]
+
+        # R2-5b: 当 hint_node_types 和 hint_relations 均为空时，
+        # 该维度无法做定向证据匹配，直接返回 INSUFFICIENT_EVIDENCE
+        # （不做通配全量匹配）。
+        if not hint_node_types and not hint_relations:
+            return {
+                "dimension_id": dim_id,
+                "label": label,
+                "judgment": "INSUFFICIENT_EVIDENCE",
+                "summary": "",
+                "evidence_ids": [],
+                "invalid_evidence_ids": [],
+                "reason": (
+                    "该维度未配置定向节点类型/关系类型映射（hint_node_types 与 "
+                    "hint_relations 均为空），无法从图谱中定向筛选相关证据。"
+                ),
+                "graph_hints": "",
+            }
 
         # 1. 从图谱上下文中收集相关 evidence_ids
         relevant_eids = self._collect_relevant_evidence_ids(
@@ -352,6 +407,7 @@ class IndustryResearchPipeline:
         validation_result = self._reload_and_validate_evidence(
             evidence_ids=relevant_eids,
             as_of=as_of,
+            industry_id=industry_id if industry_id else None,
         )
 
         valid_eids = validation_result.get("valid", [])
@@ -541,6 +597,7 @@ class IndustryResearchPipeline:
         self,
         evidence_ids: List[str],
         as_of: str,
+        industry_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """通过 evidence_adapter 重载并校验 evidence_ids 资格。
 
@@ -567,6 +624,7 @@ class IndustryResearchPipeline:
                 evidence_ids=evidence_ids,
                 db=self.db,
                 as_of=as_of,
+                industry_id=industry_id,
             )
         except Exception as e:
             logger.exception("validate_evidence_ids_chain failed")
@@ -614,16 +672,17 @@ class IndustryResearchPipeline:
                     invalid_eids_all.append(eid)
 
         # 尝试获取有效证据的 source_tier 分布
+        # R2-7: 必须从权威 Database Evidence 获取 source_tier，而非 KnowledgeContext
         source_tier_dist: Dict[str, int] = {}
-        evidence_summaries: List[Dict[str, Any]] = context.get("evidence") or []
-        evidence_by_id: Dict[str, Dict[str, Any]] = {
-            s["evidence_id"]: s for s in evidence_summaries
-        }
         for eid in valid_eids_all:
-            ev = evidence_by_id.get(eid)
-            if ev:
-                tier = ev.get("source_tier", "unknown")
-                source_tier_dist[tier] = source_tier_dist.get(tier, 0) + 1
+            try:
+                ev = self.db.get("evidence", eid)
+                if ev and isinstance(ev, dict):
+                    tier = ev.get("source_tier")
+                    if tier and tier != "unknown":
+                        source_tier_dist[tier] = source_tier_dist.get(tier, 0) + 1
+            except Exception:
+                logger.debug("_assess_evidence_quality: db.get evidence failed eid=%s", eid)
 
         fact_count = sum(
             1 for f in dimension_findings

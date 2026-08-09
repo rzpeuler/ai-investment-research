@@ -149,6 +149,13 @@ class ThemeDiscoveryPipeline:
         for theme in themes:
             self._populate_evidence_analysis(theme, as_of_str)
 
+        # R2-13: propagate db-unavailable to result.missing_data
+        if self.db is None or any(
+            getattr(t, "_db_unavailable", False) for t in themes
+        ):
+            if "authoritative_evidence_store_unavailable" not in result.missing_data:
+                result.missing_data.append("authoritative_evidence_store_unavailable")
+
         # ── Stage 5: Detect Lifecycle（基于已验证证据）──
         for theme in themes:
             theme.lifecycle_state = self._detect_lifecycle(theme)
@@ -162,13 +169,11 @@ class ThemeDiscoveryPipeline:
         result.themes = themes
         result.sort_metrics = sort_metrics
 
-        # Status mapping (R1-7): capability_unavailable→degraded,
+        # Status mapping (R1-7 + R2-9): capability_unavailable→degraded,
         # no_eligible_evidence→insufficient_evidence,
-        # evidence_backed_but_no_llm→partial_success
-        has_valid_evidence = any(
-            t.supporting_evidence_ids for t in themes
-        )
-        result.status = "success" if (themes and has_valid_evidence) else (
+        # deterministic-only path (llm_called=false) → partial_success,
+        # never success — even when evidence-backed.
+        result.status = (
             "partial_success" if themes else "insufficient_evidence")
         result.model_route = {"mode": "deterministic_fallback", "llm_called": False}
         result.exit_code = 0
@@ -369,13 +374,33 @@ class ThemeDiscoveryPipeline:
         statement = self._derive_statement(name, len(cluster), cross_count)
         confidence = self._cluster_confidence(cluster)
 
+        # R2-14: canonical hash includes trigger_type, keywords, industry_ids,
+        # graph_node_ids, candidate evidence_ids, observed relations, as_of.
+        hash_parts: List[str] = []
+        for t in sorted(cluster, key=lambda x: x.trigger_id):
+            hash_parts.append("|".join([
+                t.trigger_type,
+                t.keyword or "",
+                ",".join(sorted(t.industry_ids)),
+                ",".join(sorted(t.graph_node_ids)),
+                ",".join(sorted(t.evidence_ids)),
+            ]))
+        # observed relations = cross-industry pairs derived from industry_ids
+        sorted_inds = sorted(all_inds)
+        rel_pairs: List[str] = []
+        for i in range(len(sorted_inds)):
+            for j in range(i + 1, len(sorted_inds)):
+                rel_pairs.append(f"{sorted_inds[i]}<->{sorted_inds[j]}")
+        hash_parts.append(",".join(rel_pairs))
+        hash_parts.append(as_of)
+
         return ThemeHypothesis(
-            hypothesis_id="hyp:" + content_sha256(
-                "|".join(sorted(t.trigger_id for t in cluster))),
+            hypothesis_id="hyp:" + content_sha256("||".join(hash_parts)),
             theme_name=name, statement=statement, claim_type="HYPOTHESIS",
             lifecycle_state="forming", triggers=list(cluster),
             cross_industry_count=cross_count,
-            supporting_evidence_ids=sorted(all_evidence),
+            # R2-10: start empty; only populate after authoritative reload
+            supporting_evidence_ids=[],
             industry_mapping=[{"industry_id": i, "weight": 1.0}
                               for i in sorted(all_inds)],
             related_entity_ids=sorted(all_nodes),
@@ -390,9 +415,9 @@ class ThemeDiscoveryPipeline:
     def _detect_lifecycle(self, theme: ThemeHypothesis) -> str:
         """确定性生命周期检测（仅 THEME_LIFECYCLE_STATES 词汇）。
 
-        规则（按优先级，R1-6）：
-          1. 有权威 supporting evidence → supported
-          2. 有权威 counter evidence → weakening
+        规则（按优先级，R2-11 修正）：
+          1. 有权威 counter evidence → weakening（覆盖 support）
+          2. 有权威 supporting evidence → supported
           3. 有 verified actual invalidation → invalidated
           4. 有 trigger 但无 qualifying evidence → forming
           5. 其余 → uncertain
@@ -400,12 +425,13 @@ class ThemeDiscoveryPipeline:
         invalidating_conditions ≠ invalidated；不因存在 invalidating_conditions
         即判定为 invalidated。
         """
+        # R2-11: counter evidence OVERRIDES support — check counter first.
+        # Has authoritative counter evidence → weakening (even if support exists)
+        if theme.counter_evidence_ids:
+            return "weakening"
         # Has authoritative supporting evidence (validated via evidence chain)
         if theme.supporting_evidence_ids:
             return "supported"
-        # Has authoritative counter evidence
-        if theme.counter_evidence_ids:
-            return "weakening"
         # verified actual invalidation: requires authoritative external source
         # (not reachable in deterministic-only mode without explicit Evidence flag)
         # Has trigger but no qualifying evidence
@@ -430,11 +456,13 @@ class ThemeDiscoveryPipeline:
             ev_set.update(t.evidence_ids)
         all_candidate_ids = sorted(ev_set)
 
-        # R1-20: db=None → fail-closed：清空 supporting_evidence_ids，
+        # R1-20 + R2-13: db=None → fail-closed：清空 supporting_evidence_ids，
         # 添加 authoritative_evidence_store_unavailable limitation。
         if self.db is None:
             theme.supporting_evidence_ids = []
             theme.limitations.append("authoritative_evidence_store_unavailable")
+            # R2-13: also record in result.missing_data (set via _db_unavailable flag)
+            theme._db_unavailable = True  # type: ignore[attr-defined]
         elif all_candidate_ids:
             chain = validate_evidence_ids_chain(all_candidate_ids, self.db, as_of)
             valid_raw = chain["valid"]
@@ -532,11 +560,12 @@ class ThemeDiscoveryPipeline:
 
         # ── invalidating_conditions ──
         if not theme.invalidating_conditions:
+            # R2-12: prospective wording ("若后续..."), not present-tense claims.
             inv: List[str] = []
             if len(theme.triggers) <= 1:
-                inv.append("无新增触发信号超过 30 天")
+                inv.append("若后续 30 天内无新增触发信号，主题可能失效")
             if not ev_set:
-                inv.append("30 天内仍无证据关联")
+                inv.append("若后续 30 天内仍无证据关联，主题可能失效")
             theme.invalidating_conditions = inv
 
         # ── open_questions ──

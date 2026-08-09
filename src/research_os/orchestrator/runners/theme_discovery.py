@@ -17,6 +17,28 @@ from typing import Any, Dict, List
 
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
 
+
+def _build_theme_triggers(request: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Build schema-valid theme_triggers from request fields."""
+    triggers: List[Dict[str, str]] = []
+    mode = request.get("discovery_mode", "graph_based")
+    industry_ids = request.get("industry_ids", [])
+    keywords = request.get("keywords", [])
+    desc_parts: List[str] = []
+    if mode:
+        desc_parts.append(f"discovery_mode={mode}")
+    if industry_ids:
+        desc_parts.append(f"industries={','.join(industry_ids[:3])}")
+    if keywords:
+        desc_parts.append(f"keywords={','.join(keywords[:3])}")
+    description = "; ".join(desc_parts) if desc_parts else "user_specified discovery trigger"
+    triggers.append({
+        "trigger_type": "user_specified",
+        "description": description,
+    })
+    return triggers
+
+
 class ThemeDiscoveryScenarioRunner:
     """主题发现 ScenarioRunner。
 
@@ -153,9 +175,11 @@ class ThemeDiscoveryScenarioRunner:
         # ----- 2. Pydantic 构造请求 → validate_instance → fail-closed 写入 artifact -----
         request_id = new_uuid()
         requested_at = now_iso()
+        theme_triggers = _build_theme_triggers(request)
         request_model = ThemeDiscoveryRequest(
             request_id=request_id,
             task_id=task.task_id,
+            theme_triggers=theme_triggers,
             as_of=request["as_of"],
             discovery_mode=discovery_mode,
             industry_ids=list(request.get("industry_ids") or []),
@@ -197,20 +221,45 @@ class ThemeDiscoveryScenarioRunner:
                 ephemeral_db.close()
 
         # ----- 4. Pydantic 构造运行记录 → validate_instance → 写入 artifact -----
+        # Compute validation_status from actual outcome (R2-3)
+        validation = (
+            "fail" if outcome.status == "failed"
+            else "degraded" if getattr(outcome, "data_degraded", False)
+            else "pass"
+        )
+        run_id = outcome.run_id
+        started_at = requested_at
+        finished_at = (
+            now_iso()
+            if outcome.status in ("success", "partial_success", "degraded", "failed")
+            else None
+        )
         run_model = ThemeDiscoveryRun(
-            run_id=outcome.run_id,
+            run_id=run_id,
             request_id=request_id,
             task_id=task.task_id,
             as_of=request["as_of"],
             discovery_mode=discovery_mode,
+            idempotency_key=f"{task.task_id}:{discovery_mode}:{request['as_of']}",
+            run_version=1,
+            started_at=started_at,
+            finished_at=finished_at,
             status=outcome.status,
-            themes_discovered=len(outcome.themes),
-            sort_metrics_count=getattr(outcome, "sort_metrics_count", 0),
-            report_path=str(run_dir.final_md) if outcome.markdown else None,
+            stage_statuses=[],
+            artifact_paths=[
+                str(run_dir.root / "theme_discovery_request.json"),
+                str(run_dir.root / "theme_discovery_run.json"),
+            ],
+            input_versions={"pipeline_version": "1.0.0"},
+            model_route_summary=dict(outcome.model_route) if outcome.model_route else {},
+            validation_status=validation,
+            error_codes=[],
             warnings=list(outcome.warnings),
             missing_data=list(outcome.missing_data),
+            themes_discovered=len(outcome.themes),
+            industry_ids=list(request.get("industry_ids") or []),
+            keywords=list(request.get("keywords") or []),
             model_route=dict(outcome.model_route) if outcome.model_route else {},
-            data_degraded=bool(getattr(outcome, "data_degraded", False)),
             version=1,
         )
         _rpayload = run_model.model_dump()
@@ -226,7 +275,6 @@ class ThemeDiscoveryScenarioRunner:
             run_dir.write_final(outcome.markdown)
 
         # ----- 6. 校验状态映射 -----
-        validation = "fail" if outcome.status == "failed" else "pass"
         run_dir.write_validation({
             "status": "ok" if validation == "pass" else "failed",
             "task_id": task.task_id,

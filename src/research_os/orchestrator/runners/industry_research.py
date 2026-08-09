@@ -204,6 +204,7 @@ class IndustryResearchScenarioRunner:
         # 4. Pydantic 构造运行记录 → validate_instance → 写入 artifact
         run_id = outcome.run_id
         started_at = requested_at
+        validation = "fail" if outcome.status == "failed" else ("degraded" if outcome.data_degraded else "pass")
         run_model = IndustryResearchRun(
             run_id=run_id,
             request_id=request_id,
@@ -224,7 +225,7 @@ class IndustryResearchScenarioRunner:
             ],
             input_versions={"pipeline_version": "1.0.0"},
             model_route_summary=outcome.model_route if outcome.model_route else {},
-            validation_status="pending",
+            validation_status=validation,
             error_codes=[],
             warnings=list(outcome.warnings),
             missing_data=list(outcome.missing_data),
