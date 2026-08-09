@@ -1550,7 +1550,24 @@ Graph→Research 不实现，JSON mirror 不实现。
 
 独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
-### 40.8 M10-R2 True E2E Proof Closure（2026-08-09）
+### 40.9 M10-R3 No-Fallback Full-Lineage Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R3 AUTHORIZED。R3 关闭范围：
+> - Company add-node identity 通过 CompanyProfile（entity_id=company:*）显式解析，
+>   CandidatePipeline status=="ok"，无 identity_resolution_required 混用
+> - ReviewWorkflow import 强制成功（## Reviewer section YAML 插入），
+>   无 GraphReview 手动构造 fallback，无 graph_repo.append_review 直接调用
+> - KGV-012 timeline：reviewed_at == candidate.created_at（equality OK），
+>   applied_at == reviewed_at，Case B/C apply.status == "applied"
+> - Case D Evidence 真实语义互斥（source_a S-tier 白酒消费品 vs source_b B-tier AI芯片），
+>   provider_was_called 断言 + conflicts 来自 validated Proposal + both evidence IDs 保持
+> - Exporter DB version gate connection 关闭（try/except 中 close()）
+> - verified_at 使用系统真实 UTC 时间戳
+> - E2E 文件中 0 处 GraphChange 手动构造 / 0 处 GraphReview 手动构造 /
+>   0 处 candidate_repo.append_candidate / 0 处 graph_repo.append_review（normal path）
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
 
 > 用户 REQUEST_CHANGES / R2 AUTHORIZED。R2 关闭范围：
 > - Case B/C/D add_node + add_edge 使用 CandidatePipeline + FakeLlmProvider（provider 真实被调用）
