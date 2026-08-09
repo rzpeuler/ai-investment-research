@@ -1,0 +1,26 @@
+# Phase 5 M10 Case B Acceptance Metadata
+# 中芯国际 688981.SH BELONGS_TO semiconductor:wafer_manufacturing (晶圆制造)
+# 真实官方 Evidence：上交所科创板 2024 年年度报告
+# M10 acceptance fixture — NOT production Source authority
+
+case_id: "m10_case_b_688981_wafer_foundry_fact"
+company_entity_id: "company:688981.SH"
+security_code: "688981.SH"
+company_name: "中芯国际集成电路制造有限公司"
+source_url: "https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/2025-03-28/688981_20250328_JLBJ.pdf"
+source_kind: "official_disclosure"
+report_title: "中芯国际集成电路制造有限公司 2024 年年度报告"
+report_period: "2024"
+published_date: "2025-03-28"
+locator_section: "第四节 管理层讨论与分析 -> 二、报告期内公司所从事的主要业务 -> 公司所处的行业地位分析及其变化情况"
+locator_page: "14-15 / 222"
+short_excerpt: "中芯国际属于集成电路晶圆代工企业并提供晶圆代工服务。"
+expected_target_node_id: "industry_segment:semiconductor:wafer_manufacturing"
+expected_relation: "BELONGS_TO"
+expected_assertion_type: "FACT"
+verified_at: "2026-08-09T01:56:13Z"
+verification_method: "online_sse_pdf"
+oneline_status: "PASS"
+http_status: 200
+content_type: "application/pdf"
+page_count: 222

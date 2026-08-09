@@ -1291,3 +1291,389 @@ db_version:
   UNRESOLVED / DEFERRED / NOT_IMPLEMENTED / NOT_CANCELLED /
   NOT_ASSIGNED_TO_M9 / NOT_ASSIGNED_TO_M10（#38.10 不变）。
   M8 PASS 不构成对 taskbook §20 JSON mirror 的满足声明。
+
+---
+
+## 39. Phase 5 M9 Structured Research Candidate Integration Contract（2026-08-09）
+
+> 本决定在 M9 实现启动时冻结，经用户明确授权
+> （PR5B MERGED，master `cfdeeba7604efed2ac730c8e0e15692d49809b4d`）。
+> M9 scope：existing persisted structured research objects → GraphChange candidate。
+> Graph→Research NOT implemented in M9。
+
+### 39.1 M9 唯一授权范围
+
+1. **Research→Candidate ONE-WAY**：M9 只建立 Phase2/3/4 已持久化结构化研究对象
+   → GraphChange candidate 的单向集成。M9 不实现 Graph→Research
+   （KnowledgeContext injection），也不消费 M8 KnowledgeContext/GraphQuery
+   输出。
+2. **不得修改 Phase2/3/4**：已验收的 morning scoring、abnormal move detection、
+   benchmark selection、causal timing、equity financial formulas、valuation
+   formulas、research status、LLM research prompts 全部冻结。M9 是显式
+   post-run integration，不给既有 `research run` 命令新增自动 candidate side
+   effect。
+3. **Phase3 原有 timing 缺口本轮不修**：`move_start_at/move_end_at` 缺省是
+   独立 Phase3 defect，不借 M9 修复。
+
+### 39.2 M3 Source Whitelist 完全冻结
+
+4. `_SOURCE_MAP` / `_ALLOWED_SOURCE_TYPES`（`candidate_sources.py`）保持原样：
+   Event / Claim / ResearchFinding / CompetitiveFactor / Catalyst /
+   RiskFactor / BusinessSegment / CompanyProfile / Evidence（9 种）。
+5. **禁止新增**：Opinion、CauseCandidate、AttributionResult、
+   AbnormalMoveObservation、CandidateItem、EventCluster、PeerSelection、
+   ValuationSnapshot。理由：防止 SOURCE_OPINION / abnormal attribution
+   被抬升为图谱事实，以及异动分析自证。
+
+### 39.3 Scenario Integration 模块
+
+6. **新建** `src/research_os/knowledge/scenario_integration.py`
+   `ScenarioCandidateIntegrator.integrate(scenario, run_dir, ...)`。
+   支持 canonical scenario names：`morning_brief` / `abnormal_move_analysis` /
+   `stock_research_report`。
+7. **Run artifact 永远不是 authority**：artifact JSON 只用作 locator
+   （finding_id / claim_id / evidence_id），结构化对象必须从 SQLite
+   经 Schema→Pydantic→Schema 重新严格加载。artifact 内的
+   statement/conclusion/evidence/confidence 永远不直接送给 LLM。
+
+### 39.4 Phase2 / Morning 集成合同
+
+8. **只使用** `claims.json`（Claim ID）→ SQLite claims 表
+   → `SourceAdapter.load("Claim", claim_id)`。artifact Claim 与 DB Claim
+   必须一致（`INTEGRATION_ARTIFACT_INTEGRITY_CONFLICT` 不一致）。
+9. **禁止** CandidateItem、EventCluster、RawItem、Markdown 作为 source。
+
+### 39.5 Phase3 / Abnormal Move 集成合同
+
+10. **只使用** `cause_evidence_links.json` → Evidence IDs → SQLite evidence 表
+    → `Evidence:<evidence_id>`。必须验证完整引用链
+    （run.request_id → cause_candidate → cause_evidence_link → evidence）。
+11. **禁止** CauseCandidate、AttributionResult、Observation 作为 source。
+    禁止根据 cause_category/attribution_status/primary_cause/final_score
+    自行制造 FACT relation。
+
+### 39.6 Phase4 / Equity Research 集成合同
+
+12. **v1 只使用** `research_findings.json` → ResearchFinding ID → SQLite
+    research_findings 表。验证 `run.request_id == finding.request_id`
+    （cross-run → `INTEGRATION_SOURCE_RUN_MISMATCH`）。
+13. CompetitiveFactor/Catalyst/RiskFactor/BusinessSegment/Claim 虽然 M3
+    继续允许作为显式 source（`knowledge candidates --source Type:ID`），
+    但 M9 scenario bridge 因缺少可靠 request_id/run_id 不自动引入。
+    M3 explicit candidates CLI 不受影响。
+
+### 39.7 安全约束
+
+14. **run_dir 必须** `resolve() → 验证在 project_root/reports/runs/` 下
+    （拒绝 `../` / absolute outside / symlink escape）。
+    `INTEGRATION_RUN_DIR_INVALID`。
+15. **Source 数量硬上限** `MAX_INTEGRATION_SOURCES = 20`。超过且无显式
+    `--source` filter → `INTEGRATION_SOURCE_LIMIT_EXCEEDED`，不得 silent
+    top-N。`--source Type:ID` 必须是 resolver-discovered source refs 子集
+    （`INTEGRATION_SOURCE_FILTER_INVALID`）。
+16. **每次 invocation = 一次 CandidatePipeline.run()**，最多一个 candidate。
+    禁止 per-source 循环（保护 M3 Pro budget max-one）。
+17. **Candidate 永不直接 active**：M9 成功最多 `review_status=candidate`。
+    后续仍必须 Human Review → Deterministic Apply。
+
+### 39.8 不变约束
+
+18. **不新增 Schema / Migration**（SCHEMA_COUNT=55，DB_VERSION=6 不变）。
+19. **不消费 M8 KnowledgeContext**（不在 M9 integration 业务路径 import
+    KnowledgeContextBuilder/GraphQueryService/HistoryService）。
+20. **JSON mirror** 保持 `PHASE5_UNRESOLVED_REQUIREMENT`：
+    NOT_IMPLEMENTED / NOT_CANCELLED / NOT_ASSIGNED_TO_M9。
+21. same-run circularity 无（Graph→Research 不实现，candidate ≠ active
+    graph 不回流当前 run）。
+22. M9 completion ≠ Phase5 PASS。M10 仍 NOT_AUTHORIZED。
+
+### 39.9 M9-R1 Run Authority Closure（2026-08-09）
+
+> R1 关闭 run authority 与 cross-run integrity 缺口。不新增 Decision #40。
+
+**Run artifact authority 原则**:
+- run artifacts = locator / consistency proof only
+- SQLite persisted run/source objects = authority
+- cross-run ownership: fail closed
+- unverifiable ownership: reject, never warning-and-continue
+- failed scenario validation: `INTEGRATION_RUN_NOT_ELIGIBLE`
+
+**晨报 binding**:
+- `task.json` 必须验证 `run_dir.name == task_id`，否则 `INTEGRATION_SOURCE_RUN_MISMATCH`
+- `evidence_index.json` 为 `{evidence_id: Evidence.model_dump()}` dict（非数组）
+- 每个 Claim 进行完整 canonical equality（非仅旧四字段）与 DB 比对
+- `claim.evidence_ids ⊆ evidence_index keys`，否则 `INTEGRATION_SOURCE_RUN_MISMATCH`
+- `validation.json.status == "ok"`，否则 `INTEGRATION_RUN_NOT_ELIGIBLE`
+
+**Phase3 binding**:
+- SQLite `AbnormalMoveRun` = authority（不是 artifact JSON）
+- 权威 `run_request_id = DB run.request_id`
+- `DB CauseCandidate.request_id == authoritative run_request_id`
+- CauseCandidate 不在 artifact → reject（非 warning）
+- 完整链: SQLite AbnormalMoveRun → CauseCandidate → CauseEvidenceLink → Evidence
+- `validation.json.ok is True`，否则 `INTEGRATION_RUN_NOT_ELIGIBLE`
+
+**Phase4 binding**:
+- SQLite `EquityResearchRun`/`EquityResearchRequest` = authority
+- `DB run.task_id == run_dir.name`，否则 `INTEGRATION_SOURCE_RUN_MISMATCH`
+- `DB request.request_id == DB run.request_id`
+- 每个 ResearchFinding 完整 canonical equality
+- `DB finding.request_id == authoritative run.request_id`
+- 允许 validation: `pass` / `pass_with_warnings`
+- `equity_research_run.json` 缺失 → `INTEGRATION_ARTIFACT_MISSING`（无 fallback）
+
+**Live CLI provider fail-closed**:
+- `--live` 无 `--provider` → `INTEGRATION_PROVIDER_ERROR`（structured JSON，无 traceback）
+- invalid provider → 同上
+
+**不变**: M3 source whitelist 不变，Schema 55 不变，DB v6 不变，Phase2/3/4 行为不变，
+Graph→Research 不实现，JSON mirror 不实现。
+
+### 39.10 M9-R2 Authority Finalization（2026-08-09）
+
+> R2 完成 run eligibility 与 full canonical integrity 最终闭包。不新增 Decision #40。
+
+**Eligibility 双 gate**:
+- eligibility = artifact validation PASS + SQLite authoritative run validation PASS
+- Morning: task binding + full Claim + Evidence closure + validation.json status=="ok"
+- Phase3: artifact ok==true + DB `AbnormalMoveRun.validation_status=="passed"`
+- Phase4: artifact status∈{pass, pass_with_warnings} + DB `validation_status`∈{pass, pass_with_warnings} + `status`∉{validation_failed, failed}
+
+**真正的 Schema→Pydantic→model_dump→Schema canonical**:
+- 统一 `_schema_pydantic_roundtrip()` → Schema validation → Pydantic construction → model_dump → re-validate
+- `_canonicalize_artifact(raw, schema_name)` 和 `_canonicalize_db(raw, model_name)` 统一走同一条路径
+- `_CANONICAL_MODEL_BY_SCHEMA` registry 覆盖 8 种对象: Claim/Evidence/ResearchFinding/AbnormalMoveRun/CauseCandidate/CauseEvidenceLink/EquityResearchRun/EquityResearchRequest
+- SQLite load 同样 Schema round-trip（DB payload → Schema → Pydantic → dump → Schema）
+
+**Full canonical equality**:
+- 所有对象（run/cause/link/request）使用完整 `==` 比较 canonical dict
+- 不再 field-by-field 比较
+- 攻击覆盖: observation_id/schema tamper、title/relation tamper、validation_status tamper、company_entity_id tamper
+
+**测试回归恢复**: 原有 M9 测试覆盖已恢复并强化（56 tests vs R1 45，vs original 40）
+
+**R3 acceptance gate**: Phase3 explicit DB failure status（`failed`/`validation_failed`）is ineligible even when `validation_status == passed`。`SOURCE_FILTER_INVALID` regression restored。
+
+### 39.11 M9 Independent Acceptance（2026-08-09）
+
+> M9 独立架构验收结论：**PASS**。
+
+- **M9_ACCEPTED_SHA**：`d097ca8a21136370ac01e3422a51e7e435530106`
+- **M9_OFFLINE_CI**：`31275096225`
+- **M9_TEST_RESULT**：2068 passed / 5 skipped / 0 failed / 0 xfail
+- **SCHEMAS**：55/55
+- **DB_VERSION**：6
+- **验收范围**：scenario_integration.py（Phase2/3/4 → CandidatePipeline）、run authority closure（artifact ↔ DB canonical equality）、M3 source whitelist 未变、56 tests（vs original 40）
+- **不变性**：no Schema/migration change、source whitelist frozen（9 种）、Phase2/3/4 无行为变化、Graph→Research NOT implemented
+
+---
+
+## 40. Phase 5 M10 Deterministic JSON Mirror + E2E Acceptance Contract（2026-08-09）
+
+> **用户选择**：OPTION_A（在 M10 中实现 JSON Mirror）。
+> **PHASE5_UNRESOLVED_REQUIREMENT**：DETERMINISTIC_JSON_MIRROR → **RESOLUTION: IMPLEMENT_IN_M10**。
+>
+> 历史 Decision #38.10（JSON mirror deferred）保留为历史记录，不删除、不改写。
+> Option A 由用户于 2026-08-09 明确选择。JSON mirror 不再 silent deferred，现为显式 M10 实现要求。
+>
+> M10 独立验收前状态：**JSON_MIRROR: IMPLEMENTATION_IN_PROGRESS**。
+
+### 40.1 M10 分两个子闭包
+
+1. **M10-A**：Deterministic JSON Mirror（exporter + CLI + 32 项目标测试）
+2. **M10-B**：Four-class E2E（Case A-D + full regression + Pro 对抗审查 + Offline CI）
+
+顺序冻结：M10-A → PASS → M10-B。不得先写 E2E 再临时设计 export contract。
+
+### 40.2 M10-A JSON Mirror Authority 原则
+
+- **SQLite = ONLY AUTHORITATIVE SOURCE**。JSON = READ-ONLY DETERMINISTIC EXPORT。
+- 禁止：JSON→SQLite import、JSON→active graph apply、JSON→GraphChange、JSON edit→database sync、bidirectional sync、watcher auto-import。
+- 不新增 `research knowledge import` / `research knowledge sync-from-json` 命令。
+- 人工改 JSON 无数据库效果；下一次 export 由 SQLite 覆盖。
+
+### 40.3 Mirror 输出目录
+
+仅由 exporter 管理：`knowledge/graph/nodes/`、`knowledge/graph/edges/`、`knowledge/history/nodes/`、`knowledge/history/edges/`。
+
+- Graph mirror：每个 stable identity 的 MAX(version) canonical payload（latest persisted version），不执行 now() / business as_of。
+- History mirror：每个 identity 的 version ASC 全量版本。不镜像 GraphChange/Review/Application/Evidence/RawItem/Source。
+- 文件名 encoding：`urllib.parse.quote(object_id, safe="-._~")`（Windows colon → percent encoding）。
+- JSON bytes 冻结：`json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"`，UTF-8。禁止注入 exported_at/now/hostname/absolute path/random id。
+- 单 SQLite read snapshot（显式 BEGIN → 全部 SELECT → ROLLBACK）。preflight 全部成功后才写文件（fail-closed，0 部分输出）。
+- 成功 export 全量替换 managed 目录文件；stale JSON 不残留。
+- `tree_sha256`：按 relative path lexical sort → path+NUL+bytes+NUL 串联 SHA256。
+
+### 40.4 M10-B E2E Cases
+
+**Case A（Governance seed）**：fresh DB → seed → seed again（幂等）→ history → query → export。证明 34 nodes / 31 edges、industry:ai_hardware / semiconductor / ai_software、repeat seed 0 version inflation、GOVERNANCE partition。
+
+**Case B（FACT，真实官方 Evidence）**：company:688981.SH（中芯国际）→ BELONGS_TO → industry_segment:semiconductor:wafer_manufacturing（晶圆制造）。断言 assertion_type=FACT。官方 Evidence：SSE 披露 2024 年年报（URL `https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/2025-03-28/688981_20250328_JLBJ.pdf`，第四节 管理层讨论与分析，PDF 14-15/222）。离线 CI 不联网；一次显式 online acceptance 验证真实来源 URL 可达性和 locator 一致性。真实 production graph 仍需真实人工审核，M10 不写入 production DB。entity 必须正常持久化（禁止 direct SQL graph 设置）。
+
+**Case C（MODEL_INFERENCE）**：persisted structured source → CandidatePipeline → assertion_type=MODEL_INFERENCE。relation 限于 BENEFITS_FROM/HARMED_BY/AFFECTS/SUBSTITUTES。证明 candidate review_status=candidate（非 auto-active）、apply 后仍为 MODEL_INFERENCE、M8 query epistemic 分区中 model_inferences 包含、facts 不包含、JSON mirror 保持 assertion_type 标签。
+
+**Case D（Conflict / rejected）**：两个不兼容 evidence-backed 结构化对象 → GraphChange.conflicts != []。至少一条路径：approved review → ApplyEngine → rejected by blocking conflict（KGV-011 / apply gate）。禁止 delete one Evidence / mutate conflict / direct UPDATE GraphChange 制造成功。
+
+### 40.5 不变约束
+
+- SCHEMA_COUNT: 55（不新增）。DB_VERSION: 6（不新增 migration）。SCHEMAS_CHANGED: NONE。MIGRATIONS_CHANGED: NONE。
+- JSON history wrapper 不新增 JSON Schema（deterministic export envelope，非新持久化域契约）。
+- 禁止 Graph→Research（KnowledgeContext → morning/abnormal move/equity research 输入）。
+- 不修 Phase3 timing defect（move_start_at/move_end_at）。
+- 原则上不修改 M3-M9 已验收模块；若测试暴露真 blocker → STOP + REPORT。
+
+### 40.6 M10 Acceptance Standards
+
+- 全量 pytest ≥ 2068 passed / 5 skipped / 0 failed / 0 xfail
+- 55/55 schemas / compileall PASS / diff-check PASS
+- Offline CI PASS（不新增默认 skipped online test）
+- V4 Pro 对抗审查：0 blocker / 0 should-fix
+- Online official Evidence verification: PASS 或 ONLINE_ACCEPTANCE_NEEDED（禁止无网络时造假）
+- M10 完成状态：READY_FOR_INDEPENDENT_ACCEPTANCE（非 Phase5 PASS）
+- JSON_MIRROR 状态：IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE
+
+### 40.7 M10-R1 Final E2E & Export Authority Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R1 AUTHORIZED。R1 关闭范围：
+> - Export CLI 永远使用 SQLite mode=ro；移除 `db.initialize()`；旧 DB（user_version<6）→ EXPORT_READ_FAILED
+> - Exporter 内部自开 read-only Database，不接受 writable DB handle
+> - `project_root` + `knowledge_root` containment 检查（symlink / 非目录 / 外逃 → EXPORT_PATH_INVALID）
+> - Managed path preflight（全部 4 个 managed dirs + 2 个 parent dirs 在写前统一检）
+> - 真实 exporter WAL snapshot 并发测试（`KnowledgeMirrorExporter.export()` 完整调用）
+> - Symlink containment test（knowledge_root symlink → 拒绝；managed subdir symlink → 拒绝）
+> - Path escape test（knowledge_root outside project_root → 拒绝）
+> - Case B/C edge proposals 使用 CandidatePipeline + FakeLlmProvider
+> - Case D conflict 使用两个 persisted incompatible sources → CandidatePipeline → proposal.conflicts 非空
+> - Case B/C/D review 使用 ReviewWorkflow Markdown export/import
+> - Case B online verification versioned（verified_at / http_status / content_type / page_count）
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+### 40.13 M10-R7 Full-Lineage Provenance Final Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R7 AUTHORIZED。R7 关闭范围 + #40.12 勘误：
+> - #40.12 已完成 helper 参数化与独立 provenance tests，但独立验收发现
+>   Case C/D 主 full-lineage tests 仍调用 helper 默认 publisher/evidence_type/source metadata，
+>   因此 #40.12 "full provenance complete" 表述过早。
+>   **R7 将相同 synthetic metadata 直接接入 Case C/D 实际 CandidatePipeline full lineage。**
+> - Case C full pipeline：raw_item publisher="M10 Synthetic Fixture"、
+>   evidence publisher="M10 Synthetic Fixture"、evidence_type="news_report"（Schema enum 合法值）。
+> - Case D full pipeline：使用  替代 、
+>   raw_item/evidence publisher 分别设为 A/B synthetic、evidence_type="news_report"、
+>   source_tier A/A + B/B 一致、conflict 文本 S→A。
+> - evidence_type 选型说明：Schema enum 不含 "test_fixture"，选择 "news_report" 作为
+>   最通用非官方类型，不暗示 real SSE/official provenance。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+### 40.12 M10-R6 Final Proof Correction（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R6 AUTHORIZED。R6 关闭范围 + #40.11 勘误：
+> - #40.11 writer 确实发生于 active export，但新增的是 node_ids 已冻结后才出现的新 identity，
+>   不足以证明 identity discovery 与 history reads 共享同一 SQLite snapshot；
+>   且 writer 实际使用 direct SQL（#40.11 声称 "NONE" 不成立）。
+>   **R6 完成 same-identity v1→v2 proof**：pre-create v1 via GraphRepository.append_node，
+>   第一次 export 内 writer 通过 GraphRepository 追加 v2 到同一 identity，
+>   第一次 export mirror version==1 / history==[1]，第二次 export mirror version==2 / history==[1,2]。
+> - **R6 实现 CONCURRENCY_DIRECT_SQL: NONE**（writer 全程使用 GraphRepository）。
+> - #40.11 Case C/D "synthetic Source renamed but RawItem.publisher / Evidence.publisher /
+>   Evidence.evidence_type 仍残留 SSE metadata" — R6 完整清除，publisher/evidence_type 全部参数化。
+> - **新增独立 provenance tests**：Case B URL lineage（3 方 exact match）、Case C synthetic（0 SSE）、
+>   Case D synthetic + tier consistency（A/A, B/B）。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+### 40.11 M10-R5 Proof Integrity Closure（2026-08-09）
+
+> 用户 REQUEST_CHANGES / R5 AUTHORIZED。R5 关闭范围 + #40.10 勘误：
+> - #40.10 所称 "export → 34 → writer → export → 35" 只证明 sequential snapshot change，
+>   并非 in-transaction concurrent-writer proof。
+>   **R5 完成首次 single KnowledgeMirrorExporter.export() with writer commit during active read transaction。**
+>   writer 通过 monkeypatched `_build_mirror` 插入合法 GraphNode（governance_seed, originating=NULL），
+>   第一次 export snapshot 不受影响（34 nodes），第二次 export 才看到 writer node（35 nodes）。
+> - #40.10 Case C/D "R4 only changed title/name" — R5 完全去除 SSE/official provenance，
+>   source/platform/domain/source_type/evidence_type 全部切换为 synthetic。
+>   Case C: m10_synthetic_mi（tier B, test_fixture）。
+>   Case D: m10_synthetic_a (tier A) / m10_synthetic_b (tier B)。
+>   Evidence tier = Source tier 一致。
+> - Provider distinct-excerpt proof：A unique "does not supply compute chips" / B unique "cloud partnership"。
+> - Review Notes 精确占位符 `_（请在此填写审核意见）_` + 无条件 assert persisted。
+> - Case B persisted URL assertion from SQLite evidence table。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+> 用户 REQUEST_CHANGES / R4 AUTHORIZED。R4 关闭范围 + 40.7 勘误：
+> - Decision #40.7 曾声明 "真实 exporter WAL snapshot 并发测试"；
+>   独立验收发现当时测试仅覆盖 private identity reads，
+>   未完整调用 `KnowledgeMirrorExporter.export()`。
+>   **R4 已补充真正完整 export WAL concurrency proof**
+>   （KnowledgeMirrorExporter.export() → 34 nodes → writer insert → export → 35 nodes → tree_sha256 change）。
+> - Case B Evidence URL 统一为 exact SSE 官方 URL（M10_SSE_688981_URL 常量）。
+> - Case C synthetic Evidence 明确标记 TEST SYNTHETIC MODEL INFERENCE INPUT（不冒充真实公开事实）。
+> - Case D synthetic Evidence A/B 明确标记 TEST SYNTHETIC CONFLICT EVIDENCE（不伪装 SSE / official disclosure）。
+> - Case D provider request 内 assert 包含双方 evidence ID + distinctive excerpts。
+> - Review Notes 包含 TEST HUMAN REVIEW FIXTURE marker。
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+> 用户 REQUEST_CHANGES / R3 AUTHORIZED。R3 关闭范围：
+> - Company add-node identity 通过 CompanyProfile（entity_id=company:*）显式解析，
+>   CandidatePipeline status=="ok"，无 identity_resolution_required 混用
+> - ReviewWorkflow import 强制成功（## Reviewer section YAML 插入），
+>   无 GraphReview 手动构造 fallback，无 graph_repo.append_review 直接调用
+> - KGV-012 timeline：reviewed_at == candidate.created_at（equality OK），
+>   applied_at == reviewed_at，Case B/C apply.status == "applied"
+> - Case D Evidence 真实语义互斥（source_a S-tier 白酒消费品 vs source_b B-tier AI芯片），
+>   provider_was_called 断言 + conflicts 来自 validated Proposal + both evidence IDs 保持
+> - Exporter DB version gate connection 关闭（try/except 中 close()）
+> - verified_at 使用系统真实 UTC 时间戳
+> - E2E 文件中 0 处 GraphChange 手动构造 / 0 处 GraphReview 手动构造 /
+>   0 处 candidate_repo.append_candidate / 0 处 graph_repo.append_review（normal path）
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+> 用户 REQUEST_CHANGES / R2 AUTHORIZED。R2 关闭范围：
+> - Case B/C/D add_node + add_edge 使用 CandidatePipeline + FakeLlmProvider（provider 真实被调用）
+> - Case B/C/D 使用 ReviewWorkflow.review_export（生成正式 Markdown artifact）
+> - Case D conflict 来自 controlled provider proposal（两个 persisted Evidence 输入）
+> - Exporter DB version explicit gate（PRAGMA user_version == 6；v5 → EXPORT_READ_FAILED）
+> - canonical knowledge_root 强制（必须 == <project_root>/knowledge）
+> - Exporter close() / context manager
+> - Case B online verification timestamp 修正
+> - 不变性：Schema 55/55、DB v6、migration 不变、M3-M9 语义不变
+
+独立验收前仍：M10 IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE / Phase5 IN_PROGRESS
+
+
+### 40.14 M10 Independent Acceptance（2026-08-09）
+
+> M10_INDEPENDENT_ACCEPTANCE: **PASS**
+>
+> **ACCEPTED_SHA**: `156ea358590b90457720a28630f9cc698951a825`
+> **OFFLINE_CI**: `31292861813`
+> **TEST_RESULT**: 2110 passed / 5 skipped / 0 failed / 0 xfail
+> **SCHEMAS**: 55/55
+> **DB_VERSION**: 6
+> **PRO_FINAL_REVIEW**: 0 blocker / 0 should-fix
+>
+> **Deterministic JSON Mirror Option A**: RESOLVED_BY_M10。
+> SQLite remains ONLY authority。JSON mirror: read-only deterministic export、
+> no JSON→SQLite import、no reverse sync、no active graph write。
+>
+> **Case A Governance**: PASS / **Case B official SSE FACT**: PASS /
+> **Case C MODEL_INFERENCE**: PASS / **Case D blocking conflict**: PASS。
+> **True same-identity v1→v2 WAL snapshot**: PASS。
+> **CandidatePipeline full lineage**: PASS / **ReviewWorkflow full lineage**: PASS。
+>
+> **Graph→Research**: NOT_IMPLEMENTED。
+> **Schema**: unchanged / 55。**Migration**: unchanged。**DB**: v6。
+>
+> **M0-M10**: ALL PASS。
+> **PHASE5_ENGINEERING_ACCEPTANCE**: PASS。
+> **PR5C_MERGE**: AUTHORIZED by user on 2026-08-09。

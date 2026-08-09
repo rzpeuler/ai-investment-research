@@ -53,9 +53,11 @@ RawItem/Evidence 血缘、按 Provider 实际调用计数的 Flash/Pro 预算、
 `SUCCESS`，688981.SH 在受控缺失下取得 `INSUFFICIENT_DATA`。单次输入不足或 Provider
 故障时仍必须降级，不得沿用历史成功状态。
 Schema 30→51，迁移 user_version=5。
-**Phase 5：IN_PROGRESS**（M0 PASS / M1 PASS / M2 PASS / M3 AUTHORIZED / M4-M10 NOT_AUTHORIZED）。
-M3 GraphChange Candidate Pipeline 正在实施中。
-M4-M10 尚未授权，不得提前实施。
+**Phase 5：PASS**。
+**PR5B**：MERGED（squash merge → `cfdeeba7`）。
+**M0-M8**：**PASS**（M8 SHA `eac18e2`，CI `31269460005`，2009 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
+**M9**：**PASS**（SHA `d097ca8`，CI `31275096225`，2068 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6）。
+**M10**：**AUTHORIZED / IN_PROGRESS**（PR5C `phase5/pipeline-integration`，Draft PR #6）。
 
 ## 快速开始
 
@@ -143,7 +145,7 @@ ai-investment-research/
 ├── AGENTS.md               # 不可违反的研究与工程规则
 ├── docs/engineering-guide.md
 ├── config/                 # app / model_routing / schedules / source_policy / report_policy / knowledge_policy
-├── schemas/                # 9 个核心 JSON Schema（权威数据契约）
+├── schemas/                # 55 个 JSON Schema（权威数据契约）
 ├── registry/               # 来源注册表（sources / source_groups / changelog）
 ├── src/research_os/
 │   ├── cli/                # research 命令
@@ -171,8 +173,9 @@ ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现�
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
 
-当前 **51 个 Schema**（Phase 0：9 / Phase 1：4 / Phase 1.1：2 / Phase 2：4 /
-Phase 3：11 / Phase 4：20 / Phase 4.1：1）。Schema 校验：`research validate`。
+当前 **55 个 Schema**（Phase 0：9 / Phase 1：4 / Phase 1.1：2 / Phase 2：4 /
+Phase 3：11 / Phase 4：20 / Phase 4.1：1 / Phase 5：4）。Schema 校验：`research validate`。
+数据库版本：**v6**。
 
 ## 输出边界
 

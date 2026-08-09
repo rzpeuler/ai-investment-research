@@ -1378,5 +1378,200 @@ def knowledge_context(node_id, as_of, depth, relations,
     click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
 
 
+@knowledge_group.command("integrate")
+@click.option(
+    "--scenario", "scenario", required=True,
+    help="场景 canonical name: morning_brief / abnormal_move_analysis / stock_research_report",
+)
+@click.option(
+    "--run-dir", "run_dir", required=True,
+    help="运行目录路径（reports/runs/<task_id>）。",
+)
+@click.option(
+    "--source", "sources", multiple=True,
+    help="显式子集 filter（Type:ID，可重复）。不提供时使用所有解析到的源。",
+)
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--provider", "provider_id", default=None,
+    help="Provider ID（如 deepseek）；--live 时必填。",
+)
+@click.option(
+    "--live", is_flag=True, default=False,
+    help="真实调用 LLM 生成 GraphChangeProposal。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="零 Provider 调用 / 零 candidate 写入 / 零文件副作用。",
+)
+def knowledge_integrate(scenario, run_dir, sources, db_path,
+                        provider_id, live, dry_run) -> None:
+    """M9 Scenario Integration：scenario run artifacts → CandidatePipeline。
+
+    晨报 → Claim source refs。
+    异动 → Evidence source refs（CauseEvidenceLink 证据）。
+    个股研报 → ResearchFinding source refs。
+
+    --live 开启真实 LLM 调用；--dry-run 零副作用预检。
+    """
+    import json as _json
+
+    from research_os.knowledge.scenario_integration import (
+        ScenarioCandidateIntegrator,
+        IntegrationError,
+        IntegrationResult,
+    )
+    from research_os.llm.provider_factory import create_provider
+    from research_os.storage import Database
+
+    root = _project_root()
+    db_full = root / db_path
+
+    if not db_full.exists():
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": "INTEGRATION_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(2)
+
+    resolved_dir = Path(run_dir)
+    if not resolved_dir.is_absolute():
+        resolved_dir = root / run_dir
+
+    db = Database(db_full) if not dry_run else Database.open_read_only(db_full)
+    if not dry_run:
+        db.initialize()
+
+    try:
+        provider = None
+        if live and not dry_run:
+            if not provider_id:
+                click.echo(_json.dumps({
+                    "status": "error",
+                    "error_code": "INTEGRATION_PROVIDER_ERROR",
+                    "errors": ["--live 要求显式 --provider（如 deepseek）"],
+                }, ensure_ascii=False, sort_keys=True))
+                raise SystemExit(1)
+            try:
+                provider = create_provider(root, provider_id=provider_id, live=live)
+            except (ValueError, Exception) as exc:
+                click.echo(_json.dumps({
+                    "status": "error",
+                    "error_code": "INTEGRATION_PROVIDER_ERROR",
+                    "errors": [f"Provider 创建失败: {exc}"],
+                }, ensure_ascii=False, sort_keys=True))
+                raise SystemExit(1) from None
+
+        integrator = ScenarioCandidateIntegrator(
+            db=db,
+            project_root=root,
+            provider=provider,
+            live=live,
+            dry_run=dry_run,
+        )
+
+        selected = list(sources) if sources else None
+
+        result: IntegrationResult = integrator.integrate(
+            scenario=scenario,
+            run_dir=resolved_dir,
+            selected_sources=selected,
+        )
+
+        output = {
+            "status": result.status,
+            "error_code": result.error_code,
+            "errors": result.errors,
+            "scenario": result.scenario,
+            "run_dir": result.run_dir,
+            "resolved_source_refs": result.resolved_source_refs,
+            "selected_source_refs": result.selected_source_refs,
+            "pipeline_result": result.pipeline_result,
+            "warnings": result.warnings,
+        }
+        click.echo(_json.dumps(output, ensure_ascii=False, sort_keys=True))
+
+        if result.status == "error":
+            raise SystemExit(1)
+
+    finally:
+        db.close()
+
+
+@knowledge_group.command("export")
+@click.option(
+    "--db", "db_path",
+    default="data/sqlite/research.db",
+    show_default=True,
+    help="SQLite 数据库路径（相对项目根）。",
+)
+@click.option(
+    "--project-root", "project_root",
+    default=None,
+    help="项目根目录（默认自动检测）。",
+)
+@click.option(
+    "--dry-run", is_flag=True, default=False,
+    help="完整 SQLite preflight + tree_sha256 计算，0 文件写入。",
+)
+def knowledge_export(db_path, project_root, dry_run) -> None:
+    """M10-A Deterministic JSON Mirror Export。
+
+    零 LLM / 零 Provider / 零 network / 零 DB 写入 / **零 DB 初始化**。
+    SQLite → JSON 确定性导出（graph + history mirror）。
+    **永远以 mode=ro 打开数据库。**
+    """
+    import json as _json
+
+    from research_os.knowledge.exporter import (
+        KnowledgeMirrorExporter,
+        ExportError,
+    )
+
+    root = Path(project_root) if project_root else _project_root()
+    db_full = root / db_path
+    if not db_full.exists():
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": "EXPORT_READ_FAILED",
+            "errors": [f"数据库不存在: {db_full}"],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1)
+
+    knowledge_root = root / "knowledge"
+
+    try:
+        exporter = KnowledgeMirrorExporter(
+            project_root=root,
+            knowledge_root=knowledge_root,
+            db_path=db_full,
+        )
+        result = exporter.export(dry_run=dry_run)
+    except ExportError as exc:
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": exc.error_code,
+            "errors": [str(exc.message)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+    except Exception as exc:
+        click.echo(_json.dumps({
+            "status": "error",
+            "error_code": "EXPORT_READ_FAILED",
+            "errors": [str(exc)],
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(1) from None
+
+    click.echo(_json.dumps(
+        result.to_dict(), ensure_ascii=False, sort_keys=True
+    ))
+
+
 if __name__ == "__main__":
     cli()
