@@ -139,14 +139,18 @@ class KnowledgeMirrorExporter:
         self._db = Database.open_read_only(db_path)
 
         # explicit DB version gate: PRAGMA user_version must == 6
-        ver_row = self._db._conn.execute("PRAGMA user_version").fetchone()
-        db_version = ver_row[0] if ver_row else -1
-        if db_version != 6:
-            raise ExportError(
-                "EXPORT_READ_FAILED",
-                f"数据库 user_version 为 {db_version}，期望 6。"
-                f"导出器不会自动迁移。",
-            )
+        try:
+            ver_row = self._db._conn.execute("PRAGMA user_version").fetchone()
+            db_version = ver_row[0] if ver_row else -1
+            if db_version != 6:
+                raise ExportError(
+                    "EXPORT_READ_FAILED",
+                    f"数据库 user_version 为 {db_version}，期望 6。"
+                    f"导出器不会自动迁移。",
+                )
+        except ExportError:
+            self._db.close()
+            raise
         self._graph_repo = GraphRepository(self._db)
         self._history = HistoryService(self._db, self._graph_repo)
         self._db_path = db_path

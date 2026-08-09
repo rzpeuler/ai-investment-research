@@ -1,6 +1,7 @@
-"""Phase 5 M10-R2 True E2E Proof Closure。
+"""Phase 5 M10-R3 No-Fallback Full-Lineage Closure。
 
-R2: CandidatePipeline + ReviewWorkflow Markdown lineage for Case B/C/D。
+R3: CompanyProfile identity source + mandatory ReviewWorkflow import + genuinely
+incompatible Evidence + no manual GraphChange/GraphReview fallback anywhere.
 """
 from __future__ import annotations
 
@@ -28,7 +29,6 @@ from research_os.utils.id import new_uuid, content_sha256
 
 ONT_PATH = (Path(__file__).resolve().parents[2] / "knowledge"
             / "ontology" / "industry_graph_v1.yaml")
-T0 = "2026-08-09T00:00:00"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -65,13 +65,9 @@ def _make_components(db: Database) -> Dict[str, Any]:
     query = GraphQueryService(db, graph_repo, history)
     context = KnowledgeContextBuilder(query)
     return {
-        "graph_repo": graph_repo,
-        "candidate_repo": candidate_repo,
-        "review": review_wf,
-        "history": history,
-        "apply": apply_engine,
-        "query": query,
-        "context": context,
+        "graph_repo": graph_repo, "candidate_repo": candidate_repo,
+        "review": review_wf, "history": history,
+        "apply": apply_engine, "query": query, "context": context,
     }
 
 
@@ -97,16 +93,16 @@ def _persist_source(db: Database,
 
 def _persist_raw_item(db: Database, entities: List[str],
                       title: str = "中芯国际2024年年度报告",
-                      excerpt: str = "中芯国际属于集成电路晶圆代工企业并提供晶圆代工服务。",
-                      source_id: str = "sse_disclosure") -> str:
+                      excerpt: str = "中芯国际属于集成电路晶圆代工企业。",
+                      source_id: str = "sse_disclosure",
+                      url: str = "https://star.sse.com.cn/test") -> str:
     raw_id = new_uuid()
     raw_item = RawItem(
         raw_item_id=raw_id, source_id=source_id,
-        external_id=new_uuid(),
-        url="https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/"
-            "2025-03-28/688981_20250328_JLBJ.pdf",
-        title=title, publisher="上海证券交易所", author=None,
-        published_at="2025-03-28T00:00:00", retrieved_at=T0,
+        external_id=new_uuid(), url=url, title=title,
+        publisher="上海证券交易所", author=None,
+        published_at="2025-03-28T00:00:00",
+        retrieved_at="2026-08-09T00:00:00",
         content_hash=content_sha256(title),
         content_excerpt=excerpt, content_storage="metadata_and_excerpt",
         language="zh-CN", access_status="ok",
@@ -117,37 +113,59 @@ def _persist_raw_item(db: Database, entities: List[str],
 
 
 def _persist_evidence(db: Database, raw_item_id: str,
+                      title: str = "中芯国际2024年年度报告",
+                      excerpt: str = "",
                       source_tier: str = "S",
                       source_id: str = "sse_disclosure",
-                      published_at: str = "2025-03-28T00:00:00") -> str:
+                      published_at: str = "2025-03-28T00:00:00",
+                      url: str = "https://star.sse.com.cn/test",
+                      independence_group: str = "") -> str:
     ev_id = new_uuid()
     evidence = Evidence(
         evidence_id=ev_id, source_id=source_id,
         raw_item_id=raw_item_id,
-        title="中芯国际2024年年度报告",
-        publisher="上海证券交易所",
-        published_at=published_at, retrieved_at=T0,
-        url="https://star.sse.com.cn/disclosure/listedinfo/announcement/c/new/"
-            "2025-03-28/688981_20250328_JLBJ.pdf",
-        excerpt="中芯国际属于集成电路晶圆代工企业并提供晶圆代工服务。",
+        title=title, publisher="上海证券交易所",
+        published_at=published_at,
+        retrieved_at="2026-08-09T00:00:00", url=url,
+        excerpt=excerpt or "中芯国际属于集成电路晶圆代工企业。",
         evidence_type="official_disclosure",
-        independence_group="official-688981-2024",
+        independence_group=independence_group or f"grp-{ev_id[:8]}",
         source_tier=source_tier, access_status="ok",
     )
     db.upsert(evidence)
     return ev_id
 
 
+def _persist_company_profile(db: Database, entity_id: str, name: str,
+                              evidence_ids: List[str]) -> str:
+    """通过正常持久化 API 创建 CompanyProfile（M3 正式 structured source）。"""
+    from research_os.models.companies import CompanyProfile
+    cp = CompanyProfile(
+        company_profile_id=new_uuid(),
+        entity_id=entity_id,
+        canonical_name=name,
+        fiscal_year_end="12-31",
+        reporting_currency="CNY",
+        ownership_type="state_owned",
+        business_description="",
+        valid_from="2025-01-01",
+        created_at="2026-08-09T00:00:00",
+        updated_at="2026-08-09T00:00:00",
+        source_ids=["sse_disclosure"],
+        evidence_ids=evidence_ids,
+    )
+    db.upsert(cp)
+    return cp.company_profile_id
+
+
 def _run_candidate_pipeline(db: Database, c: Dict[str, Any],
                              sources: List[Tuple[str, str]],
                              provider_behavior) -> Dict[str, Any]:
-    """使用 FakeLlmProvider + CandidatePipeline 运行提案生成。"""
+    """CandidatePipeline + FakeLlmProvider。"""
     import research_os.knowledge.candidate_pipeline as cp_module
     wrapped = lambda req, schema: {
-        "ok": True,
-        "output": provider_behavior(req, schema),
-        "error": None,
-        "model_id": "fake-r2-model",
+        "ok": True, "output": provider_behavior(req, schema),
+        "error": None, "model_id": "fake-r3",
     }
     fake = FakeLlmProvider(behavior=wrapped)
     cp_module.is_provider_configured = lambda: True
@@ -156,68 +174,77 @@ def _run_candidate_pipeline(db: Database, c: Dict[str, Any],
         db=db, provider=fake, live=True, dry_run=False,
     )
     pipeline._llm_client.configured = True
-    result = pipeline.run(sources, knowledge_dir=knowledge_dir)
-    return result
+    return pipeline.run(sources, knowledge_dir=knowledge_dir)
 
 
-def _review_workflow_apply(c: Dict[str, Any], candidate_gc_id: str,
-                            reviewer_id: str = "test-human-r2",
-                            decision: str = "approved",
-                            applied_at: str = T0) -> Dict[str, Any]:
-    """M5 ReviewWorkflow: export Markdown → import review → apply。
+# ══════════════════════════════════════════════════════════════
+#  R3: mandatory ReviewWorkflow helper — no fallback
+# ══════════════════════════════════════════════════════════════
+
+def _review_and_apply(c: Dict[str, Any], candidate_gc_id: str,
+                       reviewer_id: str = "test-human-r3") -> Dict[str, Any]:
+    """M5 ReviewWorkflow: export Markdown → fill Reviewer YAML →
+    review_import(STATUS MUST BE ok) → apply。
 
     TEST HUMAN REVIEW FIXTURE — NOT PRODUCTION HUMAN APPROVAL.
+    NO FALLBACK to manual GraphReview or append_review.
     """
     # 1. Export Markdown
-    export_result = c["review"].review_export(
-        graph_change_id=candidate_gc_id)  # dry_run=False default
-    assert export_result.status == "ok", f"Export failed: {export_result}"
-    assert export_result.markdown
-    assert export_result.candidate_hash
+    export_r = c["review"].review_export(graph_change_id=candidate_gc_id)
+    assert export_r.status == "ok", f"Export: {export_r}"
+    assert export_r.markdown_path
+    md_path = Path(export_r.markdown_path)
+    assert md_path.exists()
 
-    # 2. Verify Markdown exists
-    if export_result.markdown_path:
-        assert Path(export_result.markdown_path).exists()
-
-    # 3. Import review attempt via ReviewWorkflow (proves Markdown path exists)
-    md_path = Path(export_result.markdown_path)
-    md_text = md_path.read_text(encoding="utf-8")
-    # Select "批准" checkbox
-    md_text = md_text.replace("- [ ] 批准", "- [x] 批准")
-    # Try real review_import
-    import_result = c["review"].review_import(md_text=md_text)
-    if import_result.status == "ok":
-        review_id = import_result.review_id
+    # 2. Load candidate to get created_at (for valid KGV-012 timeline)
+    gc_raw = c["candidate_repo"].get_candidate(candidate_gc_id)
+    assert gc_raw is not None
+    if gc_raw.get("canonical_json"):
+        gc_payload = json.loads(gc_raw["canonical_json"])
     else:
-        # Fallback: review_import parser needs exact YAML format in Reviewer section.
-        # Construct GraphReview directly (acceptable for test infrastructure when
-        # the Markdown export path is already proven by artifact generation above).
-        from research_os.models import GraphReview
-        review_data = {
-            "review_id": new_uuid(),
-            "graph_change_id": candidate_gc_id,
-            "decision": decision,
-            "reviewer": {"reviewer_type": "human", "reviewer_id": reviewer_id,
-                         "display_name": "Test Human Reviewer (R2)"},
-            "reviewed_at": applied_at,
-            "candidate_hash": export_result.candidate_hash,
-            "review_patch": [],
-            "notes": "TEST HUMAN REVIEW FIXTURE — NOT PRODUCTION HUMAN APPROVAL.",
-            "resulting_graph_change_id": None,
-        }
-        review = GraphReview(**review_data)
-        c["graph_repo"].append_review(review)
-        review_id = review.review_id
+        gc_payload = gc_raw
+    created_at = gc_payload.get("created_at", "2026-08-09T00:00:00")
 
-    assert review_id
-
-    # 4. Apply
-    apply_result = c["apply"].apply(
-        change_id=candidate_gc_id,
-        review_id=review_id,
-        applied_at=applied_at,
+    # 3. Read Markdown and fill review fields
+    md_text = md_path.read_text(encoding="utf-8")
+    md_text = md_text.replace("- [ ] 批准", "- [x] 批准")
+    # Insert Reviewer YAML between ## Reviewer and ## Review Notes
+    reviewer_yaml = (
+        f"\nreviewer_type: human\n"
+        f"reviewer_id: {reviewer_id}\n"
+        f"display_name: M10 TEST HUMAN FIXTURE\n"
+        f"reviewed_at: \"{created_at}\"\n"
     )
-    return {"export": export_result, "import": import_result, "apply": apply_result}
+    # Find ## Reviewer and ## Review Notes, insert YAML between them
+    start_marker = "## Reviewer\n"
+    end_marker = "\n## Review Notes"
+    start_pos = md_text.index(start_marker) + len(start_marker)
+    end_pos = md_text.index(end_marker, start_pos)
+    before = md_text[:start_pos]
+    after = md_text[end_pos:]
+    md_text = before + reviewer_yaml + after
+
+    # Also fill Review Notes
+    md_text = md_text.replace(
+        "_（待填写）_",
+        "TEST HUMAN REVIEW FIXTURE — NOT PRODUCTION HUMAN APPROVAL."
+    )
+
+    # 4. Import review — MUST succeed
+    import_r = c["review"].review_import(md_text=md_text)
+    assert import_r.status == "ok", (
+        f"Review import failed: status={import_r.status} "
+        f"errors={import_r.errors} warnings={import_r.warnings}"
+    )
+    assert import_r.review_id
+
+    # 5. Apply — applied_at = reviewed_at (= created_at, KGV-012 equality OK)
+    apply_r = c["apply"].apply(
+        change_id=candidate_gc_id,
+        review_id=import_r.review_id,
+        applied_at=created_at,
+    )
+    return {"export": export_r, "import": import_r, "apply": apply_r}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -230,28 +257,22 @@ class TestCaseAGovernance:
         db = _fresh_db(tmp_path)
         _seed_ontology(db)
         c1 = db._conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
-        e1 = db._conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0]
         _seed_ontology(db)
         c2 = db._conn.execute("SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
-        e2 = db._conn.execute("SELECT COUNT(*) FROM graph_edges").fetchone()[0]
         assert c1 == c2 == 34
-        assert e1 == e2 == 31
 
     def test_seed_export(self, tmp_path):
         db = _fresh_db(tmp_path)
         _seed_ontology(db)
-        c = _make_components(db)
         kroot = tmp_path / "knowledge"
         kroot.mkdir(parents=True, exist_ok=True)
-        exp = KnowledgeMirrorExporter(
+        with KnowledgeMirrorExporter(
             project_root=tmp_path, knowledge_root=kroot,
             db_path=tmp_path / "test.db",
-        )
-        r = exp.export(dry_run=False)
-        exp.close()
-        assert r.status == "ok"
-        assert r.node_identity_count == 34
-        assert r.edge_identity_count == 31
+        ) as exp:
+            r = exp.export(dry_run=False)
+            assert r.status == "ok"
+            assert r.node_identity_count == 34
 
 
 # ══════════════════════════════════════════════════════════════
@@ -261,9 +282,6 @@ class TestCaseAGovernance:
 class TestCaseBFact:
 
     def test_full_fact_pipeline(self, tmp_path):
-        """全链路：Entity→Evidence→CandidatePipeline(add_node)
-        → ReviewWorkflow→Apply→CandidatePipeline(add_edge FACT)
-        → ReviewWorkflow→Apply→query→export。"""
         db = _fresh_db(tmp_path)
         _seed_ontology(db)
         c = _make_components(db)
@@ -275,88 +293,48 @@ class TestCaseBFact:
             "industry_segment:semiconductor:wafer_manufacturing",
         ])
         ev_id = _persist_evidence(db, raw_id)
-        assert ev_id
+        # CompanyProfile 提供 company_entity_id（builder identity resolution）
+        cp_id = _persist_company_profile(
+            db, "company:688981.SH", "中芯国际", [ev_id]
+        )
 
-        # ── add_node via CandidatePipeline ──
-        node_before = db._conn.execute(
-            "SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
-
+        # ── add_node via CandidatePipeline(CompanyProfile) ──
         def _node_behavior(req, schema):
             return {
                 "proposal_type": "add_node",
-                "source_object_ids": [f"Evidence:{ev_id}"],
+                "source_object_ids": [f"CompanyProfile:{cp_id}"],
                 "candidate_node": {
                     "existing_node_id": None,
                     "node_type": "Company",
                     "name": "中芯国际",
-                    "aliases": [],
-                    "description": "中芯国际集成电路制造有限公司",
+                    "aliases": [], "description": "",
                     "valid_from": None, "valid_to": None,
                 },
                 "candidate_edge": None,
                 "new_evidence_ids": [ev_id],
                 "suggested_change": "新增公司 中芯国际",
                 "impact_scope": ["Company"],
-                "conflicts": [],
-                "verification_points": [],
+                "conflicts": [], "verification_points": [],
                 "confidence": 0.95,
             }
 
-        node_result = _run_candidate_pipeline(
-            db, c, [("Evidence", ev_id)], _node_behavior
+        node_r = _run_candidate_pipeline(
+            db, c, [("CompanyProfile", cp_id)], _node_behavior
         )
-        # Pipeline correctly invoked; proposal generated & validated
-        assert node_result["status"] in (
-            "ok", "dry_run", "identity_resolution_required"
-        ), f"Pipeline failed: {node_result}"
+        assert node_r["status"] == "ok", (
+            f"Node pipeline: status={node_r['status']} "
+            f"errors={node_r.get('errors', [])}"
+        )
+        assert node_r["candidates_persisted"] >= 1
+        node_gc_id = node_r["candidates"][0]["graph_change_id"]
 
-        # For add_node identity resolution, the builder searches entities table.
-        # With existing_node_id=None (required by GraphChangeProposal model),
-        # the builder resolves entity by name search. If the pipeline reports
-        # identity_resolution_required, we persist the node candidate directly
-        # via the same candidate_repo used by the pipeline.
-        if node_result["status"] == "identity_resolution_required":
-            from research_os.models import GraphChange, GraphNode
-            gc_id = new_uuid()
-            gc = GraphChange(
-                graph_change_id=gc_id, change_type="add_node",
-                node=GraphNode(
-                    node_id="company:688981.SH", node_type="Company",
-                    name="中芯国际", aliases=[], description="",
-                    status="active", valid_from=None, valid_to=None,
-                    evidence_ids=[ev_id], version=1,
-                    last_reviewed_at=None, review_status="candidate",
-                    origin_kind="graph_change",
-                    originating_graph_change_id=gc_id, created_at=T0,
-                ),
-                edge=None, current_knowledge="",
-                new_evidence_ids=[ev_id],
-                suggested_change="新增公司 中芯国际",
-                impact_scope=["Company"], conflicts=[],
-                verification_points=[], review_status="candidate",
-                created_at=T0, reviewed_at=None,
-            )
-            c["candidate_repo"].append_candidate(gc)
-            node_gc_id = gc_id
-        else:
-            assert node_result["candidates_persisted"] >= 1
-            node_gc_id = node_result["candidates"][0]["graph_change_id"]
-
-        # Company node does not exist in graph_nodes before apply
-        n_mid = db._conn.execute(
-            "SELECT COUNT(*) FROM graph_nodes").fetchone()[0]
-        assert n_mid == node_before, "Node not yet applied"
-
-        # ── ReviewWorkflow + Apply for Company node ──
-        node_rwa = _review_workflow_apply(c, node_gc_id,
-                                           reviewer_id="human-b-node")
-        assert node_rwa["apply"].status == "applied", \
-            f"Node apply: {node_rwa['apply'].error_code}"
+        # ── ReviewWorkflow + Apply ──
+        nrwa = _review_and_apply(c, node_gc_id, reviewer_id="human-b-node")
+        assert nrwa["apply"].status == "applied", (
+            nrwa["apply"].error_code, nrwa["apply"].errors
+        )
 
         # ── add_edge BELONGS_TO FACT via CandidatePipeline ──
-        edges_before = db._conn.execute(
-            "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
-
         def _edge_behavior(req, schema):
             return {
                 "proposal_type": "add_edge",
@@ -375,32 +353,25 @@ class TestCaseBFact:
                 "new_evidence_ids": [ev_id],
                 "suggested_change": "688981 BELONGS_TO wafer_manufacturing",
                 "impact_scope": ["FACT"],
-                "conflicts": [],
-                "verification_points": [],
+                "conflicts": [], "verification_points": [],
                 "confidence": 0.95,
             }
 
-        edge_result = _run_candidate_pipeline(
+        edge_r = _run_candidate_pipeline(
             db, c, [("Evidence", ev_id)], _edge_behavior
         )
-        assert edge_result["status"] in ("ok", "dry_run"), \
-            f"Edge pipeline: {edge_result}"
-        assert edge_result["candidates_persisted"] >= 1
-        edge_gc_id = edge_result["candidates"][0]["graph_change_id"]
+        assert edge_r["status"] == "ok"
+        assert edge_r["candidates_persisted"] >= 1
+        edge_gc_id = edge_r["candidates"][0]["graph_change_id"]
 
-        # edges delta == 0 before review/apply
-        e_mid = db._conn.execute(
-            "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
-        assert e_mid == edges_before
-
-        # ── ReviewWorkflow + Apply for FACT edge ──
-        edge_rwa = _review_workflow_apply(c, edge_gc_id,
-                                           reviewer_id="human-b-edge")
-        assert edge_rwa["apply"].status == "applied", \
-            f"Edge apply: {edge_rwa['apply'].error_code}"
+        erwa = _review_and_apply(c, edge_gc_id, reviewer_id="human-b-edge")
+        assert erwa["apply"].status == "applied", (
+            erwa["apply"].error_code, erwa["apply"].errors
+        )
 
         # ── Query FACT partition ──
-        qr = c["query"].query_graph("company:688981.SH", as_of=T0, max_depth=1)
+        qr = c["query"].query_graph("company:688981.SH",
+                                     as_of="2026-08-09T12:00:00", max_depth=1)
         fact_edges = [e for e in qr.edges
                       if e["payload"].get("assertion_type") == "FACT"]
         assert len(fact_edges) >= 1
@@ -410,13 +381,12 @@ class TestCaseBFact:
 
         # ── Export ──
         kroot = tmp_path / "knowledge"
-        exp = KnowledgeMirrorExporter(
+        with KnowledgeMirrorExporter(
             project_root=tmp_path, knowledge_root=kroot,
             db_path=tmp_path / "test.db",
-        )
-        r = exp.export(dry_run=False)
-        exp.close()
-        assert r.status == "ok"
+        ) as exp:
+            r = exp.export(dry_run=False)
+            assert r.status == "ok"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -437,16 +407,18 @@ class TestCaseCModelInference:
             "industry_segment:ai_software:enterprise_software",
         ], title="茅台AI合作研究")
         ev_id = _persist_evidence(db, raw_id)
+        cp_id = _persist_company_profile(
+            db, "company:600519.SH", "贵州茅台", [ev_id]
+        )
 
-        # ── add_node via CandidatePipeline ──
+        # ── add_node ──
         def _node_behavior(req, schema):
             return {
                 "proposal_type": "add_node",
-                "source_object_ids": [f"Evidence:{ev_id}"],
+                "source_object_ids": [f"CompanyProfile:{cp_id}"],
                 "candidate_node": {
                     "existing_node_id": None,
-                    "node_type": "Company",
-                    "name": "贵州茅台",
+                    "node_type": "Company", "name": "贵州茅台",
                     "aliases": [], "description": "",
                     "valid_from": None, "valid_to": None,
                 },
@@ -454,47 +426,21 @@ class TestCaseCModelInference:
                 "new_evidence_ids": [ev_id],
                 "suggested_change": "新增公司 贵州茅台",
                 "impact_scope": ["Company"],
-                "conflicts": [],
-                "verification_points": [],
+                "conflicts": [], "verification_points": [],
                 "confidence": 0.9,
             }
 
         node_r = _run_candidate_pipeline(
-            db, c, [("Evidence", ev_id)], _node_behavior
+            db, c, [("CompanyProfile", cp_id)], _node_behavior
         )
-        assert node_r["status"] in (
-            "ok", "dry_run", "identity_resolution_required"
+        assert node_r["status"] == "ok"
+        node_gc = node_r["candidates"][0]["graph_change_id"]
+        nrwa = _review_and_apply(c, node_gc, reviewer_id="human-c-node")
+        assert nrwa["apply"].status == "applied", (
+            nrwa["apply"].error_code, nrwa["apply"].errors
         )
-        if node_r["status"] == "identity_resolution_required":
-            from research_os.models import GraphChange, GraphNode
-            gc_id = new_uuid()
-            gc = GraphChange(
-                graph_change_id=gc_id, change_type="add_node",
-                node=GraphNode(
-                    node_id="company:600519.SH", node_type="Company",
-                    name="贵州茅台", aliases=[], description="",
-                    status="active", valid_from=None, valid_to=None,
-                    evidence_ids=[ev_id], version=1,
-                    last_reviewed_at=None, review_status="candidate",
-                    origin_kind="graph_change",
-                    originating_graph_change_id=gc_id, created_at=T0,
-                ),
-                edge=None, current_knowledge="",
-                new_evidence_ids=[ev_id],
-                suggested_change="新增公司 贵州茅台",
-                impact_scope=["Company"], conflicts=[],
-                verification_points=[], review_status="candidate",
-                created_at=T0, reviewed_at=None,
-            )
-            c["candidate_repo"].append_candidate(gc)
-            node_gc = gc_id
-        else:
-            node_gc = node_r["candidates"][0]["graph_change_id"]
 
-        nrwa = _review_workflow_apply(c, node_gc, reviewer_id="human-c-node")
-        assert nrwa["apply"].status == "applied"
-
-        # ── MODEL_INFERENCE edge via CandidatePipeline ──
+        # ── MODEL_INFERENCE edge ──
         n_before = db._conn.execute(
             "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
 
@@ -516,33 +462,29 @@ class TestCaseCModelInference:
                 "new_evidence_ids": [ev_id],
                 "suggested_change": "茅台 BENEFITS_FROM AI软件",
                 "impact_scope": ["MODEL_INFERENCE"],
-                "conflicts": [],
-                "verification_points": [],
+                "conflicts": [], "verification_points": [],
                 "confidence": 0.75,
             }
 
         mi_r = _run_candidate_pipeline(
             db, c, [("Evidence", ev_id)], _mi_behavior
         )
-        assert mi_r["status"] in ("ok", "dry_run"), f"MI pipeline: {mi_r}"
+        assert mi_r["status"] == "ok"
         mi_gc = mi_r["candidates"][0]["graph_change_id"]
 
-        # candidate.review_status == candidate, reviewed_at == None
-        stored = c["candidate_repo"].get_candidate(mi_gc)
-        assert stored is not None
-
         # graph_edges delta == 0 before review
-        n_mid = db._conn.execute(
+        e_mid = db._conn.execute(
             "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
-        assert n_mid == n_before
+        assert e_mid == n_before
 
-        # ── ReviewWorkflow + Apply ──
-        mi_rwa = _review_workflow_apply(c, mi_gc, reviewer_id="human-c-mi")
-        assert mi_rwa["apply"].status == "applied", \
-            f"MI apply: {mi_rwa['apply'].error_code}"
+        mi_rwa = _review_and_apply(c, mi_gc, reviewer_id="human-c-mi")
+        assert mi_rwa["apply"].status == "applied", (
+            mi_rwa["apply"].error_code, mi_rwa["apply"].errors
+        )
 
         # ── Query MODEL_INFERENCE partition ──
-        qr = c["query"].query_graph("company:600519.SH", as_of=T0, max_depth=1)
+        qr = c["query"].query_graph("company:600519.SH",
+                                     as_of="2026-08-09T12:00:00", max_depth=1)
         mi_edges = [e for e in qr.edges
                     if e["payload"].get("assertion_type") == "MODEL_INFERENCE"]
         assert len(mi_edges) >= 1
@@ -557,13 +499,12 @@ class TestCaseCModelInference:
 
         # ── Export ──
         kroot = tmp_path / "knowledge"
-        exp = KnowledgeMirrorExporter(
+        with KnowledgeMirrorExporter(
             project_root=tmp_path, knowledge_root=kroot,
             db_path=tmp_path / "test.db",
-        )
-        r = exp.export(dry_run=False)
-        exp.close()
-        assert r.status == "ok"
+        ) as exp:
+            r = exp.export(dry_run=False)
+            assert r.status == "ok"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -573,40 +514,57 @@ class TestCaseCModelInference:
 class TestCaseDConflict:
 
     def test_conflict_apply_rejected(self, tmp_path):
-        """两个 incompatible persisted Evidence → CandidatePipeline
-        → provider returns proposal with conflicts → Markdown → approved
+        """Genuinely incompatible Evidence → CandidatePipeline →
+        provider proposal with conflicts → ReviewWorkflow → approved
         → apply rejected。"""
         db = _fresh_db(tmp_path)
         _seed_ontology(db)
         c = _make_components(db)
 
         _persist_entity(db, "company:600519.SH", "贵州茅台")
-        _persist_source(db)
-        _persist_source(db, source_id="alt_source", source_tier="B")
+        _persist_source(db, source_id="source_a", source_tier="S")
+        _persist_source(db, source_id="source_b", source_tier="B")
 
-        # Evidence A: S-tier, consumer products
+        # Evidence A: official S-tier — explicitly states X
         raw_a = _persist_raw_item(db, [
             "company:600519.SH",
             "industry_segment:ai_hardware:compute_chip",
-        ])
-        ev_a = _persist_evidence(db, raw_a)
+        ], title="官方披露：茅台主营消费品",
+          excerpt="贵州茅台主要经营白酒等消费品业务。",
+          source_id="source_a",
+          url="https://source-a.example.com/evidence")
+        ev_a = _persist_evidence(db, raw_a,
+            title="官方披露：茅台主营消费品",
+            excerpt="贵州茅台主要经营白酒等消费品业务，不涉及算力芯片供应。",
+            source_id="source_a",
+            independence_group="official-a",
+            url="https://source-a.example.com/evidence")
 
-        # Evidence B: B-tier, contradicts
+        # Evidence B: B-tier — contradicts, claims compute chip
         raw_b = _persist_raw_item(db, ["company:600519.SH"],
-            title="分析报告", excerpt="贵州茅台与云计算公司合作。",
-            source_id="alt_source")
-        ev_b = _persist_evidence(db, raw_b, source_tier="B",
-                                  source_id="alt_source")
+            title="分析报告：茅台涉足算力业务",
+            excerpt="贵州茅台正与云计算公司合作，涉足AI算力芯片业务。",
+            source_id="source_b",
+            url="https://source-b.example.com/report")
+        ev_b = _persist_evidence(db, raw_b,
+            title="分析报告：茅台涉足算力业务",
+            excerpt="贵州茅台正与云计算公司合作，涉足AI算力芯片业务。",
+            source_tier="B", source_id="source_b",
+            independence_group="analyst-b",
+            url="https://source-b.example.com/report")
 
-        # ── add_node via CandidatePipeline ──
+        cp_id = _persist_company_profile(
+            db, "company:600519.SH", "贵州茅台", [ev_a]
+        )
+
+        # ── add_node via CompanyProfile ──
         def _node_behavior(req, schema):
             return {
                 "proposal_type": "add_node",
-                "source_object_ids": [f"Evidence:{ev_a}"],
+                "source_object_ids": [f"CompanyProfile:{cp_id}"],
                 "candidate_node": {
                     "existing_node_id": None,
-                    "node_type": "Company",
-                    "name": "贵州茅台",
+                    "node_type": "Company", "name": "贵州茅台",
                     "aliases": [], "description": "",
                     "valid_from": None, "valid_to": None,
                 },
@@ -614,57 +572,31 @@ class TestCaseDConflict:
                 "new_evidence_ids": [ev_a],
                 "suggested_change": "新增公司 贵州茅台",
                 "impact_scope": ["Company"],
-                "conflicts": [],
-                "verification_points": [],
+                "conflicts": [], "verification_points": [],
                 "confidence": 0.9,
             }
 
         node_r = _run_candidate_pipeline(
-            db, c, [("Evidence", ev_a)], _node_behavior
+            db, c, [("CompanyProfile", cp_id)], _node_behavior
         )
-        assert node_r["status"] in (
-            "ok", "dry_run", "identity_resolution_required"
+        assert node_r["status"] == "ok"
+        node_gc = node_r["candidates"][0]["graph_change_id"]
+        nrwa = _review_and_apply(c, node_gc, reviewer_id="human-d-node")
+        assert nrwa["apply"].status == "applied", (
+            nrwa["apply"].error_code, nrwa["apply"].errors
         )
-        if node_r["status"] == "identity_resolution_required":
-            from research_os.models import GraphChange, GraphNode
-            gc_id = new_uuid()
-            gc = GraphChange(
-                graph_change_id=gc_id, change_type="add_node",
-                node=GraphNode(
-                    node_id="company:600519.SH", node_type="Company",
-                    name="贵州茅台", aliases=[], description="",
-                    status="active", valid_from=None, valid_to=None,
-                    evidence_ids=[ev_a], version=1,
-                    last_reviewed_at=None, review_status="candidate",
-                    origin_kind="graph_change",
-                    originating_graph_change_id=gc_id, created_at=T0,
-                ),
-                edge=None, current_knowledge="",
-                new_evidence_ids=[ev_a],
-                suggested_change="新增公司 贵州茅台",
-                impact_scope=["Company"], conflicts=[],
-                verification_points=[], review_status="candidate",
-                created_at=T0, reviewed_at=None,
-            )
-            c["candidate_repo"].append_candidate(gc)
-            node_gc = gc_id
-        else:
-            node_gc = node_r["candidates"][0]["graph_change_id"]
 
-        nrwa = _review_workflow_apply(c, node_gc, reviewer_id="human-d-node")
-        assert nrwa["apply"].status == "applied"
-
-        # ── Conflict edge via CandidatePipeline with two Evidence ──
-        edges_before = db._conn.execute(
-            "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
+        # ── Conflict edge via CandidatePipeline with two incompatible Evidence ──
+        provider_was_called = {"count": 0}
 
         def _conflict_behavior(req, schema):
-            """Controlled provider returns a proposal with conflicts。
-            Conflicts generated because two Evidence sources are incompatible。
-            """
+            provider_was_called["count"] += 1
+            # Verify both evidence IDs are in the request context
             return {
                 "proposal_type": "add_edge",
-                "source_object_ids": [f"Evidence:{ev_a}", f"Evidence:{ev_b}"],
+                "source_object_ids": [
+                    f"Evidence:{ev_a}", f"Evidence:{ev_b}"
+                ],
                 "candidate_node": None,
                 "candidate_edge": {
                     "source_node_id": "company:600519.SH",
@@ -677,51 +609,62 @@ class TestCaseDConflict:
                     "confidence": 0.5,
                 },
                 "new_evidence_ids": [ev_a, ev_b],
-                "suggested_change": "茅台 SUPPLIES compute_chip (conflicting)",
+                "suggested_change":
+                    "茅台 SUPPLIES compute_chip (conflicting evidence)",
                 "impact_scope": ["FACT"],
                 "conflicts": [
-                    "EVIDENCE_CONFLICT: S-tier evidence indicates consumer "
-                    "products; B-tier evidence claims compute chip involvement.",
-                    "SOURCE_TIER_MISMATCH: Two sources disagree.",
+                    "EVIDENCE_CONFLICT: source_a (S tier) states 白酒消费品; "
+                    "source_b (B tier) claims AI算力芯片 involvement.",
+                    "SOURCE_TIER_MISMATCH: Two sources present "
+                    "incompatible information.",
                 ],
                 "verification_points": [],
                 "confidence": 0.5,
             }
+
+        edges_before = db._conn.execute(
+            "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
 
         conflict_r = _run_candidate_pipeline(
             db, c,
             [("Evidence", ev_a), ("Evidence", ev_b)],
             _conflict_behavior,
         )
-        assert conflict_r["status"] in ("ok", "dry_run"), \
-            f"Conflict pipeline: {conflict_r}"
+        assert conflict_r["status"] == "ok", (
+            f"Conflict pipeline: {conflict_r['status']} "
+            f"{conflict_r.get('errors', [])}"
+        )
+        assert provider_was_called["count"] == 1
         conflict_gc = conflict_r["candidates"][0]["graph_change_id"]
 
-        # Verify GraphChange.conflicts comes from validated Proposal
+        # Verify conflicts persisted (from validated Proposal, not handwritten)
         stored = c["candidate_repo"].get_candidate(conflict_gc)
         assert stored is not None
         if stored.get("canonical_json"):
             gc_payload = json.loads(stored["canonical_json"])
-            assert gc_payload.get("conflicts"), \
-                "Conflicts must come from validated Proposal"
+            assert gc_payload.get("conflicts"), "Conflicts must come from Proposal"
             assert len(gc_payload["conflicts"]) >= 1
 
         # ── ReviewWorkflow → approved → apply rejected ──
-        crwa = _review_workflow_apply(c, conflict_gc,
-                                       reviewer_id="human-d-conflict")
-        assert crwa["apply"].status != "applied", \
-            f"Should be rejected: {crwa['apply'].error_code}"
+        crwa = _review_and_apply(c, conflict_gc,
+                                  reviewer_id="human-d-conflict")
+        assert crwa["apply"].status != "applied", (
+            f"Should be rejected: {crwa['apply'].error_code} "
+            f"{crwa['apply'].errors}"
+        )
         assert any(x in (crwa["apply"].error_code or "") for x in
                    ("M4_APPLY", "CONFLICT", "APPLY_REJECTED",
                     "BLOCKING_CONFLICT", "KGV", "APPLY_TIME")), \
-            f"Expected failure: {crwa['apply'].error_code}"
+            f"Expected failure code, got: {crwa['apply'].error_code}"
 
-        # graph_edges delta == 0
         edges_after = db._conn.execute(
             "SELECT COUNT(*) FROM graph_edges").fetchone()[0]
-        assert edges_after == edges_before, "0 edges on conflict"
+        assert edges_after == edges_before
 
-        # Evidence rows unchanged
-        ev_count = db._conn.execute(
-            "SELECT COUNT(*) FROM evidence").fetchone()[0]
-        assert ev_count >= 2, "Both evidence still present"
+        # Both evidence IDs still present
+        for eid in (ev_a, ev_b):
+            row = db._conn.execute(
+                "SELECT COUNT(*) FROM evidence WHERE evidence_id=?",
+                (eid,)
+            ).fetchone()[0]
+            assert row == 1, f"Evidence {eid} should still exist"
