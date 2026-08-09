@@ -13,7 +13,7 @@
     "industry_id": {"type": "string"},
     "industry_name": {"type": "string"},
     "as_of": {"type": "string", "format": "date-time"},
-    "depth": {"type": "string"},
+    "depth": {"type": "string", "enum": ["fast", "standard", "deep"]},
     "status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
     "idempotency_key": {"type": "string"},
     "run_version": {"type": "integer", "minimum": 1},

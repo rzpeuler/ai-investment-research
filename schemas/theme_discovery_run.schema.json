@@ -11,7 +11,7 @@
     "request_id": {"type": "string"},
     "task_id": {"type": "string"},
     "as_of": {"type": "string", "format": "date-time"},
-    "discovery_mode": {"type": "string"},
+    "discovery_mode": {"type": "string", "enum": ["graph_based", "evidence_driven", "keyword_sweep", "peer_diffusion"]},
     "status": {"type": "string", "enum": ["success", "partial_success", "degraded", "insufficient_evidence", "failed"]},
     "idempotency_key": {"type": "string"},
     "run_version": {"type": "integer", "minimum": 1},

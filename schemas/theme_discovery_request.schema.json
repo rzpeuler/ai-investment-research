@@ -22,11 +22,11 @@
         }
       }
     },
-    "as_of": {"type": "string"},
+    "as_of": {"type": "string", "format": "date-time"},
     "as_of_basis": {"type": "string"},
     "timezone": {"type": "string"},
-    "depth": {"type": "string"},
-    "discovery_mode": {"type": "string"},
+    "depth": {"type": "string", "enum": ["fast", "standard", "deep"]},
+    "discovery_mode": {"type": "string", "enum": ["graph_based", "evidence_driven", "keyword_sweep", "peer_diffusion"]},
     "industry_ids": {"type": "array", "items": {"type": "string"}},
     "keywords": {"type": "array", "items": {"type": "string"}},
     "live": {"type": "boolean"},
@@ -36,7 +36,7 @@
     "status": {"type": "string"},
     "warnings": {"type": "array", "items": {"type": "string"}},
     "rule_versions": {"type": "object"},
-    "requested_at": {"type": "string"},
+    "requested_at": {"type": "string", "format": "date-time"},
     "version": {"type": "integer", "minimum": 1}
   }
 }

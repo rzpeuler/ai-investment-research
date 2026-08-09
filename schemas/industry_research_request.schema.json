@@ -5,13 +5,13 @@
   "description": "行业研究请求（Phase 6A）",
   "type": "object",
   "additionalProperties": false,
-  "required": ["request_id", "task_id", "industry_id", "as_of", "as_of_basis", "timezone", "depth", "live", "dry_run", "force", "source_policy", "status", "warnings", "rule_versions", "version"],
+  "required": ["request_id", "task_id", "industry_id", "as_of", "as_of_basis", "timezone", "depth", "live", "dry_run", "force", "source_policy", "status", "warnings", "rule_versions", "requested_at", "version"],
   "properties": {
     "request_id": {"type": "string"},
     "task_id": {"type": "string"},
     "industry_id": {"type": "string"},
     "industry_name": {"type": "string"},
-    "as_of": {"type": "string"},
+    "as_of": {"type": "string", "format": "date-time"},
     "as_of_basis": {"type": "string"},
     "timezone": {"type": "string"},
     "depth": {"type": "string", "enum": ["fast", "standard", "deep"]},
@@ -23,7 +23,7 @@
     "status": {"type": "string"},
     "warnings": {"type": "array", "items": {"type": "string"}},
     "rule_versions": {"type": "object"},
-    "requested_at": {"type": "string"},
+    "requested_at": {"type": "string", "format": "date-time"},
     "version": {"type": "integer", "minimum": 1}
   }
 }
