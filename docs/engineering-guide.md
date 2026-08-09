@@ -1,6 +1,6 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.2**
+**版本：V1.3**
 **变更日期：2026-08-09**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
@@ -65,15 +65,18 @@
 - 在上述完整研究能力未达到最低覆盖前，Phase 4 可保持工程基础 PASS，但完整研究能力
   必须标为 `PARTIAL_SUCCESS` 或 `DATA_DEGRADED`，Phase 5 保持 `BLOCKED`。
 
-### 0.3 V1.2 Phase 6 顶层设计冻结（2026-08-09）
+### 0.3 V1.3 Phase 6 顶层设计冻结（2026-08-09）
 
 - 正式消除“剩余场景 = 7 但旧 Phase6 路线只列部分场景”的设计歧义：Phase 6 完整
   七场景一次性冻结为 6A / 6B / 6C 三个业务 Track。
 - 六阶段结构为 `6A（industry_research / theme_discovery）`、
   `6B（evening_brief / daily_review / stock_review）`、
   `6C（first_coverage / earnings_expectation）`。
-- Phase 6 并行治理拓扑冻结：P6-G0 串行 → P6-F0（共享契约冻结）串行 →
-  F0 PASS 后 6A + 6B + 6C-PREP 可并行 → 6C real integration 依赖 6A stable interface。
+- Phase 6 串行拓扑冻结（V1.3）：并行开发已取消，替换为串行里程碑门控：
+  P6-S0 治理重置 → P6-S1 6B 终验合入 → P6-S2 6A 终验合入 →
+  P6-S3 earnings_expectation → P6-S4 first_coverage →
+  P6-S5 中央 enablement → P6-S6 治理收尾。
+  任意时刻 MAX_ACTIVE_PHASE6_BUSINESS_BRANCHES = 1。
 - 首次正式允许 Graph→Research，但严格只读：`Versioned Graph → GraphQueryService →
   KnowledgeContextBuilder → read-only Research Context`；`as_of` 必填；
   SQLite 是唯一 graph authority；JSON mirror 只是 deterministic read-only export。
@@ -2713,32 +2716,39 @@ Phase 6 完整七场景，`剩余场景 = 7`，全部一次性冻结为三个业
 
 不增加任何用户未定义的新业务场景。
 
-### 69.2 并行治理拓扑（正式冻结）
+### 69.2 串行治理拓扑（V1.3 正式冻结）
+
+并行开发已正式取消。Phase 6 唯一允许的工程模式为串行里程碑门控：
 
 ```text
-P6-G0 顶层设计治理冻结（串行）
+P6-S0  Serial Governance Reset (governance-only)
   ↓
-P6-F0 共享契约冻结（串行）
+P6-S1  6B Final Closure + Acceptance + Merge
   ↓
-F0 PASS 后：6A + 6B + 6C-PREP 可并行
+P6-S2  6A Final Closure + Acceptance + Merge
   ↓
-6A dependency gate PASS
+P6-S3  Earnings Expectation
   ↓
-6C real first_coverage integration
+P6-S4  First Coverage
+  ↓
+P6-S5  Central Enablement + Cross-Scenario Acceptance
+  ↓
+P6-S6  Governance Closeout
 ```
 
 依赖规则：
 
-1. P6-G0 串行；
-2. P6-F0 串行（共享契约冻结，先于任何业务 Track 实施）；
-3. F0 PASS 后 6A + 6B + 6C-PREP 可并行；
-4. 6C real first_coverage integration 依赖 6A stable industry interface（hard dependency）；
-5. 6B 不 hard-depend on 6A；
-6. 6A 不依赖 6B；
-7. 6C 不 hard-depend on 6B；
-8. shared control-plane enablement 必须串行。
+1. P6-S0 串行（治理重置，仅文档）；
+2. P6-S1 依赖 S0 PASS + merged；
+3. P6-S2 依赖 S1 PASS + merged（此时顺序解决 6B + 6A schema registry）；
+4. P6-S3 依赖 S2 PASS + merged；
+5. P6-S4 依赖 S3 PASS + merged；
+6. P6-S5 依赖 S1-S4 全部 PASS + merged；
+7. P6-S6 依赖 S5 PASS + merged。
 
-业务实现可有限并行，但共享契约冻结与共享控制面修改必须串行；各 Track 独立验收。
+任意时刻仅一个 active Phase 6 业务分支/工作树。
+上一 milestone 未 PASS+MERGED 则下一 milestone NOT_AUTHORIZED。
+共享控制面 enablement 留到 P6-S5，不得提前。
 
 ### 69.3 Graph→Research 设计边界（正式冻结，READ ONLY）
 
@@ -2881,9 +2891,14 @@ Event / Policy / Technology Change
 
 #### 6B
 
-**evening_brief** 不是晨报换一个时间。必须强调 `08:00 → 20:00 incremental research`，
-重点是：晨报之后的新信息、material updates、被支持/削弱的假设、新增重大公告、
-次日待验证问题。
+**evening_brief** = morning_brief 同构复用（同一 BriefPipeline）。
+唯一业务差异为时间窗口：
+- morning_brief: [D-1 20:00, D 08:00)
+- evening_brief: [D 08:00, D 20:00)
+
+旧的 evening incremental methodology（material_update / new_since_morning /
+already_known_in_morning / morning/evening cross-report dedup / 早间预期验证 /
+市场反馈验证）正式废止。
 
 **daily_review** 必须区分：`observed_fact` / `previous_research_view` /
 `new_evidence` / `updated_interpretation` / `remaining_unknown`。
