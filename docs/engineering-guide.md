@@ -1,7 +1,7 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.3**
-**变更日期：2026-08-09**
+**版本：V1.4**
+**变更日期：2026-08-10**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
@@ -98,6 +98,29 @@
   automatic ontology expansion 均 `NOT_AUTHORIZED / PROHIBITED`；
   Phase 6 不顺手扩张 source whitelist，新来源必须独立走
   discovery → probe → source governance → verification → registry update。
+
+### 0.4 V1.4 会话式研究网关冻结（2026-08-10）
+
+- P7-UX1 只是现有十场景的本地 Chat UX / control-plane adapter，不是新业务场景。
+- LLM 只生成 `Public Request Draft`；Runner 的 `Formal Persisted Request` 仍由既有正式
+  契约构造并持久化。唯一执行路径为 `Minimal Public Request → Orchestrator.execute() →
+  Runner.validate_request()`；不得建立第二个 Orchestrator、Pipeline 或正式 artifact writer。
+- 字段所有权分为 `LLM_WRITABLE / USER_SEMANTIC`、`AUTHORITATIVE_RESOLVED` 和
+  `SYSTEM_CONTROLLED`。后两类字段不得出现在 Chat Schema；所有 Chat Schema 必须
+  `additionalProperties: false`。
+- 用户选定具体场景时优先于模型且跳过 route；仅 `AUTO` 允许 route。公司-only 且场景
+  有歧义时必须澄清，不得猜测。
+- Chat 复用现有 DeepSeek `LlmClient` 链路；每轮 Flash 预算固定为 route≤1、extract≤1、
+  total≤2，Pro=0。Schema invalid、Provider 错误和修复不得获得同阶段第二次调用。
+- 实体、行业、时间和系统默认值使用确定性解析；只允许唯一精确实体匹配，不做模糊选择
+  或交易所猜测。每轮只捕获一次上海时区 `reference_now`；Runner 已有默认值不在 Chat
+  重复生成。
+- “LLM 理解自然语言”与“Research Live 数据”是两个独立 gate；LLM 关闭时只提供明确
+  记录的有限确定性回退，不伪装模型调用。
+- 会话仅存内存，最多 20 轮 / 128 sessions，服务退出即消失，不新增会话表或迁移。
+  HTTP 只绑定 loopback，浏览器不得直连 DeepSeek，报告读取必须 fail closed 于 reports 根目录。
+- 本授权不包含数据采集、来源注册表扩张、Graph 写入、Research→GraphChange Candidate、
+  Phase 6.1 或数据库迁移。正式决策见 `DECISIONS.md` #46。
 
 ---
 
@@ -2974,6 +2997,60 @@ DB: v6
 Phase 6 terminal closeout 不授权 Phase 6.1 或 Phase 7。Research capability completion !=
 Research→GraphChange Candidate authorization。正式任务书见
 `docs/tasks/phase6-research-workflows.md`，terminal 决策见 `DECISIONS.md` #45。
+
+## 69A. Phase 7 UX1：会话式研究网关（LIMITED AUTHORIZATION）
+
+### 69A.1 正式边界
+
+P7-UX1 为既有十个研究场景提供本地会话入口，不改变任何 Runner、Pipeline、Collector、
+Source Registry、Graph 或数据库语义。Chat 的输出是用户语义草稿，不是正式业务 Request：
+
+```text
+用户自然语言 / 已选场景
+→ 场景 Chat Schema
+→ Public Request Draft
+→ 确定性实体 / 行业 / 时间解析
+→ Minimal Public Request
+→ Orchestrator.execute()（唯一执行权威）
+→ Runner.validate_request()
+→ Formal Persisted Request / Run / ScenarioExecutionResult
+```
+
+Chat 层不得写 `*_request.json`、`*_run.json` 或 `scenario_execution_result.json`。这些
+artifact 的创建、状态、任务血缘和持久化继续由 Orchestrator / Runner 负责。
+
+### 69A.2 字段权威与模型路由
+
+- LLM 只写用户语义字段；权威身份字段由 SQLite、accepted ontology 或 accepted research
+  state 的确定性代码解析；系统控制字段只由系统代码生成。
+- 具体场景选择优先于模型；`AUTO` 才能 route，歧义必须澄清。
+- DeepSeek 必须通过现有 `LlmClient` 和 Provider 配置调用。单轮最多 route 1 Flash +
+  extraction 1 Flash，总计 2 Flash，Pro 0；无效输出不得部分接收或升级 Pro。
+- 实体只做唯一精确匹配；时间基于每轮唯一上海 `reference_now`；未明确值沿用 Runner
+  权威默认，不由 Chat 复制。
+
+### 69A.3 运行、安全与状态
+
+- 两个 live gate 独立：LLM gate 只控制语义理解，Research Live gate 只控制正式研究执行。
+- 服务只监听 `127.0.0.1`；DeepSeek 凭证只来自本地环境；浏览器、API 响应、日志和仓库
+  文件不得接收或返回凭证。
+- session 为进程内存，最多 20 轮 / 128 sessions，无 conversation DB，无 migration。
+- 报告路径必须解析后仍位于 reports 根目录；路径穿越、绝对路径、目录或符号链接逃逸
+  全部拒绝。
+- 13 条质量核心规则和输出禁止项全部继续适用，不因 Chat 入口而降低。
+
+### 69A.4 实施门禁
+
+```text
+P7-UX1: IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE
+P7 DATA ACQUISITION: NOT_STARTED
+PHASE6.1: NOT_AUTHORIZED
+PHASE6 RESEARCH→GRAPHCHANGE CANDIDATE: DEFERRED
+DB: v6
+MIGRATIONS: NONE
+```
+
+在独立验收前不得声明 P7-UX1 PASS、merge 或 Phase 7 全阶段完成。
 
 ---
 

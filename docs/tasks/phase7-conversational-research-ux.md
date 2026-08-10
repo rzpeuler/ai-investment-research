@@ -1,16 +1,20 @@
 # Phase 7 UX1：Schema-Driven Conversational Research Gateway
 
-**TASKBOOK_STATUS: DESIGN APPROVED / IMPLEMENTATION NOT STARTED**
+**TASKBOOK_STATUS: IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE**
 
 **PHASE: Phase 7（LIMITED AUTHORIZATION）**
 
 **MILESTONE: P7-UX1**
 
-**BASELINE: `76fce914b5ffb0a2e5ff981e7f7fa89ab0f8974e`**
+**DESIGN_BASELINE: `76fce914b5ffb0a2e5ff981e7f7fa89ab0f8974e`**
+
+**IMPLEMENTATION_HEAD_BEFORE_GOVERNANCE: `55160cd`**
 
 **PHASE6.1: NOT AUTHORIZED**
 
-**P7 DATA ACQUISITION: NOT AUTHORIZED**
+**P7 DATA ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION**
+
+> 当前状态不是 PASS。实现和本地验证完成后仍须独立验收；执行 Agent 不得自行合并。
 
 ## 1. 目标与范围
 
@@ -254,6 +258,25 @@ CLI 新增 `research dashboard --port --no-browser`。Windows 新增
 
 ## 12. 验证计划
 
+### 12.0 已实现组件与验收证据位置
+
+- 会话网关：`src/research_os/dashboard/`（场景规格、Draft 抽取、确定性解析、最小请求、
+  双 gate、会话、HTTP server 与静态 Dashboard）。
+- Chat Schema：`schemas/chat_*.schema.json`；注册表与 LLM Validator 继续动态加载。
+- 用户入口：`research dashboard` 与 `scripts/start_dashboard.bat`。
+- 契约 / builder / resolver / budget：`tests/contracts/test_chat_input_schemas.py`、
+  `tests/unit/test_chat_request_builder.py`、`tests/unit/test_dashboard_core.py`、
+  `tests/unit/test_chat_services.py`。
+- HTTP / session / runtime / packaging：`tests/unit/test_dashboard_server.py`、
+  `tests/unit/test_dashboard_session.py`、`tests/unit/test_dashboard_runtime.py`、
+  `tests/contracts/test_dashboard_package.py`。
+- wheel 使用 `packages = ["src/research_os"]` 包含 Dashboard 静态资源；不再重复
+  `force-include` 同一路径，避免 Hatch 生成重复 archive entry。
+- Chat→真实 Orchestrator 与正式 artifact：`tests/integration/test_chat_core_flow.py`。
+- 治理一致性与动态 Schema / DB gate：`tests/unit/test_document_governance.py`。
+
+最终验证数字只记录实际命令结果，不以设计预估替代；见 §12.4。
+
 ### 12.1 契约与预算
 
 - 11 个 Chat Schema 均为合法、已注册、可由 `LlmOutputValidator` 加载的 Draft-07 Schema。
@@ -292,6 +315,20 @@ git diff --check
 验收要求为零失败、全部 Schema 通过、compileall 与 diff check 通过、DB 保持 v6、无
 migration。最终还要检查允许目录 diff，并取得与最终 head 完全一致的 Offline CI 成功
 结果。
+
+### 12.4 本地实现验证（2026-08-10）
+
+- Targeted gateway / governance suite：`521 passed`。
+- Full suite：`2940 passed, 6 skipped, 0 failed`（最终包装修复后运行，671.33 秒）。
+- Schema validation：`80/80`。
+- `python -m compileall -q src tests`：PASS。
+- `git diff --check`：PASS（仅 Windows LF→CRLF 提示）。
+- DB / migrations：`user_version=6`；6 个既有 migration；新增 migration = NONE。
+- Wheel：`python -m pip wheel --no-deps .` build isolation PASS；ZIP 包含
+  `research_os/dashboard/static/index.html`、`dashboard.js`、`dashboard.css`。
+- Scope gate：未修改 Runner、Pipeline、Collector、Source Registry、Graph core 或 migration。
+
+上述仅为本地实现验证，不是独立验收、P7-UX1 PASS 或 merge 授权。
 
 ## 13. 治理与交付
 

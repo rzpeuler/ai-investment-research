@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 import json
 
+import pytest
+
 from research_os.dashboard.chat_service import ChatService
 from research_os.dashboard.app import DashboardApplication
 from research_os.dashboard.models import ChatRequest
@@ -53,6 +55,65 @@ def test_chat_hands_only_minimal_request_to_real_orchestrator(tmp_path):
     assert runner.request == result.minimal_request
     # Business/control artifacts are owned by Orchestrator, never written beside Chat state.
     assert not list(tmp_path.glob("*chat*"))
+    orchestrator.close()
+
+
+class ScenarioCapturingRunner:
+    version = "test"
+
+    def __init__(self, scenario, expected_request):
+        self.scenario = scenario
+        self.expected_request = expected_request
+        self.request = None
+
+    def validate_request(self, request):
+        assert request == self.expected_request
+        return dict(request)
+
+    def build_plan(self, request, context):
+        return {"steps": ["capture"], "data_requirements": ["chat_minimal_request"]}
+
+    def execute(self, request, context):
+        self.request = dict(request)
+        return ScenarioExecutionResult(
+            status="insufficient_evidence", exit_code=0,
+            task_id=context["task"].task_id, validation_status="pass",
+        )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "message", "expected_request"),
+    [
+        ("morning_brief", "今天晨报", {"report_date": "2026-08-10"}),
+        ("stock_research_report", "600519.SH", {"entity": "600519.SH"}),
+        ("stock_review", "600519.SH", {"entity": "600519.SH"}),
+    ],
+)
+def test_representative_chat_scenarios_use_real_orchestrator_and_formal_artifacts(
+    tmp_path, scenario, message, expected_request,
+):
+    """Acceptance matrix: chat is an adapter; Orchestrator owns formal artifacts."""
+    db = Database(":memory:"); db.initialize()
+    runner = ScenarioCapturingRunner(scenario, expected_request)
+    registry = ScenarioRegistry(); registry.register(runner)
+    orchestrator = Orchestrator(tmp_path, db=db, registry=registry)
+    service = ChatService(
+        tmp_path, db, orchestrator, llm_client=None,
+        clock=lambda: datetime(2026, 8, 10, 9, 30),
+    )
+
+    result = service.handle(ChatRequest(
+        message=message, selected_scenario=scenario, llm_enabled=False,
+    ))
+
+    assert result.state == "executed"
+    assert result.minimal_request == expected_request == runner.request
+    assert result.research_result is not None
+    run_dir = tmp_path / "reports" / "runs" / result.research_result["task_id"]
+    assert {"task.json", "plan.json", "scenario_execution_result.json"} <= {
+        path.name for path in run_dir.iterdir()
+    }
+    assert not list(tmp_path.rglob("*chat*.json"))
     orchestrator.close()
 
 

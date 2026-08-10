@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.3" in guide
+    assert "版本：V1.4" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -156,7 +156,7 @@ def test_phase6_top_level_design_governance_frozen():
     # ── CURRENT-STATE / NEXT_PHASE / README / KNOWN_LIMITATIONS ──
     assert "P6-G0 Top-Level Design | PASS / MERGED" in current
     assert "P6-S0 Serial Governance Reset | PASS / MERGED" in current
-    assert "Phase 6 terminal state and future authorization" in next_phase
+    assert "Phase 6 terminal state and current limited authorization" in next_phase
     assert "Phase 6：PASS / CENTRALLY ENABLED" in readme
     assert "Phase 6 research workflows = PASS / centrally enabled" in limitations
     # taskbook completion must not imply candidate or future-phase authorization
@@ -215,9 +215,10 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: NONE" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-UX1 Conversational Research Gateway" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
-    assert "Phase 7**: NOT_DEFINED / NOT_AUTHORIZED" in next_phase6
+    assert "Phase 7**: UX1 LIMITED AUTHORIZATION ONLY" in next_phase6
+    assert "P7-UX1**: IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE" in next_phase6
     assert "Current authorized milestone" not in next_phase6
 
     assert "Phase 6 research workflows = PASS / centrally enabled" in limitations_header
@@ -251,6 +252,56 @@ def test_phase6_terminal_governance_closeout():
     assert f"当前 **{schema_count} 个 Schema**" in readme
     assert f"Schemas: {schema_count}" in current_phase6
     assert "DB: v6" in current_phase6
+
+
+def test_phase7_ux1_governance_is_consistent_and_awaits_independent_acceptance():
+    """P7-UX1 living surfaces expose the limited gateway without claiming PASS."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-conversational-research-ux.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    guide = _read("docs/engineering-guide.md")
+    readme = _read("README.md")
+
+    decision_46 = decisions[decisions.index(
+        "## 46. Schema-Driven Conversational Research Gateway"
+    ):]
+    for required in (
+        "Public Request Draft", "Formal Persisted Request", "Orchestrator.execute()",
+        "LLM_WRITABLE / USER_SEMANTIC", "AUTHORITATIVE_RESOLVED", "SYSTEM_CONTROLLED",
+        "route <= 1 Flash", "total <= 2 Flash", "Pro = 0", "DB: v6 / unchanged",
+        "PHASE6.1: NOT_AUTHORIZED", "P7 DATA ACQUISITION: NOT_STARTED",
+    ):
+        assert required in decision_46
+
+    header = "\n".join(taskbook.splitlines()[:24])
+    assert "IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE" in header
+    assert "P7 DATA ACQUISITION: NOT_STARTED" in header
+    assert "TASKBOOK_STATUS: PASS" not in header
+
+    for surface in (current, next_phase, limitations, guide, readme):
+        assert "AWAITING INDEPENDENT ACCEPTANCE" in surface
+        assert "Phase 6.1" in surface or "PHASE6.1" in surface
+    assert "P7 DATA ACQUISITION: NOT_STARTED" in current
+    assert "P7 DATA ACQUISITION**: NOT_STARTED" in next_phase
+    assert "P7 DATA ACQUISITION = NOT_STARTED" in limitations
+    assert "P7 DATA ACQUISITION: NOT_STARTED" in guide
+    assert "P7 data acquisition\n仍为 `NOT_STARTED`" in readme
+
+    schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
+    assert schema_count == 80
+    assert f"Current registry after P7-UX1 implementation: Schemas: {schema_count}" in current
+    assert f"Current Schema registry**: {schema_count}" in next_phase
+    assert f"当前 Schema registry 为 **{schema_count}**" in readme
+    assert "DB: v6" in current and "migrations: NONE" in current
+
+    # Decision #45's 69-schema terminal snapshot remains historical and explicitly labelled.
+    decision_45 = decisions[decisions.index("## 45. Phase 6 Terminal Closeout"):
+                            decisions.index("## 46. Schema-Driven Conversational Research Gateway")]
+    assert "SCHEMA_REGISTRY: 69" in decision_45
+    assert "Historical Phase 6 terminal snapshot: Schemas: 69" in current
+    assert "Phase 6 terminal historical snapshot：Schema 69" in readme
 
 
 def test_phase6_shared_contract_frozen():

@@ -66,11 +66,45 @@ Schema 30→51，迁移 user_version=5。
 - USER_TRIAL_READY：YES
 - Graph→Research：accepted Phase 6A read-only path 已启用；KnowledgeContext != Evidence
 - Phase 6 Research→GraphChange Candidate integration：DEFERRED
-- Schema：69；数据库：v6；迁移：NONE
+- Phase 6 terminal historical snapshot：Schema 69；当前 registry：80
+- 数据库：v6；迁移：NONE
 - Accepted code master：`3e0166de11ae9969792a4726913cb68a17c8f2a5`
 
 统一入口已经可用，但运行结果仍受数据与 Evidence availability 约束；
 `insufficient_evidence` 是合法业务结果，不代表执行器故障。
+
+## P7-UX1：会话式研究入口（等待独立验收）
+
+P7-UX1 已实现，但当前仍是 `IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE`，不是 PASS。
+它只为现有十个研究场景增加本地会话入口，没有扩展数据源、Collector、研究 Pipeline、
+Graph 写入或数据库迁移。
+
+普通用户最简入口：
+
+```text
+双击 scripts/start_dashboard.bat
+```
+
+也可以在已安装环境运行：
+
+```powershell
+research dashboard
+```
+
+浏览器打开后，选择具体场景或 `AUTO`，直接输入自然语言即可，不需要填写 JSON。
+服务只监听本机 loopback（`127.0.0.1`），不是远程服务。
+
+页面有两个相互独立的开关：
+
+- “使用 LLM 理解自然语言”：只控制 Chat 的 DeepSeek 语义理解。
+- “Research Live 数据”：只控制正式研究执行的 live 能力。
+
+DeepSeek 密钥只在本机环境变量设置：`DEEPSEEK_API_KEY`；可选地址覆盖使用
+`DEEPSEEK_BASE_URL`。不要把密钥填进浏览器、请求文本、日志或仓库文件。未配置 DeepSeek
+时仍有有限的确定性回退，但复杂自然语言会要求澄清。
+
+当前 Schema registry 为 **80**，数据库为 **v6**，没有新增 migration。P7 data acquisition
+仍为 `NOT_STARTED`；Phase 6.1 未授权。
 
 ## 快速开始
 
@@ -165,7 +199,7 @@ ai-investment-research/
 ├── AGENTS.md               # 不可违反的研究与工程规则
 ├── docs/engineering-guide.md
 ├── config/                 # app / model_routing / schedules / source_policy / report_policy / knowledge_policy
-├── schemas/                # 69 个 JSON Schema（权威数据契约）
+├── schemas/                # 80 个 JSON Schema（当前权威数据契约）
 ├── registry/               # 来源注册表（sources / source_groups / changelog）
 ├── src/research_os/
 │   ├── cli/                # research 命令
@@ -193,7 +227,7 @@ ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现�
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
 
-当前 **69 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
+当前 **80 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
 Schema 校验：`research validate`。
 数据库版本：**v6**。
 

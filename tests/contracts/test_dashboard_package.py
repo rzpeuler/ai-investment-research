@@ -10,11 +10,12 @@ def test_dashboard_static_assets_are_package_resources():
         assert static.joinpath(name).read_bytes()
 
 
-def test_wheel_configuration_force_includes_dashboard_static_assets():
+def test_wheel_configuration_packages_dashboard_without_duplicate_force_include():
     root = Path(__file__).resolve().parents[2]
     config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
-    assert force_include["src/research_os/dashboard/static"] == "research_os/dashboard/static"
+    wheel = config["tool"]["hatch"]["build"]["targets"]["wheel"]
+    assert wheel["packages"] == ["src/research_os"]
+    assert "force-include" not in wheel
 
 
 def test_dashboard_frontend_guards_inflight_and_stale_responses():
