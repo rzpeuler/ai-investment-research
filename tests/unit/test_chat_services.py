@@ -104,6 +104,9 @@ def test_auto_company_only_is_clarification_even_with_llm():
     "贵州茅台买不买", "这只股票卖不卖", "贵州茅台要买吗",
     "这只股票能卖吗", "买还是卖", "这只股票应该卖出子公司吗",
     "贵州茅台值得买吗，设备情况如何", "贵州茅台值得买吗，公司是否应卖出子公司",
+    "贵州茅台买 不 买", "值 得 买 吗", "给出目 标 价",
+    "buy or sell?", "Is this stock worth buying?", "Is now a good time to buy?",
+    "Should we sell?", "Can I buy?", "Ｃａｎ　Ｉ　ｂｕｙ？",
 ])
 def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     llm = QueueLlmClient([])
@@ -120,6 +123,8 @@ def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     "分析多空主要矛盾", "说明估值方法及其适用性",
     "公司回购事实如何影响业务", "股东增持事实如何影响业务",
     "公司应该卖出子公司吗", "公司现在适合买入设备吗",
+    "公司 应该 卖出 子公司 吗", "公司　现在适合　买入设备吗",
+    "Should the company sell its subsidiary?", "Should we buy equipment?",
 ])
 def test_safety_guard_does_not_reject_allowed_research_language(message):
     orchestrator = SpyOrchestrator()
