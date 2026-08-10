@@ -7,7 +7,10 @@ import pytest
 
 from research_os.dashboard.models import ChatRequest
 from research_os.dashboard.industry_resolver import IndustryResolver
-from research_os.dashboard.scenario_specs import CHAT_SCENARIO_SPECS
+from research_os.dashboard.scenario_specs import (
+    CHAT_SCENARIO_SPECS, CompletionRequirement, IndustryPolicy, TargetPolicy, TimePolicy,
+)
+from research_os.dashboard.safety import safe_llm_clarification
 from research_os.dashboard.target_resolver import ResearchTargetResolver
 from research_os.dashboard.temporal_resolver import TemporalResolver
 from research_os.orchestrator.runners import DEFAULT_SCENARIOS
@@ -71,6 +74,43 @@ def test_target_resolver_reports_authority_failure_distinct_from_no_match():
         def query(self, sql):
             raise RuntimeError("database unavailable")
     assert ResearchTargetResolver(BrokenDb()).resolve(["贵州茅台"], "stock_review").status == "failure"
+
+
+def test_target_resolver_uses_one_authoritative_snapshot_per_resolution():
+    db = _profile_db()
+    resolver = ResearchTargetResolver(db)
+    original = resolver._profiles
+    calls = 0
+
+    def counted_profiles():
+        nonlocal calls
+        calls += 1
+        return original()
+
+    resolver._profiles = counted_profiles
+    result = resolver.resolve(["贵州茅台"], "first_coverage")
+    assert result.status == "resolved"
+    assert calls == 1
+    db.close()
+
+
+def test_scenario_policy_fields_are_typed_enums():
+    for spec in CHAT_SCENARIO_SPECS.values():
+        assert isinstance(spec.target_policy, TargetPolicy)
+        assert isinstance(spec.time_policy, TimePolicy)
+        assert isinstance(spec.industry_policy, IndustryPolicy)
+        assert all(isinstance(item, CompletionRequirement) for item in spec.completion_policy)
+
+
+@pytest.mark.parametrize("unsafe", [
+    "请提供目标价", "需要买卖建议吗", "给出增减持建议", "需要仓位建议吗",
+    "请确认交易建议", "这只可以买", "现在上车", "需要荐股", "生成交易信号",
+    "你要买还是卖？", "Do you want stock picks?", "Should I provide trading advice?",
+    "Would you buy Tesla?",
+])
+def test_llm_clarification_output_policy_replaces_forbidden_language(unsafe):
+    fallback = "请补充研究场景所需的信息。"
+    assert safe_llm_clarification(unsafe, fallback) == fallback
 
 
 @pytest.mark.parametrize(

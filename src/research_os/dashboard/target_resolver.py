@@ -65,11 +65,16 @@ class ResearchTargetResolver:
             symbol = raw.upper()
             if scenario in _ENTITY_ONLY:
                 return ResolutionResult(status="resolved", entity=symbol, symbol=symbol)
-            return self._resolve_profile(lambda s: s.get("symbol", "").upper() == symbol)
         companies, securities = self._profiles()
+        if _SYMBOL.fullmatch(raw):
+            symbol = raw.upper()
+            return self._finish(
+                [], [s for s in securities if s.get("symbol", "").upper() == symbol],
+                companies, securities,
+            )
         if _BARE.fullmatch(raw):
             hits = [s for s in securities if str(s.get("symbol", "")).startswith(raw + ".")]
-            return self._finish([], hits)
+            return self._finish([], hits, companies, securities)
         needle = normalize_mention(raw)
         company_hits = [c for c in companies if normalize_mention(c.get("canonical_name", "")) == needle]
         security_hits = []
@@ -78,20 +83,15 @@ class ResearchTargetResolver:
             names.extend(item.get("name", "") for item in sec.get("former_names", []))
             if any(normalize_mention(name) == needle for name in names if name):
                 security_hits.append(sec)
-        return self._finish(company_hits, security_hits, companies=companies)
+        return self._finish(company_hits, security_hits, companies, securities)
 
-    def _resolve_profile(self, predicate) -> ResolutionResult:
-        companies, securities = self._profiles()
-        return self._finish([], [s for s in securities if predicate(s)], companies=companies)
-
-    def _finish(self, company_hits, security_hits, companies=None) -> ResolutionResult:
-        companies = companies if companies is not None else self._profiles()[0]
+    def _finish(self, company_hits, security_hits, companies, securities) -> ResolutionResult:
         identities: dict[tuple[str, str | None], tuple[dict | None, dict | None]] = {}
         for sec in security_hits:
             company = next((c for c in companies if c.get("entity_id") == sec.get("company_entity_id")), None)
             identities[(str(sec.get("company_entity_id")), str(sec.get("security_entity_id")))] = (company, sec)
         for company in company_hits:
-            linked = [s for s in self._profiles()[1] if s.get("company_entity_id") == company.get("entity_id")]
+            linked = [s for s in securities if s.get("company_entity_id") == company.get("entity_id")]
             if len(linked) == 1:
                 identities[(str(company.get("entity_id")), str(linked[0].get("security_entity_id")))] = (company, linked[0])
             elif not linked:

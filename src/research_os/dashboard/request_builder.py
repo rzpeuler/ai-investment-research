@@ -98,11 +98,21 @@ def build_theme(draft, target, temporal, industry, reference_now, research_live)
     return request
 
 
-_FORECAST = re.compile(r"(?:FY)?(20\d{2})(?:\s*[-至到]\s*(?:FY)?(20\d{2}))?")
+_FORECAST = re.compile(
+    r"\s*(?:FY\s*)?(20\d{2})(?:年)?"
+    r"(?:\s*(?:-|至|到)\s*(?:FY\s*)?(20\d{2})(?:年)?)?\s*",
+    re.IGNORECASE,
+)
+_FORECAST_QUARTER = re.compile(
+    r"(?:FY\s*)?20\d{2}(?:年)?\s*(?:Q[1-4]|第?[一二三四]季度)", re.IGNORECASE
+)
 
 
 def _forecast_period(expression: Optional[str]) -> dict:
-    match = _FORECAST.search(expression or "")
+    value = expression or ""
+    if _FORECAST_QUARTER.search(value):
+        raise ClarificationRequired("当前预测期间契约仅支持完整财年，请改用 2027年或 FY2027-FY2029。")
+    match = _FORECAST.fullmatch(value)
     if not match:
         raise ClarificationRequired("请明确预测期间，例如 2027年或 FY2027-FY2029。")
     start_year = int(match.group(1)); end_year = int(match.group(2) or start_year)

@@ -189,6 +189,37 @@ def test_auto_route_plus_extract_never_exceeds_two_flash_calls():
     assert all(call[2].summary()["pro_calls"] == 0 for call in llm.calls)
 
 
+def test_route_llm_forbidden_clarification_is_replaced_before_return():
+    malicious = "请问你要目标价还是买入建议？"
+    llm = QueueLlmClient([{
+        "scenario": None, "confidence": 0.2, "needs_clarification": True,
+        "clarification_question": malicious,
+    }])
+    db = Database(":memory:"); db.initialize()
+    result = ChatService(".", db, SpyOrchestrator(), llm, clock=lambda: NOW).handle(
+        ChatRequest(message="帮我研究一下", selected_scenario="AUTO")
+    )
+    assert result.state == "clarification"
+    assert malicious not in result.message
+    assert "目标价" not in result.message and "买入建议" not in result.message
+
+
+def test_extraction_llm_forbidden_clarification_is_replaced_in_message_and_public_draft():
+    malicious = "这只可以买，上车吗？"
+    llm = QueueLlmClient([{
+        "company_mentions": [], "temporal_expression": None,
+        "research_question": None, "research_focus": [], "depth_hint": None,
+        "complete": False, "clarification_question": malicious,
+    }])
+    db = Database(":memory:"); db.initialize()
+    result = ChatService(".", db, SpyOrchestrator(), llm, clock=lambda: NOW).handle(
+        ChatRequest(message="帮我复盘", selected_scenario="stock_review")
+    )
+    assert result.state == "clarification"
+    assert malicious not in result.message
+    assert malicious not in str(result.public_draft)
+
+
 def test_orchestrator_exception_maps_to_failed_without_leaking_details():
     class RaisingOrchestrator:
         def execute(self, scenario, request):

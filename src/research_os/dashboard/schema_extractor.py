@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from research_os.dashboard.llm_budget import ChatStageBudget
 from research_os.dashboard.scenario_specs import ScenarioChatSpec
+from research_os.dashboard.safety import safe_llm_clarification
 from research_os.dashboard.target_resolver import normalize_mention
 from research_os.llm.client import LlmClient
 from research_os.validators.schema_validator import load_schema, validate_instance
@@ -47,7 +48,12 @@ class ChatSchemaExtractor:
                 "clarification", message="语义抽取未通过结构校验，请补充明确字段或重试。",
                 llm_calls=budget.flash_calls,
             )
-        return ExtractionResult("resolved", draft=response.output, llm_calls=budget.flash_calls)
+        draft = dict(response.output)
+        if draft.get("clarification_question") is not None:
+            draft["clarification_question"] = safe_llm_clarification(
+                draft.get("clarification_question"), "请补充完成该研究场景所需的信息。"
+            )
+        return ExtractionResult("resolved", draft=draft, llm_calls=budget.flash_calls)
 
     @staticmethod
     def _provenance_errors(message: str, draft: Dict[str, Any]) -> list[str]:

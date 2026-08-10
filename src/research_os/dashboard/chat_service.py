@@ -10,7 +10,9 @@ from research_os.dashboard.models import ChatRequest, ChatResult, TemporalResult
 from research_os.dashboard.request_builder import ClarificationRequired
 from research_os.dashboard.route_service import ChatRouteService
 from research_os.dashboard.safety import is_forbidden_investment_request
-from research_os.dashboard.scenario_specs import CHAT_SCENARIO_SPECS
+from research_os.dashboard.scenario_specs import (
+    CHAT_SCENARIO_SPECS, CompletionRequirement, IndustryPolicy, TargetPolicy, TimePolicy,
+)
 from research_os.dashboard.schema_extractor import ChatSchemaExtractor
 from research_os.dashboard.target_resolver import ResearchTargetResolver
 from research_os.dashboard.temporal_resolver import TemporalResolver
@@ -66,7 +68,7 @@ class ChatService:
                               scenario=scenario, public_draft=draft, reference_now=reference_iso,
                               llm_calls=llm_calls)
 
-        target = self._resolve_target(scenario, draft)
+        target = self._resolve_target(spec, draft)
         if target is not None and target.status == "failure":
             return ChatResult("failed", target.message, scenario=scenario, public_draft=draft,
                               reference_now=reference_iso, llm_calls=llm_calls)
@@ -75,7 +77,7 @@ class ChatService:
                               public_draft=draft, reference_now=reference_iso,
                               llm_calls=llm_calls)
         temporal = self.temporal_resolver.resolve(
-            draft.get("report_date_expression") or draft.get("temporal_expression"), reference_now
+            self._temporal_expression(spec, draft), reference_now
         )
         if temporal.status == "clarification":
             return ChatResult("clarification", temporal.message, scenario=scenario,
@@ -86,6 +88,11 @@ class ChatService:
                               reference_now=reference_iso, llm_calls=llm_calls)
         if industry is not None and industry.status == "clarification":
             return ChatResult("clarification", industry.message, scenario=scenario,
+                              public_draft=draft, reference_now=reference_iso,
+                              llm_calls=llm_calls)
+        completion_message = self._completion_message(spec, draft, target, industry)
+        if completion_message:
+            return ChatResult("clarification", completion_message, scenario=scenario,
                               public_draft=draft, reference_now=reference_iso,
                               llm_calls=llm_calls)
         try:
@@ -107,16 +114,59 @@ class ChatService:
                           public_draft=draft, minimal_request=minimal, research_result=payload,
                           reference_now=reference_iso, llm_calls=llm_calls)
 
-    def _resolve_target(self, scenario: str, draft: dict):
+    def _resolve_target(self, spec, draft: dict):
         mentions = draft.get("company_mentions") or draft.get("entity_mentions") or []
         if not mentions:
             return None
-        return self.target_resolver.resolve(mentions, scenario)
+        return self.target_resolver.resolve(mentions, spec.scenario_id)
+
+    @staticmethod
+    def _temporal_expression(spec, draft: dict):
+        if spec.time_policy is TimePolicy.REPORT_DATE_OPTIONAL:
+            return draft.get("report_date_expression")
+        return draft.get("temporal_expression")
 
     def _resolve_industry(self, spec, draft: dict, target):
         mentions = draft.get("industry_mentions") or []
         if mentions:
             return self.industry_resolver.resolve(mentions)
-        if spec.industry_policy == "explicit_or_profile" and target and target.industry_ids:
+        if (spec.industry_policy is IndustryPolicy.EXPLICIT_OR_PROFILE
+                and target and target.industry_ids):
             return self.industry_resolver.resolve(authoritative_ids=target.industry_ids)
+        return None
+
+    @staticmethod
+    def _completion_message(spec, draft: dict, target, industry) -> Optional[str]:
+        target_required = spec.target_policy in {
+            TargetPolicy.ENTITY_REQUIRED,
+            TargetPolicy.PROFILE_REQUIRED,
+            TargetPolicy.PROFILE_AND_INDUSTRY_REQUIRED,
+        }
+        if target_required and (target is None or target.status != "resolved"):
+            return "请提供唯一且可由权威画像确认的研究目标。"
+        if (spec.target_policy in {TargetPolicy.PROFILE_REQUIRED,
+                                   TargetPolicy.PROFILE_AND_INDUSTRY_REQUIRED}
+                and not target.company_entity_id):
+            return "请提供可匹配权威公司画像的研究目标。"
+        if (spec.target_policy is TargetPolicy.PROFILE_AND_INDUSTRY_REQUIRED
+                and not target.security_entity_id):
+            return "请提供可匹配权威证券画像的研究目标。"
+
+        requirements = set(spec.completion_policy)
+        if CompletionRequirement.TARGET in requirements and target is None:
+            return "请提供唯一研究目标。"
+        if (CompletionRequirement.INDUSTRY in requirements
+                and (industry is None or industry.status != "resolved")):
+            return "请提供唯一且可由权威数据确认的行业。"
+        if CompletionRequirement.THEME_OR_INDUSTRY in requirements:
+            has_theme = bool(draft.get("theme_keywords"))
+            has_industry = industry is not None and industry.status == "resolved"
+            if not has_theme and not has_industry:
+                return "请提供至少一个主题关键词或唯一行业。"
+        if (CompletionRequirement.FORECAST_PERIOD in requirements
+                and not draft.get("forecast_period_expression")):
+            return "请明确完整财年预测期间。"
+        if (CompletionRequirement.ASSUMPTION in requirements
+                and not draft.get("explicit_assumptions")):
+            return "请至少提供一条带明确数值的用户假设。"
         return None

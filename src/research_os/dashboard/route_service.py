@@ -6,6 +6,7 @@ import re
 from typing import Any, Callable, Optional
 
 from research_os.dashboard.llm_budget import ChatStageBudget
+from research_os.dashboard.safety import safe_llm_clarification
 from research_os.llm.client import LlmClient
 from research_os.orchestrator.runners import DEFAULT_SCENARIOS
 from research_os.validators.schema_validator import load_schema, validate_instance
@@ -60,5 +61,11 @@ class ChatRouteService:
         output = response.output
         scenario = output.get("scenario")
         if output.get("needs_clarification") or scenario not in DEFAULT_SCENARIOS:
-            return RouteResult("clarification", message=output.get("clarification_question") or "请明确研究场景。", llm_calls=calls)
+            return RouteResult(
+                "clarification",
+                message=safe_llm_clarification(
+                    output.get("clarification_question"), "请明确要使用的研究场景。"
+                ),
+                llm_calls=calls,
+            )
         return RouteResult("resolved", scenario=scenario, llm_calls=calls)

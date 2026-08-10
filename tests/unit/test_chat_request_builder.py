@@ -67,6 +67,40 @@ def test_earnings_known_at_and_as_of_are_same_turn_reference_time():
     assert request["assumptions"][0]["known_at"] == request["as_of"]
 
 
+@pytest.mark.parametrize("expression", ["2027年至2029年", "2027年-2029年", "2027-2029"])
+def test_earnings_forecast_range_is_never_truncated(expression):
+    draft = _draft("earnings_expectation")
+    draft["forecast_period_expression"] = expression
+    request = CHAT_SCENARIO_SPECS["earnings_expectation"].minimal_request_builder(
+        draft, TARGET, TEMPORAL, None, NOW, False
+    )
+    assert request["forecast_period"] == {
+        "start": "2027-01-01", "end": "2029-12-31",
+        "periods": ["FY2027", "FY2028", "FY2029"],
+    }
+
+
+@pytest.mark.parametrize("expression", ["2027年", "FY2027"])
+def test_earnings_single_year_forecast_remains_supported(expression):
+    draft = _draft("earnings_expectation")
+    draft["forecast_period_expression"] = expression
+    request = CHAT_SCENARIO_SPECS["earnings_expectation"].minimal_request_builder(
+        draft, TARGET, TEMPORAL, None, NOW, False
+    )
+    assert request["forecast_period"]["periods"] == ["FY2027"]
+
+
+@pytest.mark.parametrize("expression", ["2027Q1", "2027年第一季度"])
+def test_earnings_quarter_expression_is_explicitly_rejected_by_fy_only_contract(expression):
+    from research_os.dashboard.request_builder import ClarificationRequired
+    draft = _draft("earnings_expectation")
+    draft["forecast_period_expression"] = expression
+    with pytest.raises(ClarificationRequired, match="完整财年"):
+        CHAT_SCENARIO_SPECS["earnings_expectation"].minimal_request_builder(
+            draft, TARGET, TEMPORAL, None, NOW, False
+        )
+
+
 @pytest.mark.parametrize("value_expression", [None, "", "FY2027", "2027"])
 def test_earnings_value_expression_is_required_and_year_is_not_a_value(value_expression):
     from research_os.dashboard.request_builder import ClarificationRequired

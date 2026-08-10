@@ -20,6 +20,23 @@ _EN_HARD_FORBIDDEN = re.compile(
     r"\btrading\s+signals?\b|\bget\s+on\s+board\b"
 )
 
+# LLM-authored user-visible clarification text has a stricter, output-specific
+# boundary.  It must never turn a research clarification into trading guidance.
+_ZH_CLARIFICATION_OUTPUT_FORBIDDEN = re.compile(
+    r"目标价|仓位|上车|荐股|交易信号|可以买|可买|可以跟|"
+    r"买入|卖出|增持|减持|买卖|增减持|买还是卖|买|卖|"
+    r"(?:买入|卖出|买卖|增持|减持|增减持).{0,6}(?:评级|建议)|"
+    r"(?:评级|建议).{0,6}(?:买入|卖出|买卖|增持|减持|增减持)|交易建议|推荐.{0,4}股票"
+)
+_EN_CLARIFICATION_OUTPUT_FORBIDDEN = re.compile(
+    r"\btarget\s+price\b|\bposition(?:\s+sizing)?\b|"
+    r"\b(?:buy|sell|overweight|underweight)\b|"
+    r"\b(?:buy|sell|overweight|underweight)\s+(?:rating|recommendation|advice)\b|"
+    r"\b(?:trade|trading|investment)\s+(?:advice|recommendation)\b|"
+    r"\bcan\s+(?:i|we|you)\s+buy\b|\bget\s+on\s+board\b|"
+    r"\brecommend(?:\s+\w+){0,3}\s+stocks?\b|\bstock\s+picks?\b|\btrading\s+signals?\b"
+)
+
 _ZH_TRADE_VERB = r"(?:买入|卖出|买|卖)"
 _ZH_DIRECT_DECISION = re.compile(
     rf"(?:你|您)会(?:不会)?.{{0,12}}?{_ZH_TRADE_VERB}.{{0,24}}?(?:吗|\?)|"
@@ -68,6 +85,17 @@ def _normalized_views(message: str) -> tuple[str, str]:
     compact = "".join(normalized.split())
     token_text = " ".join(normalized.casefold().split())
     return compact, token_text
+
+
+def safe_llm_clarification(value: object, fallback: str) -> str:
+    """Return LLM clarification text only when it satisfies the output policy."""
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    compact, token_text = _normalized_views(value)
+    if (_ZH_CLARIFICATION_OUTPUT_FORBIDDEN.search(compact)
+            or _EN_CLARIFICATION_OUTPUT_FORBIDDEN.search(token_text)):
+        return fallback
+    return value.strip()
 
 
 def _direct_decision_is_forbidden(text: str, direct_pattern: re.Pattern,
