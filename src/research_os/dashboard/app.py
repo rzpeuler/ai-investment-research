@@ -116,32 +116,42 @@ class DashboardApplication:
             raise ApiError(400, "MALFORMED_JSON", "请求体不是合法 UTF-8 JSON。") from None
         request_payload = self._validate_chat_payload(payload)
         session_id = request_payload["session_id"]
-        chat_request = ChatRequest(
-            message=request_payload["message"], selected_scenario=request_payload["selected_scenario"],
-            llm_enabled=request_payload["llm_enabled"] and self.llm_configured,
-            research_live=request_payload["research_live"],
-            session_context=self.sessions.context(session_id),
-        )
-        result = self.chat_service.handle(chat_request)
-        raw = asdict(result)
-        research = raw["research_result"] or {}
-        report = self._safe_report_reference(research.get("report_path"))
-        response = {
-            "status": self._public_text(raw["state"]),
-            "message": self._public_text(raw["message"]),
-            "recognized": {
-                "scenario": raw["scenario"] if raw["scenario"] in CHAT_SCENARIO_SPECS else None,
-                "reference_now": self._public_text(raw["reference_now"]),
-                "llm_calls": raw["llm_calls"] if type(raw["llm_calls"]) is int else 0,
-            },
-            "draft": self._sanitize_json(raw["public_draft"]),
-            "minimal_request": self._sanitize_json(raw["minimal_request"]),
-            "result": self._public_research_result(research),
-            "report": report,
-            "missing": self._public_string_list(research.get("missing_data")),
-        }
-        self.sessions.record_turn(session_id, self._sanitize_json(request_payload), response)
-        return self._json(200, response)
+        if not self.sessions.try_begin(session_id):
+            raise ApiError(409, "SESSION_BUSY", "该会话正在处理上一条请求。")
+        try:
+            context = self.sessions.context(
+                session_id, request_payload["selected_scenario"],
+            )
+            chat_request = ChatRequest(
+                message=request_payload["message"], selected_scenario=request_payload["selected_scenario"],
+                llm_enabled=request_payload["llm_enabled"] and self.llm_configured,
+                research_live=request_payload["research_live"],
+                session_context=context,
+            )
+            result = self.chat_service.handle(
+                chat_request, conversation_context=context,
+            )
+            raw = asdict(result)
+            research = raw["research_result"] or {}
+            report = self._safe_report_reference(research.get("report_path"))
+            response = {
+                "status": self._public_text(raw["state"]),
+                "message": self._public_text(raw["message"]),
+                "recognized": {
+                    "scenario": raw["scenario"] if raw["scenario"] in CHAT_SCENARIO_SPECS else None,
+                    "reference_now": self._public_text(raw["reference_now"]),
+                    "llm_calls": raw["llm_calls"] if type(raw["llm_calls"]) is int else 0,
+                },
+                "draft": self._sanitize_json(raw["public_draft"]),
+                "minimal_request": self._sanitize_json(raw["minimal_request"]),
+                "result": self._public_research_result(research),
+                "report": report,
+                "missing": self._public_string_list(research.get("missing_data")),
+            }
+            self.sessions.record_turn(session_id, self._sanitize_json(request_payload), response)
+            return self._json(200, response)
+        finally:
+            self.sessions.end(session_id)
 
     def _validate_chat_payload(self, payload: Any) -> dict[str, Any]:
         keys = {"session_id", "message", "selected_scenario", "llm_enabled", "research_live"}

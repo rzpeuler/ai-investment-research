@@ -2,6 +2,7 @@ import http.client
 import json
 import socket
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
@@ -17,7 +18,7 @@ class FakeChatService:
     def __init__(self, project_root=None):
         self.project_root = Path(project_root) if project_root else None
 
-    def handle(self, request):
+    def handle(self, request, conversation_context=None):
         run_dir = str(self.project_root / "reports" / "runs" / "secret") if self.project_root else "run"
         report_path = str(self.project_root / "reports" / "ok.md") if self.project_root else "reports/ok.md"
         return ChatResult(
@@ -160,8 +161,8 @@ def test_api_query_contract_rejects_extra_or_duplicate_keys(http_server, path):
 def test_public_result_never_serializes_non_finite_runtime(http_server, runtime_seconds, monkeypatch):
     original = http_server.app.chat_service.handle
 
-    def non_finite(request):
-        result = original(request)
+    def non_finite(request, conversation_context=None):
+        result = original(request, conversation_context)
         result.research_result["runtime_seconds"] = runtime_seconds
         return result
 
@@ -213,3 +214,69 @@ def test_server_factory_has_no_host_escape_hatch(tmp_path):
     app = DashboardApplication(tmp_path, FakeChatService(), SessionStore(), llm_configured=False)
     with pytest.raises(TypeError):
         create_server(app, port=0, host="0.0.0.0")
+
+
+def test_same_session_is_busy_while_different_session_runs_concurrently(tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    class BlockingService:
+        def handle(self, chat_request, conversation_context=None):
+            calls.append(chat_request.message)
+            if chat_request.message == "first":
+                started.set()
+                assert release.wait(timeout=3)
+            return ChatResult("clarification", "ok", scenario="morning_brief",
+                              public_draft={"complete": False})
+
+    app = DashboardApplication(tmp_path, BlockingService(), SessionStore(), llm_configured=False)
+    server = create_server(app, port=0)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    def chat(session_id, message_text):
+        body = json.dumps({
+            "session_id": session_id, "message": message_text,
+            "selected_scenario": "morning_brief", "llm_enabled": False,
+            "research_live": False,
+        }).encode()
+        return request(server, "POST", "/api/chat", body, {"Content-Type": "application/json"})
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(chat, "same", "first")
+            assert started.wait(timeout=2)
+            busy_status, _, busy_body = chat("same", "must-not-run")
+            assert busy_status == 409
+            assert json.loads(busy_body)["error"]["code"] == "SESSION_BUSY"
+            other_status, _, _ = chat("other", "other-session")
+            assert other_status == 200
+            release.set()
+            assert first.result(timeout=3)[0] == 200
+        assert calls == ["first", "other-session"]
+    finally:
+        release.set()
+        server.shutdown(); server.server_close(); server_thread.join(timeout=2)
+
+
+def test_session_busy_flag_releases_after_chat_exception(tmp_path):
+    class OnceFailingService:
+        calls = 0
+        def handle(self, chat_request, conversation_context=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("hidden")
+            return ChatResult("clarification", "ok", scenario="morning_brief",
+                              public_draft={"complete": False})
+
+    service = OnceFailingService()
+    app = DashboardApplication(tmp_path, service, SessionStore(), llm_configured=False)
+    payload = json.dumps({
+        "session_id": "retry", "message": "x", "selected_scenario": "morning_brief",
+        "llm_enabled": False, "research_live": False,
+    }).encode()
+    headers = type("Headers", (), {"get_all": lambda self, name: ["application/json"] if name == "Content-Type" else []})()
+    with pytest.raises(RuntimeError):
+        app.dispatch("POST", "/api/chat", headers, payload)
+    assert app.dispatch("POST", "/api/chat", headers, payload)[0] == 200

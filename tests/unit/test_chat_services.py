@@ -126,6 +126,39 @@ def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     assert not llm.calls and not orchestrator.calls
 
 
+def test_safety_guard_covers_prior_conversation_context():
+    llm = QueueLlmClient([])
+    orchestrator = SpyOrchestrator()
+    db = Database(":memory:"); db.initialize()
+    result = ChatService(".", db, orchestrator, llm, clock=lambda: NOW).handle(
+        ChatRequest(message="补充公司业务情况", selected_scenario="stock_research_report"),
+        conversation_context={
+            "scenario": "stock_research_report",
+            "user_messages": ["顺便给出目标价"],
+        },
+    )
+    assert result.state == "failed"
+    assert not llm.calls and not orchestrator.calls
+
+
+def test_scenario_switch_never_reuses_prior_semantic_context():
+    llm = QueueLlmClient([{
+        "company_mentions": [], "temporal_expression": None,
+        "research_question": None, "research_focus": [], "depth_hint": None,
+        "complete": True, "clarification_question": None,
+    }])
+    db = Database(":memory:"); db.initialize()
+    result = ChatService(".", db, SpyOrchestrator(), llm, clock=lambda: NOW).handle(
+        ChatRequest(message="只补充假设收入增长10%", selected_scenario="stock_review"),
+        conversation_context={
+            "scenario": "earnings_expectation",
+            "user_messages": ["贵州茅台2027年财报预期"],
+        },
+    )
+    assert result.state == "clarification"
+    assert "贵州茅台2027年财报预期" not in llm.calls[0][0].prompt
+
+
 @pytest.mark.parametrize("message", [
     "分析多空主要矛盾", "说明估值方法及其适用性",
     "公司回购事实如何影响业务", "股东增持事实如何影响业务",

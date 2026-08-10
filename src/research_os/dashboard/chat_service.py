@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from research_os.dashboard.industry_resolver import IndustryResolver
 from research_os.dashboard.models import ChatRequest, ChatResult, TemporalResult
@@ -32,11 +32,17 @@ class ChatService:
         self.temporal_resolver = TemporalResolver()
         self.industry_resolver = IndustryResolver(db)
 
-    def handle(self, request: ChatRequest) -> ChatResult:
+    def handle(self, request: ChatRequest,
+               conversation_context: Optional[Mapping[str, Any]] = None) -> ChatResult:
         # Exactly one clock capture per turn. Everything below receives this value.
         reference_now: datetime = self.clock()
         reference_iso = reference_now.isoformat(timespec="seconds")
-        if is_forbidden_investment_request(request.message):
+        context = conversation_context if conversation_context is not None else request.session_context
+        if not isinstance(context, Mapping):
+            context = {}
+        prior_messages = self._prior_user_messages(context)
+        safety_text = "\n".join([*prior_messages, request.message])
+        if is_forbidden_investment_request(safety_text):
             return ChatResult("failed", "该请求涉及禁止的交易建议、评级、仓位、目标价或荐股内容。", reference_now=reference_iso)
 
         route = ChatRouteService(self.llm_client, self.target_resolver.is_exact_authoritative_name).route(
@@ -47,9 +53,12 @@ class ChatService:
             return ChatResult(state, route.message, reference_now=reference_iso, llm_calls=route.llm_calls)
         scenario = route.scenario
         spec = CHAT_SCENARIO_SPECS[scenario]
+        semantic_message = request.message
+        if context.get("scenario") == scenario and prior_messages:
+            semantic_message = self._semantic_message(prior_messages, request.message)
 
         if request.llm_enabled and self.llm_client is not None:
-            extracted = ChatSchemaExtractor(self.llm_client).extract(request.message, spec)
+            extracted = ChatSchemaExtractor(self.llm_client).extract(semantic_message, spec)
             llm_calls = route.llm_calls + extracted.llm_calls
             if extracted.status != "resolved" or extracted.draft is None:
                 return ChatResult("clarification", extracted.message, scenario=scenario,
@@ -57,7 +66,7 @@ class ChatService:
             draft = extracted.draft
         else:
             llm_calls = route.llm_calls
-            draft = spec.deterministic_draft_builder(request.message)
+            draft = spec.deterministic_draft_builder(semantic_message)
             errors = validate_instance(draft, spec.chat_input_schema_name)
             if errors:
                 return ChatResult("clarification", "当前表达需要启用 LLM，或请选择场景并提供完整代码/精确名称。",
@@ -113,6 +122,21 @@ class ChatService:
         return ChatResult(state, payload.get("message") or "研究执行完成。", scenario=scenario,
                           public_draft=draft, minimal_request=minimal, research_result=payload,
                           reference_now=reference_iso, llm_calls=llm_calls)
+
+    @staticmethod
+    def _prior_user_messages(context: Mapping[str, Any]) -> list[str]:
+        if not isinstance(context, Mapping):
+            return []
+        messages = context.get("user_messages")
+        if not isinstance(messages, (list, tuple)):
+            return []
+        return [item[:10000] for item in messages[-5:]
+                if isinstance(item, str) and item.strip()]
+
+    @staticmethod
+    def _semantic_message(prior_messages: list[str], current: str) -> str:
+        combined = "\n".join([*prior_messages, current])
+        return combined[-30000:]
 
     def _resolve_target(self, spec, draft: dict):
         mentions = draft.get("company_mentions") or draft.get("entity_mentions") or []

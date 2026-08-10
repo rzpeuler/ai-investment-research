@@ -15,3 +15,11 @@ def test_wheel_configuration_force_includes_dashboard_static_assets():
     config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert force_include["src/research_os/dashboard/static"] == "research_os/dashboard/static"
+
+
+def test_dashboard_frontend_guards_inflight_and_stale_responses():
+    script = resources.files("research_os.dashboard").joinpath("static", "dashboard.js").read_text("utf-8")
+    assert "submitButton.disabled=true" in script
+    assert '$("message").disabled=true' in script
+    assert "sequence!==latestRequestSequence" in script
+    assert "sequence===latestRequestSequence" in script

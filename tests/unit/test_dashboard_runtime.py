@@ -32,7 +32,7 @@ def test_per_request_runtime_owns_database_in_worker_thread(monkeypatch, tmp_pat
     class Service:
         def __init__(self, root, db, orchestrator, llm_client):
             assert db.owner == get_ident()
-        def handle(self, request):
+        def handle(self, request, conversation_context=None):
             return ChatResult("clarification", "ok")
     monkeypatch.setattr(runtime, "Database", Db)
     monkeypatch.setattr(runtime, "Orchestrator", Orch)

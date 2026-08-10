@@ -20,7 +20,7 @@ class _PerRequestChatService:
         self.root = root
         self.provider = provider
 
-    def handle(self, request):
+    def handle(self, request, conversation_context=None):
         db = None
         try:
             db = Database(self.root / "data" / "sqlite" / "research.db")
@@ -29,7 +29,9 @@ class _PerRequestChatService:
             client = LlmClient(
                 provider=self.provider, db=db, configured=self.provider is not None,
             )
-            return ChatService(self.root, db, orchestrator, llm_client=client).handle(request)
+            return ChatService(self.root, db, orchestrator, llm_client=client).handle(
+                request, conversation_context=conversation_context,
+            )
         finally:
             if db is not None:
                 db.close()

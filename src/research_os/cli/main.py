@@ -73,9 +73,9 @@ def dashboard_command(port: int, no_browser: bool) -> None:
     url = f"http://127.0.0.1:{server.server_port}/"
     click.echo(f"Dashboard: {url}")
     click.echo(f"LLM configured: {llm_configured}")
-    if not no_browser:
-        webbrowser.open(url)
     try:
+        if not no_browser:
+            webbrowser.open(url)
         server.serve_forever()
     except KeyboardInterrupt:
         click.echo("Dashboard stopped.")

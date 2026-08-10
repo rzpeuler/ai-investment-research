@@ -26,3 +26,19 @@ def test_dashboard_cli_wires_loopback_and_closes(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert "http://127.0.0.1:4321/" in result.output and "LLM configured: False" in result.output
     assert events == ["close"]
+
+
+def test_dashboard_browser_failure_still_closes_server(monkeypatch, tmp_path):
+    (tmp_path / "schemas").mkdir()
+    monkeypatch.setenv("RESEARCH_PROJECT_PATH", str(tmp_path))
+    events = []
+    class Server:
+        server_port = 4321
+        def serve_forever(self): events.append("serve")
+        def server_close(self): events.append("close")
+    monkeypatch.setattr("research_os.dashboard.runtime.build_dashboard_runtime", lambda root: (object(), False, None))
+    monkeypatch.setattr("research_os.dashboard.server.create_server", lambda app, port: Server())
+    monkeypatch.setattr("research_os.cli.main.webbrowser.open", lambda url: (_ for _ in ()).throw(RuntimeError("browser")))
+    result = CliRunner().invoke(cli, ["dashboard", "--port", "4321"])
+    assert result.exit_code != 0
+    assert events == ["close"]
