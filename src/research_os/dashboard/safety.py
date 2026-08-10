@@ -49,16 +49,16 @@ _ZH_DECISION_CUE = re.compile(r"\?|吗|是否|合适|会不会|该不该|要不�
 _EN_ANY_TRADE_ACTION = re.compile(r"\b(?:buy|buying|bought|sell|selling|sold|trade|trading)\b")
 _EN_DECISION_CUE = re.compile(r"\?|\b(?:would|do|does|should|can|could|is|are|will)\b")
 
-_ZH_OPERATING_OBJECT = r"(?:设备|原料|资产|子公司|业务|产能|土地|厂房|机器|库存|专利|技术|牌照|项目|矿产|商品)"
+_ZH_OPERATING_OBJECT = r"(?:设备|装置|机械|机器|原料|资产|子公司|业务|产能|土地|厂房|库存|专利|技术|牌照|项目|矿产|商品)"
 _ZH_OPERATING_ACTION = r"(?:买入|卖出|购买|出售|收购|处置|买|卖)"
 _ZH_OPERATING_TRANSACTION = re.compile(
-    rf"{_ZH_OPERATING_ACTION}(?:其|该|部分|全部|相关|核心|现有|新增|一批)?{_ZH_OPERATING_OBJECT}"
+    rf"{_ZH_OPERATING_ACTION}[^,，。！？?；;、]{{0,12}}?{_ZH_OPERATING_OBJECT}"
 )
 
 _EN_OPERATING_TRANSACTION = re.compile(
-    r"\b(?:buy|sell|buying|selling|acquire|dispose\s+of)\s+"
-    r"(?:(?:its|the|some|new|additional|part\s+of)\s+)?"
-    r"(?:equipment|raw\s+materials?|assets?|subsidiar(?:y|ies)|business|capacity|land|factory|"
+    r"\b(?:buy|sell|buying|selling|acquire|dispose\s+of)"
+    r"(?:\s+[a-z0-9'-]+){0,4}\s+"
+    r"(?:equipment|devices?|machinery|raw\s+materials?|assets?|subsidiar(?:y|ies)|business|capacity|land|factory|"
     r"inventory|patents?|technology|licen[cs]es?|projects?|minerals?|commodities)\b"
 )
 
