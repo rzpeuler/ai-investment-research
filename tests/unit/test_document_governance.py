@@ -45,7 +45,8 @@ def test_phase_status_documents_are_consistent():
     lim_header = "\n".join(limitations.split("\n")[:30])
     assert "Phase 5 = BLOCKED" not in lim_header and "Phase 5 = BLOCKED" != lim_header.strip(), \
         "KNOWN_LIMITATIONS header must not declare Phase5 BLOCKED"
-    assert "NOT_AUTHORIZED" in limitations, "KNOWN_LIMITATIONS must reflect Phase6 NOT_AUTHORIZED"
+    assert "Phase 6 Research→GraphChange Candidate integration = DEFERRED" in limitations, \
+        "KNOWN_LIMITATIONS must preserve the deferred Phase6 candidate boundary"
     assert "**IMPLEMENTATION_STATUS: COMPLETE**" in phase5_task
     # No stale pre-merge artifacts in CURRENT_STATE or NEXT_PHASE surface
     assert "Draft PR #6" not in current, "CURRENT_STATE must not reference Draft PR #6"
@@ -89,10 +90,7 @@ def test_baseline_readme_does_not_claim_to_be_current():
 
 
 def test_phase6_top_level_design_governance_frozen():
-    """P6-G0: Phase 6 top-level design must be FROZEN / APPROVED; 6A/6B/6C seven
-    scenarios frozen; P6-F0 progressed to IMPLEMENTED / AWAITING_INDEPENDENT_ACCEPTANCE;
-    business implementation still NOT_AUTHORIZED; no production Phase6 scenario
-    implemented in src/."""
+    """P6-G0/F0 design rules remain frozen after the Phase6 terminal closeout."""
     guide = _read("docs/engineering-guide.md")
     decisions = _read("docs/project-state/DECISIONS.md")
     current = _read("docs/project-state/CURRENT_STATE.md")
@@ -136,8 +134,8 @@ def test_phase6_top_level_design_governance_frozen():
     assert "NOT_AUTHORIZED" in decisions
 
     # ── TASKBOOK ──
-    assert "TASKBOOK_STATUS: APPROVED" in taskbook
-    assert "**CURRENT_MILESTONE: P6-S0**" in taskbook
+    assert "TASKBOOK_STATUS: EXECUTED" in taskbook
+    assert "**CURRENT_MILESTONE: P6-S6 GOVERNANCE CLOSEOUT**" in taskbook
     assert "P6-S1" in taskbook or ("P6-S1" in taskbook and "6B Final Closure" in taskbook)
     assert "P6-S2" in taskbook or ("P6-S2" in taskbook and "6A Final Closure" in taskbook)
     assert "P6-S3" in taskbook or ("P6-S3" in taskbook and "Earnings Expectation" in taskbook)
@@ -148,20 +146,21 @@ def test_phase6_top_level_design_governance_frozen():
                       "P6-S4", "P6-S5", "P6-S6"):
         assert milestone in taskbook, f"taskbook must define {milestone}"
 
-    # ── P6-S0 AUTHORIZED; P6-S1-S6 NOT_AUTHORIZED ──
-    assert "P6-S0: NOT_AUTHORIZED" not in taskbook, "P6-S0 must be AUTHORIZED"
-    assert "P6-S1" in taskbook, "Taskbook must mention P6-S1"
+    # ── Serial milestones completed; candidate integration remains deferred ──
+    for milestone in ("P6-S0", "P6-S1", "P6-S2", "P6-S3", "P6-S4", "P6-S5"):
+        assert f"{milestone}: PASS / MERGED" in taskbook
+    assert "P6-S6: GOVERNANCE CLOSEOUT" in taskbook
+    assert "CANDIDATE INTEGRATION: DEFERRED" in taskbook
     assert "PARALLEL_PHASE6_BUSINESS_DEVELOPMENT: CANCELLED" in taskbook
 
     # ── CURRENT-STATE / NEXT_PHASE / README / KNOWN_LIMITATIONS ──
-    assert "P6-G0 Top-Level Design | FROZEN / APPROVED" in current or "P6-G0" in current
-    assert "P6-S0 Serial Governance Reset | IN PROGRESS" in current
-    assert "P6-S0 Serial Governance Reset" in next_phase
-    assert "P6-S0 Serial Governance Reset" in next_phase
-    assert "P6-S0" in readme or "Phase 6" in readme
-    assert "Phase 6 implementation = NOT_AUTHORIZED" in limitations
-    # taskbook approval must not imply development authorization
-    assert "任务书 approved 不得被解释成整个 Phase 6 已授权开发" in taskbook
+    assert "P6-G0 Top-Level Design | PASS / MERGED" in current
+    assert "P6-S0 Serial Governance Reset | PASS / MERGED" in current
+    assert "Phase 6 terminal state and future authorization" in next_phase
+    assert "Phase 6：PASS / CENTRALLY ENABLED" in readme
+    assert "Phase 6 research workflows = PASS / centrally enabled" in limitations
+    # taskbook completion must not imply candidate or future-phase authorization
+    assert "Research capability completion != Research→GraphChange Candidate authorization" in taskbook
     assert "NOT_AUTHORIZED" in next_phase
 
     # ── DECISION #43, #44 ──
@@ -179,6 +178,70 @@ def test_phase6_top_level_design_governance_frozen():
     # P6-I0 should not appear in new decisions (#43+#44)
     decisions_43_44 = decisions[decisions.find("## 43."):] if "## 43." in decisions else ""
     assert "P6-I0" not in decisions_43_44, "P6-I0 must not appear in new serial decisions"
+
+
+def test_phase6_terminal_governance_closeout():
+    """P6-S6 living surfaces agree on terminal state without rewriting history."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    guide = _read("docs/engineering-guide.md")
+    contract = _read("docs/contracts/phase6-shared-contract.md")
+    taskbook = _read("docs/tasks/phase6-research-workflows.md")
+    readme = _read("README.md")
+
+    decision_45 = decisions[decisions.index("## 45. Phase 6 Terminal Closeout"):]
+    assert "PHASE6: CLOSED / PASS" in decision_45
+    assert "PHASE6_ACCEPTED_CODE_MASTER_SHA: 3e0166de11ae9969792a4726913cb68a17c8f2a5" in decision_45
+    assert "PHASE6_RESEARCH_TO_GRAPHCHANGE_CANDIDATE: DEFERRED" in decision_45
+    for number in range(41, 45):
+        assert f"## {number}." in decisions, f"historical Decision #{number} must be preserved"
+
+    current_phase6 = current[current.index("## Phase 6"):]
+    readme_phase6 = readme[readme.index("## Phase 6"):readme.index("## 快速开始")]
+    limitations_header = "\n".join(limitations.splitlines()[:24])
+    next_phase6 = next_phase[next_phase.index("## Phase 6 terminal state"):]
+    guide_gate = guide[guide.index("### 69.11 实施门禁"):guide.index("# 第十八部分")]
+    taskbook_header = "\n".join(taskbook.splitlines()[:20])
+
+    assert "Phase 6：CLOSED / PASS" in current
+    assert "P6-S6 Governance Closeout | GOVERNANCE CLOSEOUT" in current_phase6
+    assert "Phase 6 business implementation | NOT_AUTHORIZED" not in current_phase6
+    assert "P6-S0 Serial Governance Reset | IN PROGRESS" not in current_phase6
+    assert "Phase6 business code on master: NONE" not in current_phase6
+    assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
+
+    assert "CURRENT ENGINEERING MILESTONE**: NONE" in next_phase6
+    assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
+    assert "Phase 7**: NOT_DEFINED / NOT_AUTHORIZED" in next_phase6
+    assert "Current authorized milestone" not in next_phase6
+
+    assert "Phase 6 research workflows = PASS / centrally enabled" in limitations_header
+    assert "Graph→Research = read-only Phase 6A path enabled" in limitations_header
+    assert "Phase 6 implementation = NOT_AUTHORIZED" not in limitations_header
+    assert "Graph→Research production integration: NOT YET ENABLED" not in limitations_header
+
+    assert "IMPLEMENTATION_STATUS: PASS" in guide_gate
+    assert "P6-S6: GOVERNANCE CLOSEOUT" in guide_gate
+    assert "PHASE6_CANDIDATE_INTEGRATION: DEFERRED" in guide_gate
+    assert "IMPLEMENTATION_STATUS: NOT_STARTED" not in guide_gate
+    assert "CURRENT_MILESTONE: P6-G0" not in guide_gate
+
+    assert "PHASE6_RESEARCH: PASS" in contract
+    assert "CENTRAL_ENABLEMENT: PASS" in contract
+    assert "PHASE6_RESEARCH_TO_GRAPHCHANGE_CANDIDATE: DEFERRED" in contract
+    assert "TASKBOOK_STATUS: EXECUTED" in taskbook_header
+    assert "CURRENT_MILESTONE: P6-S6 GOVERNANCE CLOSEOUT" in taskbook_header
+
+    assert "Phase 6：PASS / CENTRALLY ENABLED" in readme_phase6
+    assert "USER_TRIAL_READY：YES" in readme_phase6
+    assert "P6-S0 Serial Governance Reset" not in readme_phase6
+    schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
+    assert schema_count > 0
+    assert f"当前 **{schema_count} 个 Schema**" in readme
+    assert f"Schemas: {schema_count}" in current_phase6
+    assert "DB: v6" in current_phase6
 
 
 def test_phase6_shared_contract_frozen():

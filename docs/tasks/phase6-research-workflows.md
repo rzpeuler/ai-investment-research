@@ -1,13 +1,15 @@
 # Phase 6：研究工作流 — 串行任务书
 
-**TASKBOOK_STATUS: APPROVED FOR EXECUTION**
+**TASKBOOK_STATUS: EXECUTED**
 **PHASE: Phase 6**
-**MILESTONE: P6-S0-R2**
-**SERIAL_EXECUTION: REQUIRED**
+**MILESTONE: P6-S6**
+**SERIAL_EXECUTION: COMPLETE**
 **PARALLEL_PHASE6_BUSINESS_DEVELOPMENT: CANCELLED**
-**CURRENT_MILESTONE: P6-S0**
+**CURRENT_MILESTONE: P6-S6 GOVERNANCE CLOSEOUT**
 **BUSINESS_CODE_CHANGE: PROHIBITED**
-**NEXT_MILESTONE: P6-S1 — NOT_AUTHORIZED**
+**P6-S0—P6-S5: PASS / MERGED**
+**PHASE6: CLOSED / PASS**
+**CANDIDATE_INTEGRATION: DEFERRED**
 
 ---
 
@@ -17,19 +19,19 @@
 P6-G0  Top-Level Design Governance Freeze  → PASS / MERGED
 P6-F0  Shared Contract Freeze              → PASS / MERGED
 
-P6-S0  Serial Governance Reset             → AUTHORIZED (governance-only)
+P6-S0  Serial Governance Reset             → PASS / MERGED
          ↓
-P6-S1  6B Final Closure + Acceptance + Merge
+P6-S1  6B Final Closure + Acceptance + Merge → PASS / MERGED
          ↓
-P6-S2  6A Final Closure + Acceptance + Merge
+P6-S2  6A Final Closure + Acceptance + Merge → PASS / MERGED
          ↓
-P6-S3  Earnings Expectation
+P6-S3  Earnings Expectation                → PASS / MERGED
          ↓
-P6-S4  First Coverage
+P6-S4  First Coverage                      → PASS / MERGED
          ↓
-P6-S5  Central Enablement + Cross-Scenario Acceptance
+P6-S5  Central Enablement + Cross-Scenario Acceptance → PASS / MERGED
          ↓
-P6-S6  Governance Closeout
+P6-S6  Governance Closeout                 → GOVERNANCE CLOSEOUT
 ```
 
 ### 1.1 串行工程规则
@@ -93,7 +95,7 @@ Old local 6C workspace: ABANDONED / NOT A VALID BASE
 
 ## 3. P6-S0 — Serial Governance Reset
 
-**状态：AUTHORIZED（当前唯一授权里程碑）**
+**状态：PASS / MERGED**
 
 S0 是 governance-only milestone，不实现任何业务代码。
 
@@ -112,7 +114,7 @@ S0 验收后 merge master，才能授权 S1。
 
 ## 4. P6-S1 — 6B Final Closure
 
-**状态：NOT_AUTHORIZED（需要 S0 PASS + MERGED）**
+**状态：PASS / MERGED**
 
 ### 4.1 S1 场景
 
@@ -257,7 +259,7 @@ Offline CI
 
 ## 5. P6-S2 — 6A Final Closure
 
-**状态：NOT_AUTHORIZED（需要 S1 PASS + MERGED）**
+**状态：PASS / MERGED**
 
 ### 5.1 S2 场景
 
@@ -419,7 +421,7 @@ Offline CI
 
 ## 6. P6-S3 — Earnings Expectation
 
-**状态：NOT_AUTHORIZED（需要 S2 PASS + MERGED）**
+**状态：PASS / MERGED**
 
 ### 6.1 场景
 
@@ -493,7 +495,7 @@ Evidence / model routing
 
 ## 7. P6-S4 — First Coverage
 
-**状态：NOT_AUTHORIZED（需要 S3 PASS + MERGED）**
+**状态：PASS / MERGED**
 
 ### 7.1 场景
 
@@ -560,7 +562,7 @@ peer context / market-implied assumptions / sensitivity
 
 ## 8. P6-S5 — Central Enablement + Cross-Scenario Acceptance
 
-**状态：NOT_AUTHORIZED（需要 S1—S4 全部 PASS + MERGED）**
+**状态：PASS / MERGED**
 
 这是唯一允许修改 shared control plane 的 Phase 6 阶段。
 
@@ -619,7 +621,7 @@ Phase2 / Phase3 / Phase4 / Phase5 全量回归
 
 ## 9. P6-S6 — Governance Closeout
 
-**状态：NOT_AUTHORIZED（需要 S5 PASS + MERGED）**
+**状态：GOVERNANCE CLOSEOUT**
 
 同步所有治理文档到 terminal state。必须区分：
 
@@ -690,13 +692,21 @@ DEFERRED
 
 ---
 
-## 14. 授权状态
+## 14. Terminal 状态与后续授权
 
 ```text
-P6-S0: AUTHORIZED（当前）
-P6-S1—P6-S6: NOT_AUTHORIZED
+P6-S0: PASS / MERGED
+P6-S1: PASS / MERGED
+P6-S2: PASS / MERGED
+P6-S3: PASS / MERGED
+P6-S4: PASS / MERGED
+P6-S5: PASS / MERGED
+P6-S6: GOVERNANCE CLOSEOUT
+PHASE6: CLOSED / PASS
+CANDIDATE INTEGRATION: DEFERRED
+PHASE6.1: NOT_AUTHORIZED
+PHASE7: NOT_DEFINED / NOT_AUTHORIZED
 ```
 
-任务书 approved 不得被解释成整个 Phase 6 已授权开发。
-
-下一 milestone 只有在前一 milestone PASS + MERGED + workspace cleaned 后才能开始。
+Research capability completion != Research→GraphChange Candidate authorization。
+Phase 6 完成不自动授权 Phase 6.1 或 Phase 7；未来必须经过新任务书、架构批准与显式授权。

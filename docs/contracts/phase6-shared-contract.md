@@ -1,7 +1,10 @@
 # Phase 6 Shared Contract（P6-F0 冻结）
 
-> 状态：**FROZEN → UPDATED for Serial (2026-08-09)**
-> 依据：`docs/engineering-guide.md` V1.3（第 69 节）、`docs/project-state/DECISIONS.md` #41、#43、#44、
+> CONTRACT：**FROZEN**
+> EXECUTION：**P6-S0—P6-S5 PASS / MERGED；P6-S6 GOVERNANCE CLOSEOUT**
+> TERMINAL：**PHASE6_RESEARCH = PASS；CENTRAL_ENABLEMENT = PASS；USER_TRIAL_READY = YES**
+> CANDIDATE_INTEGRATION：**DEFERRED**
+> 依据：`docs/engineering-guide.md` V1.3（第 69 节）、`docs/project-state/DECISIONS.md` #41—#45、
 > `docs/tasks/phase6-research-workflows.md`（P6-F0 里程碑）。
 > 用途：6A / 6B / 6C 三个业务 Track 串行开发的**唯一共享边界**。
 > 三个 Track 的 Agent 只需读取本文件 + engineering-guide V1.3 + serial taskbook，
@@ -468,3 +471,25 @@ Graph write 扩张 / ontology / source 扩张。
   DB v6 / 无 migration 全部冻结；
 - 全量测试 0 failed；Schema 全部有效；DB v6 不变；Phase 2/3/4/5 回归 = 0；
 - 独立 review（Codex/等价架构审查）0 blocker。
+
+## 30. Terminal Execution Status（P6-S6）
+
+本附录只记录执行状态，不改变本契约任何冻结业务语义：
+
+```text
+CONTRACT: FROZEN
+PHASE6_RESEARCH: PASS
+CENTRAL_ENABLEMENT: PASS
+PHASE6: CLOSED / PASS
+USER_TRIAL_READY: YES
+GRAPH_TO_RESEARCH: READ_ONLY / ENABLED VIA ACCEPTED 6A
+PHASE6_RESEARCH_TO_GRAPHCHANGE_CANDIDATE: DEFERRED
+SCHEMA_REGISTRY: 69
+DB: v6
+MIGRATIONS: NONE
+```
+
+Graph→Research 唯一路径仍为 Versioned Graph → GraphQueryService →
+KnowledgeContextBuilder → Research Context。KnowledgeContext != Evidence；Graph FACT 必须
+重新加载权威 Evidence 并通过 eligibility / as_of / source validation。Phase 5 的
+GraphChange Candidate 能力仍然存在；DEFERRED 仅指 Phase 6 场景输出尚未中央接入该能力。

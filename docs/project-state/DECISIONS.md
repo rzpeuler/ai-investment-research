@@ -2128,3 +2128,75 @@ Separate Phase 6.1 taskbook required for candidate integration.
 
 Previous local 6C workspace is ABANDONED. NOT a valid base.
 Future P6-S3/P6-S4 must start from fresh clean branch from then-current accepted master.
+
+---
+
+## 45. Phase 6 Terminal Closeout
+
+**Date**: 2026-08-10
+**Status**: FROZEN / APPROVED
+**Scope**: Phase 6 terminal governance state; no production behavior change
+
+### 45.1 Terminal State
+
+```text
+PHASE6_RESEARCH_CAPABILITY: PASS
+PHASE6_CENTRAL_ENABLEMENT: PASS
+PHASE6: CLOSED / PASS
+USER_TRIAL_READY: YES
+PHASE6_RESEARCH_TO_GRAPHCHANGE_CANDIDATE: DEFERRED
+SCHEMA_REGISTRY: 69
+DB: v6
+MIGRATIONS: unchanged
+```
+
+七个 Phase 6 场景已经由默认 Registry / Orchestrator 中央启用，并通过公开
+`research execute` 入口执行。Phase 6 PASS 不代表所有外部数据源完备；数据或 Evidence
+不足时，`partial_success`、`degraded`、`insufficient_evidence` 仍是合法结果。
+
+### 45.2 Serial Milestones and Accepted Code Baseline
+
+```text
+P6-S0: PASS / MERGED
+P6-S0_FINAL_MASTER: 74e370cc551f5bd7bcd70db440d8110df1ceb0d7
+P6-S1: PASS / MERGED
+P6-S1_FINAL_MASTER: ccad1205cf95d55d6ecd85c334c01248281ae086
+P6-S2: PASS / MERGED
+P6-S2_FINAL_MASTER: d44cd98d388f31981f57eb649287674f9b399a8c
+P6-S3: PASS / MERGED
+P6-S3_FINAL_MASTER: e914cc30ff776ec73a34fdda9da63630d9c268f0
+P6-S4: PASS / MERGED
+P6-S4_FINAL_MASTER: dcd77617a874c93adf3d955cdd86c0cfd5ce685b
+P6-S5: PASS / MERGED
+P6-S5_FINAL_MASTER: 3e0166de11ae9969792a4726913cb68a17c8f2a5
+P6-S6: GOVERNANCE CLOSEOUT
+PHASE6_ACCEPTED_CODE_MASTER_SHA: 3e0166de11ae9969792a4726913cb68a17c8f2a5
+```
+
+P6-S6 是 governance-only；其后续治理合并提交不创造新的 accepted code baseline。
+
+### 45.3 Graph and Evidence Boundary
+
+Graph→Research 已通过 accepted Phase 6A 只读路径启用：
+
+```text
+Versioned Graph → GraphQueryService → KnowledgeContextBuilder → Research Context
+```
+
+KnowledgeContext != Evidence。Graph FACT 必须重新加载权威 Evidence，并通过 eligibility、
+as_of 与 source validation 后，才可形成 Research Finding。Scenario direct Graph write = NONE；
+Phase 6 scenario → active Graph = PROHIBITED。
+
+Phase 5 的 GraphChange Candidate / Review / Apply 能力继续存在。`DEFERRED` 仅指 Phase 6
+scenario outputs → GraphChange Candidate 尚未中央接通；不得解释为候选能力不存在，也不得
+解释为 Phase 6 场景会自动写候选。未来接入必须另立 Phase 6.1 taskbook，并取得独立架构批准
+与显式授权。
+
+### 45.4 No Automatic Next-Phase Authorization
+
+```text
+PHASE6.1: NOT_AUTHORIZED
+PHASE7: NOT_DEFINED / NOT_AUTHORIZED
+```
+
+Phase 6 terminal closeout 不自动授权 Phase 6.1 或 Phase 7。
