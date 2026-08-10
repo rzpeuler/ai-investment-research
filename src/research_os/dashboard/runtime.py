@@ -21,25 +21,31 @@ class _PerRequestChatService:
         self.provider = provider
 
     def handle(self, request):
-        db = Database(self.root / "data" / "sqlite" / "research.db")
-        db.initialize()
-        orchestrator = Orchestrator(self.root, db=db)
-        client = LlmClient(
-            provider=self.provider, db=db, configured=self.provider is not None,
-        )
+        db = None
         try:
+            db = Database(self.root / "data" / "sqlite" / "research.db")
+            db.initialize()
+            orchestrator = Orchestrator(self.root, db=db)
+            client = LlmClient(
+                provider=self.provider, db=db, configured=self.provider is not None,
+            )
             return ChatService(self.root, db, orchestrator, llm_client=client).handle(request)
         finally:
-            orchestrator.close()
+            if db is not None:
+                db.close()
 
 
 def build_dashboard_runtime(project_root: str | Path):
     root = Path(project_root)
     # Apply existing migrations before accepting traffic, then release the
     # connection. Worker threads open and own their respective connections.
-    bootstrap_db = Database(root / "data" / "sqlite" / "research.db")
-    bootstrap_db.initialize()
-    bootstrap_db.close()
+    bootstrap_db = None
+    try:
+        bootstrap_db = Database(root / "data" / "sqlite" / "research.db")
+        bootstrap_db.initialize()
+    finally:
+        if bootstrap_db is not None:
+            bootstrap_db.close()
     llm_configured = False
     provider_status = "not_configured"
     provider = None
@@ -55,6 +61,5 @@ def build_dashboard_runtime(project_root: str | Path):
     service = _PerRequestChatService(root, provider)
     app = DashboardApplication(
         root, service, SessionStore(), llm_configured=llm_configured,
-        provider_status=provider_status,
     )
     return app, llm_configured, provider_status

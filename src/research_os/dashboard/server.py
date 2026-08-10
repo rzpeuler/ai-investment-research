@@ -28,9 +28,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            raw_length = self.headers.get("Content-Length")
-            if raw_length is None:
+            transfer_encodings = self.headers.get_all("Transfer-Encoding") or []
+            if transfer_encodings:
+                raise ApiError(400, "TRANSFER_ENCODING_NOT_ALLOWED", "不接受 Transfer-Encoding。")
+            lengths = self.headers.get_all("Content-Length") or []
+            if not lengths:
                 raise ApiError(411, "CONTENT_LENGTH_REQUIRED", "缺少 Content-Length。")
+            if len(lengths) != 1:
+                raise ApiError(400, "DUPLICATE_CONTENT_LENGTH", "不得重复 Content-Length。")
+            raw_length = lengths[0]
             try:
                 length = int(raw_length)
             except ValueError:
@@ -44,6 +50,7 @@ class _Handler(BaseHTTPRequestHandler):
                 raise ApiError(400, "INCOMPLETE_BODY", "请求体长度不完整。")
             self._dispatch(body)
         except ApiError as error:
+            self.close_connection = True
             self._write(*self.server.app.error_response(error))
 
     def do_PUT(self): self._dispatch(b"")
@@ -56,6 +63,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, body):
         try:
+            if self.headers.get_all("Transfer-Encoding"):
+                self.close_connection = True
+                raise ApiError(400, "TRANSFER_ENCODING_NOT_ALLOWED", "不接受 Transfer-Encoding。")
+            if len(self.headers.get_all("Content-Length") or []) > 1:
+                self.close_connection = True
+                raise ApiError(400, "DUPLICATE_CONTENT_LENGTH", "不得重复 Content-Length。")
             response = self.server.app.dispatch(self.command, self.path, self.headers, body)
         except ApiError as error:
             response = self.server.app.error_response(error)
@@ -72,6 +85,8 @@ class _Handler(BaseHTTPRequestHandler):
         headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'"
         if self.path.startswith("/api/"):
             headers["Cache-Control"] = "no-store"
+        if self.close_connection:
+            headers["Connection"] = "close"
         for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()

@@ -47,6 +47,7 @@ def test_scenario_specs_are_immutable_and_exactly_cover_runtime_scenarios():
     assert tuple(CHAT_SCENARIO_SPECS) == DEFAULT_SCENARIOS
     with pytest.raises(TypeError):
         CHAT_SCENARIO_SPECS["x"] = object()  # type: ignore[index]
+    assert all(spec.display_label.strip() for spec in CHAT_SCENARIO_SPECS.values())
 
 
 def test_target_resolver_full_symbol_entity_only_and_profile_authority():
