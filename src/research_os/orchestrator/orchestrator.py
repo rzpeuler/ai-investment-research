@@ -84,13 +84,10 @@ class Orchestrator:
             self._db.initialize()
         self.registry = registry or ScenarioRegistry()
         if registry is None:
-            from research_os.orchestrator.runners import (
-                AbnormalMoveScenarioRunner, EquityResearchScenarioRunner,
-                MorningBriefScenarioRunner,
-            )
-            for runner in (MorningBriefScenarioRunner(), AbnormalMoveScenarioRunner(),
-                           EquityResearchScenarioRunner()):
-                self.registry.register(runner)
+            from research_os.orchestrator.runners import DEFAULT_RUNNER_TYPES
+
+            for runner_type in DEFAULT_RUNNER_TYPES:
+                self.registry.register(runner_type())
 
     @property
     def db(self) -> Database:
@@ -290,6 +287,13 @@ class Orchestrator:
         for filename in (
             "abnormal_move_request.json", "abnormal_move_run.json",
             "equity_research_request.json", "equity_research_run.json",
+            "evening_brief_request.json", "evening_brief_run.json",
+            "daily_review_request.json", "daily_review_run.json",
+            "stock_review_request.json", "stock_review_run.json",
+            "industry_research_request.json", "industry_research_run.json",
+            "theme_discovery_request.json", "theme_discovery_run.json",
+            "earnings_expectation_request.json", "earnings_expectation_run.json",
+            "first_coverage_request.json", "first_coverage_run.json",
         ):
             path = run_dir.root / filename
             if not path.exists():

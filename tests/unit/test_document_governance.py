@@ -186,16 +186,18 @@ def test_phase6_shared_contract_frozen():
 
     机械保护（task 三十六节）：
     - 七 scenario ID 与设计一致（解析 task.schema.json enum，非字符串碰巧）
-    - Task/CLI existing enums 不漂移（AST 解析 CLI choices）
+    - Task/CLI/default registry scenario 集合不漂移
     - Shared contract ownership 列表存在（CONFLICT ZONE）
-    - Phase6 business implementation 仍未 enable（runners/__init__.py 无新 Runner）
+    - P6-S5 central enablement 只注册既有 3 核心 + 7 Phase6 Runner
     - Graph→Research read-only contract 存在
     - KnowledgeContext != Evidence
     - DB remains v6（migrations 目录恰 6 个）
     - Phase6 output safety contract 存在
     """
-    import ast
     import json
+
+    from research_os.cli.main import SCENARIO_CHOICES
+    from research_os.orchestrator.runners import DEFAULT_RUNNER_TYPES
 
     contract = _read("docs/contracts/phase6-shared-contract.md")
     decisions = _read("docs/project-state/DECISIONS.md")
@@ -212,29 +214,12 @@ def test_phase6_shared_contract_frozen():
     assert set(enum) == core | phase6, f"scenario enum drifted: {enum}"
     assert len(enum) == len(set(enum)), "scenario enum must be unique"
 
-    # 2. CLI --scenario choices 与 enum 一致（AST 解析，真实结构）
-    tree = ast.parse(_read("src/research_os/cli/main.py"))
-    cli_choices = None
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "option"):
-            for kw in node.keywords:
-                if kw.arg == "scenario":
-                    continue
-            # 找 --scenario 的 click.Choice([...])
-            args = [a.value if isinstance(a, ast.Constant) else None
-                    for a in node.args]
-            if "--scenario" in args:
-                for kw in node.keywords:
-                    if kw.arg == "type" and isinstance(kw.value, ast.Call):
-                        choice_list = kw.value.args[0]
-                        if isinstance(choice_list, (ast.List, ast.Tuple)):
-                            cli_choices = [
-                                e.value for e in choice_list.elts
-                                if isinstance(e, ast.Constant)]
-    assert cli_choices is not None, "CLI --scenario choices not found"
+    # 2. CLI --scenario choices 与 enum 一致，并复用唯一默认 Runner 注册源
+    cli_choices = list(SCENARIO_CHOICES)
+    runner_scenarios = [runner_type.scenario for runner_type in DEFAULT_RUNNER_TYPES]
     assert set(cli_choices) == core | phase6, f"CLI choices drifted: {cli_choices}"
     assert len(cli_choices) == len(set(cli_choices)), "CLI choices must be unique"
+    assert cli_choices == runner_scenarios, "CLI choices must derive from DEFAULT_RUNNER_TYPES"
 
     # 3. Shared-file ownership（CONFLICT ZONE）冻结列表存在且完整覆盖
     assert "## 7. Shared-file Ownership（CONFLICT ZONE，FROZEN）" in contract
@@ -261,20 +246,21 @@ def test_phase6_shared_contract_frozen():
     for path in zone_paths:
         assert path in contract, f"conflict zone must list {path}"
 
-    # 4. Phase6 business implementation 仍未 enable：runners/__init__.py 仅 3 核心 Runner
+    # 4. P6-S5 central enablement：默认注册精确覆盖 3 核心 + 7 Phase6 Runner
     runners_init = _read("src/research_os/orchestrator/runners/__init__.py")
-    assert "MorningBriefScenarioRunner" in runners_init
-    assert "AbnormalMoveScenarioRunner" in runners_init
-    assert "EquityResearchScenarioRunner" in runners_init
-    for forbidden in ("IndustryResearchScenarioRunner", "ThemeDiscoveryScenarioRunner",
-                      "EveningBriefScenarioRunner", "DailyReviewScenarioRunner",
-                      "StockReviewScenarioRunner", "FirstCoverageScenarioRunner",
-                      "EarningsExpectationScenarioRunner"):
-        assert forbidden not in runners_init, f"central enablement leaked: {forbidden}"
-    # Orchestrator 默认注册仍只有三个核心场景
+    expected_runner_names = (
+        "MorningBriefScenarioRunner", "AbnormalMoveScenarioRunner",
+        "EquityResearchScenarioRunner", "IndustryResearchScenarioRunner",
+        "ThemeDiscoveryScenarioRunner", "EveningBriefScenarioRunner",
+        "DailyReviewScenarioRunner", "StockReviewScenarioRunner",
+        "FirstCoverageScenarioRunner", "EarningsExpectationScenarioRunner",
+    )
+    for runner_name in expected_runner_names:
+        assert runner_name in runners_init, f"default runner missing: {runner_name}"
+    assert "DEFAULT_RUNNER_TYPES" in runners_init
     orchestrator = _read("src/research_os/orchestrator/orchestrator.py")
-    assert "MorningBriefScenarioRunner(), AbnormalMoveScenarioRunner()," in orchestrator
-    assert "EquityResearchScenarioRunner()" in orchestrator
+    assert "from research_os.orchestrator.runners import DEFAULT_RUNNER_TYPES" in orchestrator
+    assert "for runner_type in DEFAULT_RUNNER_TYPES" in orchestrator
 
     # 5. Graph→Research read-only 契约
     assert "Graph→Research 唯一路径" in contract

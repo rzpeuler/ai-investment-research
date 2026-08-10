@@ -66,9 +66,9 @@ def test_plan_file_contents(project):
 
 def test_default_registry_contains_all_core_scenarios(project):
     orch = Orchestrator(project)
-    assert set(orch.registry.names()) == {
+    assert {
         "morning_brief", "abnormal_move_analysis", "stock_research_report",
-    }
+    }.issubset(set(orch.registry.names()))
     orch.close()
 
 
