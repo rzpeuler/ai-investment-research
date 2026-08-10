@@ -7,7 +7,7 @@
 > Graph→Research = read-only Phase 6A path enabled；
 > Phase 6 Research→GraphChange Candidate integration = DEFERRED；
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
-> Phase 5 = CLOSED / PASS；P7-UX1 = IMPLEMENTED / IN_PROGRESS /
+> P7-UX1 = IMPLEMENTED / IN_PROGRESS /
 > AWAITING INDEPENDENT ACCEPTANCE（LIMITED AUTHORIZATION）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与

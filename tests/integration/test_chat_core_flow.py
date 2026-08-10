@@ -76,16 +76,18 @@ def test_stock_review_chat_uses_default_runner_and_persists_formal_artifacts(
     load_schema.cache_clear()
     _build_local_registry.cache_clear()
 
-    db = Database(project_root / "data" / "sqlite" / "research.db")
-    db.initialize()
-    assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 6
-    orchestrator = Orchestrator(project_root, db=db)
-    assert type(orchestrator.registry.get("stock_review")) is StockReviewScenarioRunner
-    service = ChatService(
-        project_root, db, orchestrator, llm_client=None,
-        clock=lambda: datetime(2026, 8, 10, 9, 30),
-    )
+    db = None
+    orchestrator = None
     try:
+        db = Database(project_root / "data" / "sqlite" / "research.db")
+        db.initialize()
+        assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        orchestrator = Orchestrator(project_root, db=db)
+        assert type(orchestrator.registry.get("stock_review")) is StockReviewScenarioRunner
+        service = ChatService(
+            project_root, db, orchestrator, llm_client=None,
+            clock=lambda: datetime(2026, 8, 10, 9, 30),
+        )
         result = service.handle(ChatRequest(
             message="600519.SH", selected_scenario="stock_review",
             llm_enabled=False, research_live=False,
@@ -123,7 +125,10 @@ def test_stock_review_chat_uses_default_runner_and_persists_formal_artifacts(
         } == {run_dir.name}
         assert not list((project_root / "reports").rglob("*chat*.json"))
     finally:
-        orchestrator.close()
+        if orchestrator is not None:
+            orchestrator.close()
+        elif db is not None:
+            db.close()
         load_schema.cache_clear()
         _build_local_registry.cache_clear()
 
