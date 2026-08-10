@@ -21,6 +21,7 @@ class _Session:
     semantic_user_messages: list[str] = field(default_factory=list)
     turns: list[dict[str, Any]] = field(default_factory=list)
     inflight: bool = False
+    awaiting_clarification: bool = False
 
 
 class SessionStore:
@@ -78,11 +79,14 @@ class SessionStore:
                 return {}
             if (selected_scenario not in {None, "AUTO"}
                     and session.resolved_scenario not in {None, selected_scenario}):
-                self._clear_semantic(session)
+                self._clear_clarification(session, clear_scenario=True)
             self._touch(session_id)
             return deepcopy({
                 "scenario": session.resolved_scenario,
-                "user_messages": session.semantic_user_messages,
+                "awaiting_clarification": session.awaiting_clarification,
+                "user_messages": (
+                    session.semantic_user_messages if session.awaiting_clarification else []
+                ),
             })
 
     def record_turn(self, session_id: str, request: dict[str, Any], response: dict[str, Any]) -> None:
@@ -95,15 +99,19 @@ class SessionStore:
             current_minimal = response.get("minimal_request")
             recognized = response.get("recognized") or {}
             resolved = recognized.get("scenario")
+            status = response.get("status")
+            if status != "clarification":
+                self._clear_clarification(session)
             if isinstance(resolved, str):
                 if resolved != session.resolved_scenario:
-                    self._clear_semantic(session)
+                    self._clear_clarification(session, clear_scenario=True)
                     session.resolved_scenario = resolved
                 session.public_draft = current_draft
                 session.minimal_request = current_minimal
                 minimal = current_minimal or {}
                 session.last_target = minimal.get("entity") or minimal.get("entity_id")
-                if isinstance(current_draft, dict):
+                if status == "clarification" and isinstance(current_draft, dict):
+                    session.awaiting_clarification = True
                     message = request.get("message")
                     if isinstance(message, str) and message.strip():
                         session.semantic_user_messages.append(message)
@@ -139,9 +147,11 @@ class SessionStore:
         self._sessions.move_to_end(session_id)
 
     @staticmethod
-    def _clear_semantic(session: _Session) -> None:
-        session.resolved_scenario = None
+    def _clear_clarification(session: _Session, *, clear_scenario: bool = False) -> None:
+        session.awaiting_clarification = False
         session.semantic_user_messages.clear()
-        session.public_draft = None
-        session.minimal_request = None
-        session.last_target = None
+        if clear_scenario:
+            session.resolved_scenario = None
+            session.public_draft = None
+            session.minimal_request = None
+            session.last_target = None

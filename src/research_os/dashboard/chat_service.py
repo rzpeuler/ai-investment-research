@@ -49,12 +49,22 @@ class ChatService:
             request.message, request.selected_scenario, request.llm_enabled
         )
         if route.status != "resolved" or route.scenario is None:
-            state = "failed" if route.status == "failure" else "clarification"
-            return ChatResult(state, route.message, reference_now=reference_iso, llm_calls=route.llm_calls)
-        scenario = route.scenario
+            can_continue = (
+                request.selected_scenario in {None, "AUTO"}
+                and route.status == "clarification"
+                and context.get("awaiting_clarification") is True
+                and context.get("scenario") in CHAT_SCENARIO_SPECS
+            )
+            if not can_continue:
+                state = "failed" if route.status == "failure" else "clarification"
+                return ChatResult(state, route.message, reference_now=reference_iso, llm_calls=route.llm_calls)
+            scenario = context["scenario"]
+        else:
+            scenario = route.scenario
         spec = CHAT_SCENARIO_SPECS[scenario]
         semantic_message = request.message
-        if context.get("scenario") == scenario and prior_messages:
+        if (context.get("awaiting_clarification") is True
+                and context.get("scenario") == scenario and prior_messages):
             semantic_message = self._semantic_message(prior_messages, request.message)
 
         if request.llm_enabled and self.llm_client is not None:

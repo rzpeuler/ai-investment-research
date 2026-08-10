@@ -67,6 +67,29 @@ def test_semantic_context_is_same_scenario_only_and_not_exposed_in_recent():
                       _semantic_response("earnings_expectation"))
     store.end("s")
     context = store.context("s", "earnings_expectation")
-    assert context == {"scenario": "earnings_expectation", "user_messages": ["贵州茅台FY2027"]}
+    assert context == {
+        "scenario": "earnings_expectation", "awaiting_clarification": True,
+        "user_messages": ["贵州茅台FY2027"],
+    }
     assert "user_messages" not in str(store.recent("s"))
-    assert store.context("s", "stock_review") == {"scenario": None, "user_messages": []}
+    assert store.context("s", "stock_review") == {
+        "scenario": None, "awaiting_clarification": False, "user_messages": [],
+    }
+
+
+def test_executed_turn_clears_awaiting_clarification_context():
+    store = SessionStore()
+    assert store.try_begin("s")
+    store.record_turn("s", {"message": "first", "selected_scenario": "stock_research_report"},
+                      _semantic_response("stock_research_report"))
+    store.end("s")
+    assert store.context("s", "stock_research_report")["awaiting_clarification"] is True
+    assert store.try_begin("s")
+    store.record_turn("s", {"message": "600519.SH", "selected_scenario": "stock_research_report"}, {
+        "status": "executed", "recognized": {"scenario": "stock_research_report"},
+        "draft": {"complete": True}, "minimal_request": {"entity": "600519.SH"},
+    })
+    store.end("s")
+    context = store.context("s", "stock_research_report")
+    assert context["awaiting_clarification"] is False
+    assert context["user_messages"] == []
