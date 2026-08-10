@@ -69,7 +69,7 @@ class DashboardApplication:
                     "turns": self._sanitize_json(self.sessions.recent(session_id)),
                 })
             if method == "GET" and path == "/api/report":
-                report_path = self._single_query(target.query, ("path", "token"))
+                report_path = self._single_query(target.query, ("path",))
                 data = self._read_report(report_path)
                 return 200, {"Content-Type": "text/plain; charset=utf-8"}, data
             if method == "POST" and path == "/api/chat":
@@ -233,8 +233,11 @@ class DashboardApplication:
             public[field] = value if isinstance(value, str) and _SAFE_IDENTIFIER.fullmatch(value) else None
         if type(result.get("exit_code")) is int:
             public["exit_code"] = result["exit_code"]
-        if isinstance(result.get("runtime_seconds"), (int, float)) and not isinstance(result.get("runtime_seconds"), bool):
-            public["runtime_seconds"] = result["runtime_seconds"]
+        runtime_seconds = result.get("runtime_seconds")
+        if isinstance(runtime_seconds, (int, float)) and not isinstance(runtime_seconds, bool):
+            public["runtime_seconds"] = (
+                runtime_seconds if math.isfinite(runtime_seconds) else None
+            )
         public["warnings"] = self._public_string_list(result.get("warnings"))
         public["missing_data"] = self._public_string_list(result.get("missing_data"))
         return public
@@ -272,4 +275,16 @@ class DashboardApplication:
 
     @staticmethod
     def _json(status: int, payload: dict[str, Any]):
-        return status, {"Content-Type": "application/json; charset=utf-8"}, json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        try:
+            body = json.dumps(
+                payload, ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            status = 500
+            body = json.dumps({
+                "error": {
+                    "code": "SERIALIZATION_ERROR",
+                    "message": "响应序列化失败。",
+                },
+            }, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        return status, {"Content-Type": "application/json; charset=utf-8"}, body

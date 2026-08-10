@@ -150,9 +150,41 @@ def test_chat_rejects_unsupported_content_type_parameters(http_server, content_t
     "/api/recent?session_id=s&extra=x", "/api/recent?session_id=s&session_id=s",
     "/api/report?path=ok.md&extra=x", "/api/report?path=ok.md&path=ok.md",
     "/api/report?token=ok.md&path=ok.md",
+    "/api/report?token=ok.md",
 ])
 def test_api_query_contract_rejects_extra_or_duplicate_keys(http_server, path):
     assert request(http_server, "GET", path)[0] == 400
+
+
+@pytest.mark.parametrize("runtime_seconds", [float("nan"), float("inf"), float("-inf")])
+def test_public_result_never_serializes_non_finite_runtime(http_server, runtime_seconds, monkeypatch):
+    original = http_server.app.chat_service.handle
+
+    def non_finite(request):
+        result = original(request)
+        result.research_result["runtime_seconds"] = runtime_seconds
+        return result
+
+    monkeypatch.setattr(http_server.app.chat_service, "handle", non_finite)
+    body = json.dumps({
+        "session_id": "finite", "message": "今天晨报",
+        "selected_scenario": "morning_brief", "llm_enabled": False,
+        "research_live": False,
+    }).encode()
+    status, _, response_body = request(
+        http_server, "POST", "/api/chat", body, {"Content-Type": "application/json"},
+    )
+    payload = json.loads(response_body, parse_constant=lambda value: pytest.fail(value))
+    assert status == 200
+    assert payload["result"]["runtime_seconds"] is None
+
+
+def test_json_serialization_failure_returns_fixed_safe_error(http_server):
+    status, _, body = http_server.app._json(200, {"bad": object()})
+    assert status == 500
+    assert json.loads(body) == {
+        "error": {"code": "SERIALIZATION_ERROR", "message": "响应序列化失败。"}
+    }
 
 
 @pytest.mark.parametrize("attack", ["../pyproject.toml", "%2e%2e%2fpyproject.toml", "/etc/passwd", "ok.md%00", ".", "missing.md"])
