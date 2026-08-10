@@ -19,9 +19,16 @@ from research_os.validators.schema_validator import validate_instance
 
 
 _FORBIDDEN = re.compile(
-    r"目标价(?:格)?|仓位|自动(?:化)?荐股|推荐.{0,4}股票|交易信号|买卖评级|"
+    r"目标价(?:格)?|仓位(?:建议|配置)?|自动(?:化)?荐股|推荐.{0,4}股票|交易信号|买卖评级|交易建议|"
     r"(?:明日|次日).{0,6}(?:交易|买入|卖出)|可以买|可以跟|上车|"
-    r"(?:买入|卖出|增持|减持).{0,4}评级|评级.{0,4}(?:买入|卖出|增持|减持)"
+    r"(?:买入|卖出|增持|减持).{0,6}(?:评级|建议)|(?:评级|建议).{0,6}(?:买入|卖出|增持|减持)|"
+    r"\btarget\s+price\b|\b(?:buy|sell|overweight|underweight)\s+(?:rating|recommendation|advice)\b|"
+    r"\bposition(?:\s+sizing)?\s+(?:advice|recommendation)\b|"
+    r"\b(?:tomorrow|next[- ]day)\s+(?:trade|trading|buy|sell)\b|"
+    r"\b(?:trade|trading|investment)\s+(?:advice|recommendation)\b|\bshould\s+i\s+(?:buy|sell)\b|"
+    r"\brecommend(?:\s+\w+){0,3}\s+stocks?\b|\bstock\s+(?:picks?|recommendations?)\b|"
+    r"\btrading\s+signals?\b|\bcan\s+(?:i|we)\s+(?:buy|follow)\b|\bget\s+on\s+board\b",
+    re.IGNORECASE,
 )
 
 
@@ -77,6 +84,10 @@ class ChatService:
         if target is not None and target.status == "failure":
             return ChatResult("failed", target.message, scenario=scenario, public_draft=draft,
                               reference_now=reference_iso, llm_calls=llm_calls)
+        if target is not None and target.status == "clarification":
+            return ChatResult("clarification", target.message, scenario=scenario,
+                              public_draft=draft, reference_now=reference_iso,
+                              llm_calls=llm_calls)
         temporal = self.temporal_resolver.resolve(
             draft.get("report_date_expression") or draft.get("temporal_expression"), reference_now
         )
@@ -87,6 +98,10 @@ class ChatService:
         if industry is not None and industry.status == "failure":
             return ChatResult("failed", industry.message, scenario=scenario, public_draft=draft,
                               reference_now=reference_iso, llm_calls=llm_calls)
+        if industry is not None and industry.status == "clarification":
+            return ChatResult("clarification", industry.message, scenario=scenario,
+                              public_draft=draft, reference_now=reference_iso,
+                              llm_calls=llm_calls)
         try:
             minimal = spec.minimal_request_builder(
                 draft, target, temporal, industry, reference_now, request.research_live

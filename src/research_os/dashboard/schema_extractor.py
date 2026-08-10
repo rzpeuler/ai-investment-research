@@ -58,12 +58,30 @@ class ChatSchemaExtractor:
             for value in draft.get(field) or []:
                 if normalize_mention(str(value)) not in haystack:
                     errors.append(f"{field} contains text not present in user message")
+        for field in ("theme_keywords", "metric_expressions", "scenario_expressions"):
+            for value in draft.get(field) or []:
+                if normalize_mention(str(value)) not in haystack:
+                    errors.append(f"{field} contains text not present in user message")
         for field in ("temporal_expression", "report_date_expression", "forecast_period_expression"):
             value = draft.get(field)
             if value and normalize_mention(str(value)) not in haystack:
                 errors.append(f"{field} contains text not present in user message")
         for item in draft.get("explicit_assumptions") or []:
-            statement = item.get("statement")
-            if statement and normalize_mention(str(statement)) not in haystack:
-                errors.append("explicit_assumptions contains text not present in user message")
+            for field in ("statement", "metric_expression", "value_expression", "period_expression"):
+                value = item.get(field)
+                if value and normalize_mention(str(value)) not in haystack:
+                    errors.append(f"explicit_assumptions.{field} contains text not present in user message")
+        depth = draft.get("depth_hint")
+        if depth and not ChatSchemaExtractor._depth_is_anchored(message, depth):
+            errors.append("depth_hint is not deterministically anchored in user message")
         return errors
+
+    @staticmethod
+    def _depth_is_anchored(message: str, depth: str) -> bool:
+        normalized = normalize_mention(message)
+        markers = {
+            "fast": ("fast", "快速", "简要", "简版"),
+            "standard": ("standard", "标准"),
+            "deep": ("deep", "深度", "深入", "详细"),
+        }
+        return any(normalize_mention(marker) in normalized for marker in markers.get(depth, ()))

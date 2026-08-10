@@ -97,3 +97,72 @@ def test_valid_schema_hallucinated_target_is_rejected_before_resolver():
     )
     assert result.status == "clarification"
     assert len(provider.calls) == 1
+
+
+def test_hallucinated_assumption_companion_fields_are_rejected():
+    output = {
+        "company_mentions": ["贵州茅台"], "forecast_period_expression": "FY2027",
+        "metric_expressions": ["收入"], "scenario_expressions": [],
+        "explicit_assumptions": [{
+            "statement": "收入增长10%", "metric_expression": "利润率",
+            "value_expression": "50%", "period_expression": "FY2027",
+        }],
+        "complete": True, "clarification_question": None,
+    }
+    provider = FakeLlmProvider(behavior=lambda request, schema: {
+        "ok": True, "output": output, "model_id": "fake",
+    })
+    client = LlmClient(provider=provider, configured=True)
+    from research_os.dashboard.schema_extractor import ChatSchemaExtractor
+    result = ChatSchemaExtractor(client).extract(
+        "贵州茅台FY2027收入增长10%", CHAT_SCENARIO_SPECS["earnings_expectation"]
+    )
+    assert result.status == "clarification"
+    assert len(provider.calls) == 1
+
+
+def test_hallucinated_theme_keyword_is_rejected():
+    output = {
+        "theme_keywords": ["机器人"], "industry_mentions": [],
+        "temporal_expression": None, "research_question": None,
+        "research_focus": [], "depth_hint": None, "complete": True,
+        "clarification_question": None,
+    }
+    provider = FakeLlmProvider(behavior=lambda request, schema: {
+        "ok": True, "output": output, "model_id": "fake",
+    })
+    from research_os.dashboard.schema_extractor import ChatSchemaExtractor
+    result = ChatSchemaExtractor(LlmClient(provider=provider, configured=True)).extract(
+        "挖掘低空经济主题", CHAT_SCENARIO_SPECS["theme_discovery"]
+    )
+    assert result.status == "clarification"
+
+
+@pytest.mark.parametrize(("phrase", "depth"), [
+    ("快速分析", "fast"), ("标准分析", "standard"), ("做深度分析", "deep"),
+    ("fast analysis", "fast"), ("standard analysis", "standard"), ("deep analysis", "deep"),
+])
+def test_depth_hint_supports_anchored_chinese_and_english_mapping(phrase, depth):
+    output = {
+        "company_mentions": ["贵州茅台"], "temporal_expression": None,
+        "research_question": None, "research_focus": [], "depth_hint": depth,
+        "complete": True, "clarification_question": None,
+    }
+    provider = FakeLlmProvider(behavior=lambda request, schema: {
+        "ok": True, "output": output, "model_id": "fake",
+    })
+    from research_os.dashboard.schema_extractor import ChatSchemaExtractor
+    result = ChatSchemaExtractor(LlmClient(provider=provider, configured=True)).extract(
+        f"贵州茅台{phrase}", CHAT_SCENARIO_SPECS["stock_review"]
+    )
+    assert result.status == "resolved"
+
+
+@pytest.mark.parametrize("runner_type", DEFAULT_RUNNER_TYPES)
+def test_classification_only_research_focus_never_changes_minimal_request(runner_type):
+    runner = runner_type()
+    spec = CHAT_SCENARIO_SPECS[runner.scenario]
+    base = _draft(runner.scenario)
+    classified = {**base, "research_focus": ["模型分类标签"]}
+    assert spec.minimal_request_builder(base, TARGET, TEMPORAL, INDUSTRY, NOW, False) == \
+           spec.minimal_request_builder(classified, TARGET, TEMPORAL, INDUSTRY, NOW, False)
