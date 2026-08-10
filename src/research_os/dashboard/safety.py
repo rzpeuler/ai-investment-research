@@ -22,6 +22,7 @@ _EN_HARD_FORBIDDEN = re.compile(
 
 _ZH_TRADE_VERB = r"(?:买入|卖出|买|卖)"
 _ZH_DIRECT_DECISION = re.compile(
+    rf"(?:你|您)会(?:不会)?.{{0,12}}?{_ZH_TRADE_VERB}.{{0,24}}?(?:吗|\?)|"
     rf"(?:值得|应该|现在适合|适合|要不要|能不能|该不该).{{0,12}}?{_ZH_TRADE_VERB}|"
     rf"{_ZH_TRADE_VERB}不{_ZH_TRADE_VERB}|"
     rf"(?:要|能|可以).{{0,3}}?{_ZH_TRADE_VERB}.{{0,2}}?吗|"
@@ -30,6 +31,7 @@ _ZH_DIRECT_DECISION = re.compile(
 )
 
 _EN_DIRECT_DECISION = re.compile(
+    r"\bwould\s+you\s+(?:buy|sell)\b|"
     r"\bworth\s+(?:buying|selling)\b|"
     r"\b(?:buy|sell)\s+or\s+(?:buy|sell)\b|"
     r"\bgood\s+time(?:\s+\w+){0,6}?\s+to\s+(?:buy|sell)\b|"

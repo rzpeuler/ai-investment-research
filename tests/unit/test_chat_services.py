@@ -111,6 +111,8 @@ def test_auto_company_only_is_clarification_even_with_llm():
     "证券要不要买入设备？", "持仓是否卖出子公司？", "个股会不会卖？",
     "Would you buy these shares?", "Do you think this stock should be sold?",
     "Is this security a buy?", "Can I sell my position?", "Should we trade this stock?",
+    "你会买贵州茅台吗", "您会不会卖宁德时代？", "你会买入这家公司吗？",
+    "Would you buy Tesla?", "Would   you   sell Berkshire Hathaway?",
 ])
 def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     llm = QueueLlmClient([])
@@ -129,6 +131,7 @@ def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     "公司应该卖出子公司吗", "公司现在适合买入设备吗",
     "公司 应该 卖出 子公司 吗", "公司　现在适合　买入设备吗",
     "Should the company sell its subsidiary?", "Should we buy equipment?",
+    "你会买设备吗", "您会不会卖出子公司？", "Would you buy equipment for the company?",
 ])
 def test_safety_guard_does_not_reject_allowed_research_language(message):
     orchestrator = SpyOrchestrator()
