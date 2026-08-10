@@ -51,9 +51,15 @@ P6-S6  Governance Closeout                 → GOVERNANCE CLOSEOUT
 6C：first_coverage、earnings_expectation
 ```
 
-## 2. 当前真实工程库存
+## 2. Phase 6 启动时工程库存（Historical Snapshot）
 
-### 2.1 Master (e98f5ed)
+> **HISTORICAL SNAPSHOT / NOT CURRENT STATE**
+>
+> 本节记录 P6-S0 启动时的工程库存，仅用于保留串行恢复背景。它不是 2026-08-10
+> terminal current state，也不覆盖本任务书顶部 terminal status、`CURRENT_STATE.md`
+> 或 Decision #45。
+
+### 2.1 P6-S0 startup master snapshot (e98f5ed)
 
 ```
 P6-G0: PASS / MERGED
@@ -63,7 +69,7 @@ DB: v6
 Schemas: 55
 ```
 
-### 2.2 6B off-master implementation
+### 2.2 Historical 6B off-master implementation
 
 ```
 Scenarios: evening_brief, daily_review, stock_review
@@ -73,7 +79,7 @@ CI: Offline CI 31302397542 — 2177 passed / 5 skipped / 61 schemas / compileall
 Known gap: RunStatus still contains "insufficient_data" (must unify to "insufficient_evidence")
 ```
 
-### 2.3 6A off-master implementation
+### 2.3 Historical 6A off-master implementation
 
 ```
 Scenarios: industry_research, theme_discovery
@@ -83,7 +89,7 @@ Known: Graph→Research read-only bridge, Evidence eligibility adapter,
        21 dimensions, 5 theme lifecycle states, single data model
 ```
 
-### 2.4 6C
+### 2.4 Historical 6C status at P6-S0 start
 
 ```
 earnings_expectation: NOT_IMPLEMENTED

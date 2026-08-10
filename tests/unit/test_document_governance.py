@@ -204,6 +204,9 @@ def test_phase6_terminal_governance_closeout():
     next_phase6 = next_phase[next_phase.index("## Phase 6 terminal state"):]
     guide_gate = guide[guide.index("### 69.11 实施门禁"):guide.index("# 第十八部分")]
     taskbook_header = "\n".join(taskbook.splitlines()[:20])
+    historical_start = taskbook.index("## 2. Phase 6 启动时工程库存（Historical Snapshot）")
+    historical_end = taskbook.index("\n---", historical_start)
+    historical_snapshot = taskbook[historical_start:historical_end]
 
     assert "Phase 6：CLOSED / PASS" in current
     assert "P6-S6 Governance Closeout | GOVERNANCE CLOSEOUT" in current_phase6
@@ -233,6 +236,12 @@ def test_phase6_terminal_governance_closeout():
     assert "PHASE6_RESEARCH_TO_GRAPHCHANGE_CANDIDATE: DEFERRED" in contract
     assert "TASKBOOK_STATUS: EXECUTED" in taskbook_header
     assert "CURRENT_MILESTONE: P6-S6 GOVERNANCE CLOSEOUT" in taskbook_header
+    assert "## 2. 当前真实工程库存" not in taskbook
+    assert "HISTORICAL SNAPSHOT / NOT CURRENT STATE" in historical_snapshot
+    assert "e98f5ed" in historical_snapshot
+    assert "Phase6 production business code: NONE" in historical_snapshot
+    assert "earnings_expectation: NOT_IMPLEMENTED" in historical_snapshot
+    assert "first_coverage: NOT_IMPLEMENTED" in historical_snapshot
 
     assert "Phase 6：PASS / CENTRALLY ENABLED" in readme_phase6
     assert "USER_TRIAL_READY：YES" in readme_phase6
