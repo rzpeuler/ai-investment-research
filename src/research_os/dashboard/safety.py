@@ -37,10 +37,15 @@ _EN_DIRECT_DECISION = re.compile(
     r"\bcan\s+(?:i|we)\s+(?:buy|sell|follow)\b"
 )
 
-_ZH_SECURITY_CONTEXT = re.compile(r"股票|个股|证券|持仓|仓位|该股|这只股|A股|港股|美股|基金|债券|可转债")
+_ZH_SECURITY_CONTEXT = re.compile(r"股票|个股|证券|股份|持仓|仓位|该股|这只股|A股|港股|美股|基金|债券|可转债")
 _EN_SECURITY_CONTEXT = re.compile(
     r"\b(?:stock|stocks|security|securities|shares?|holdings?|position|portfolio|bond|bonds|fund|funds)\b"
 )
+
+_ZH_ANY_TRADE_ACTION = re.compile(r"买入|卖出|买|卖|交易")
+_ZH_DECISION_CUE = re.compile(r"\?|吗|是否|合适|会不会|该不该|要不要|应该|能不能|值得")
+_EN_ANY_TRADE_ACTION = re.compile(r"\b(?:buy|buying|bought|sell|selling|sold|trade|trading)\b")
+_EN_DECISION_CUE = re.compile(r"\?|\b(?:would|do|does|should|can|could|is|are|will)\b")
 
 _ZH_OPERATING_OBJECT = r"(?:设备|原料|资产|子公司|业务|产能|土地|厂房|机器|库存|专利|技术|牌照|项目|矿产|商品)"
 _ZH_OPERATING_ACTION = r"(?:买入|卖出|购买|出售|收购|处置|买|卖)"
@@ -89,6 +94,14 @@ def is_forbidden_investment_request(message: str) -> bool:
     """
     compact, token_text = _normalized_views(message)
     if _ZH_HARD_FORBIDDEN.search(compact) or _EN_HARD_FORBIDDEN.search(token_text):
+        return True
+    if (_ZH_SECURITY_CONTEXT.search(compact)
+            and _ZH_ANY_TRADE_ACTION.search(compact)
+            and _ZH_DECISION_CUE.search(compact)):
+        return True
+    if (_EN_SECURITY_CONTEXT.search(token_text)
+            and _EN_ANY_TRADE_ACTION.search(token_text)
+            and _EN_DECISION_CUE.search(token_text)):
         return True
     if _direct_decision_is_forbidden(
         compact, _ZH_DIRECT_DECISION, _ZH_SECURITY_CONTEXT, _ZH_OPERATING_TRANSACTION

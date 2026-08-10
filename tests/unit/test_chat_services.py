@@ -107,6 +107,10 @@ def test_auto_company_only_is_clarification_even_with_llm():
     "贵州茅台买 不 买", "值 得 买 吗", "给出目 标 价",
     "buy or sell?", "Is this stock worth buying?", "Is now a good time to buy?",
     "Should we sell?", "Can I buy?", "Ｃａｎ　Ｉ　ｂｕｙ？",
+    "这只股票是否可以买？", "贵州茅台股份现在合适卖出吗",
+    "证券要不要买入设备？", "持仓是否卖出子公司？", "个股会不会卖？",
+    "Would you buy these shares?", "Do you think this stock should be sold?",
+    "Is this security a buy?", "Can I sell my position?", "Should we trade this stock?",
 ])
 def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     llm = QueueLlmClient([])
