@@ -11,6 +11,7 @@ from research_os.orchestrator.runners import DEFAULT_SCENARIOS
 from research_os.validators.schema_validator import (
     SCHEMA_NAMES,
     load_schema,
+    schema_dir,
     validate_instance,
 )
 
@@ -91,7 +92,10 @@ VALID_PAYLOADS = {
     "earnings_expectation": {
         "company_mentions": ["贵州茅台"], "forecast_period_expression": "FY2027",
         "metric_expressions": ["营业收入"], "scenario_expressions": ["基准情景"],
-        "explicit_assumptions": ["销量同比增长 5%"],
+        "explicit_assumptions": [{
+            "statement": "销量同比增长 5%", "metric_expression": "销量",
+            "value_expression": "同比增长 5%", "period_expression": "FY2027",
+        }],
         "complete": True, "clarification_question": None,
     },
     "first_coverage": {
@@ -114,7 +118,22 @@ def _property_names(node):
 
 
 def _is_forbidden_property(name):
-    return name in FORBIDDEN_FIELDS or name.endswith("_manifest_id")
+    return (
+        name in FORBIDDEN_FIELDS
+        or name.endswith("_manifest_id")
+        or name.endswith("_manifest_ids")
+    )
+
+
+def _object_schemas(node):
+    if isinstance(node, dict):
+        if node.get("type") == "object":
+            yield node
+        for value in node.values():
+            yield from _object_schemas(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _object_schemas(value)
 
 
 @pytest.mark.parametrize("schema_name", CHAT_SCHEMA_NAMES)
@@ -147,8 +166,16 @@ def test_scenario_contracts_have_dynamic_parity():
         load_schema("chat_route")["properties"]["scenario"]["enum"]
     ) - {None}
     runtime_scenarios = set(DEFAULT_SCENARIOS)
-    schema_scenarios = set(SCENARIO_SCHEMA_NAMES)
+    discovered_schema_names = {
+        path.name.removesuffix(".schema.json")
+        for path in schema_dir().glob("chat_*_input.schema.json")
+    }
+    schema_scenarios = {
+        name.removeprefix("chat_").removesuffix("_input")
+        for name in discovered_schema_names
+    }
     assert runtime_scenarios == task_scenarios == route_scenarios == schema_scenarios
+    assert discovered_schema_names.issubset(SCHEMA_NAMES)
 
 
 def test_route_contains_only_frozen_semantic_fields():
@@ -181,6 +208,23 @@ def test_forbidden_authority_and_system_fields_are_absent_recursively(schema_nam
         _is_forbidden_property(name)
         for name in _property_names(load_schema(schema_name))
     )
+
+
+@pytest.mark.parametrize("schema_name", CHAT_SCHEMA_NAMES)
+def test_every_object_schema_is_strict_recursively(schema_name):
+    object_schemas = list(_object_schemas(load_schema(schema_name)))
+    assert object_schemas
+    assert all(node.get("additionalProperties") is False for node in object_schemas)
+
+
+@pytest.mark.parametrize(
+    "forbidden_field",
+    ["task_id", "as_of", "company_entity_id", "financial_manifest_id"],
+)
+def test_nested_semantic_object_rejects_authority_and_system_fields(forbidden_field):
+    payload = deepcopy(VALID_PAYLOADS["earnings_expectation"])
+    payload["explicit_assumptions"][0][forbidden_field] = "forbidden"
+    assert validate_instance(payload, "chat_earnings_expectation_input")
 
 
 @pytest.mark.parametrize("scenario,payload", VALID_PAYLOADS.items())

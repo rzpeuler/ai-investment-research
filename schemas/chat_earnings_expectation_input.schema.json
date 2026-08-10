@@ -11,7 +11,21 @@
     "forecast_period_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
     "metric_expressions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "scenario_expressions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "explicit_assumptions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "explicit_assumptions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "metric_expression", "value_expression", "period_expression"],
+        "properties": {
+          "statement": {"type": "string", "minLength": 1},
+          "metric_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+          "value_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+          "period_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+        }
+      }
+    },
     "complete": {"type": "boolean"},
     "clarification_question": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
   }
