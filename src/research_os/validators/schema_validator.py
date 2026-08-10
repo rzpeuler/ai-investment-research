@@ -110,6 +110,18 @@ SCHEMA_NAMES = [
     "earnings_expectation_run",
     "first_coverage_request",
     "first_coverage_run",
+    # Phase 7 UX1：会话控制面的用户语义契约（非持久化业务对象）
+    "chat_route",
+    "chat_morning_brief_input",
+    "chat_evening_brief_input",
+    "chat_daily_review_input",
+    "chat_abnormal_move_analysis_input",
+    "chat_stock_research_report_input",
+    "chat_stock_review_input",
+    "chat_industry_research_input",
+    "chat_theme_discovery_input",
+    "chat_earnings_expectation_input",
+    "chat_first_coverage_input",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径

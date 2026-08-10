@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/chat_first_coverage_input.schema.json",
+  "title": "ChatFirstCoverageInput",
+  "description": "首次覆盖会话中由用户表达的编排语义，不表达评级或目标价。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["company_mentions", "industry_mentions", "temporal_expression", "research_question", "research_focus", "depth_hint", "complete", "clarification_question"],
+  "properties": {
+    "company_mentions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "industry_mentions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "temporal_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "research_question": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "research_focus": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "depth_hint": {"enum": [null, "fast", "standard", "deep"]},
+    "complete": {"type": "boolean"},
+    "clarification_question": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+  }
+}
