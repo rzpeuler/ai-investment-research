@@ -136,6 +136,18 @@ def _object_schemas(node):
             yield from _object_schemas(value)
 
 
+def _valid_payload_for(schema_name):
+    if schema_name == "chat_route":
+        return {
+            "scenario": None,
+            "confidence": 0,
+            "needs_clarification": True,
+            "clarification_question": "请选择研究场景。",
+        }
+    scenario = schema_name.removeprefix("chat_").removesuffix("_input")
+    return VALID_PAYLOADS[scenario]
+
+
 @pytest.mark.parametrize("schema_name", CHAT_SCHEMA_NAMES)
 def test_chat_schema_is_registered_draft7_strict_and_llm_loadable(schema_name):
     assert schema_name in SCHEMA_NAMES
@@ -145,16 +157,7 @@ def test_chat_schema_is_registered_draft7_strict_and_llm_loadable(schema_name):
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is False
 
-    if schema_name == "chat_route":
-        payload = {
-            "scenario": None,
-            "confidence": 0,
-            "needs_clarification": True,
-            "clarification_question": "请选择研究场景。",
-        }
-    else:
-        scenario = schema_name.removeprefix("chat_").removesuffix("_input")
-        payload = VALID_PAYLOADS[scenario]
+    payload = _valid_payload_for(schema_name)
     valid, parsed, errors = LlmOutputValidator().validate(payload, schema_name)
     assert valid, errors
     assert parsed == payload
@@ -252,8 +255,16 @@ def test_chat_input_rejects_extra_authority_fields(scenario, payload, forbidden_
     assert validate_instance(invalid, SCENARIO_SCHEMA_NAMES[scenario])
 
 
-@pytest.mark.parametrize("scenario,payload", VALID_PAYLOADS.items())
-def test_chat_input_rejects_missing_required_semantic_field(scenario, payload):
-    invalid = deepcopy(payload)
-    invalid.pop(next(iter(invalid)))
-    assert validate_instance(invalid, SCENARIO_SCHEMA_NAMES[scenario])
+@pytest.mark.parametrize("schema_name", CHAT_SCHEMA_NAMES)
+def test_chat_schema_rejects_each_missing_required_semantic_field(schema_name):
+    schema = load_schema(schema_name)
+    property_names = set(schema["properties"])
+    required_names = set(schema["required"])
+    assert required_names == property_names
+
+    payload = _valid_payload_for(schema_name)
+    assert set(payload) == property_names
+    for property_name in sorted(required_names):
+        invalid = deepcopy(payload)
+        invalid.pop(property_name)
+        assert validate_instance(invalid, schema_name), property_name
