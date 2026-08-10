@@ -27,7 +27,9 @@ _FORBIDDEN = re.compile(
     r"\b(?:tomorrow|next[- ]day)\s+(?:trade|trading|buy|sell)\b|"
     r"\b(?:trade|trading|investment)\s+(?:advice|recommendation)\b|\bshould\s+i\s+(?:buy|sell)\b|"
     r"\brecommend(?:\s+\w+){0,3}\s+stocks?\b|\bstock\s+(?:picks?|recommendations?)\b|"
-    r"\btrading\s+signals?\b|\bcan\s+(?:i|we)\s+(?:buy|follow)\b|\bget\s+on\s+board\b",
+    r"\btrading\s+signals?\b|\bcan\s+(?:i|we)\s+(?:buy|follow)\b|\bget\s+on\s+board\b|"
+    r"(?:值得|应该|现在适合|要不要|能不能|该不该).{0,8}(?:买入|卖出|买|卖)|"
+    r"该.{0,3}(?:买入|买).{0,4}还是.{0,3}(?:卖出|卖)",
     re.IGNORECASE,
 )
 
@@ -94,7 +96,7 @@ class ChatService:
         if temporal.status == "clarification":
             return ChatResult("clarification", temporal.message, scenario=scenario,
                               public_draft=draft, reference_now=reference_iso, llm_calls=llm_calls)
-        industry = self._resolve_industry(scenario, draft, target)
+        industry = self._resolve_industry(spec, draft, target)
         if industry is not None and industry.status == "failure":
             return ChatResult("failed", industry.message, scenario=scenario, public_draft=draft,
                               reference_now=reference_iso, llm_calls=llm_calls)
@@ -127,8 +129,10 @@ class ChatService:
             return None
         return self.target_resolver.resolve(mentions, scenario)
 
-    def _resolve_industry(self, scenario: str, draft: dict, target):
+    def _resolve_industry(self, spec, draft: dict, target):
         mentions = draft.get("industry_mentions") or []
-        if not mentions and not (target and target.industry_ids):
-            return None
-        return self.industry_resolver.resolve(mentions, target.industry_ids if target else ())
+        if mentions:
+            return self.industry_resolver.resolve(mentions)
+        if spec.industry_policy == "explicit_or_profile" and target and target.industry_ids:
+            return self.industry_resolver.resolve(authoritative_ids=target.industry_ids)
+        return None

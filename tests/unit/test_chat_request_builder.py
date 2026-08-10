@@ -67,6 +67,17 @@ def test_earnings_known_at_and_as_of_are_same_turn_reference_time():
     assert request["assumptions"][0]["known_at"] == request["as_of"]
 
 
+@pytest.mark.parametrize("value_expression", [None, "", "FY2027", "2027"])
+def test_earnings_value_expression_is_required_and_year_is_not_a_value(value_expression):
+    from research_os.dashboard.request_builder import ClarificationRequired
+    draft = _draft("earnings_expectation")
+    draft["explicit_assumptions"][0]["value_expression"] = value_expression
+    with pytest.raises(ClarificationRequired):
+        CHAT_SCENARIO_SPECS["earnings_expectation"].minimal_request_builder(
+            draft, TARGET, TEMPORAL, None, NOW, False
+        )
+
+
 def test_chat_stage_budget_blocks_retries_and_pro_after_invalid_schema():
     provider = FakeLlmProvider(behavior=lambda request, schema: {
         "ok": True, "output": {"unexpected": True}, "model_id": "fake",
@@ -166,3 +177,14 @@ def test_classification_only_research_focus_never_changes_minimal_request(runner
     classified = {**base, "research_focus": ["模型分类标签"]}
     assert spec.minimal_request_builder(base, TARGET, TEMPORAL, INDUSTRY, NOW, False) == \
            spec.minimal_request_builder(classified, TARGET, TEMPORAL, INDUSTRY, NOW, False)
+
+
+def test_scenario_industry_policies_are_explicit_and_complete():
+    expected = {
+        "morning_brief": "ignore_profile", "evening_brief": "ignore_profile",
+        "daily_review": "ignore_profile", "abnormal_move_analysis": "ignore_profile",
+        "stock_research_report": "ignore_profile", "stock_review": "ignore_profile",
+        "earnings_expectation": "ignore_profile", "industry_research": "explicit",
+        "theme_discovery": "explicit", "first_coverage": "explicit_or_profile",
+    }
+    assert {key: spec.industry_policy for key, spec in CHAT_SCENARIO_SPECS.items()} == expected

@@ -114,19 +114,24 @@ def _forecast_period(expression: Optional[str]) -> dict:
     }
 
 
-_VALUE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(%|亿元|万元|元|倍|个|万台|台)?")
+_VALUE = re.compile(
+    r"\s*(-?\d+(?:\.\d+)?)\s*(%|个百分点|亿元|万元|元|倍|个|万台|台|pct)\s*",
+    re.IGNORECASE,
+)
 
 
 def _assumptions(items: list, known_at: str, forecast: dict) -> list[dict]:
     result = []
     for item in items:
-        expression = item.get("value_expression") or item.get("statement", "")
-        match = _VALUE.search(expression)
+        expression = item.get("value_expression")
+        if not isinstance(expression, str) or not expression.strip():
+            raise ClarificationRequired("每条假设都必须提供明确的 value_expression。")
+        match = _VALUE.fullmatch(expression)
         if not match:
             raise ClarificationRequired("每条假设都需要明确的数值与口径。")
         result.append({
             "driver": item.get("metric_expression") or item.get("statement"),
-            "value": match.group(1), "unit": match.group(2) or "unspecified",
+            "value": match.group(1), "unit": match.group(2),
             "period": item.get("period_expression") or forecast["periods"][0],
             "source_type": "user_input", "invalidates_when": "用户撤回或更新该显式假设",
             "known_at": known_at,
