@@ -12,6 +12,7 @@ from research_os.dashboard.models import ResolutionResult
 _SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ)$", re.IGNORECASE)
 _BARE = re.compile(r"^\d{6}$")
 _ENTITY_ONLY = {"stock_review", "stock_research_report", "abnormal_move_analysis"}
+_PROFILE_REQUIRED = {"earnings_expectation", "first_coverage"}
 
 
 def normalize_mention(value: str) -> str:
@@ -70,11 +71,11 @@ class ResearchTargetResolver:
             symbol = raw.upper()
             return self._finish(
                 [], [s for s in securities if s.get("symbol", "").upper() == symbol],
-                companies, securities,
+                companies, securities, scenario,
             )
         if _BARE.fullmatch(raw):
             hits = [s for s in securities if str(s.get("symbol", "")).startswith(raw + ".")]
-            return self._finish([], hits, companies, securities)
+            return self._finish([], hits, companies, securities, scenario)
         needle = normalize_mention(raw)
         company_hits = [c for c in companies if normalize_mention(c.get("canonical_name", "")) == needle]
         security_hits = []
@@ -83,12 +84,15 @@ class ResearchTargetResolver:
             names.extend(item.get("name", "") for item in sec.get("former_names", []))
             if any(normalize_mention(name) == needle for name in names if name):
                 security_hits.append(sec)
-        return self._finish(company_hits, security_hits, companies, securities)
+        return self._finish(company_hits, security_hits, companies, securities, scenario)
 
-    def _finish(self, company_hits, security_hits, companies, securities) -> ResolutionResult:
+    def _finish(self, company_hits, security_hits, companies, securities,
+                scenario: str) -> ResolutionResult:
         identities: dict[tuple[str, str | None], tuple[dict | None, dict | None]] = {}
         for sec in security_hits:
             company = next((c for c in companies if c.get("entity_id") == sec.get("company_entity_id")), None)
+            if scenario in _PROFILE_REQUIRED and company is None:
+                continue
             identities[(str(sec.get("company_entity_id")), str(sec.get("security_entity_id")))] = (company, sec)
         for company in company_hits:
             linked = [s for s in securities if s.get("company_entity_id") == company.get("entity_id")]
@@ -99,6 +103,12 @@ class ResearchTargetResolver:
             else:
                 for sec in linked:
                     identities[(str(company.get("entity_id")), str(sec.get("security_entity_id")))] = (company, sec)
+        if scenario in _PROFILE_REQUIRED:
+            identities = {
+                key: value for key, value in identities.items()
+                if value[0] is not None and value[1] is not None
+                and value[1].get("company_entity_id") == value[0].get("entity_id")
+            }
         if len(identities) != 1:
             return ResolutionResult(status="clarification", message="目标未唯一命中权威画像，请补充完整证券代码或精确公司名。")
         company, sec = next(iter(identities.values()))

@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlsplit
 from research_os import __version__
 from research_os.dashboard.models import ChatRequest
 from research_os.dashboard.scenario_specs import CHAT_SCENARIO_SPECS
+from research_os.llm.redaction import redact_text, redact_value
 
 MAX_JSON_BODY_BYTES = 64 * 1024
 _WINDOWS_ABSOLUTE_PATH = re.compile(
@@ -35,12 +36,15 @@ class ApiError(Exception):
 
 class DashboardApplication:
     def __init__(self, project_root: str | Path, chat_service: Any, sessions: Any,
-                 *, llm_configured: bool, close_callback=None):
+                 *, llm_configured: bool, credential_secrets=(), close_callback=None):
         self.project_root = Path(project_root).resolve()
         self.reports_root = (self.project_root / "reports").resolve()
         self.chat_service = chat_service
         self.sessions = sessions
         self.llm_configured = bool(llm_configured)
+        self._credential_secrets = tuple(
+            value for value in credential_secrets if isinstance(value, str) and value
+        )
         self._close_callback = close_callback
 
     def close(self) -> None:
@@ -261,6 +265,7 @@ class DashboardApplication:
         if not isinstance(value, str):
             return None
         text = value
+        text = redact_text(text, secrets=self._credential_secrets)
         for root in {str(self.project_root), self.project_root.as_posix()}:
             text = text.replace(root, "[REDACTED_PATH]")
         text = _WINDOWS_ABSOLUTE_PATH.sub("[REDACTED_PATH]", text)
@@ -283,11 +288,11 @@ class DashboardApplication:
             }
         return None
 
-    @staticmethod
-    def _json(status: int, payload: dict[str, Any]):
+    def _json(self, status: int, payload: dict[str, Any]):
         try:
             body = json.dumps(
-                payload, ensure_ascii=False, allow_nan=False,
+                redact_value(payload, secrets=self._credential_secrets),
+                ensure_ascii=False, allow_nan=False,
             ).encode("utf-8")
         except (TypeError, ValueError):
             status = 500

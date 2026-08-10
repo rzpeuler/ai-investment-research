@@ -62,6 +62,35 @@ def test_target_resolver_full_symbol_entity_only_and_profile_authority():
     db.close()
 
 
+@pytest.mark.parametrize("scenario", ["earnings_expectation", "first_coverage"])
+def test_profile_required_target_rejects_orphan_security_profile(scenario):
+    from research_os.models import SecurityProfile
+
+    db = Database(":memory:")
+    db.initialize()
+    db.upsert(SecurityProfile(
+        security_profile_id="sp-orphan", security_entity_id="security:600519.SH",
+        company_entity_id="company:missing", symbol="600519.SH", exchange="SH",
+        board="main", security_type="common_share", listing_date="2001-08-27",
+        currency="CNY", share_class="A", current_name="贵州茅台",
+        created_at="2026-01-01T00:00:00", updated_at="2026-01-01T00:00:00",
+    ))
+    result = ResearchTargetResolver(db).resolve(["600519.SH"], scenario)
+    assert result.status == "clarification"
+    assert result.company_entity_id is None
+    db.close()
+
+
+@pytest.mark.parametrize("scenario", ["earnings_expectation", "first_coverage"])
+def test_profile_required_target_accepts_matching_company_security_pair(scenario):
+    db = _profile_db()
+    result = ResearchTargetResolver(db).resolve(["600519.SH"], scenario)
+    assert result.status == "resolved"
+    assert result.company_entity_id == "company:maotai"
+    assert result.security_entity_id == "security:600519.SH"
+    db.close()
+
+
 def test_target_resolver_never_guesses_exchange_for_bare_code():
     db = _profile_db()
     result = ResearchTargetResolver(db).resolve(["000001"], "stock_research_report")

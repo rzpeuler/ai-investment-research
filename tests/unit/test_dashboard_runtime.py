@@ -9,7 +9,9 @@ from research_os.dashboard import runtime
 
 def test_runtime_provider_creation_failure_is_safe_and_observable(tmp_path, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-only-secret")
-    monkeypatch.setattr(runtime, "get_provider_config", lambda *args: type("Config", (), {"configured": True})())
+    monkeypatch.setattr(runtime, "get_provider_config", lambda *args: type(
+        "Config", (), {"configured": True, "api_key": lambda self: "test-only-secret"},
+    )())
     monkeypatch.setattr(runtime, "create_provider", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("bad config")))
     app, configured, status = runtime.build_dashboard_runtime(tmp_path)
     assert configured is False and status == "configuration_error"
@@ -18,6 +20,7 @@ def test_runtime_provider_creation_failure_is_safe_and_observable(tmp_path, monk
     health = app.dispatch("GET", "/api/health", {})[2].decode("utf-8")
     assert "configuration_error" not in health
     assert "test-only-secret" not in meta
+    assert app._credential_secrets == ("test-only-secret",)
 
 
 def test_per_request_runtime_owns_database_in_worker_thread(monkeypatch, tmp_path):

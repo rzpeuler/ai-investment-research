@@ -119,6 +119,54 @@ def test_chat_validation_and_session_isolation(http_server):
         assert request(http_server, "POST", "/api/chat", body, headers)[0] == expected
 
 
+def test_configured_credential_value_is_redacted_before_response_and_session_store(tmp_path):
+    fake_credential = "dashboard-test-credential-value"
+
+    class LeakingService:
+        def handle(self, request, conversation_context=None):
+            return ChatResult(
+                "executed", f"message {fake_credential}", scenario="morning_brief",
+                public_draft={"nested": {"value": fake_credential}},
+                minimal_request={"exception": f"RuntimeError({fake_credential})"},
+                research_result={
+                    "status": "degraded", "message": fake_credential,
+                    "warnings": [f"warning {fake_credential}"],
+                    "missing_data": [f"missing {fake_credential}"],
+                    "nested": {"result": fake_credential},
+                },
+            )
+
+    app = DashboardApplication(
+        tmp_path, LeakingService(), SessionStore(), llm_configured=True,
+        credential_secrets=(fake_credential,),
+    )
+    body = json.dumps({
+        "session_id": "redaction", "message": fake_credential,
+        "selected_scenario": "morning_brief", "llm_enabled": True,
+        "research_live": False,
+    }).encode()
+    headers = type("Headers", (), {
+        "get_all": lambda self, name: ["application/json"] if name == "Content-Type" else [],
+    })()
+    _, _, response_body = app.dispatch("POST", "/api/chat", headers, body)
+    recent_body = app.dispatch("GET", "/api/recent?session_id=redaction", {})[2]
+    assert fake_credential.encode() not in response_body
+    assert fake_credential.encode() not in recent_body
+    assert b"[REDACTED]" in response_body
+    assert app.llm_configured is True
+
+
+def test_final_json_defense_in_depth_redacts_configured_credential(tmp_path):
+    fake_credential = "dashboard-final-json-secret"
+    app = DashboardApplication(
+        tmp_path, FakeChatService(), SessionStore(), llm_configured=False,
+        credential_secrets=(fake_credential,),
+    )
+    _, _, body = app._json(200, {"nested": [fake_credential], "configured": True})
+    assert fake_credential.encode() not in body
+    assert json.loads(body) == {"nested": ["[REDACTED]"], "configured": True}
+
+
 def test_chat_content_length_and_body_limit_fail_closed(http_server):
     prefix = b"POST /api/chat HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nConnection: close\r\n"
     assert b" 411 " in raw_request(http_server, prefix + b"\r\n{}")

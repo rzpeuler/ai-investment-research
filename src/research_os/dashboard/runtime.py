@@ -1,7 +1,6 @@
 """Dashboard dependency assembly using existing project factories."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from research_os.dashboard.app import DashboardApplication
@@ -51,9 +50,11 @@ def build_dashboard_runtime(project_root: str | Path):
     llm_configured = False
     provider_status = "not_configured"
     provider = None
+    credential_secrets = ()
     try:
         config = get_provider_config(root, "deepseek")
-        llm_configured = bool(config.configured and os.environ.get("DEEPSEEK_API_KEY"))
+        credential_secrets = tuple(value for value in (config.api_key(),) if value)
+        llm_configured = bool(config.configured)
         if llm_configured:
             provider = create_provider(root, provider_id="deepseek", live=True)
             provider_status = "configured"
@@ -63,5 +64,6 @@ def build_dashboard_runtime(project_root: str | Path):
     service = _PerRequestChatService(root, provider)
     app = DashboardApplication(
         root, service, SessionStore(), llm_configured=llm_configured,
+        credential_secrets=credential_secrets,
     )
     return app, llm_configured, provider_status

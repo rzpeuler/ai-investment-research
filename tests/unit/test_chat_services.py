@@ -126,6 +126,32 @@ def test_safety_guard_calls_neither_llm_nor_orchestrator(message):
     assert not llm.calls and not orchestrator.calls
 
 
+@pytest.mark.parametrize("message", [
+    "这只股票值得入手吗", "贵州茅台是否值得入手", "这只可以入手吗",
+    "现在适合入手吗", "贵州茅台要不要入手",
+])
+def test_safety_guard_blocks_direct_purchase_guidance_using_ruhshou(message):
+    llm = QueueLlmClient([])
+    orchestrator = SpyOrchestrator()
+    db = Database(":memory:"); db.initialize()
+    result = ChatService(".", db, orchestrator, llm, clock=lambda: NOW).handle(
+        ChatRequest(message=message, selected_scenario="AUTO")
+    )
+    assert result.state == "failed"
+    assert not llm.calls and not orchestrator.calls
+
+
+def test_safety_guard_allows_company_acquiring_equipment_with_ruhshou():
+    llm = QueueLlmClient([])
+    orchestrator = SpyOrchestrator()
+    db = Database(":memory:"); db.initialize()
+    result = ChatService(".", db, orchestrator, llm, clock=lambda: NOW).handle(
+        ChatRequest(message="公司是否值得入手设备", selected_scenario="AUTO", llm_enabled=False)
+    )
+    assert result.state == "clarification"
+    assert not llm.calls and not orchestrator.calls
+
+
 def test_safety_guard_covers_prior_conversation_context():
     llm = QueueLlmClient([])
     orchestrator = SpyOrchestrator()
@@ -427,6 +453,90 @@ def test_first_coverage_alone_falls_back_to_target_profile_industry_ids():
     ))
     assert result.state == "executed"
     assert service.industry_resolver.calls == [((), ("industry:liquor",))]
+
+
+@pytest.mark.parametrize("scenario", ["earnings_expectation", "first_coverage"])
+def test_profile_required_chat_never_executes_with_orphan_security_profile(scenario):
+    from research_os.models import SecurityProfile
+
+    draft = ({
+        "company_mentions": ["600519.SH"], "forecast_period_expression": "FY2027",
+        "metric_expressions": ["收入"], "scenario_expressions": [],
+        "explicit_assumptions": [{
+            "statement": "FY2027收入增长10%", "metric_expression": "收入增长",
+            "value_expression": "10%", "period_expression": "FY2027",
+        }], "complete": True, "clarification_question": None,
+    } if scenario == "earnings_expectation" else {
+        "company_mentions": ["600519.SH"], "industry_mentions": [],
+        "temporal_expression": None, "research_question": None,
+        "research_focus": [], "depth_hint": None, "complete": True,
+        "clarification_question": None,
+    })
+    db = Database(":memory:"); db.initialize()
+    db.upsert(SecurityProfile(
+        security_profile_id="sp-orphan", security_entity_id="security:600519.SH",
+        company_entity_id="company:missing", symbol="600519.SH", exchange="SH",
+        board="main", security_type="common_share", listing_date="2001-08-27",
+        currency="CNY", share_class="A", current_name="贵州茅台",
+        created_at="2026-01-01T00:00:00", updated_at="2026-01-01T00:00:00",
+    ))
+    orchestrator = SpyOrchestrator()
+    result = ChatService(".", db, orchestrator, QueueLlmClient([draft]), clock=lambda: NOW).handle(
+        ChatRequest(message="研究600519.SH", selected_scenario=scenario)
+    )
+    assert result.state == "clarification"
+    assert not orchestrator.calls
+
+
+@pytest.mark.parametrize(
+    ("profile_industries", "explicit_industry", "expected_state"),
+    [
+        (("industry:liquor",), "半导体", "clarification"),
+        (("industry:liquor",), "白酒", "executed"),
+        ((), "白酒", "clarification"),
+        (("industry:liquor", "industry:semiconductor"), "白酒", "clarification"),
+    ],
+)
+def test_first_coverage_explicit_industry_is_constrained_by_profile(
+        profile_industries, explicit_industry, expected_state):
+    llm = QueueLlmClient([{
+        "company_mentions": ["贵州茅台"], "industry_mentions": [explicit_industry],
+        "temporal_expression": None, "research_question": None,
+        "research_focus": [], "depth_hint": None, "complete": True,
+        "clarification_question": None,
+    }])
+    orchestrator = SpyOrchestrator()
+    db = Database(":memory:"); db.initialize()
+    service = ChatService(".", db, orchestrator, llm, clock=lambda: NOW)
+
+    class TargetStub:
+        def is_exact_authoritative_name(self, value):
+            return False
+        def resolve(self, mentions, scenario):
+            return ResolutionResult(
+                status="resolved", entity="600519.SH", company_entity_id="company:maotai",
+                security_entity_id="security:600519.SH", industry_ids=profile_industries,
+            )
+
+    class IndustryStub:
+        def resolve(self, mentions=(), authoritative_ids=()):
+            value = tuple(mentions or authoritative_ids)[0]
+            industry_id = {"白酒": "industry:liquor", "半导体": "industry:semiconductor"}.get(
+                value, value,
+            )
+            return IndustryResult(status="resolved", industry_id=industry_id,
+                                  industry_name=industry_id.split(":", 1)[-1])
+
+    service.target_resolver = TargetStub()
+    service.industry_resolver = IndustryStub()
+    result = service.handle(ChatRequest(
+        message=f"首次覆盖贵州茅台，行业为{explicit_industry}", selected_scenario="first_coverage",
+    ))
+    assert result.state == expected_state
+    if expected_state == "executed":
+        assert orchestrator.calls[0][1]["industry_id"] == "industry:liquor"
+    else:
+        assert not orchestrator.calls
 
 
 def test_industry_research_never_falls_back_to_company_profile_industry():

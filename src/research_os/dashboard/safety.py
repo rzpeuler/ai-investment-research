@@ -37,7 +37,7 @@ _EN_CLARIFICATION_OUTPUT_FORBIDDEN = re.compile(
     r"\brecommend(?:\s+\w+){0,3}\s+stocks?\b|\bstock\s+picks?\b|\btrading\s+signals?\b"
 )
 
-_ZH_TRADE_VERB = r"(?:买入|卖出|买|卖)"
+_ZH_TRADE_VERB = r"(?:买入|卖出|入手|买|卖)"
 _ZH_DIRECT_DECISION = re.compile(
     rf"(?:你|您)会(?:不会)?.{{0,12}}?{_ZH_TRADE_VERB}.{{0,24}}?(?:吗|\?)|"
     rf"(?:值得|应该|现在适合|适合|要不要|能不能|该不该).{{0,12}}?{_ZH_TRADE_VERB}|"
@@ -61,13 +61,13 @@ _EN_SECURITY_CONTEXT = re.compile(
     r"\b(?:stock|stocks|security|securities|shares?|holdings?|position|portfolio|bond|bonds|fund|funds)\b"
 )
 
-_ZH_ANY_TRADE_ACTION = re.compile(r"买入|卖出|买|卖|交易")
+_ZH_ANY_TRADE_ACTION = re.compile(r"买入|卖出|入手|买|卖|交易")
 _ZH_DECISION_CUE = re.compile(r"\?|吗|是否|合适|会不会|该不该|要不要|应该|能不能|值得")
 _EN_ANY_TRADE_ACTION = re.compile(r"\b(?:buy|buying|bought|sell|selling|sold|trade|trading)\b")
 _EN_DECISION_CUE = re.compile(r"\?|\b(?:would|do|does|should|can|could|is|are|will)\b")
 
 _ZH_OPERATING_OBJECT = r"(?:设备|装置|机械|机器|原料|资产|子公司|业务|产能|土地|厂房|库存|专利|技术|牌照|项目|矿产|商品)"
-_ZH_OPERATING_ACTION = r"(?:买入|卖出|购买|出售|收购|处置|买|卖)"
+_ZH_OPERATING_ACTION = r"(?:买入|卖出|入手|购买|出售|收购|处置|买|卖)"
 _ZH_OPERATING_TRANSACTION = re.compile(
     rf"{_ZH_OPERATING_ACTION}[^,，。！？?；;、]{{0,12}}?{_ZH_OPERATING_OBJECT}"
 )

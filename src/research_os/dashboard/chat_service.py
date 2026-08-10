@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
 from research_os.dashboard.industry_resolver import IndustryResolver
-from research_os.dashboard.models import ChatRequest, ChatResult, TemporalResult
+from research_os.dashboard.models import ChatRequest, ChatResult, IndustryResult, TemporalResult
 from research_os.dashboard.request_builder import ClarificationRequired
 from research_os.dashboard.route_service import ChatRouteService
 from research_os.dashboard.safety import is_forbidden_investment_request
@@ -162,12 +162,31 @@ class ChatService:
 
     def _resolve_industry(self, spec, draft: dict, target):
         mentions = draft.get("industry_mentions") or []
+        if spec.scenario_id == "first_coverage":
+            authoritative_ids = tuple(dict.fromkeys(target.industry_ids if target else ()))
+            if len(authoritative_ids) != 1:
+                return self._industry_conflict()
+            if mentions:
+                explicit = self.industry_resolver.resolve(mentions)
+                if explicit.status != "resolved":
+                    return explicit
+                if explicit.industry_id != authoritative_ids[0]:
+                    return self._industry_conflict()
+                return explicit
+            return self.industry_resolver.resolve(authoritative_ids=authoritative_ids)
         if mentions:
             return self.industry_resolver.resolve(mentions)
         if (spec.industry_policy is IndustryPolicy.EXPLICIT_OR_PROFILE
                 and target and target.industry_ids):
             return self.industry_resolver.resolve(authoritative_ids=target.industry_ids)
         return None
+
+    @staticmethod
+    def _industry_conflict() -> IndustryResult:
+        return IndustryResult(
+            status="clarification",
+            message="首次覆盖行业与权威公司画像不一致或画像行业不唯一，请先澄清行业归属。",
+        )
 
     @staticmethod
     def _completion_message(spec, draft: dict, target, industry) -> Optional[str]:
