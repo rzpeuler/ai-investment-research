@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -10,28 +9,13 @@ from research_os.dashboard.industry_resolver import IndustryResolver
 from research_os.dashboard.models import ChatRequest, ChatResult, TemporalResult
 from research_os.dashboard.request_builder import ClarificationRequired
 from research_os.dashboard.route_service import ChatRouteService
+from research_os.dashboard.safety import is_forbidden_investment_request
 from research_os.dashboard.scenario_specs import CHAT_SCENARIO_SPECS
 from research_os.dashboard.schema_extractor import ChatSchemaExtractor
 from research_os.dashboard.target_resolver import ResearchTargetResolver
 from research_os.dashboard.temporal_resolver import TemporalResolver
 from research_os.utils.time import shanghai_now
 from research_os.validators.schema_validator import validate_instance
-
-
-_FORBIDDEN = re.compile(
-    r"目标价(?:格)?|仓位(?:建议|配置)?|自动(?:化)?荐股|推荐.{0,4}股票|交易信号|买卖评级|交易建议|"
-    r"(?:明日|次日).{0,6}(?:交易|买入|卖出)|可以买|可以跟|上车|"
-    r"(?:买入|卖出|增持|减持).{0,6}(?:评级|建议)|(?:评级|建议).{0,6}(?:买入|卖出|增持|减持)|"
-    r"\btarget\s+price\b|\b(?:buy|sell|overweight|underweight)\s+(?:rating|recommendation|advice)\b|"
-    r"\bposition(?:\s+sizing)?\s+(?:advice|recommendation)\b|"
-    r"\b(?:tomorrow|next[- ]day)\s+(?:trade|trading|buy|sell)\b|"
-    r"\b(?:trade|trading|investment)\s+(?:advice|recommendation)\b|\bshould\s+i\s+(?:buy|sell)\b|"
-    r"\brecommend(?:\s+\w+){0,3}\s+stocks?\b|\bstock\s+(?:picks?|recommendations?)\b|"
-    r"\btrading\s+signals?\b|\bcan\s+(?:i|we)\s+(?:buy|follow)\b|\bget\s+on\s+board\b|"
-    r"(?:值得|应该|现在适合|要不要|能不能|该不该).{0,8}(?:买入|卖出|买|卖)|"
-    r"该.{0,3}(?:买入|买).{0,4}还是.{0,3}(?:卖出|卖)",
-    re.IGNORECASE,
-)
 
 
 class ChatService:
@@ -50,7 +34,7 @@ class ChatService:
         # Exactly one clock capture per turn. Everything below receives this value.
         reference_now: datetime = self.clock()
         reference_iso = reference_now.isoformat(timespec="seconds")
-        if _FORBIDDEN.search(request.message):
+        if is_forbidden_investment_request(request.message):
             return ChatResult("failed", "该请求涉及禁止的交易建议、评级、仓位、目标价或荐股内容。", reference_now=reference_iso)
 
         route = ChatRouteService(self.llm_client, self.target_resolver.is_exact_authoritative_name).route(
