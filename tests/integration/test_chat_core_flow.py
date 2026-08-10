@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-
-import pytest
+from pathlib import Path
+import shutil
 
 from research_os.dashboard.chat_service import ChatService
 from research_os.dashboard.app import DashboardApplication
@@ -11,9 +11,16 @@ from research_os.dashboard.models import ChatRequest
 from research_os.dashboard.session import SessionStore
 from research_os.llm.models import LlmResponse
 from research_os.orchestrator import Orchestrator, ScenarioRegistry
+from research_os.orchestrator.runners.stock_review import StockReviewScenarioRunner
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
 from research_os.storage import Database
 from research_os.models import CompanyProfile, SecurityProfile
+from research_os.validators.schema_validator import (
+    _build_local_registry, load_schema, validate_instance,
+)
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class CapturingRunner:
@@ -38,7 +45,8 @@ class CapturingRunner:
         )
 
 
-def test_chat_hands_only_minimal_request_to_real_orchestrator(tmp_path):
+def test_chat_hands_only_minimal_request_to_orchestrator_boundary(tmp_path):
+    """A custom capture runner isolates the adapter boundary; it is not artifact acceptance."""
     db = Database(":memory:"); db.initialize()
     runner = CapturingRunner()
     registry = ScenarioRegistry(); registry.register(runner)
@@ -53,68 +61,71 @@ def test_chat_hands_only_minimal_request_to_real_orchestrator(tmp_path):
     assert result.state == "executed"
     assert result.minimal_request == {"entity": "600519.SH"}
     assert runner.request == result.minimal_request
-    # Business/control artifacts are owned by Orchestrator, never written beside Chat state.
+    # Chat does not create a parallel persistence location.
     assert not list(tmp_path.glob("*chat*"))
     orchestrator.close()
 
 
-class ScenarioCapturingRunner:
-    version = "test"
-
-    def __init__(self, scenario, expected_request):
-        self.scenario = scenario
-        self.expected_request = expected_request
-        self.request = None
-
-    def validate_request(self, request):
-        assert request == self.expected_request
-        return dict(request)
-
-    def build_plan(self, request, context):
-        return {"steps": ["capture"], "data_requirements": ["chat_minimal_request"]}
-
-    def execute(self, request, context):
-        self.request = dict(request)
-        return ScenarioExecutionResult(
-            status="insufficient_evidence", exit_code=0,
-            task_id=context["task"].task_id, validation_status="pass",
-        )
-
-
-@pytest.mark.parametrize(
-    ("scenario", "message", "expected_request"),
-    [
-        ("morning_brief", "今天晨报", {"report_date": "2026-08-10"}),
-        ("stock_research_report", "600519.SH", {"entity": "600519.SH"}),
-        ("stock_review", "600519.SH", {"entity": "600519.SH"}),
-    ],
-)
-def test_representative_chat_scenarios_use_real_orchestrator_and_formal_artifacts(
-    tmp_path, scenario, message, expected_request,
+def test_stock_review_chat_uses_default_runner_and_persists_formal_artifacts(
+    tmp_path, monkeypatch,
 ):
-    """Acceptance matrix: chat is an adapter; Orchestrator owns formal artifacts."""
-    db = Database(":memory:"); db.initialize()
-    runner = ScenarioCapturingRunner(scenario, expected_request)
-    registry = ScenarioRegistry(); registry.register(runner)
-    orchestrator = Orchestrator(tmp_path, db=db, registry=registry)
+    """Chat → default Orchestrator/Runner E2E, offline and isolated from repo reports."""
+    project_root = tmp_path / "chat-project"
+    shutil.copytree(ROOT / "schemas", project_root / "schemas")
+    monkeypatch.setenv("RESEARCH_PROJECT_PATH", str(project_root))
+    load_schema.cache_clear()
+    _build_local_registry.cache_clear()
+
+    db = Database(project_root / "data" / "sqlite" / "research.db")
+    db.initialize()
+    assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 6
+    orchestrator = Orchestrator(project_root, db=db)
+    assert type(orchestrator.registry.get("stock_review")) is StockReviewScenarioRunner
     service = ChatService(
-        tmp_path, db, orchestrator, llm_client=None,
+        project_root, db, orchestrator, llm_client=None,
         clock=lambda: datetime(2026, 8, 10, 9, 30),
     )
+    try:
+        result = service.handle(ChatRequest(
+            message="600519.SH", selected_scenario="stock_review",
+            llm_enabled=False, research_live=False,
+        ))
 
-    result = service.handle(ChatRequest(
-        message=message, selected_scenario=scenario, llm_enabled=False,
-    ))
+        assert result.state == "executed", result.message
+        assert result.minimal_request == {"entity": "600519.SH"}
+        assert result.research_result is not None
+        assert result.research_result["status"] in {
+            "success", "partial_success", "degraded", "insufficient_evidence",
+        }
+        run_dir = Path(result.research_result["run_dir"])
+        assert run_dir.is_relative_to(project_root / "reports" / "runs")
+        assert not run_dir.is_relative_to(ROOT / "reports")
+        filenames = {path.name for path in run_dir.iterdir()}
+        assert {
+            "task.json", "plan.json", "stock_review_request.json",
+            "stock_review_run.json", "scenario_execution_result.json",
+        } <= filenames
 
-    assert result.state == "executed"
-    assert result.minimal_request == expected_request == runner.request
-    assert result.research_result is not None
-    run_dir = tmp_path / "reports" / "runs" / result.research_result["task_id"]
-    assert {"task.json", "plan.json", "scenario_execution_result.json"} <= {
-        path.name for path in run_dir.iterdir()
-    }
-    assert not list(tmp_path.rglob("*chat*.json"))
-    orchestrator.close()
+        request_payload = json.loads(
+            (run_dir / "stock_review_request.json").read_text(encoding="utf-8")
+        )
+        run_payload = json.loads(
+            (run_dir / "stock_review_run.json").read_text(encoding="utf-8")
+        )
+        execution_payload = json.loads(
+            (run_dir / "scenario_execution_result.json").read_text(encoding="utf-8")
+        )
+        assert validate_instance(request_payload, "stock_review_request") == []
+        assert validate_instance(run_payload, "stock_review_run") == []
+        assert {
+            request_payload["task_id"], run_payload["task_id"],
+            execution_payload["task_id"], result.research_result["task_id"],
+        } == {run_dir.name}
+        assert not list((project_root / "reports").rglob("*chat*.json"))
+    finally:
+        orchestrator.close()
+        load_schema.cache_clear()
+        _build_local_registry.cache_clear()
 
 
 class ConversationLlm:

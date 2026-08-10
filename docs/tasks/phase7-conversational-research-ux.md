@@ -272,7 +272,10 @@ CLI 新增 `research dashboard --port --no-browser`。Windows 新增
   `tests/contracts/test_dashboard_package.py`。
 - wheel 使用 `packages = ["src/research_os"]` 包含 Dashboard 静态资源；不再重复
   `force-include` 同一路径，避免 Hatch 生成重复 archive entry。
-- Chat→真实 Orchestrator 与正式 artifact：`tests/integration/test_chat_core_flow.py`。
+- `stock_review` 的 selected/no-LLM/offline Chat→真实默认 Orchestrator→实际
+  `StockReviewScenarioRunner`→正式 request/run/result artifact：
+  `tests/integration/test_chat_core_flow.py`。晨报与个股研报继续由 builder→Runner contract
+  覆盖；不得把自定义 capture Runner 测试表述为正式场景 artifact 验收。
 - 治理一致性与动态 Schema / DB gate：`tests/unit/test_document_governance.py`。
 
 最终验证数字只记录实际命令结果，不以设计预估替代；见 §12.4。
@@ -318,8 +321,11 @@ migration。最终还要检查允许目录 diff，并取得与最终 head 完全
 
 ### 12.4 本地实现验证（2026-08-10）
 
-- Targeted gateway / governance suite：`521 passed`。
-- Full suite：`2940 passed, 6 skipped, 0 failed`（最终包装修复后运行，671.33 秒）。
+- Governance commit `3628e21` targeted gateway / governance suite：`521 passed`。
+- Governance commit `3628e21` full suite：`2940 passed, 6 skipped, 0 failed`
+  （包装修复后运行，671.33 秒）。后续规格审查仅调整验收测试与本段说明；最终集成
+  head 仍须由 root acceptance 重新运行完整 suite 并记录最终数字。
+- Specification-review follow-up targeted gateway / governance suite：`519 passed`。
 - Schema validation：`80/80`。
 - `python -m compileall -q src tests`：PASS。
 - `git diff --check`：PASS（仅 Windows LF→CRLF 提示）。
