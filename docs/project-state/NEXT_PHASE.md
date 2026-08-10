@@ -57,19 +57,26 @@ PR5B closeout CI: 31270208169 PASS
 M9 scope：existing structured research objects → GraphChange candidate。
 Graph→Research NOT implemented in M9。
 
-```
 当前状态：
 PR5B MERGED（master cfdeeba7）。
 PR5C #6 MERGED。
 M0-M10 PASS。
 Phase 5: CLOSED / PASS
 
-## Phase 6 Next Milestone
+## Phase 6 terminal state and future authorization
 
-- **Current authorized milestone**: P6-S0 Serial Governance Reset (governance-only)
-- **Next business milestone**: P6-S1 6B Final Closure (NOT_AUTHORIZED until S0 PASS + merged)
-- Parallel Phase6 development: CANCELLED
-- Serial topology: S0 → S1 (6B) → S2 (6A) → S3 (earnings) → S4 (first_coverage) → S5 (enablement) → S6 (closeout)
+- **Phase 6**: CLOSED / PASS
+- **Phase 6 research capability**: PASS
+- **Phase 6 central enablement**: PASS
+- **USER_TRIAL_READY**: YES
+- **CURRENT ENGINEERING MILESTONE**: NONE
+- **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
+- **Phase 7**: NOT_DEFINED / NOT_AUTHORIZED
+
+Phase 6 completion does not authorize Phase 6.1 or Phase 7。任何后续工作必须经过：
+
+```text
+new taskbook → architecture approval → explicit authorization
 ```
 
 ## Phase 4 独立验收记录

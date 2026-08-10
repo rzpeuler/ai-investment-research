@@ -2702,7 +2702,7 @@ created_at:
 - 修改不覆盖历史
 - 报告可关联图谱坐标
 
-## 69. Phase 6：研究型工作流（6A / 6B / 6C 并行治理）
+## 69. Phase 6：研究型工作流（串行治理 / TERMINAL）
 
 ### 69.1 结构与七场景分配（正式冻结）
 
@@ -2960,18 +2960,20 @@ discovery → probe → source governance → verification → registry update
 ### 69.11 实施门禁
 
 ```text
-TASKBOOK_STATUS: APPROVED
-IMPLEMENTATION_STATUS: NOT_STARTED
-CURRENT_MILESTONE: P6-G0
-NEXT_MILESTONE: P6-F0
-P6-F0: NOT_AUTHORIZED_UNTIL_G0_ACCEPTANCE
-P6-A: NOT_AUTHORIZED
-P6-B: NOT_AUTHORIZED
-P6-C: NOT_AUTHORIZED
+TASKBOOK_STATUS: EXECUTED
+IMPLEMENTATION_STATUS: PASS
+P6-S0—P6-S5: PASS / MERGED
+P6-S6: GOVERNANCE CLOSEOUT
+PHASE6: CLOSED / PASS
+CENTRAL_ENABLEMENT: PASS
+USER_TRIAL_READY: YES
+PHASE6_CANDIDATE_INTEGRATION: DEFERRED
+DB: v6
 ```
 
-“任务书 approved”不得被解释成整个 Phase 6 已授权开发。正式任务书见
-`docs/tasks/phase6-research-workflows.md`，正式设计决策见 `DECISIONS.md` #41。
+Phase 6 terminal closeout 不授权 Phase 6.1 或 Phase 7。Research capability completion !=
+Research→GraphChange Candidate authorization。正式任务书见
+`docs/tasks/phase6-research-workflows.md`，terminal 决策见 `DECISIONS.md` #45。
 
 ---
 

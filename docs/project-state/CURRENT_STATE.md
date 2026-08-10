@@ -1,7 +1,7 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-09
-> 串行阶段：P6-S0 Serial Governance Reset (IN PROGRESS / AWAITING_INDEPENDENT_ACCEPTANCE)
+> 更新日期：2026-08-10
+> Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > 权威规范：`docs/engineering-guide.md` V1.3
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -11,6 +11,8 @@
 - `pre_phase5_engineering_baseline`: `ea026f18ce09efd2f0a24bab8a38255e75233911`
 - `phase5_accepted_code_master_sha`: `1e1d4f9b77425d6800182055f8c4dd96aeb54a50`
 - Phase5 之后的 governance-only commits 不改变 `phase5_accepted_code_master_sha`。
+- `phase6_accepted_code_master_sha`: `3e0166de11ae9969792a4726913cb68a17c8f2a5`
+- P6-S6 为 governance-only；其后续治理合并提交不改变 Phase 6 accepted code baseline。
 - 基线来源：PR #3 以 Squash merge 合入 `master`，提交标题为
   `feat: complete phase4 full research capability`；上一工程基线为 `ce656b1`。
 - 基线范围：保留统一控制面和 Evidence 治理补修，并完成真实 DeepSeek Provider、官方
@@ -45,7 +47,7 @@
 | Phase 6 Top-Level Design | FROZEN / APPROVED | DECISIONS #41 + #43 + #44；engineering-guide V1.3 §69。并行已取消，串行 S0→S6。 |
 | P6-G0 | PASS / MERGED | Phase 6 顶层设计治理冻结（PR #13）。 |
 | P6-F0 | PASS / MERGED | 共享契约冻结（PR #14）。 |
-| Phase 6 business implementation | NOT_AUTHORIZED | 6A / 6B 均实现于 off-master 分支但未验收未合入。6C NOT_IMPLEMENTED。 |
+| Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -129,16 +131,28 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 
 | Milestone | Status |
 |---|---|
-| P6-G0 Top-Level Design | FROZEN / APPROVED |
-| P6-F0 Shared Contract | FROZEN / APPROVED |
-| P6-S0 Serial Governance Reset | IN PROGRESS |
-| P6-S1 6B Final Closure | NOT_AUTHORIZED |
-| P6-S2 6A Final Closure | NOT_AUTHORIZED |
-| P6-S3 Earnings Expectation | NOT_AUTHORIZED |
-| P6-S4 First Coverage | NOT_AUTHORIZED |
-| P6-S5 Central Enablement | NOT_AUTHORIZED |
-| P6-S6 Governance Closeout | NOT_AUTHORIZED |
+| P6-G0 Top-Level Design | PASS / MERGED |
+| P6-F0 Shared Contract | PASS / MERGED |
+| P6-S0 Serial Governance Reset | PASS / MERGED |
+| P6-S1 6B Final Closure | PASS / MERGED |
+| P6-S2 6A Final Closure | PASS / MERGED |
+| P6-S3 Earnings Expectation | PASS / MERGED |
+| P6-S4 First Coverage | PASS / MERGED |
+| P6-S5 Central Enablement | PASS / MERGED |
+| P6-S6 Governance Closeout | GOVERNANCE CLOSEOUT |
 
-Parallel Phase6 development: CANCELLED
-Serial milestone gating: ACTIVE (P6-S0 only)
-Phase6 business code on master: NONE
+### Phase 6 terminal summary
+
+- Seven Phase 6 scenarios: `industry_research`, `theme_discovery`, `evening_brief`,
+  `daily_review`, `stock_review`, `earnings_expectation`, `first_coverage`。
+- Research capability: PASS。
+- Default registry: ENABLED；public execution: `research execute`；public execution authority:
+  `Orchestrator.execute()`。
+- Graph→Research: READ ONLY / ENABLED VIA ACCEPTED 6A，唯一路径为 Versioned Graph →
+  GraphQueryService → KnowledgeContextBuilder → Research Context。
+- KnowledgeContext != Evidence；Graph FACT 必须重新加载权威 Evidence，并通过
+  eligibility / as_of / source validation 后才能形成 Research Finding。
+- Scenario direct Graph write: NONE；Phase 6 scenario → active Graph: PROHIBITED。
+- Phase 5 GraphChange Candidate / Review / Apply capability 已存在；Phase 6 scenario
+  Research→GraphChange Candidate integration: DEFERRED。
+- Schemas: 69；DB: v6；migrations: NONE；USER_TRIAL_READY: YES。

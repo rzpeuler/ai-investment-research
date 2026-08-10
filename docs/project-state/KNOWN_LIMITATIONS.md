@@ -2,11 +2,18 @@
 
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
-> 当前统一结论（2026-08-09）：Phase 4 engineering foundation = PASS；
-> Phase 5 = CLOSED / PASS；Phase 6 implementation = NOT_AUTHORIZED；
-> Graph→Research production integration: NOT YET ENABLED
+> 当前统一结论（2026-08-10）：Phase 4 engineering foundation = PASS；
+> Phase 5 = CLOSED / PASS；Phase 6 research workflows = PASS / centrally enabled；
+> Graph→Research = read-only Phase 6A path enabled；
+> Phase 6 Research→GraphChange Candidate integration = DEFERRED；
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
 > Phase 5 = CLOSED / PASS。
+
+Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
+Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
+`insufficient_evidence`。KnowledgeContext != Evidence；图谱 FACT 仍须回源权威 Evidence
+并通过 eligibility / as_of / source validation。Phase 5 已具备 GraphChange Candidate / Review /
+Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 
 ## 1. 真实 LLM Provider 已接入但存在外部稳定性风险
 

@@ -59,15 +59,18 @@ Schema 30→51，迁移 user_version=5。
 **M10**：**PASS**（M10 accepted SHA `156ea35`，CI `31292861813`，2110 passed / 5 skipped / 0 xfail / 55/55 schemas / DB v6 / Pro 0 blocker 0 should-fix）。
 **PR5C**：#6 MERGED / SQUASH → master `1e1d4f9`。
 
-## Phase 6：P6-S0 Serial Governance Reset (IN PROGRESS)
+## Phase 6：PASS / CENTRALLY ENABLED
 
-- 并行开发：CANCELLED
-- 串行拓扑：S0 → S1(6B) → S2(6A) → S3(earnings) → S4(first_coverage) → S5(enablement) → S6(closeout)
-- 当前授权：仅 P6-S0（governance-only）
-- P6-S1—S6：NOT_AUTHORIZED
-- 业务代码：master 上 NONE
-- 工程指南：V1.3
-- 数据库：v6
+- 七个研究工作流：`industry_research`、`theme_discovery`、`evening_brief`、
+  `daily_review`、`stock_review`、`earnings_expectation`、`first_coverage`
+- USER_TRIAL_READY：YES
+- Graph→Research：accepted Phase 6A read-only path 已启用；KnowledgeContext != Evidence
+- Phase 6 Research→GraphChange Candidate integration：DEFERRED
+- Schema：69；数据库：v6；迁移：NONE
+- Accepted code master：`3e0166de11ae9969792a4726913cb68a17c8f2a5`
+
+统一入口已经可用，但运行结果仍受数据与 Evidence availability 约束；
+`insufficient_evidence` 是合法业务结果，不代表执行器故障。
 
 ## 快速开始
 
@@ -112,6 +115,9 @@ python scripts/migrate.py --status
 ### CLI 用法
 
 ```powershell
+# Phase 6 正式公共执行入口；request.json 是场景完整 JSON request transport
+research execute --scenario industry_research --request-file request.json
+
 # 运行空任务（生成 Task、Plan 和 Run 目录；Phase 0 不采集数据）
 research run --scenario morning_brief --entity 600519.SH --depth standard
 
@@ -142,6 +148,10 @@ research inbox list [--status submitted]
 research inbox status <inbox_id> needs_review
 ```
 
+`research execute` 是实际公共场景执行入口：业务校验由
+`ScenarioRunner.validate_request()` 执行，最终统一进入 `Orchestrator.execute()`。
+`research run` 保留为 legacy / plan-only compatibility，不应当替代场景执行入口。
+
 ### 运行测试
 
 ```powershell
@@ -155,7 +165,7 @@ ai-investment-research/
 ├── AGENTS.md               # 不可违反的研究与工程规则
 ├── docs/engineering-guide.md
 ├── config/                 # app / model_routing / schedules / source_policy / report_policy / knowledge_policy
-├── schemas/                # 55 个 JSON Schema（权威数据契约）
+├── schemas/                # 69 个 JSON Schema（权威数据契约）
 ├── registry/               # 来源注册表（sources / source_groups / changelog）
 ├── src/research_os/
 │   ├── cli/                # research 命令
@@ -183,8 +193,8 @@ ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现�
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
 
-当前 **55 个 Schema**（Phase 0：9 / Phase 1：4 / Phase 1.1：2 / Phase 2：4 /
-Phase 3：11 / Phase 4：20 / Phase 4.1：1 / Phase 5：4）。Schema 校验：`research validate`。
+当前 **69 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
+Schema 校验：`research validate`。
 数据库版本：**v6**。
 
 ## 输出边界
