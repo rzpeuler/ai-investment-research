@@ -31,6 +31,9 @@ research = "research_os.cli.main:cli"
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_os"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/research_os/dashboard/static" = "research_os/dashboard/static"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
