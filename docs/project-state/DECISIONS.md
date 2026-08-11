@@ -2387,11 +2387,16 @@ P7-D0 只实现前四类契约与 Registry，不得真正执行 Acquisition。
 
 ```text
 SCENARIO_DECLARES_SOURCE: NO（场景只声明 Data Type，禁止 source_id / provider / URL / API）
-SECOND_ROUTER: NO（现有 Router 继续作为未来来源路由基础，只允许演化，禁止 Router v2）
+SECOND_ROUTER: NO
+P7_D0_ROUTER_EVOLUTION: NONE
+EXISTING_ROUTER_FUTURE_EVOLUTION: ONLY UNDER SEPARATE MILESTONE AUTHORIZATION
 READINESS_NETWORK_ACCESS: NO（DataReadiness 只描述状态，不执行网络）
 LLM_DATA_AUTHORITY: NO（Source 权威不能交给 Scenario 或 LLM）
 ACQUISITION_PLAN_SELECTED_SOURCE: NO（AcquisitionPlan step 禁止 source_id / selected_source / provider_id）
 ```
+
+P7-D0 禁止实现 Router v2 或修改现有 Router 核心语义；未来 P7-D1 或后续经独立授权后，
+可以演化现有 Router，但不得创建并行的第二套路由控制面。
 
 新增 5 个契约对象：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
 `AcquisitionPlan`、`BriefAttentionSnapshot`。`BriefAttentionSnapshot` 是 ONE REPORT

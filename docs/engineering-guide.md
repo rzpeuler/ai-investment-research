@@ -145,7 +145,8 @@
   `PERSISTENCE: NO`。不得生成趋势/升降温表述。heat_score 只表示本次窗口本次样本内
   相对关注程度，不是历史变化、不是事实可信度、不是投资价值、不是机构交易行为。
 - **Existing Router evolution rule**：现有 `src/research_os/routing/router.py` 继续作为
-  未来数据来源路由基础；`SECOND_SOURCE_ROUTER: PROHIBITED`，P7-D1 只允许演化现有 Router。
+  未来数据来源路由基础；`SECOND_SOURCE_ROUTER: PROHIBITED`。P7-D0 不实施 Router 演化；
+  未来 P7-D1 或后续经独立授权后可以演化现有 Router，但不得创建并行的第二套路由控制面。
 - 本授权不包含新 Collector、Source expansion、Graph 写入、Phase 6.1 或数据库迁移；
   DB 保持 v6、MIGRATIONS NONE、SCHEMAS 85。
 

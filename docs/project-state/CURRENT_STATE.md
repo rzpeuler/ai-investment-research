@@ -3,7 +3,7 @@
 > 更新日期：2026-08-11
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
-> P7-D0：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+> P7-D0：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（R1 返修后）
 > 权威规范：`docs/engineering-guide.md` V1.5
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -180,11 +180,17 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   `SOURCE_REGISTRY_CHANGED: NO`、`GRAPH_WRITE: NONE`、`DB: v6`、`MIGRATIONS: NONE`、
   `SCHEMAS: 85`（P7-D0 后）。
 
-## P7-D0 当前状态（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+## P7-D0 当前状态（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
 
 - 授权：`IMPLEMENTATION AUTHORIZED — P7-D0 ONLY`；状态：`IMPLEMENTED /
-  AWAITING INDEPENDENT ACCEPTANCE`（2026-08-11，Decision #47）。不得声明 P7-D0 PASS
+  AWAITING INDEPENDENT RE-ACCEPTANCE`（2026-08-11，Decision #47；R1 返修完成，
+  等待独立复验）。不得声明 P7-D0 PASS
   或自行 merge；独立验收由架构审查方完成。
+- R1（P7-D0-R1）修复 contract strictness + governance closure：
+  `public_metrics` 改为严格 `array[PublicMetric]`、`scope` 完整字段全部 required、
+  Registry 对第 11 个/missing scenario 与 wrapper 未知字段 fail-closed、watchlist
+  增加 `content_scope`（财联社 = non_fast_news_only）、未验证条目
+  `last_verified_at: null`、Router 治理措辞收口。详见 `docs/tasks/phase7-data-layer-d0-r1.md`。
 - 冻结 5 个数据层契约：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
   `AcquisitionPlan`、`BriefAttentionSnapshot`；Schema registry 为 85；DB 仍 v6；
   migrations NONE。

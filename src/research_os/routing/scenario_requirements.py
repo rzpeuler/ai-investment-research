@@ -44,11 +44,28 @@ class ScenarioDataRequirementRegistry:
 
         by_scenario: Dict[str, List[ScenarioDataRequirement]] = {}
         by_req_id: Dict[str, ScenarioDataRequirement] = {}
+        # R1-03：必须先 fail-closed 校验实际 scenario keys，不能静默忽略第 11 个 scenario。
+        actual = set(scenarios.keys())
+        expected = set(SCENARIO_IDS)
+        missing = expected - actual
+        unknown = actual - expected
+        if missing:
+            raise ValueError(f"缺少 Scenario: {sorted(missing)}")
+        if unknown:
+            raise ValueError(f"未知 Scenario: {sorted(unknown)}")
         for scenario in SCENARIO_IDS:
             raw_reqs = scenarios.get(scenario)
             if raw_reqs is None:
                 raise ValueError(f"缺少 Scenario {scenario} 的数据需求")
-            reqs = raw_reqs.get("requirements") if isinstance(raw_reqs, dict) else None
+            if not isinstance(raw_reqs, dict):
+                raise ValueError(f"Scenario {scenario} wrapper 必须是对象")
+            # R1-03：wrapper 只允许 description / requirements
+            wrapper_unknown = set(raw_reqs.keys()) - {"description", "requirements"}
+            if wrapper_unknown:
+                raise ValueError(
+                    f"Scenario {scenario} wrapper 未知字段: {sorted(wrapper_unknown)}"
+                )
+            reqs = raw_reqs.get("requirements")
             if not isinstance(reqs, list) or not reqs:
                 raise ValueError(f"Scenario {scenario} 的 requirements 必须是非空列表")
             items: List[ScenarioDataRequirement] = []

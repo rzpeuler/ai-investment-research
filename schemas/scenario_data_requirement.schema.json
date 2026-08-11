@@ -30,7 +30,7 @@
     "scope": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scope_type"],
+      "required": ["scope_type", "reference", "watchlist_group"],
       "properties": {
         "scope_type": {
           "type": "string",

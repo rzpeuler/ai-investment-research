@@ -1,22 +1,29 @@
-"""Brief Watchlist 只读 Loader（P7-D0）。
+"""Brief Watchlist 只读 Loader（P7-D0 / R1）。
 
 只负责：读取名单、验证格式、过滤 active、按 group 返回、保证稳定排序。
 不得采集网页、不得访问网络。watchlist 描述用户要求长期检查谁，
 不是 Source Registry（不产生平台级 Source）。
+R1-04：content_scope 机器可读内容边界（财联社 = non_fast_news_only）。
+R1-05：last_verified_at 未真实验证时必须为 null，不得伪造联网验证时间。
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Literal, Optional
 
 import yaml
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from research_os.utils.time import validate_iso
 
 _ALLOWED_FIELDS = {
     "watch_id", "group", "name", "platform", "source_reference",
-    "focus_tags", "active", "priority", "access_mode", "last_verified_at", "notes",
+    "focus_tags", "active", "priority", "access_mode", "last_verified_at",
+    "content_scope", "notes",
 }
+
+ContentScope = Literal["all_public_content", "non_fast_news_only", "public_institution_material"]
 
 
 class WatchlistEntry(BaseModel):
@@ -29,10 +36,19 @@ class WatchlistEntry(BaseModel):
     active: bool = True
     priority: int = Field(3, ge=1, le=5)
     access_mode: str = "manual_only"
-    last_verified_at: str = ""
+    last_verified_at: Optional[str] = None
+    content_scope: ContentScope = "all_public_content"
     notes: str = ""
 
     model_config = {"extra": "forbid"}
+
+    @field_validator("last_verified_at")
+    @classmethod
+    def _iso_or_null(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            if not validate_iso(value):
+                raise ValueError(f"last_verified_at 必须是合法 ISO-8601 或 null: {value!r}")
+        return value
 
 
 class BriefWatchlistRegistry:

@@ -17,6 +17,7 @@ from research_os.models import (
     DataGap,
     DataReadiness,
     GroupCount,
+    PublicMetric,
     RequirementScope,
     ScenarioDataRequirement,
 )
@@ -73,7 +74,11 @@ def _snapshot() -> BriefAttentionSnapshot:
                 rank=1, topic_label="某主题", heat_score=0.9,
                 mention_count=10, unique_source_count=3, unique_author_count=5,
                 group_counts=[GroupCount(group="community", count=7)],
-                representative_item_ids=["ri-1"], public_metrics={"views": 100},
+                representative_item_ids=["ri-1"],
+                public_metrics=[PublicMetric(
+                    metric_name="views", value=100, unit="count",
+                    source_reference="item-1", observed_at=_ISO,
+                )],
                 warnings=[],
             )
         ],
@@ -205,7 +210,7 @@ class TestEnumValidation:
                 rank=1, topic_label="t", heat_score=1.0, mention_count=1,
                 unique_source_count=1, unique_author_count=1,
                 group_counts="not-a-list",  # type: ignore[arg-type]
-                representative_item_ids=[], public_metrics={}, warnings=[],
+                representative_item_ids=[], public_metrics=[], warnings=[],
             )
 
 
@@ -231,3 +236,85 @@ class TestOneShotAttention:
                      "trend", "persistence", "history", "historical_heat"}
         assert forbidden.isdisjoint(props)
         assert forbidden.isdisjoint(topic_props)
+
+
+# ---------- R1: Contract Strictness ----------
+
+class TestR1PublicMetricsStrict:
+    """R1-01：public_metrics 必须是严格 array[PublicMetric]，不能是自由 dict。"""
+
+    def test_free_dict_rejected(self):
+        """public_metrics = {"views": 100} 必须失败（不再允许自由键 object）。"""
+        payload = _snapshot().model_dump()
+        payload["topics"][0]["public_metrics"] = {"views": 100}
+        assert validate_instance(payload, "brief_attention_snapshot") != []
+
+    def test_nested_unknown_field_fails(self):
+        """public_metrics 元素带 trend 必须失败（nested additionalProperties=false）。"""
+        payload = _snapshot().model_dump()
+        payload["topics"][0]["public_metrics"] = [
+            {"metric_name": "views", "value": 100, "trend": "up"}
+        ]
+        assert validate_instance(payload, "brief_attention_snapshot") != []
+
+    def test_historical_heat_embedded_fails(self):
+        """public_metrics 元素带 historical_heat 必须失败。"""
+        payload = _snapshot().model_dump()
+        payload["topics"][0]["public_metrics"] = [
+            {"metric_name": "views", "value": 100, "historical_heat": 90}
+        ]
+        assert validate_instance(payload, "brief_attention_snapshot") != []
+
+    def test_legal_metric_passes(self):
+        """合法 public_metrics 元素通过。"""
+        payload = _snapshot().model_dump()
+        payload["topics"][0]["public_metrics"] = [
+            {"metric_name": "views", "value": 100, "unit": "count",
+             "source_reference": "item-1", "observed_at": "2026-08-11T08:00:00+08:00"}
+        ]
+        assert validate_instance(payload, "brief_attention_snapshot") == []
+
+    def test_schema_public_metrics_is_strict_array(self):
+        schema = load_schema("brief_attention_snapshot")
+        pm = schema["properties"]["topics"]["items"]["properties"]["public_metrics"]
+        assert pm["type"] == "array"
+        item = pm["items"]
+        assert item["additionalProperties"] is False
+        assert set(item["required"]) == {"metric_name", "value", "unit", "source_reference", "observed_at"}
+
+    def test_pydantic_public_metrics_is_list(self):
+        snap = _snapshot()
+        assert isinstance(snap.topics[0].public_metrics, list)
+        assert snap.topics[0].public_metrics[0].metric_name == "views"
+
+
+class TestR1ScopeRequired:
+    """R1-02：scope 完整对象字段全部 required。"""
+
+    def test_scope_missing_reference_fails(self):
+        payload = _requirement().model_dump()
+        payload["scope"] = {"scope_type": "global", "watchlist_group": None}
+        assert validate_instance(payload, "scenario_data_requirement") != []
+
+    def test_scope_missing_watchlist_group_fails(self):
+        payload = _requirement().model_dump()
+        payload["scope"] = {"scope_type": "global", "reference": None}
+        assert validate_instance(payload, "scenario_data_requirement") != []
+
+    def test_pydantic_dump_contains_all_three(self):
+        from research_os.models import RequirementScope
+        scope = RequirementScope(scope_type="global")
+        dumped = scope.model_dump()
+        assert set(dumped.keys()) == {"scope_type", "reference", "watchlist_group"}
+        assert dumped["scope_type"] == "global"
+        assert dumped["reference"] is None
+        assert dumped["watchlist_group"] is None
+        # 完整 requirement dump 后通过 Schema
+        payload = _requirement().model_dump()
+        assert validate_instance(payload, "scenario_data_requirement") == []
+
+    def test_schema_scope_required_complete(self):
+        schema = load_schema("scenario_data_requirement")
+        assert set(schema["properties"]["scope"]["required"]) == {
+            "scope_type", "reference", "watchlist_group"
+        }

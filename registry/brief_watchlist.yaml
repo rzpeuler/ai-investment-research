@@ -7,15 +7,16 @@
 watchlist:
   - watch_id: wl-fin-media-001
     group: financial_media
-    name: 财联社
+    name: 财联社（非7×24快讯内容）
     platform: financial_media
     source_reference: sources.yaml:cls / engineering-guide §22.5
     focus_tags: [market_news, policy, macro]
     active: true
     priority: 1
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
-    notes: 7×24 快讯平台；FAST_NEWS 属于 A，不属于 C
+    last_verified_at: null
+    content_scope: non_fast_news_only
+    notes: Requirement C 仅覆盖财联社非 7×24 快讯的财经媒体内容；7×24 快讯由 Requirement A / news_flash 处理
 
   - watch_id: wl-fin-media-002
     group: financial_media
@@ -26,7 +27,8 @@ watchlist:
     active: true
     priority: 2
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 权威财经媒体
 
   - watch_id: wl-fin-media-003
@@ -38,7 +40,8 @@ watchlist:
     active: true
     priority: 2
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 央视财经频道
 
   - watch_id: wl-fin-media-004
@@ -50,7 +53,8 @@ watchlist:
     active: true
     priority: 2
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 权威时政/宏观信息窗口
 
   - watch_id: wl-fin-media-005
@@ -62,7 +66,8 @@ watchlist:
     active: true
     priority: 2
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 海外市场/宏观资讯
 
   - watch_id: wl-industry-media-001
@@ -74,7 +79,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-002
@@ -86,7 +92,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-003
@@ -98,7 +105,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-004
@@ -110,7 +118,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-005
@@ -122,7 +131,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-006
@@ -134,7 +144,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-007
@@ -146,7 +157,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-008
@@ -158,7 +170,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-industry-media-009
@@ -170,7 +183,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 行业资深自媒体（种子名单）
 
   - watch_id: wl-community-001
@@ -182,7 +196,8 @@ watchlist:
     active: true
     priority: 2
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 社区来源只用于关注点/叙事/分歧/线索
 
   - watch_id: wl-community-002
@@ -194,7 +209,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 社区来源只用于关注点/叙事/分歧/线索
 
   - watch_id: wl-community-003
@@ -206,7 +222,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 社区来源只用于关注点/叙事/分歧/线索
 
   - watch_id: wl-community-004
@@ -218,7 +235,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 社区/自媒体来源
 
   - watch_id: wl-community-005
@@ -230,7 +248,8 @@ watchlist:
     active: true
     priority: 4
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 社区来源，仅关注点/叙事
 
   - watch_id: wl-community-006
@@ -242,7 +261,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: all_public_content
     notes: 社区来源只用于关注点/叙事/分歧/线索
 
   - watch_id: wl-institution-001
@@ -254,7 +274,8 @@ watchlist:
     active: true
     priority: 2
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: public_institution_material
     notes: 公开机构调研信息；不得把平台热度解释为机构交易行为
 
   - watch_id: wl-institution-002
@@ -266,7 +287,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: public_institution_material
     notes: 仅公开可用材料
 
   - watch_id: wl-institution-003
@@ -278,7 +300,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: public_institution_material
     notes: 关注方向而非交易信号
 
   - watch_id: wl-institution-004
@@ -290,7 +313,8 @@ watchlist:
     active: true
     priority: 3
     access_mode: manual_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: public_institution_material
     notes: 区分真实机构行为与卖方覆盖行为
 
   - watch_id: wl-institution-005
@@ -302,5 +326,6 @@ watchlist:
     active: true
     priority: 2
     access_mode: client_only
-    last_verified_at: "2026-08-11T00:00:00+08:00"
+    last_verified_at: null
+    content_scope: public_institution_material
     notes: client_only；用户分享链接/摘要进入 inbox 后结构化

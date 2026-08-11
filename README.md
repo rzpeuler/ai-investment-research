@@ -104,7 +104,7 @@ DeepSeek 密钥只在本机环境变量设置：`DEEPSEEK_API_KEY`；可选地�
 `DEEPSEEK_BASE_URL`。不要把密钥填进浏览器、请求文本、日志或仓库文件。未配置 DeepSeek
 时仍有有限的确定性回退，但复杂自然语言会要求澄清。
 
-## P7-D0：统一数据层契约（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+## P7-D0：统一数据层契约（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
 
 P7-D0 冻结统一数据层契约与 Brief A/C 需求（Decision #47）：
 

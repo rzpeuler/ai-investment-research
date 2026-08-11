@@ -9,8 +9,8 @@
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
 > P7-UX1 = PASS / INDEPENDENTLY ACCEPTED（governance closeout，
 > Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）；
-> P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（Decision #47，
-> 统一数据层契约与 Brief A/C 冻结；非 PASS）。
+> P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #47，
+> R1 返修完成；统一数据层契约与 Brief A/C 冻结；非 PASS）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -157,7 +157,7 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   closeout）。该 terminal 状态只覆盖本地 Chat UX / control-plane adapter，不代表
   Phase 7 数据采集或 Phase 6.1 授权。
 
-## 16. P7-D0 统一数据层契约限制（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+## 16. P7-D0 统一数据层契约限制（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
 
 - P7-D0 只冻结契约与 Registry，不实现任何采集：无新 Collector、无 Source expansion、
   无 Router v2、无 DataReadinessService DB 查询、无 GapClassifier、无 AcquisitionExecutor、
@@ -169,7 +169,9 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   MISSING / MANUAL_REQUIRED / NOT_ACQUIRABLE。
 - Brief C（`brief_attention_content`）是单次报告窗口快照，不是持续监控；没有采集成功
   不得解释成“没有市场关注”。watchlist 名单只迁移需求文档 / 工程指南 / 现有 registry
-  已明确的名称，不按模型记忆补充。
+  已明确的名称，不按模型记忆补充；所有条目显式 `content_scope`（财联社 =
+  non_fast_news_only，7×24 快讯由 A 处理）；未真实验证的条目
+  `last_verified_at: null`，不伪造联网验证时间。
 - heat_score 仅表示本次窗口本次样本内相对关注程度，不是历史变化、不是事实可信度、
   不是投资价值、不是机构交易行为；Heat 算法未实现，留给后续 Brief Acquisition milestone。
 - P7-D0 为纯离线契约任务，未进行任何联网验收；P7-D1 未授权。

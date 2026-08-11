@@ -70,8 +70,19 @@
           },
           "representative_item_ids": { "type": "array", "items": { "type": "string" } },
           "public_metrics": {
-            "type": "object",
-            "additionalProperties": true
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["metric_name", "value", "unit", "source_reference", "observed_at"],
+              "properties": {
+                "metric_name": { "type": "string", "minLength": 1 },
+                "value": { "type": ["number", "integer", "string", "null"] },
+                "unit": { "type": ["string", "null"] },
+                "source_reference": { "type": ["string", "null"] },
+                "observed_at": { "type": ["string", "null"], "format": "date-time" }
+              }
+            }
           },
           "warnings": { "type": "array", "items": { "type": "string" } }
         }

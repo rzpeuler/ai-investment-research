@@ -6,7 +6,7 @@ Pydantic 只是构造器。model_dump() 后必须通过对应 Schema 校验。
 """
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import Field, field_validator
 
@@ -173,6 +173,29 @@ class GroupCount(StrictModel):
     count: int = Field(0, ge=0)
 
 
+class PublicMetric(StrictModel):
+    """平台直接公开提供的指标（R1-01：strict nested object，非自由键 dict）。
+
+    value 只保存平台公开观察值；不得在此编码 trend / velocity / rank_change /
+    historical_heat 等持续监控字段。
+    """
+    metric_name: str = Field(..., min_length=1)
+    value: Optional[Union[float, int, str]] = None
+    unit: Optional[str] = None
+    source_reference: Optional[str] = None
+    observed_at: Optional[str] = None
+
+    @field_validator("observed_at")
+    @classmethod
+    def _iso_opt(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            return _iso_validator(value)
+        return value
+
+
+PublicMetric.model_rebuild()
+
+
 class AttentionTopic(StrictModel):
     rank: int = Field(..., ge=1)
     topic_label: str = Field(..., min_length=1)
@@ -182,7 +205,7 @@ class AttentionTopic(StrictModel):
     unique_author_count: int = Field(0, ge=0)
     group_counts: List[GroupCount] = Field(default_factory=list)
     representative_item_ids: List[str] = Field(default_factory=list)
-    public_metrics: dict = Field(default_factory=dict)
+    public_metrics: List[PublicMetric] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
 
