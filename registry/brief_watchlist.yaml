@@ -1,0 +1,306 @@
+# Brief Watchlist（P7-D0）
+# 描述用户要求长期检查谁（Requirement C 的名单），不是 Source Registry。
+# 只迁移需求文档 / 工程指南 / 现有 registry 中已明确存在的名称；
+# 禁止 Agent 根据互联网、模型记忆或个人判断补充名单。
+# 来源: docs/engineering-guide.md §22.5-22.8（财经媒体 / 行业资深自媒体 / 社区与博主 / 机构动向）
+
+watchlist:
+  - watch_id: wl-fin-media-001
+    group: financial_media
+    name: 财联社
+    platform: financial_media
+    source_reference: sources.yaml:cls / engineering-guide §22.5
+    focus_tags: [market_news, policy, macro]
+    active: true
+    priority: 1
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 7×24 快讯平台；FAST_NEWS 属于 A，不属于 C
+
+  - watch_id: wl-fin-media-002
+    group: financial_media
+    name: 三大报（上证报/中证报/证券时报）
+    platform: financial_media
+    source_reference: engineering-guide §22.5
+    focus_tags: [policy, market, regulatory]
+    active: true
+    priority: 2
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 权威财经媒体
+
+  - watch_id: wl-fin-media-003
+    group: financial_media
+    name: 央视财经
+    platform: financial_media
+    source_reference: engineering-guide §22.5
+    focus_tags: [macro, policy]
+    active: true
+    priority: 2
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 央视财经频道
+
+  - watch_id: wl-fin-media-004
+    group: financial_media
+    name: 新闻联播
+    platform: financial_media
+    source_reference: engineering-guide §22.5
+    focus_tags: [policy, macro]
+    active: true
+    priority: 2
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 权威时政/宏观信息窗口
+
+  - watch_id: wl-fin-media-005
+    group: financial_media
+    name: 华尔街见闻等财经媒体
+    platform: financial_media
+    source_reference: engineering-guide §22.5
+    focus_tags: [global_markets, macro]
+    active: true
+    priority: 2
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 海外市场/宏观资讯
+
+  - watch_id: wl-industry-media-001
+    group: industry_media
+    name: 半导体行业观察
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [semiconductor]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-002
+    group: industry_media
+    name: 智东西
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [tech, ai]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-003
+    group: industry_media
+    name: 芯东西
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [chip, semiconductor]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-004
+    group: industry_media
+    name: 机器之心
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [ai, ml]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-005
+    group: industry_media
+    name: 量子位
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [ai, tech]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-006
+    group: industry_media
+    name: 新智元
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [ai, tech]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-007
+    group: industry_media
+    name: 甲子光年
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [tech, industry]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-008
+    group: industry_media
+    name: 高工锂电
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [lithium_battery, ev]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-industry-media-009
+    group: industry_media
+    name: 医药魔法
+    platform: industry_media
+    source_reference: engineering-guide §22.6
+    focus_tags: [pharma, healthcare]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 行业资深自媒体（种子名单）
+
+  - watch_id: wl-community-001
+    group: community
+    name: 雪球
+    platform: community
+    source_reference: sources.yaml:xueqiu / engineering-guide §22.7
+    focus_tags: [market, stocks]
+    active: true
+    priority: 2
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 社区来源只用于关注点/叙事/分歧/线索
+
+  - watch_id: wl-community-002
+    group: community
+    name: 淘股吧
+    platform: community
+    source_reference: engineering-guide §22.7
+    focus_tags: [market, stocks]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 社区来源只用于关注点/叙事/分歧/线索
+
+  - watch_id: wl-community-003
+    group: community
+    name: 微博
+    platform: community
+    source_reference: engineering-guide §22.7
+    focus_tags: [market, sentiment]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 社区来源只用于关注点/叙事/分歧/线索
+
+  - watch_id: wl-community-004
+    group: community
+    name: 微信公众号
+    platform: community
+    source_reference: engineering-guide §22.7
+    focus_tags: [media, deep_reading]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 社区/自媒体来源
+
+  - watch_id: wl-community-005
+    group: community
+    name: 小红书
+    platform: community
+    source_reference: engineering-guide §22.7
+    focus_tags: [consumer, retail]
+    active: true
+    priority: 4
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 社区来源，仅关注点/叙事
+
+  - watch_id: wl-community-006
+    group: community
+    name: 韭研公社
+    platform: community
+    source_reference: engineering-guide §22.7
+    focus_tags: [market, stocks]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 社区来源只用于关注点/叙事/分歧/线索
+
+  - watch_id: wl-institution-001
+    group: institution
+    name: 机构调研
+    platform: institution
+    source_reference: engineering-guide §22.8
+    focus_tags: [institution_research]
+    active: true
+    priority: 2
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 公开机构调研信息；不得把平台热度解释为机构交易行为
+
+  - watch_id: wl-institution-002
+    group: institution
+    name: 公开电话会议资料
+    platform: institution
+    source_reference: engineering-guide §22.8
+    focus_tags: [institution_research]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 仅公开可用材料
+
+  - watch_id: wl-institution-003
+    group: institution
+    name: 机构晨报方向
+    platform: institution
+    source_reference: engineering-guide §22.8
+    focus_tags: [institution_research]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 关注方向而非交易信号
+
+  - watch_id: wl-institution-004
+    group: institution
+    name: 研报数量与主题集中度
+    platform: institution
+    source_reference: engineering-guide §22.8
+    focus_tags: [sell_side, coverage]
+    active: true
+    priority: 3
+    access_mode: manual_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: 区分真实机构行为与卖方覆盖行为
+
+  - watch_id: wl-institution-005
+    group: institution
+    name: IMA 知识库汇总
+    platform: institution
+    source_reference: engineering-guide §22.8 / sources.yaml:ima
+    focus_tags: [institution_research]
+    active: true
+    priority: 2
+    access_mode: client_only
+    last_verified_at: "2026-08-11T00:00:00+08:00"
+    notes: client_only；用户分享链接/摘要进入 inbox 后结构化

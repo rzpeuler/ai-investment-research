@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/brief_attention_snapshot.schema.json",
+  "title": "BriefAttentionSnapshot",
+  "description": "Requirement C 的一次性窗口关注度快照（P7-D0）。ONLY one report-run snapshot，不是时间序列；禁止 rank_change / velocity / trend / history 等持续监控字段。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshot_id", "task_id", "scenario", "window_start", "window_end",
+    "as_of", "coverage", "topics", "warnings"
+  ],
+  "properties": {
+    "snapshot_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "scenario": { "type": "string", "enum": ["morning_brief", "evening_brief"] },
+    "window_start": { "type": "string", "format": "date-time" },
+    "window_end": { "type": "string", "format": "date-time" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "watchlist_group", "configured_count", "attempted_count",
+          "succeeded_count", "failed_count", "status", "warnings"
+        ],
+        "properties": {
+          "watchlist_group": { "type": "string", "minLength": 1 },
+          "configured_count": { "type": "integer", "minimum": 0 },
+          "attempted_count": { "type": "integer", "minimum": 0 },
+          "succeeded_count": { "type": "integer", "minimum": 0 },
+          "failed_count": { "type": "integer", "minimum": 0 },
+          "status": {
+            "type": "string",
+            "enum": ["covered", "partial", "manual_only", "not_covered", "source_failure"]
+          },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rank", "topic_label", "heat_score", "mention_count",
+          "unique_source_count", "unique_author_count", "group_counts",
+          "representative_item_ids", "public_metrics", "warnings"
+        ],
+        "properties": {
+          "rank": { "type": "integer", "minimum": 1 },
+          "topic_label": { "type": "string", "minLength": 1 },
+          "heat_score": { "type": "number", "minimum": 0 },
+          "mention_count": { "type": "integer", "minimum": 0 },
+          "unique_source_count": { "type": "integer", "minimum": 0 },
+          "unique_author_count": { "type": "integer", "minimum": 0 },
+          "group_counts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["group", "count"],
+              "properties": {
+                "group": { "type": "string", "minLength": 1 },
+                "count": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "representative_item_ids": { "type": "array", "items": { "type": "string" } },
+          "public_metrics": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

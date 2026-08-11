@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.4" in guide
+    assert "版本：V1.5" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -215,9 +215,9 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-UX1 Conversational Research Gateway" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D0 Unified Data Layer Contracts" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
-    assert "Phase 7**: UX1 ONLY（数据采集 NOT_STARTED）" in next_phase6
+    assert "Phase 7**: D0 IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase6
     assert "P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Current authorized milestone" not in next_phase6
 
@@ -305,11 +305,13 @@ def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
     assert "仍为 `NOT_STARTED`" in readme
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
-    assert schema_count == 80
-    assert f"Current registry after P7-UX1 implementation: Schemas: {schema_count}" in current
+    assert schema_count == 85
+    assert f"Current registry after P7-UX1 implementation: Schemas: 80" in current
+    assert f"Current registry after P7-D0 contracts: Schemas: {schema_count}" in current
     assert f"Current Schema registry**: {schema_count}" in next_phase
     assert f"当前 Schema registry 为 **{schema_count}**" in readme
     assert "DB: v6" in current and "migrations: NONE" in current
+    assert "SCHEMAS: 85" in current
 
     # Decision #45's 69-schema terminal snapshot remains historical and explicitly labelled.
     decision_45 = decisions[decisions.index("## 45. Phase 6 Terminal Closeout"):
@@ -317,6 +319,55 @@ def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
     assert "SCHEMA_REGISTRY: 69" in decision_45
     assert "Historical Phase 6 terminal snapshot: Schemas: 69" in current
     assert "Phase 6 terminal historical snapshot：Schema 69" in readme
+
+
+def test_p7_d0_governance_is_consistent():
+    """P7-D0 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d0.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    guide = _read("docs/engineering-guide.md")
+    readme = _read("README.md")
+
+    decision_47 = decisions[decisions.index("## 47. P7-D0 Unified Data Layer Contracts"):]
+    assert "BRIEF_A: NEW EVENT DISCOVERY" in decision_47
+    assert "BRIEF_C: CURRENT-WINDOW ATTENTION MONITORING" in decision_47
+    assert "FAST_NEWS ∈ A" in decision_47
+    assert "FAST_NEWS ∉ C" in decision_47
+    assert "CONTINUOUS_MONITORING: NO" in decision_47
+    assert "HEAT_HISTORY: NO" in decision_47
+    assert "RANK_CHANGE: NO" in decision_47
+    assert "VELOCITY: NO" in decision_47
+    assert "SCENARIO_DECLARES_SOURCE: NO" in decision_47
+    assert "SECOND_ROUTER: NO" in decision_47
+    assert "READINESS_NETWORK_ACCESS: NO" in decision_47
+    assert "LLM_DATA_AUTHORITY: NO" in decision_47
+    assert "ACQUISITION_PLAN_SELECTED_SOURCE: NO" in decision_47
+    assert "P7-D1: NOT AUTHORIZED" in decision_47
+    assert "SCHEMAS: 85" in decision_47
+
+    header = "\n".join(taskbook.splitlines()[:20])
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED" in header
+    assert "MILESTONE: P7-D0" in header
+    assert "P7-D1 NOT AUTHORIZED" in header
+    assert "EXPECTED_SCHEMA_COUNT: 85" in header
+
+    assert "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in current
+    assert "P7-D0" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
+    assert "P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in limitations
+    assert "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in readme
+    assert "版本：V1.5" in guide
+    assert "P7 Unified Data Layer" in guide or "P7-D0" in guide
+    assert "SCHEMAS: 85" in current
+    # 不得擅自声明 PASS / CLOSED
+    assert "P7-D0: PASS" not in current
+    assert "P7-D0: CLOSED" not in next_phase
+
+    schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
+    assert schema_count == 85
+    assert f"Current registry after P7-D0 contracts: Schemas: {schema_count}" in current
 
 
 def test_phase6_shared_contract_frozen():

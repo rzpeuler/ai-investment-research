@@ -66,7 +66,7 @@ Schema 30→51，迁移 user_version=5。
 - USER_TRIAL_READY：YES
 - Graph→Research：accepted Phase 6A read-only path 已启用；KnowledgeContext != Evidence
 - Phase 6 Research→GraphChange Candidate integration：DEFERRED
-- Phase 6 terminal historical snapshot：Schema 69；当前 registry：80
+- Phase 6 terminal historical snapshot：Schema 69；当前 registry：85（P7-D0 后）
 - 数据库：v6；迁移：NONE
 - Accepted code master：`3e0166de11ae9969792a4726913cb68a17c8f2a5`
 
@@ -104,10 +104,24 @@ DeepSeek 密钥只在本机环境变量设置：`DEEPSEEK_API_KEY`；可选地�
 `DEEPSEEK_BASE_URL`。不要把密钥填进浏览器、请求文本、日志或仓库文件。未配置 DeepSeek
 时仍有有限的确定性回退，但复杂自然语言会要求澄清。
 
-当前 Schema registry 为 **80**，数据库为 **v6**，没有新增 migration。P7 data acquisition
+## P7-D0：统一数据层契约（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+
+P7-D0 冻结统一数据层契约与 Brief A/C 需求（Decision #47）：
+
+- 5 个新契约：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
+  `AcquisitionPlan`、`BriefAttentionSnapshot`；Schema registry 85、DB v6、无 migration。
+- `registry/scenario_data_requirements.yaml` 覆盖 10/10 现有场景（43 requirements）；
+  场景只声明 Data Type，禁止声明具体来源。
+- Brief A = NEW EVENT DISCOVERY（`FAST_NEWS ∈ A`）；Brief C = CURRENT-WINDOW
+  ATTENTION MONITORING（一次性窗口快照，无持续监控 / 热度历史 / 排名变化）。
+- 未新增 Collector、未扩展 Source Registry、未实现 Router v2、无 Graph write、
+  Phase 6.1 未授权、P7-D1 未授权。
+
+当前 Schema registry 为 **85**，数据库为 **v6**，没有新增 migration。P7 data acquisition
 仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1 已通过独立验收（`PASS /
-INDEPENDENTLY ACCEPTED`），但未改变任何数据源、Collector、Source Registry、Graph 或
-数据库行为。
+INDEPENDENTLY ACCEPTED`）；P7-D0 已冻结统一数据层契约（`IMPLEMENTED /
+AWAITING INDEPENDENT ACCEPTANCE`），两者均未改变任何数据源、Collector、Source
+Registry、Graph 或数据库行为。
 
 ## 快速开始
 
@@ -202,7 +216,7 @@ ai-investment-research/
 ├── AGENTS.md               # 不可违反的研究与工程规则
 ├── docs/engineering-guide.md
 ├── config/                 # app / model_routing / schedules / source_policy / report_policy / knowledge_policy
-├── schemas/                # 80 个 JSON Schema（当前权威数据契约）
+├── schemas/                # 85 个 JSON Schema（当前权威数据契约）
 ├── registry/               # 来源注册表（sources / source_groups / changelog）
 ├── src/research_os/
 │   ├── cli/                # research 命令
@@ -230,7 +244,7 @@ ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现�
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
 
-当前 **80 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
+当前 **85 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
 Schema 校验：`research validate`。
 数据库版本：**v6**。
 

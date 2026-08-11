@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/data_readiness.schema.json",
+  "title": "DataReadiness",
+  "description": "数据就绪状态（P7-D0）。只描述状态，不执行网络；状态与 as_of 时点是否可知相关。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requirement_id", "data_type", "checked_at", "as_of", "status",
+    "available_fields", "missing_fields", "coverage_ratio",
+    "freshness_age_seconds", "eligible_record_count", "ineligible_record_count",
+    "source_tiers_present", "record_refs", "warnings"
+  ],
+  "properties": {
+    "requirement_id": { "type": "string", "minLength": 1 },
+    "data_type": { "type": "string", "minLength": 1 },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "as_of": { "type": "string", "format": "date-time" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "READY", "PARTIAL", "MISSING", "STALE",
+        "SOURCE_UNHEALTHY", "MANUAL_REQUIRED", "NOT_ACQUIRABLE"
+      ]
+    },
+    "available_fields": { "type": "array", "items": { "type": "string" } },
+    "missing_fields": { "type": "array", "items": { "type": "string" } },
+    "coverage_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "freshness_age_seconds": { "type": ["integer", "null"], "minimum": 0 },
+    "eligible_record_count": { "type": "integer", "minimum": 0 },
+    "ineligible_record_count": { "type": "integer", "minimum": 0 },
+    "source_tiers_present": { "type": "array", "items": { "type": "string", "enum": ["S", "A", "B", "C", "D"] } },
+    "record_refs": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

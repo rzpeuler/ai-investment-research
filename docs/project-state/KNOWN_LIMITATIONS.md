@@ -2,13 +2,15 @@
 
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
-> 当前统一结论（2026-08-10）：Phase 4 engineering foundation = PASS；
+> 当前统一结论（2026-08-11）：Phase 4 engineering foundation = PASS；
 > Phase 5 = CLOSED / PASS；Phase 6 research workflows = PASS / centrally enabled；
 > Graph→Research = read-only Phase 6A path enabled；
 > Phase 6 Research→GraphChange Candidate integration = DEFERRED；
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
 > P7-UX1 = PASS / INDEPENDENTLY ACCEPTED（governance closeout，
-> Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）。
+> Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）；
+> P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（Decision #47，
+> 统一数据层契约与 Brief A/C 冻结；非 PASS）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -154,3 +156,20 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - P7-UX1 已完成独立验收（PASS / INDEPENDENTLY ACCEPTED，2026-08-10 governance
   closeout）。该 terminal 状态只覆盖本地 Chat UX / control-plane adapter，不代表
   Phase 7 数据采集或 Phase 6.1 授权。
+
+## 16. P7-D0 统一数据层契约限制（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+
+- P7-D0 只冻结契约与 Registry，不实现任何采集：无新 Collector、无 Source expansion、
+  无 Router v2、无 DataReadinessService DB 查询、无 GapClassifier、无 AcquisitionExecutor、
+  无 Heat Ranking 算法。当前 Schema registry 为 85；DB 仍 v6；migrations 为 NONE。
+- `registry/scenario_data_requirements.yaml` 中登记的数据需求只表达业务需要，不代表
+  自动覆盖已经存在。`brief_event_content` 与 `brief_attention_content` 的
+  primary/secondary 为空，仅声明需求存在；`market_daily_ohlcv`、`company_profile`、
+  `financial_statement_data`、`peer_financial_data` 等仍无自动来源，如实体现
+  MISSING / MANUAL_REQUIRED / NOT_ACQUIRABLE。
+- Brief C（`brief_attention_content`）是单次报告窗口快照，不是持续监控；没有采集成功
+  不得解释成“没有市场关注”。watchlist 名单只迁移需求文档 / 工程指南 / 现有 registry
+  已明确的名称，不按模型记忆补充。
+- heat_score 仅表示本次窗口本次样本内相对关注程度，不是历史变化、不是事实可信度、
+  不是投资价值、不是机构交易行为；Heat 算法未实现，留给后续 Brief Acquisition milestone。
+- P7-D0 为纯离线契约任务，未进行任何联网验收；P7-D1 未授权。
