@@ -2462,3 +2462,80 @@ SCHEMAS: 85
 治理 closeout 只写回已发生的验收事实，不改变 accepted implementation baseline
 （accepted code = `d06d8d7`）；governance-only closeout commit 不建立新的 accepted
 code baseline，与 Phase 6 / P7-UX1 的治理 closeout 原则一致。
+
+---
+
+## 48. P7-D1 Data Readiness & Acquisition Planning Control Plane
+
+**Date**: 2026-08-11
+**Status**: FROZEN / APPROVED（P7-D1 冻结；IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+**Scope**: Data Readiness + Gap Classification + Acquisition Planning 控制面；只读 + 确定性
+
+### 48.1 控制面原则
+
+```text
+SCENARIO_REQUIREMENT_AUTHORITY: registry/scenario_data_requirements.yaml
+READINESS: READ_ONLY / DETERMINISTIC
+GAP_CLASSIFICATION: DETERMINISTIC
+ACQUISITION_PLANNING: DETERMINISTIC
+ACQUISITION_EXECUTION: NO
+SECOND_ROUTER: NO
+ROUTER_CORE_CHANGE: NO
+NEW_COLLECTORS: NO
+SOURCE_EXPANSION: NO
+PRODUCTION_LLM: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+P7-D1 中 `AcquisitionPlan` 是控制面计划，不是执行授权。route_existing_sources /
+fetch / normalize / persist / readiness recheck 全部属于后续 P7-D2，当前禁止实现。
+
+### 48.2 Requirement Authority 切换
+
+从 P7-D1 起，正式 Data Requirement Authority = `registry/scenario_data_requirements.yaml`。
+各 Runner 的 `build_plan()["data_requirements"]` 变为 LEGACY / NON_AUTHORITATIVE；
+Orchestrator 不得采用它作为正式要求。Runner business behavior 不变；如声明与中央
+Registry 不一致，中央 Registry 胜出（可写 warning，不重新合并两套 Requirement）。
+
+### 48.3 关键边界
+
+```text
+READINESS: 只读状态判断，ZERO NETWORK / ZERO WRITE / ZERO LLM
+READINESS 不得调用: Router.resolve / Collector / HTTP / Source fetcher / LLM
+CHECKER MISSING → CONTROL_PLANE_CONFIGURATION_ERROR（不得返回 MISSING）
+PIT: 存在 ≠ as_of 时已经可知（按领域解释，禁止万能 timestamp <= as_of）
+COVERAGE_RATIO: number | null（open-world 无合法 denominator 时 null + COVERAGE_NOT_MEASURABLE）
+SOURCE_TIER: S > A > B > C > D；无法证明 provenance → SOURCE_TIER_UNPROVEN（quality ineligible）
+AUTO_ACQUIRABLE / STALE_REFRESHABLE: 仅 automatic_acquisition_lifecycle = BUSINESS_SUFFICIENT 允许
+CAPABILITY REGISTRY: 与 scenario data_type 集合完全一致（fail closed）
+ACQUISITION_PLAN: 控制面计划不执行；step 顺序 = Registry 顺序；step_id 确定性 UUID5；禁止 source 泄露
+PREFLIGHT: 在 Runner.execute 前；普通数据不足不 gate Runner；配置错误 fail closed
+DRY-RUN: 零 DB 写 / 零文件写 / 零网络 / 零 LLM（DB 不存在时不创建）
+```
+
+### 48.4 D1 不改变 Scenario 成败语义
+
+Preflight 得到 MISSING / PARTIAL / MANUAL_INPUT_REQUIRED / UNAVAILABLE 时，本阶段不得
+阻止 Runner、修改 Runner request、改变 result.status、改变 exit_code 或覆盖
+missing_data。现有 Pipeline 的 success / partial_success / degraded /
+insufficient_data / failed 语义继续权威。唯一可 fail execution 的是控制面自身
+配置/一致性故障（CONTROL_PLANE_CONFIGURATION_ERROR）。
+
+### 48.5 Terminal Boundary（P7-D1 后仍保持）
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+P7-D2: NOT AUTHORIZED
+ACQUISITION_EXECUTION: NOT AUTHORIZED
+NEW_COLLECTORS: NOT AUTHORIZED
+SOURCE_EXPANSION: NOT AUTHORIZED
+PHASE6.1: NOT_AUTHORIZED
+GRAPH_WRITE: NONE
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```

@@ -10,7 +10,9 @@
 > P7-UX1 = PASS / INDEPENDENTLY ACCEPTED（governance closeout，
 > Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）；
 > P7-D0 = PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9，
-> governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）。
+> governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
+> P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（Decision #48，
+> 数据就绪控制面；非 PASS）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -175,3 +177,20 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - heat_score 仅表示本次窗口本次样本内相对关注程度，不是历史变化、不是事实可信度、
   不是投资价值、不是机构交易行为；Heat 算法未实现，留给后续 Brief Acquisition milestone。
 - P7-D0 为纯离线契约任务，未进行任何联网验收；P7-D1 未授权。
+
+## 17. P7-D1 数据就绪控制面限制（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+
+- P7-D1 只实现控制面（readiness / gap / planning），不执行 Acquisition：
+  无 AcquisitionExecutor、无 acquisition 后 Readiness Recheck、Router 仍只返回
+  DataRoute（无 unified routed items result）。
+- 无新 Collector、无 Source expansion、无自动历史日线源、无自动财务源；
+  brief_event_content / brief_attention_content 自动覆盖不完整；无 Heat Ranking；
+  无持续 attention monitoring；无 Graph write。
+- `registry/data_acquisition_capabilities.yaml` 中没有任何 data_type 达到
+  BUSINESS_SUFFICIENT（保守规则），因此 GapClassifier 不会输出 AUTO_ACQUIRABLE /
+  STALE_REFRESHABLE；真实采集执行属于 P7-D2。
+- coverage_ratio 对 open-world requirement 为 null（COVERAGE_NOT_MEASURABLE），
+  不得发明百分比。
+- dry-run 零副作用（不创建 DB / 不写 artifacts）；Preflight 只读、零 LLM、
+  零网络。
+- P7-D2 未授权；Phase6.1 未授权。

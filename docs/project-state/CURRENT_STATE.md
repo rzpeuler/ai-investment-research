@@ -4,6 +4,7 @@
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
+> P7-D1：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 > 权威规范：`docs/engineering-guide.md` V1.5
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -162,6 +163,7 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   USER_TRIAL_READY: YES。该数字是 Decision #45 的历史验收快照，不是当前注册表数量。
 - Current registry after P7-UX1 implementation: Schemas: 80；DB: v6；migrations: NONE。
 - Current registry after P7-D0 contracts: Schemas: 85；DB: v6；migrations: NONE。
+- P7-D1 新增：`data_layer` 控制面（readiness/gap/planning）+ `data_acquisition_capabilities.yaml`；Schema 仍 85。
 
 ## P7-UX1 当前状态（terminal / governance closeout）
 
@@ -191,6 +193,21 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   Registry 对第 11 个/missing scenario 与 wrapper 未知字段 fail-closed、watchlist
   增加 `content_scope`（财联社 = non_fast_news_only）、未验证条目
   `last_verified_at: null`、Router 治理措辞收口。详见 `docs/tasks/phase7-data-layer-d0-r1.md`。
+
+## P7-D1 当前状态（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+
+- 授权：`IMPLEMENTATION AUTHORIZED — P7-D1 ONLY`；状态：`IMPLEMENTED /
+  AWAITING INDEPENDENT ACCEPTANCE`（2026-08-11，Decision #48）。不得声明 P7-D1 PASS
+  或自行 merge；独立验收由架构审查方完成。
+- 实现 `src/research_os/data_layer/*` 控制面：RequirementContextResolver →
+  DataReadinessService → GapClassifier → AcquisitionPlanner → DataPreflightService。
+- `Plan.data_requirements` / `data_requirement_ids` 由中央
+  `registry/scenario_data_requirements.yaml` 生成；Runner 旧字段 LEGACY。
+- 新增 `registry/data_acquisition_capabilities.yaml`（22 data_type，与 scenario
+  data_type 集合一致）；`schemas/data_readiness.schema.json` 的 coverage_ratio 支持 null。
+- Preflight 在 Runner.execute 前；普通数据不足不 gate Runner；配置错误 fail closed。
+- 非 dry-run 持久化 `data_readiness_before.jsonl` / `data_gaps.jsonl` /
+  `acquisition_plan.json`；dry-run 零副作用。
 - 冻结 5 个数据层契约：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
   `AcquisitionPlan`、`BriefAttentionSnapshot`；Schema registry 为 85；DB 仍 v6；
   migrations NONE。

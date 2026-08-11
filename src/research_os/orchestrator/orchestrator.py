@@ -9,6 +9,9 @@
 - 相同 task_id 幂等（补跑机制基础，指南 56 节）
 - 失败状态持久化：task.json/validation.json/数据库 同步 failed + finished_at
 - 结构化错误记录（JSONL，含异常类型/时间/组件，敏感字段过滤）
+- P7-D1：Plan.data_requirements 由中央 ScenarioDataRequirementRegistry 生成；
+  Plan.data_requirement_ids 记录正式 requirement_id；DataPreflightService
+  在 Runner.execute 前运行并注入 context["data_preflight"]
 
 具体研究算法仍由既有 Pipeline 承担，Orchestrator 只做控制面治理。
 """
@@ -32,6 +35,8 @@ from research_os.utils.logging import ErrorLog
 from research_os.utils.time import now_iso
 from research_os.validators.schema_validator import validate_instance
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 class Plan(BaseModel):
     """研究计划（运行记录，非核心对象 Schema）。"""
@@ -46,6 +51,7 @@ class Plan(BaseModel):
     as_of: str
     steps: List[Dict[str, Any]] = Field(default_factory=list)
     data_requirements: List[str] = Field(default_factory=list)
+    data_requirement_ids: List[str] = Field(default_factory=list)
     runtime_budget: Dict[str, Any] = Field(default_factory=dict)
     model_policy: str = "flash_default"
     fallback_policy: List[str] = Field(default_factory=list)
@@ -76,7 +82,8 @@ class Orchestrator:
     """统一控制面；具体业务由注册的 ScenarioRunner 执行。"""
 
     def __init__(self, project_root: str | Path, db: Optional[Database] = None,
-                 registry: Optional[ScenarioRegistry] = None):
+                 registry: Optional[ScenarioRegistry] = None,
+                 preflight: Optional[Any] = None):
         self.project_root = Path(project_root)
         self.runs_root = self.project_root / "reports" / "runs"
         self._db = db
@@ -88,6 +95,23 @@ class Orchestrator:
 
             for runner_type in DEFAULT_RUNNER_TYPES:
                 self.registry.register(runner_type())
+        self.preflight = preflight or self._default_preflight()
+
+    @staticmethod
+    def _default_preflight() -> Any:
+        """P7-D1 默认 preflight：中央 Requirement + Capability 权威。"""
+        from research_os.data_layer.capabilities import AcquisitionCapabilityRegistry
+        from research_os.data_layer.preflight import DataPreflightService
+        from research_os.routing.scenario_requirements import ScenarioDataRequirementRegistry
+
+        req_registry = ScenarioDataRequirementRegistry(
+            _REPO_ROOT / "registry" / "scenario_data_requirements.yaml")
+        cap_registry = AcquisitionCapabilityRegistry(
+            _REPO_ROOT / "registry" / "data_acquisition_capabilities.yaml",
+            scenario_requirements=req_registry,
+            repo_root=_REPO_ROOT,
+        )
+        return DataPreflightService(req_registry, cap_registry)
 
     @property
     def db(self) -> Database:
@@ -171,7 +195,11 @@ class Orchestrator:
     # ---------- 计划生成 ----------
 
     def create_plan(self, task: Task, request: Optional[Dict[str, Any]] = None) -> Plan:
-        """由注册 Runner 生成含真实步骤、数据需求与策略的 Plan。"""
+        """由注册 Runner 生成含真实步骤、数据需求与策略的 Plan。
+
+        P7-D1：data_requirements 与 data_requirement_ids 由中央
+        ScenarioDataRequirementRegistry 生成（Runner 旧字段 LEGACY / NON_AUTHORITATIVE）。
+        """
         runner = self.registry.get(task.scenario)
         budgets = {"fast": 480, "standard": 1200, "deep": 1800}
         runtime = budgets.get(task.depth, 1200)
@@ -181,8 +209,9 @@ class Orchestrator:
         raw_steps = spec.get("steps") or []
         steps = [s if isinstance(s, dict) else {"step": s, "status": "planned"}
                  for s in raw_steps]
-        data_requirements = list(spec.get("data_requirements") or [])
-        if not steps or not data_requirements:
+        # 中央权威：ScenarioDataRequirementRegistry（runner 旧字段不再采用）
+        central_reqs = self._central_requirements(task.scenario)
+        if not steps:
             raise ValueError(f"场景 {task.scenario} 返回空 Plan")
         return Plan(
             plan_id=new_uuid(),
@@ -194,15 +223,38 @@ class Orchestrator:
             requested_at=task.requested_at,
             as_of=task.as_of,
             steps=steps,
-            data_requirements=data_requirements,
+            data_requirements=central_reqs["data_types"],
+            data_requirement_ids=central_reqs["requirement_ids"],
             runtime_budget={"depth": task.depth, "max_runtime_seconds": runtime},
             model_policy=spec.get("model_policy", "flash_default"),
             fallback_policy=list(spec.get("fallback_policy") or []),
             output_paths=list(spec.get("output_paths") or []),
             retrieval_budget={"max_runtime_seconds": runtime},
             model_route=spec.get("model_policy", "flash_default"),
-            notes=["由 ScenarioRunner 注册表生成"],
+            notes=["由中央 ScenarioDataRequirementRegistry 生成数据需求"],
         )
+
+    def _central_requirements(self, scenario: str) -> Dict[str, List[str]]:
+        """读取中央 Scenario Requirement Registry，返回 data_types 与 requirement_ids。
+
+        保持 Registry 确定性顺序；重复 data_type 第一次出现顺序保留并去重；
+        requirement_ids 完整保留 Registry 顺序不去重。
+        """
+        requirements = self._requirement_registry().for_scenario(scenario)
+        data_types: List[str] = []
+        seen: set[str] = set()
+        requirement_ids: List[str] = []
+        for req in requirements:
+            if req.data_type not in seen:
+                data_types.append(req.data_type)
+                seen.add(req.data_type)
+            requirement_ids.append(req.requirement_id)
+        return {"data_types": data_types, "requirement_ids": requirement_ids}
+
+    def _requirement_registry(self):
+        from research_os.routing.scenario_requirements import ScenarioDataRequirementRegistry
+        return ScenarioDataRequirementRegistry(
+            _REPO_ROOT / "registry" / "scenario_data_requirements.yaml")
 
     def execute(self, scenario: str, request: Dict[str, Any]) -> ScenarioExecutionResult:
         """统一执行入口；未注册场景、请求错误和 Runner 异常均转为结构化失败。"""
@@ -225,6 +277,19 @@ class Orchestrator:
             context: Dict[str, Any] = {
                 "project_root": self.project_root, "task": task, "plan": plan,
             }
+            # P7-D1：Preflight 必须在 Runner.execute 前（§73-74）
+            preflight = self.preflight.run(
+                scenario=scenario,
+                task_id=task.task_id,
+                task_as_of=task.as_of,
+                normalized_request=normalized,
+                project_root=self.project_root,
+                db=self._db if not normalized.get("dry_run") else None,
+                runs_root=self.runs_root,
+                graph_repo=None,
+                dry_run=bool(normalized.get("dry_run")),
+            )
+            context["data_preflight"] = preflight
             if not normalized.get("dry_run"):
                 context["db"] = self.db
                 control_run_dir = RunDirectory(self.runs_root, task.task_id)
@@ -234,6 +299,8 @@ class Orchestrator:
                 control_run_dir.write_plan(plan.model_dump())
                 self.db.upsert(task)
                 context["run_dir"] = control_run_dir
+                # P7-D1：非 dry-run 持久化 preflight artifacts（§78-81）
+                self.preflight.persist_artifacts(control_run_dir.root, preflight)
         except ValueError as exc:
             result = ScenarioExecutionResult(
                 status="failed", exit_code=2, task_id=task_id,

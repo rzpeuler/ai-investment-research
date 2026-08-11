@@ -1,6 +1,6 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.5**
+**版本：V1.6**
 **变更日期：2026-08-11**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
@@ -149,6 +149,35 @@
   未来 P7-D1 或后续经独立授权后可以演化现有 Router，但不得创建并行的第二套路由控制面。
 - 本授权不包含新 Collector、Source expansion、Graph 写入、Phase 6.1 或数据库迁移；
   DB 保持 v6、MIGRATIONS NONE、SCHEMAS 85。
+
+### 0.6 V1.6 P7-D1 Data Readiness + Gap + Acquisition Planning（2026-08-11）
+
+- **Scenario Requirement 中央权威**：正式 Data Requirement Authority =
+  `registry/scenario_data_requirements.yaml`；Runner `build_plan()["data_requirements"]`
+  变 LEGACY / NON_AUTHORITATIVE。`Plan.data_requirements` 与 `data_requirement_ids`
+  由中央 Registry 生成（保持 Registry 确定性顺序）。
+- **Readiness 是只读状态判断**：`DataReadinessService` ZERO NETWORK / ZERO WRITE /
+  ZERO LLM；不得调用 Router.resolve / Collector / HTTP / Source fetcher / LLM。
+- **PIT / scope / field / coverage / tier / freshness 顺序**：1. Scope eligibility →
+  2. PIT eligibility → 3. Minimum fields → 4. Minimum coverage → 5. Minimum
+  source/tier → 6. Freshness → 7. Final status。PIT 按领域解释（published_at /
+  effective_at / valid_from / trade_date / created_at 等），禁止万能 timestamp<=as_of。
+- **GapClassifier 确定性**：ZERO LLM / NO NETWORK / NO WRITE。READY→AVAILABLE；
+  AUTO_ACQUIRABLE / STALE_REFRESHABLE 仅当 `automatic_acquisition_lifecycle =
+  BUSINESS_SUFFICIENT`；其余按能力保守映射。
+- **Acquisition Capability 与 Source Registry 分离**：
+  `registry/data_acquisition_capabilities.yaml` 只回答“系统对某 Data Type 会不会做
+  某类补充动作”，禁止来源选择字段；来源选择仍属 `data_requirements.yaml` + Router。
+- **AcquisitionPlan 不执行**：P7-D1 只生成计划（确定性 step_id UUID5、Registry 顺序、
+  禁止 source 泄露），不执行 route/fetch/normalize/persist/recheck。
+- **Existing Router 保持唯一 Router**：`src/research_os/routing/router.py` 本阶段
+  UNCHANGED；`SECOND_SOURCE_ROUTER: PROHIBITED`。
+- **D1 不改变 Scenario business success semantics**：Preflight 在 Runner.execute 前；
+  普通数据不足不 gate Runner，不改变 result.status / exit_code / missing_data。
+- **dry-run 零副作用**：DB 不存在时不创建、不 initialize、不跑 migration；
+  不创建 reports/runs artifacts；Preflight 仅内存运行。
+- **D2 才允许 Acquisition Execution**：route_existing_sources / fetch / normalize /
+  persist / readiness recheck 全部属于后续 P7-D2，当前禁止实现。
 
 ---
 

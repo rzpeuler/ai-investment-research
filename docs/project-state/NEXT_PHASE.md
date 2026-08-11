@@ -69,16 +69,16 @@ Phase 5: CLOSED / PASS
 - **Phase 6 research capability**: PASS
 - **Phase 6 central enablement**: PASS
 - **USER_TRIAL_READY**: YES
-- **CURRENT ENGINEERING MILESTONE**: P7-D0 Unified Data Layer Contracts（PASS / INDEPENDENTLY ACCEPTED）
+- **CURRENT ENGINEERING MILESTONE**: P7-D1 Data Readiness + Gap + Acquisition Planning（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
 - **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
 - **Phase 7**: D0 CLOSED / PASS；UX1 CLOSED / PASS；数据采集 NOT_STARTED
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
 - **P7-D0**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9；accepted head d06d8d7）
-- **P7-D1**: NOT AUTHORIZED
+- **P7-D1**: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（Decision #48；2026-08-11）
 - **P7 DATA ACQUISITION**: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION
 - **Current Schema registry**: 85（Phase 6 terminal historical snapshot was 69）
 - **DB / migrations**: v6 / NONE
-- **NEXT ELIGIBLE MILESTONE**: P7-D1 — Data Readiness + Gap + Acquisition Control Plane（STATUS: NOT AUTHORIZED）
+- **NEXT ELIGIBLE MILESTONE**: P7-D2 — Acquisition Execution Foundation（STATUS: NOT AUTHORIZED）
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately
 authorized by its approved taskbook and Decision #46, but that authorization is limited to the
@@ -89,17 +89,17 @@ P7-UX1 已通过独立验收并完成 governance closeout（PASS / INDEPENDENTLY
 该 terminal 状态不授权 P7 数据采集、Phase 6.1、Graph write、source expansion、collector
 work 或 database migration。
 
-P7-D0 已通过独立验收并完成 governance closeout（PASS / INDEPENDENTLY ACCEPTED，
-Decision #47.8 / #47.9；accepted implementation head = `d06d8d7`）。该 terminal
-状态不授权 P7-D1 或数据采集。
+P7-D1 已实现数据就绪控制面（Decision #48），当前为 `IMPLEMENTED / AWAITING
+INDEPENDENT ACCEPTANCE`，不得声明 PASS 或自行 merge。
 
-P7-UX1 / P7-D0 之后的下一个门禁为新任务书与显式授权：
+P7-UX1 / P7-D0 / P7-D1 之后的下一个门禁为独立验收与新任务书：
 
 ```text
 P7-UX1: CLOSED / PASS
 P7-D0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
-→ NEXT ELIGIBLE: P7-D1（Data Readiness + Gap + Acquisition Control Plane）— NOT AUTHORIZED
-→ P7-D1 仍不自动授权具体新外部数据源
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+→ NEXT ELIGIBLE: P7-D2（Acquisition Execution Foundation）— NOT AUTHORIZED
+→ P7-D2 仍不自动授权具体新外部数据源
 → P7 DATA ACQUISITION 或 Phase 6.1 的任何工作
    必须 new taskbook → architecture approval → explicit authorization
 ```

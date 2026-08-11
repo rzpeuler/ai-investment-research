@@ -102,7 +102,7 @@ class DataReadiness(StrictModel):
     status: ReadinessStatus
     available_fields: List[str] = Field(default_factory=list)
     missing_fields: List[str] = Field(default_factory=list)
-    coverage_ratio: float = Field(0.0, ge=0.0, le=1.0)
+    coverage_ratio: Optional[float] = Field(None, ge=0.0, le=1.0)
     freshness_age_seconds: Optional[int] = Field(None, ge=0)
     eligible_record_count: int = Field(0, ge=0)
     ineligible_record_count: int = Field(0, ge=0)

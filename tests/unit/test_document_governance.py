@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.5" in guide
+    assert "版本：V1.6" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -215,7 +215,7 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-D0 Unified Data Layer Contracts" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D1 Data Readiness + Gap + Acquisition Planning" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
     assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
     assert "P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
@@ -368,13 +368,13 @@ def test_p7_d0_governance_is_consistent():
     assert "PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D0 = PASS / INDEPENDENTLY ACCEPTED" in limitations
     assert "PASS / INDEPENDENTLY ACCEPTED" in readme
-    assert "版本：V1.5" in guide
+    assert "版本：V1.6" in guide
     assert "P7 Unified Data Layer" in guide or "P7-D0" in guide
     assert "SCHEMAS: 85" in current
     # accepted implementation head 必须明确
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
-    # P7-D1 仍 NOT AUTHORIZED（eligible ≠ authorized）
-    assert "P7-D1" in next_phase and "NOT AUTHORIZED" in next_phase
+    # P7-D1 已 IMPLEMENTED；D2 仍 NOT AUTHORIZED（eligible ≠ authorized）
+    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
     assert "NEXT ELIGIBLE MILESTONE" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
@@ -424,9 +424,55 @@ def test_p7_d0_r1_governance():
     assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in next_phase
     assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in limitations
     assert "MERGE AUTHORIZED" not in current
-    # P7-D1 仍 NOT AUTHORIZED；D0 已 PASS
+    # P7-D1 已 IMPLEMENTED；D0 已 PASS
     assert "P7-D0" in next_phase and "PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "P7-D1" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
+
+
+def test_p7_d1_governance_is_consistent():
+    """P7-D1 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    guide = _read("docs/engineering-guide.md")
+    readme = _read("README.md")
+
+    decision_48 = decisions[decisions.index("## 48. P7-D1 Data Readiness & Acquisition Planning"):]
+    assert "SCENARIO_REQUIREMENT_AUTHORITY: registry/scenario_data_requirements.yaml" in decision_48
+    assert "READINESS: READ_ONLY / DETERMINISTIC" in decision_48
+    assert "GAP_CLASSIFICATION: DETERMINISTIC" in decision_48
+    assert "ACQUISITION_EXECUTION: NO" in decision_48
+    assert "SECOND_ROUTER: NO" in decision_48
+    assert "ROUTER_CORE_CHANGE: NO" in decision_48
+    assert "NEW_COLLECTORS: NO" in decision_48
+    assert "SOURCE_EXPANSION: NO" in decision_48
+    assert "PRODUCTION_LLM: 0" in decision_48
+    assert "GRAPH_WRITE: NONE" in decision_48
+    assert "PHASE6.1: NOT_AUTHORIZED" in decision_48
+    assert "DB: v6" in decision_48 and "MIGRATIONS: NONE" in decision_48
+    assert "SCHEMAS: 85" in decision_48
+    assert "是控制面计划，不是执行授权" in decision_48
+    assert "P7-D2: NOT AUTHORIZED" in decision_48
+
+    header = "\n".join(taskbook.splitlines()[:20])
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED" in header
+    assert "MILESTONE: P7-D1" in header
+    assert "P7-D2: NOT AUTHORIZED" in header
+
+    assert "P7-D1：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in current
+    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
+    assert "P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in limitations
+    assert "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in readme
+    assert "版本：V1.6" in guide
+    assert "P7-D1" in guide and "Data Readiness" in guide
+    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D1: PASS" not in current
+    assert "P7-D1: CLOSED" not in next_phase
+
+    schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
+    assert schema_count == 85
 
 
 def test_phase6_shared_contract_frozen():

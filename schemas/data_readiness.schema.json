@@ -25,7 +25,7 @@
     },
     "available_fields": { "type": "array", "items": { "type": "string" } },
     "missing_fields": { "type": "array", "items": { "type": "string" } },
-    "coverage_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "coverage_ratio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
     "freshness_age_seconds": { "type": ["integer", "null"], "minimum": 0 },
     "eligible_record_count": { "type": "integer", "minimum": 0 },
     "ineligible_record_count": { "type": "integer", "minimum": 0 },
