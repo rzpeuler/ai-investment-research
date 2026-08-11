@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/data_gap.schema.json",
+  "title": "DataGap",
+  "description": "数据缺口分类与推荐动作（P7-D0）。本阶段只定义对象与验证，不实现自动 GapClassifier。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requirement_id", "data_type", "classification", "reason_codes",
+    "missing_fields", "recommended_action", "requires_network",
+    "requires_user_input", "requires_human_review", "warnings"
+  ],
+  "properties": {
+    "requirement_id": { "type": "string", "minLength": 1 },
+    "data_type": { "type": "string", "minLength": 1 },
+    "classification": {
+      "type": "string",
+      "enum": [
+        "AVAILABLE", "AUTO_ACQUIRABLE", "AUTO_DERIVABLE",
+        "STALE_REFRESHABLE", "MANUAL_INPUT_REQUIRED", "HUMAN_REVIEW_REQUIRED",
+        "GOVERNED_WORKFLOW_REQUIRED", "UNAVAILABLE"
+      ]
+    },
+    "reason_codes": { "type": "array", "items": { "type": "string" } },
+    "missing_fields": { "type": "array", "items": { "type": "string" } },
+    "recommended_action": { "type": "string", "minLength": 1 },
+    "requires_network": { "type": "boolean" },
+    "requires_user_input": { "type": "boolean" },
+    "requires_human_review": { "type": "boolean" },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

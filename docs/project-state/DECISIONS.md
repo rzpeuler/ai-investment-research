@@ -2325,3 +2325,140 @@ DB: v6
 MIGRATIONS: NONE
 SCHEMAS: 80
 ```
+
+---
+
+## 47. P7-D0 Unified Data Layer Contracts & Brief Requirement Freeze
+
+**Date**: 2026-08-11
+**Status**: FROZEN / APPROVED（P7-D0 冻结；IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+**Scope**: 统一数据层契约与 Brief A/C 需求冻结；governance + contracts only，无生产行为变更
+
+### 47.1 Brief Requirement A / C 冻结与 Decision #1 纠正
+
+旧 Decision #1 将 `7×24快讯 / 深度媒体 / 社区 / 机构` 整体解释成同一"舆论监测体系"的
+语义，被本决策正式纠正 / supersede：
+
+```text
+BRIEF_A: NEW EVENT DISCOVERY（客观了解过去约 12 小时新发生的、可能与投资研究相关的事件）
+BRIEF_C: CURRENT-WINDOW ATTENTION MONITORING（相关从业人员在本报告窗口内主要关注什么）
+
+FAST_NEWS ∈ A（7×24 快讯属于事件发现）
+FAST_NEWS ∉ C
+```
+
+A 的采集范围必须覆盖用户需求文档已规定的事件方向；不得把 A 改造成市场舆情/热搜/
+从业者关注。A 输出仍基于现有 RawItem → Event/Candidate → EventCluster → Evidence →
+Claim 体系。C 使用需求文档真实分类与名单（财经/行业媒体、社区、博主/自媒体、机构
+公开信息等），禁止 Agent 按模型记忆自行增加新媒体/新博主/新机构/新社区。
+
+### 47.2 C 不是持续监控系统
+
+```text
+CONTINUOUS_MONITORING: NO
+BACKGROUND_SCANNING: NO
+HEAT_HISTORY: NO
+RANK_CHANGE: NO
+VELOCITY: NO
+ACCELERATION: NO
+PERSISTENCE: NO
+ATTENTION_TIME_SERIES: NO
+```
+
+Morning / Evening 在任务执行时：读取本次窗口 → 扫描当前有效名单 → 聚合本窗口内容 →
+Topic 聚类 → 本次样本内计算热度 → 当前排名。不得生成 ↑3 / ↓2 / 较昨天升温 /
+最近三小时加速 / 热度趋势；除非未来用户另行授权持续监控能力。
+
+### 47.3 A 和 C 不允许擅自产生第三种业务需求
+
+本阶段禁止增加：Event × Attention 四象限、高价值低热度、信息差候选、Narrative Risk、
+市场是否 Price-in、热度变化预测、自动受益股、自动机会推荐。用户当前只要求：
+A = 发生了什么；C = 大家关注什么。
+
+### 47.4 Data Layer 核心架构冻结
+
+```text
+Scenario → ScenarioDataRequirement → DataReadiness → DataGap → AcquisitionPlan → existing Router
+```
+
+P7-D0 只实现前四类契约与 Registry，不得真正执行 Acquisition。
+
+### 47.5 关键边界
+
+```text
+SCENARIO_DECLARES_SOURCE: NO（场景只声明 Data Type，禁止 source_id / provider / URL / API）
+SECOND_ROUTER: NO
+P7_D0_ROUTER_EVOLUTION: NONE
+EXISTING_ROUTER_FUTURE_EVOLUTION: ONLY UNDER SEPARATE MILESTONE AUTHORIZATION
+READINESS_NETWORK_ACCESS: NO（DataReadiness 只描述状态，不执行网络）
+LLM_DATA_AUTHORITY: NO（Source 权威不能交给 Scenario 或 LLM）
+ACQUISITION_PLAN_SELECTED_SOURCE: NO（AcquisitionPlan step 禁止 source_id / selected_source / provider_id）
+```
+
+P7-D0 禁止实现 Router v2 或修改现有 Router 核心语义；未来 P7-D1 或后续经独立授权后，
+可以演化现有 Router，但不得创建并行的第二套路由控制面。
+
+新增 5 个契约对象：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
+`AcquisitionPlan`、`BriefAttentionSnapshot`。`BriefAttentionSnapshot` 是 ONE REPORT
+RUN SNAPSHOT（非时间序列），不得包含 rank_change / previous_rank / velocity /
+acceleration / trend / persistence / history / historical_heat。heat_score 只表示
+"本次报告窗口、本次实际覆盖样本中的相对关注程度"，不是历史变化、不是事实可信度、
+不是投资价值、不是机构交易行为；Heat 算法留给后续 Brief Acquisition milestone。
+
+### 47.6 Watchlist 与 Source Registry 分离
+
+```text
+Source Registry: 描述平台/来源能力与治理
+Brief Watchlist: 描述用户要求长期检查谁
+```
+
+不得把每一个博主账号强行变成 sources.yaml 中的平台级 Source。watchlist 名单只迁移
+需求文档 / 工程指南 / 现有 registry 中已明确存在的名称。
+
+### 47.7 Terminal Boundary（P7-D0 后仍保持）
+
+```text
+P7-D0: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+P7-D1: NOT AUTHORIZED
+NEW COLLECTORS: NOT AUTHORIZED
+SOURCE EXPANSION: NOT AUTHORIZED
+PHASE6.1: NOT_AUTHORIZED
+GRAPH_WRITE: NONE
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+### 47.8 Independent Acceptance
+
+P7-D0（含 P7-D0-R1 返修）已通过独立架构验收：
+
+```text
+P7-D0_IMPLEMENTATION_HEAD: d06d8d714958f58d44fb130f8fb30a3aff7e4a7a
+P7-D0-R1: PASS
+INDEPENDENT_ACCEPTANCE: PASS
+
+ACCEPTANCE_CI: 31501777548
+PYTEST: 3019 passed / 6 skipped / 0 failed
+SCHEMAS: 85/85 PASS
+```
+
+### 47.9 Terminal Boundary（P7-D0 独立验收后）
+
+```text
+P7-D0: PASS / INDEPENDENTLY ACCEPTED
+P7_D0_ACCEPTED_IMPLEMENTATION_HEAD: d06d8d714958f58d44fb130f8fb30a3aff7e4a7a
+
+P7-D1: NOT AUTHORIZED
+NEW_COLLECTORS: NO
+SOURCE_EXPANSION: NO
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+治理 closeout 只写回已发生的验收事实，不改变 accepted implementation baseline
+（accepted code = `d06d8d7`）；governance-only closeout commit 不建立新的 accepted
+code baseline，与 Phase 6 / P7-UX1 的治理 closeout 原则一致。

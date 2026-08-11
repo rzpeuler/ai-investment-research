@@ -1,0 +1,690 @@
+# 场景数据需求注册表（P7-D0）
+# 场景只声明需要什么 Data Type，不声明具体来源（禁止来源选择字段进入）。
+# 来源选择由 DataRequirement Registry + Router 决定。
+# 本注册表只登记真实需求；无自动来源时如实体现 MISSING / MANUAL_REQUIRED / NOT_ACQUIRABLE。
+
+scenarios:
+  morning_brief:
+    description: 晨报（窗口 D-1 20:00 → D 08:00，由 BriefWindowPolicy 决定，不在本注册表重算）
+    requirements:
+      - requirement_id: morning_brief.event.news_flash
+        scenario: morning_brief
+        purpose: brief_event_discovery
+        data_type: news_flash
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: true
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 7×24 快讯属于 A（FAST_NEWS ∈ A），不属于 C
+      - requirement_id: morning_brief.event.company_announcement
+        scenario: morning_brief
+        purpose: brief_event_discovery
+        data_type: company_announcement
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: true
+        minimum_fields: [title, published_at, url, company]
+        minimum_coverage: 0.5
+        minimum_source_tier: A
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 公司公告（法定披露优先）
+      - requirement_id: morning_brief.event.macro_data
+        scenario: morning_brief
+        purpose: brief_event_discovery
+        data_type: macro_data
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: true
+        minimum_fields: [title, publish_date, url]
+        minimum_coverage: 0.5
+        minimum_source_tier: A
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 宏观数据发布
+      - requirement_id: morning_brief.event.brief_event_content
+        scenario: morning_brief
+        purpose: brief_event_discovery
+        data_type: brief_event_content
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: false
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.0
+        minimum_source_tier: D
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 需求文档其他新事件方向的统一 canonical requirement；primary/secondary 为空，仅声明需求存在
+      - requirement_id: morning_brief.attention.brief_attention_content
+        scenario: morning_brief
+        purpose: brief_attention_monitoring
+        data_type: brief_attention_content
+        scope: { scope_type: watchlist, watchlist_group: brief_watchlist }
+        time_policy: scenario_window
+        required: false
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.0
+        minimum_source_tier: D
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: Requirement C；一次性窗口关注度扫描，非持续监控；无来源时如实 not_covered
+
+  evening_brief:
+    description: 晚报（窗口 D 08:00 → D 20:00，由 BriefWindowPolicy 决定）；与 morning 同构，唯一差异为窗口
+    requirements:
+      - requirement_id: evening_brief.event.news_flash
+        scenario: evening_brief
+        purpose: brief_event_discovery
+        data_type: news_flash
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: true
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 7×24 快讯属于 A（FAST_NEWS ∈ A），不属于 C
+      - requirement_id: evening_brief.event.company_announcement
+        scenario: evening_brief
+        purpose: brief_event_discovery
+        data_type: company_announcement
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: true
+        minimum_fields: [title, published_at, url, company]
+        minimum_coverage: 0.5
+        minimum_source_tier: A
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 公司公告（法定披露优先）
+      - requirement_id: evening_brief.event.macro_data
+        scenario: evening_brief
+        purpose: brief_event_discovery
+        data_type: macro_data
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: true
+        minimum_fields: [title, publish_date, url]
+        minimum_coverage: 0.5
+        minimum_source_tier: A
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 宏观数据发布
+      - requirement_id: evening_brief.event.brief_event_content
+        scenario: evening_brief
+        purpose: brief_event_discovery
+        data_type: brief_event_content
+        scope: { scope_type: global }
+        time_policy: scenario_window
+        required: false
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.0
+        minimum_source_tier: D
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 需求文档其他新事件方向的统一 canonical requirement；primary/secondary 为空，仅声明需求存在
+      - requirement_id: evening_brief.attention.brief_attention_content
+        scenario: evening_brief
+        purpose: brief_attention_monitoring
+        data_type: brief_attention_content
+        scope: { scope_type: watchlist, watchlist_group: brief_watchlist }
+        time_policy: scenario_window
+        required: false
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.0
+        minimum_source_tier: D
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: Requirement C；一次性窗口关注度扫描，非持续监控；无来源时如实 not_covered
+
+  abnormal_move_analysis:
+    description: 异动分析（Phase 3）
+    requirements:
+      - requirement_id: abnormal_move_analysis.market_daily_ohlcv
+        scenario: abnormal_move_analysis
+        purpose: research_input
+        data_type: market_daily_ohlcv
+        scope: { scope_type: subject }
+        time_policy: explicit_request_window
+        required: true
+        minimum_fields: [trade_date, open, high, low, close, volume]
+        minimum_coverage: 0.8
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: current_snapshot
+        acceptable_fallback_modes: [manual_import]
+        degradation_policy: insufficient_data
+        notes: 历史日线；无自动来源，fallback=manual_import
+      - requirement_id: abnormal_move_analysis.entity_mapping
+        scenario: abnormal_move_analysis
+        purpose: research_input
+        data_type: entity_mapping
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [symbol, entity_id]
+        minimum_coverage: 1.0
+        minimum_source_tier: S
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: []
+        degradation_policy: insufficient_data
+        notes: 证券代码/公司主体确定性映射
+      - requirement_id: abnormal_move_analysis.event_evidence
+        scenario: abnormal_move_analysis
+        purpose: research_input
+        data_type: event_evidence
+        scope: { scope_type: subject }
+        time_policy: explicit_request_window
+        required: false
+        minimum_fields: [title, published_at, url]
+        minimum_coverage: 0.0
+        minimum_source_tier: D
+        freshness_seconds: 43200
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 事件证据（缺失时如实 UNEXPLAINED_MOVE）
+
+  stock_research_report:
+    description: 个股研报（Phase 4）
+    requirements:
+      - requirement_id: stock_research_report.company_profile
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: company_profile
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [canonical_name, fiscal_year_end, reporting_currency]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, user_document]
+        degradation_policy: insufficient_data
+        notes: 无自动来源前只允许人工登记
+      - requirement_id: stock_research_report.security_profile
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: security_profile
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [symbol, exchange, security_type, current_name]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, user_document]
+        degradation_policy: insufficient_data
+        notes: 证券与公司主体映射
+      - requirement_id: stock_research_report.financial_statement_data
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: financial_statement_data
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [fact_key, period_end, statement_scope, value]
+        minimum_coverage: 0.6
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_financial_import, disclosure_extraction]
+        degradation_policy: insufficient_data
+        notes: 核心财务事实；未验证自动源不得登记为 primary
+      - requirement_id: stock_research_report.company_document
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: company_document
+        scope: { scope_type: subject }
+        time_policy: explicit_request_window
+        required: true
+        minimum_fields: [title, published_at, document_type]
+        minimum_coverage: 0.5
+        minimum_source_tier: A
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [user_document, manual_inbox]
+        degradation_policy: degraded
+        notes: 公告/定期报告文档登记
+      - requirement_id: stock_research_report.industry_membership
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: industry_membership
+        scope: { scope_type: industry }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [industry_id, valid_from]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: insufficient_data
+        notes: 行业归属截止日前有效
+      - requirement_id: stock_research_report.peer_financial_data
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: peer_financial_data
+        scope: { scope_type: peers }
+        time_policy: as_of_snapshot
+        required: false
+        minimum_fields: [company_entity_id, period_end, fact_key, value]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_financial_import]
+        degradation_policy: degraded
+        notes: 同行比较与分位；同行样本 <3 时降级
+      - requirement_id: stock_research_report.market_valuation_snapshot
+        scenario: stock_research_report
+        purpose: research_input
+        data_type: market_valuation_snapshot
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: false
+        minimum_fields: [as_of, price, shares_outstanding]
+        minimum_coverage: 1.0
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, manual_financial_import]
+        degradation_policy: degraded
+        notes: 市值=价格×股本，时点一致
+
+  industry_research:
+    description: 行业研究（Phase 6A）
+    requirements:
+      - requirement_id: industry_research.knowledge_graph_snapshot
+        scenario: industry_research
+        purpose: research_input
+        data_type: knowledge_graph_snapshot
+        scope: { scope_type: industry }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [industry_id, node_refs, edge_refs]
+        minimum_coverage: 0.8
+        minimum_source_tier: S
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: []
+        degradation_policy: insufficient_data
+        notes: 版本化图谱只读快照
+      - requirement_id: industry_research.industry_membership
+        scenario: industry_research
+        purpose: research_input
+        data_type: industry_membership
+        scope: { scope_type: industry }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [industry_id, valid_from]
+        minimum_coverage: 0.8
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: insufficient_data
+        notes: 行业归属
+      - requirement_id: industry_research.entity_mapping
+        scenario: industry_research
+        purpose: research_input
+        data_type: entity_mapping
+        scope: { scope_type: industry }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [entity_id, entity_type]
+        minimum_coverage: 0.8
+        minimum_source_tier: S
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: []
+        degradation_policy: insufficient_data
+        notes: 实体映射
+      - requirement_id: industry_research.evidence_index
+        scenario: industry_research
+        purpose: research_input
+        data_type: evidence_index
+        scope: { scope_type: industry }
+        time_policy: explicit_request_window
+        required: false
+        minimum_fields: [evidence_id, source_ref]
+        minimum_coverage: 0.0
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: []
+        degradation_policy: degraded
+        notes: 证据索引；缺数据时如实降级
+
+  theme_discovery:
+    description: 主题发现（Phase 6A；支持 graph_based / evidence_driven / keyword_sweep / peer_diffusion）
+    requirements:
+      - requirement_id: theme_discovery.knowledge_graph_snapshot
+        scenario: theme_discovery
+        purpose: research_input
+        data_type: knowledge_graph_snapshot
+        scope: { scope_type: global }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [node_refs, edge_refs]
+        minimum_coverage: 0.8
+        minimum_source_tier: S
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: []
+        degradation_policy: insufficient_data
+        notes: graph_based / peer_diffusion 模式
+      - requirement_id: theme_discovery.industry_membership
+        scenario: theme_discovery
+        purpose: research_input
+        data_type: industry_membership
+        scope: { scope_type: industry }
+        time_policy: as_of_snapshot
+        required: false
+        minimum_fields: [industry_id, valid_from]
+        minimum_coverage: 0.5
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 行业归属
+      - requirement_id: theme_discovery.entity_mapping
+        scenario: theme_discovery
+        purpose: research_input
+        data_type: entity_mapping
+        scope: { scope_type: global }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [entity_id, entity_type]
+        minimum_coverage: 0.8
+        minimum_source_tier: S
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: []
+        degradation_policy: insufficient_data
+        notes: 实体映射
+      - requirement_id: theme_discovery.evidence_index
+        scenario: theme_discovery
+        purpose: research_input
+        data_type: evidence_index
+        scope: { scope_type: global }
+        time_policy: explicit_request_window
+        required: false
+        minimum_fields: [evidence_id, source_ref]
+        minimum_coverage: 0.0
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: []
+        degradation_policy: degraded
+        notes: evidence_driven 模式
+      - requirement_id: theme_discovery.document_corpus
+        scenario: theme_discovery
+        purpose: research_input
+        data_type: document_corpus
+        scope: { scope_type: global }
+        time_policy: explicit_request_window
+        required: false
+        minimum_fields: [document_id, title, published_at]
+        minimum_coverage: 0.0
+        minimum_source_tier: C
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: keyword_sweep / evidence_driven 模式
+
+  daily_review:
+    description: 每日复盘（Phase 6B）
+    requirements:
+      - requirement_id: daily_review.evidence
+        scenario: daily_review
+        purpose: research_input
+        data_type: evidence
+        scope: { scope_type: global }
+        time_policy: explicit_request_window
+        required: true
+        minimum_fields: [evidence_id, source_ref, published_at]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [metadata_only]
+        degradation_policy: partial_success
+        notes: 窗口内既有 Evidence
+      - requirement_id: daily_review.claims
+        scenario: daily_review
+        purpose: research_input
+        data_type: claims
+        scope: { scope_type: global }
+        time_policy: explicit_request_window
+        required: true
+        minimum_fields: [claim_id, statement]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: []
+        degradation_policy: partial_success
+        notes: 窗口内既有 Claim
+      - requirement_id: daily_review.run_artifacts
+        scenario: daily_review
+        purpose: research_input
+        data_type: run_artifacts
+        scope: { scope_type: global }
+        time_policy: explicit_request_window
+        required: true
+        minimum_fields: [task_id, run_id]
+        minimum_coverage: 0.5
+        minimum_source_tier: S
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: []
+        degradation_policy: partial_success
+        notes: 既有 Run 产物
+
+  stock_review:
+    description: 个股复盘（Phase 6B）
+    requirements:
+      - requirement_id: stock_review.evidence
+        scenario: stock_review
+        purpose: research_input
+        data_type: evidence
+        scope: { scope_type: subject }
+        time_policy: explicit_request_window
+        required: true
+        minimum_fields: [evidence_id, source_ref, published_at]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [metadata_only]
+        degradation_policy: partial_success
+        notes: 标的窗口内既有 Evidence
+      - requirement_id: stock_review.research_findings
+        scenario: stock_review
+        purpose: research_input
+        data_type: research_findings
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [finding_id, finding_type]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 86400
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: []
+        degradation_policy: partial_success
+        notes: Phase 4 既有研究结论
+
+  earnings_expectation:
+    description: 财报预期（Phase 6C）
+    requirements:
+      - requirement_id: earnings_expectation.financial_statement_data
+        scenario: earnings_expectation
+        purpose: research_input
+        data_type: financial_statement_data
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [fact_key, period_end, statement_scope, value]
+        minimum_coverage: 0.6
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_financial_import, disclosure_extraction]
+        degradation_policy: insufficient_data
+        notes: 历史财务事实
+      - requirement_id: earnings_expectation.company_profile
+        scenario: earnings_expectation
+        purpose: research_input
+        data_type: company_profile
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [canonical_name, fiscal_year_end, reporting_currency]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, user_document]
+        degradation_policy: insufficient_data
+        notes: 公司主体主数据
+      - requirement_id: earnings_expectation.security_profile
+        scenario: earnings_expectation
+        purpose: research_input
+        data_type: security_profile
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [symbol, exchange, security_type, current_name]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, user_document]
+        degradation_policy: insufficient_data
+        notes: 证券主体映射
+      - requirement_id: earnings_expectation.company_announcement
+        scenario: earnings_expectation
+        purpose: research_input
+        data_type: company_announcement
+        scope: { scope_type: subject }
+        time_policy: explicit_request_window
+        required: false
+        minimum_fields: [title, published_at, url, company]
+        minimum_coverage: 0.0
+        minimum_source_tier: A
+        freshness_seconds: 86400
+        point_in_time_policy: window_bounded
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: degraded
+        notes: 业绩预告/公告等事件证据
+
+  first_coverage:
+    description: 首次覆盖（Phase 6C）
+    requirements:
+      - requirement_id: first_coverage.company_profile
+        scenario: first_coverage
+        purpose: research_input
+        data_type: company_profile
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [canonical_name, fiscal_year_end, reporting_currency]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, user_document]
+        degradation_policy: insufficient_data
+        notes: 公司主体主数据
+      - requirement_id: first_coverage.security_profile
+        scenario: first_coverage
+        purpose: research_input
+        data_type: security_profile
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [symbol, exchange, security_type, current_name]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox, user_document]
+        degradation_policy: insufficient_data
+        notes: 证券主体映射
+      - requirement_id: first_coverage.industry_membership
+        scenario: first_coverage
+        purpose: research_input
+        data_type: industry_membership
+        scope: { scope_type: industry }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [industry_id, valid_from]
+        minimum_coverage: 1.0
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_inbox]
+        degradation_policy: insufficient_data
+        notes: 首次覆盖需要唯一可用行业
+      - requirement_id: first_coverage.peer_financial_data
+        scenario: first_coverage
+        purpose: research_input
+        data_type: peer_financial_data
+        scope: { scope_type: peers }
+        time_policy: as_of_snapshot
+        required: false
+        minimum_fields: [company_entity_id, period_end, fact_key, value]
+        minimum_coverage: 0.5
+        minimum_source_tier: B
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_financial_import]
+        degradation_policy: degraded
+        notes: 同行比较
+      - requirement_id: first_coverage.financial_statement_data
+        scenario: first_coverage
+        purpose: research_input
+        data_type: financial_statement_data
+        scope: { scope_type: subject }
+        time_policy: as_of_snapshot
+        required: true
+        minimum_fields: [fact_key, period_end, statement_scope, value]
+        minimum_coverage: 0.6
+        minimum_source_tier: A
+        freshness_seconds: 2592000
+        point_in_time_policy: strict_as_of
+        acceptable_fallback_modes: [manual_financial_import, disclosure_extraction]
+        degradation_policy: insufficient_data
+        notes: 历史财务事实

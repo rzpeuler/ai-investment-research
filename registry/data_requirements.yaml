@@ -99,6 +99,35 @@ requirements:
         - url
     failure_policy: degraded
 
+  # ===== P7-D0 Brief canonical requirements（只声明业务需求存在，不接来源）=====
+  brief_event_content:
+    description: Brief A 的统一 canonical 事件内容需求（P7-D0）。覆盖需求文档其他新事件方向；本阶段 primary/secondary 为空，仅声明需求存在，不宣称自动覆盖。
+    primary: []
+    secondary: []
+    fallback:
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - title
+        - published_at
+        - url
+    failure_policy: degraded
+    notes: FAST_NEWS ∈ A；禁止偷偷接来源；fallback 仅复用已存在的人工入口
+
+  brief_attention_content:
+    description: Brief C 的窗口关注度内容需求（P7-D0）。一次性窗口扫描名单内容；本阶段 primary/secondary 为空，不接来源。
+    primary: []
+    secondary: []
+    fallback:
+      - manual_inbox
+    minimum_acceptable:
+      fields:
+        - title
+        - published_at
+        - url
+    failure_policy: degraded
+    notes: 无来源时如实 not_covered；不得把"没有采集成功"解释成"没有市场关注"
+
   # ===== Phase 4 数据需求（Phase 4 任务书 5.6 节）=====
   company_profile:
     description: 公司主体主数据（有效期内；含统一社会信用代码、行业、实控人等）

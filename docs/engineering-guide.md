@@ -1,7 +1,7 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.4**
-**变更日期：2026-08-10**
+**版本：V1.5**
+**变更日期：2026-08-11**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
@@ -121,6 +121,34 @@
   HTTP 只绑定 loopback，浏览器不得直连 DeepSeek，报告读取必须 fail closed 于 reports 根目录。
 - 本授权不包含数据采集、来源注册表扩张、Graph 写入、Research→GraphChange Candidate、
   Phase 6.1 或数据库迁移。正式决策见 `DECISIONS.md` #46。
+
+### 0.5 V1.5 P7 Unified Data Layer 冻结（2026-08-11）
+
+- P7-D0 冻结统一数据层契约：`Scenario → ScenarioDataRequirement → DataReadiness →
+  DataGap → AcquisitionPlan → existing Router`。本里程碑只实现前四类契约与 Registry，
+  不执行 Acquisition。正式决策见 `DECISIONS.md` #47。
+- **Scenario Data Requirements**：场景只声明需要什么 Data Type，不得声明具体来源；
+  `registry/scenario_data_requirements.yaml` 禁止 `source_id / provider / URL / API`。
+  来源选择由 DataRequirement Registry + Router 决定。
+- **Readiness / Gap / Acquisition boundaries**：`DataReadiness` 只描述状态、不执行网络；
+  `DataGap` 只定义分类（AVAILABLE / AUTO_ACQUIRABLE / AUTO_DERIVABLE /
+  STALE_REFRESHABLE / MANUAL_INPUT_REQUIRED / HUMAN_REVIEW_REQUIRED /
+  GOVERNED_WORKFLOW_REQUIRED / UNAVAILABLE），不实现自动 GapClassifier；
+  `AcquisitionPlan` step 禁止 `source_id / selected_source / provider_id`。
+- **Brief Requirement A / C**：`A = NEW EVENT DISCOVERY`（过去约 12 小时新事件），
+  `C = CURRENT-WINDOW ATTENTION MONITORING`（本窗口从业人员关注什么）。
+  `FAST_NEWS ∈ A`、`FAST_NEWS ∉ C`。旧 Decision #1 将 7×24快讯/深度媒体/社区/机构
+  整体解释成同一“舆论监测体系”的语义被 Decision #47 正式纠正 / supersede。
+- **One-shot Attention Monitoring / No continuous scan**：C 是单次报告窗口快照
+  （`BriefAttentionSnapshot`），非时间序列；`CONTINUOUS_MONITORING: NO`、
+  `HEAT_HISTORY: NO`、`RANK_CHANGE: NO`、`VELOCITY: NO`、`ACCELERATION: NO`、
+  `PERSISTENCE: NO`。不得生成趋势/升降温表述。heat_score 只表示本次窗口本次样本内
+  相对关注程度，不是历史变化、不是事实可信度、不是投资价值、不是机构交易行为。
+- **Existing Router evolution rule**：现有 `src/research_os/routing/router.py` 继续作为
+  未来数据来源路由基础；`SECOND_SOURCE_ROUTER: PROHIBITED`。P7-D0 不实施 Router 演化；
+  未来 P7-D1 或后续经独立授权后可以演化现有 Router，但不得创建并行的第二套路由控制面。
+- 本授权不包含新 Collector、Source expansion、Graph 写入、Phase 6.1 或数据库迁移；
+  DB 保持 v6、MIGRATIONS NONE、SCHEMAS 85。
 
 ---
 

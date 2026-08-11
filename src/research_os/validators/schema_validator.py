@@ -122,6 +122,12 @@ SCHEMA_NAMES = [
     "chat_theme_discovery_input",
     "chat_earnings_expectation_input",
     "chat_first_coverage_input",
+    # Phase 7 D0：统一数据层契约（非持久化业务对象；DB 仍 v6，无迁移）
+    "scenario_data_requirement",
+    "data_readiness",
+    "data_gap",
+    "acquisition_plan",
+    "brief_attention_snapshot",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径

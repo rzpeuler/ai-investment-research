@@ -1,9 +1,10 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-10
+> 更新日期：2026-08-11
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
-> 权威规范：`docs/engineering-guide.md` V1.4
+> P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
+> 权威规范：`docs/engineering-guide.md` V1.5
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -160,6 +161,7 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 - Historical Phase 6 terminal snapshot: Schemas: 69；DB: v6；migrations: NONE；
   USER_TRIAL_READY: YES。该数字是 Decision #45 的历史验收快照，不是当前注册表数量。
 - Current registry after P7-UX1 implementation: Schemas: 80；DB: v6；migrations: NONE。
+- Current registry after P7-D0 contracts: Schemas: 85；DB: v6；migrations: NONE。
 
 ## P7-UX1 当前状态（terminal / governance closeout）
 
@@ -172,10 +174,33 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   `Orchestrator.execute()`，并由 Runner 校验和持久化正式 artifacts。
 - Chat DeepSeek 预算固定为 route≤1 Flash、extract≤1 Flash、total≤2 Flash、Pro=0；
   LLM 与 Research Live 是两个独立 gate。
-- 当前 Schema registry 为 80；数据库仍为 v6；未增加 migration、conversation table、
-  Collector、Source Registry、Pipeline 或 Graph write。
 - `P7 DATA ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION`；
   `PHASE6.1: NOT_AUTHORIZED`；Phase 6 Research→GraphChange Candidate 继续 `DEFERRED`。
 - Governance closeout 保持：`DATA_ACQUISITION_CHANGED: NO`、`COLLECTORS_CHANGED: NO`、
   `SOURCE_REGISTRY_CHANGED: NO`、`GRAPH_WRITE: NONE`、`DB: v6`、`MIGRATIONS: NONE`、
-  `SCHEMAS: 80`。
+  `SCHEMAS: 85`（P7-D0 后）。
+
+## P7-D0 当前状态（PASS / INDEPENDENTLY ACCEPTED）
+
+- 授权：`IMPLEMENTATION AUTHORIZED — P7-D0 ONLY`；状态：`PASS /
+  INDEPENDENTLY ACCEPTED`（2026-08-11，Decision #47.8 / #47.9）。独立架构验收
+  通过；accepted implementation head = `d06d8d714958f58d44fb130f8fb30a3aff7e4a7a`。
+  该状态不授权 P7-D1 或数据采集。
+- P7-D0-R1 返修（contract strictness + governance closure）已包含在验收 head 内：
+  `public_metrics` 改为严格 `array[PublicMetric]`、`scope` 完整字段全部 required、
+  Registry 对第 11 个/missing scenario 与 wrapper 未知字段 fail-closed、watchlist
+  增加 `content_scope`（财联社 = non_fast_news_only）、未验证条目
+  `last_verified_at: null`、Router 治理措辞收口。详见 `docs/tasks/phase7-data-layer-d0-r1.md`。
+- 冻结 5 个数据层契约：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
+  `AcquisitionPlan`、`BriefAttentionSnapshot`；Schema registry 为 85；DB 仍 v6；
+  migrations NONE。
+- 新增 `registry/scenario_data_requirements.yaml`（10/10 scenarios，43 requirements）
+  与 `registry/brief_watchlist.yaml`（25 项 / 4 组）；`registry/data_requirements.yaml`
+  新增 `brief_event_content` 与 `brief_attention_content`（primary/secondary 为空，
+  仅声明需求存在，不接来源）。
+- Brief Requirement A / C 已冻结（Decision #47 supersede 旧 Decision #1 的
+  “舆论监测体系”整体语义）：`A = NEW EVENT DISCOVERY`、`C = CURRENT-WINDOW
+  ATTENTION MONITORING`；`FAST_NEWS ∈ A`、`FAST_NEWS ∉ C`；C 为一次性窗口扫描，
+  无持续监控 / 热度历史 / 排名变化 / 速度 / 加速度 / 持久化。
+- `P7-D1: NOT AUTHORIZED`；`NEW COLLECTORS: NOT AUTHORIZED`；`SOURCE EXPANSION:
+  NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。

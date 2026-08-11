@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.4" in guide
+    assert "版本：V1.5" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -215,9 +215,9 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-UX1 Conversational Research Gateway" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D0 Unified Data Layer Contracts" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
-    assert "Phase 7**: UX1 ONLY（数据采集 NOT_STARTED）" in next_phase6
+    assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
     assert "P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Current authorized milestone" not in next_phase6
 
@@ -305,11 +305,13 @@ def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
     assert "仍为 `NOT_STARTED`" in readme
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
-    assert schema_count == 80
-    assert f"Current registry after P7-UX1 implementation: Schemas: {schema_count}" in current
+    assert schema_count == 85
+    assert f"Current registry after P7-UX1 implementation: Schemas: 80" in current
+    assert f"Current registry after P7-D0 contracts: Schemas: {schema_count}" in current
     assert f"Current Schema registry**: {schema_count}" in next_phase
     assert f"当前 Schema registry 为 **{schema_count}**" in readme
     assert "DB: v6" in current and "migrations: NONE" in current
+    assert "SCHEMAS: 85" in current
 
     # Decision #45's 69-schema terminal snapshot remains historical and explicitly labelled.
     decision_45 = decisions[decisions.index("## 45. Phase 6 Terminal Closeout"):
@@ -317,6 +319,114 @@ def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
     assert "SCHEMA_REGISTRY: 69" in decision_45
     assert "Historical Phase 6 terminal snapshot: Schemas: 69" in current
     assert "Phase 6 terminal historical snapshot：Schema 69" in readme
+
+
+def test_p7_d0_governance_is_consistent():
+    """P7-D0 living surfaces agree on PASS / INDEPENDENTLY ACCEPTED."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d0.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    guide = _read("docs/engineering-guide.md")
+    readme = _read("README.md")
+    gc_taskbook = _read("docs/tasks/phase7-data-layer-d0-governance-closeout.md")
+
+    decision_47 = decisions[decisions.index("## 47. P7-D0 Unified Data Layer Contracts"):]
+    assert "BRIEF_A: NEW EVENT DISCOVERY" in decision_47
+    assert "BRIEF_C: CURRENT-WINDOW ATTENTION MONITORING" in decision_47
+    assert "FAST_NEWS ∈ A" in decision_47
+    assert "FAST_NEWS ∉ C" in decision_47
+    assert "CONTINUOUS_MONITORING: NO" in decision_47
+    assert "HEAT_HISTORY: NO" in decision_47
+    assert "RANK_CHANGE: NO" in decision_47
+    assert "VELOCITY: NO" in decision_47
+    assert "SCENARIO_DECLARES_SOURCE: NO" in decision_47
+    assert "SECOND_ROUTER: NO" in decision_47
+    assert "READINESS_NETWORK_ACCESS: NO" in decision_47
+    assert "LLM_DATA_AUTHORITY: NO" in decision_47
+    assert "ACQUISITION_PLAN_SELECTED_SOURCE: NO" in decision_47
+    assert "P7-D1: NOT AUTHORIZED" in decision_47
+    assert "SCHEMAS: 85" in decision_47
+    # 47.8 / 47.9：独立验收 + terminal boundary
+    assert "### 47.8 Independent Acceptance" in decision_47
+    assert "### 47.9 Terminal Boundary" in decision_47
+    assert "INDEPENDENT_ACCEPTANCE: PASS" in decision_47
+    assert "P7-D0: PASS / INDEPENDENTLY ACCEPTED" in decision_47
+    assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in decision_47
+
+    header = "\n".join(taskbook.splitlines()[:20])
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED" in header
+    assert "MILESTONE: P7-D0" in header
+    assert "P7-D1 NOT AUTHORIZED" in header
+    assert "EXPECTED_SCHEMA_COUNT: 85" in header
+    # terminal record 追加，不改写原始授权内容
+    assert "IMPLEMENTATION: PASS / INDEPENDENTLY ACCEPTED" in taskbook
+    assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in taskbook
+
+    assert "P7-D0：PASS / INDEPENDENTLY ACCEPTED" in current
+    assert "PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "P7-D0 = PASS / INDEPENDENTLY ACCEPTED" in limitations
+    assert "PASS / INDEPENDENTLY ACCEPTED" in readme
+    assert "版本：V1.5" in guide
+    assert "P7 Unified Data Layer" in guide or "P7-D0" in guide
+    assert "SCHEMAS: 85" in current
+    # accepted implementation head 必须明确
+    assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
+    # P7-D1 仍 NOT AUTHORIZED（eligible ≠ authorized）
+    assert "P7-D1" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "NEXT ELIGIBLE MILESTONE" in next_phase
+    assert "P7-D1 IN_PROGRESS" not in next_phase
+    assert "P7 DATA ACQUISITION STARTED" not in next_phase
+    # governance closeout taskbook 存在
+    assert "P7-D0-GC" in gc_taskbook
+    assert "START_HEAD" in gc_taskbook and "d06d8d7" in gc_taskbook
+    assert "SCOPE: governance-only" in gc_taskbook
+
+    schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
+    assert schema_count == 85
+    assert f"Current registry after P7-D0 contracts: Schemas: {schema_count}" in current
+
+
+def test_p7_d0_r1_governance():
+    """P7-D0-R1：contract strictness + governance closure 已反映到治理面。"""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    guide = _read("docs/engineering-guide.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    r1_taskbook = _read("docs/tasks/phase7-data-layer-d0-r1.md")
+
+    # R1-06：Router 措辞收口——不再永久禁止现有 Router 后续演化
+    assert "P7_D0_ROUTER_EVOLUTION: NONE" in decisions
+    assert "EXISTING_ROUTER_FUTURE_EVOLUTION: ONLY UNDER SEPARATE MILESTONE AUTHORIZATION" in decisions
+    assert "SECOND_ROUTER: NO" in decisions
+    assert "不得创建并行的第二套路由控制面" in decisions
+    # 工程指南不再出现"永久禁止 Router v2"绝对措辞
+    assert "只允许演化现有 Router" not in guide
+    assert "SECOND_SOURCE_ROUTER: PROHIBITED" in guide
+    assert "P7-D0 不实施 Router 演化" in guide
+
+    # R1 taskbook 版本化记录 + terminal record
+    assert "TASKBOOK_STATUS" in r1_taskbook or "P7-D0-R1" in r1_taskbook
+    assert "1048904" in r1_taskbook or "10489041efbc8e7dc5507fb48101230996b67535" in r1_taskbook
+    assert "P7-D1" in r1_taskbook and "NOT AUTHORIZED" in r1_taskbook
+    assert "R1: PASS" in r1_taskbook
+    assert "INDEPENDENT_RE_ACCEPTANCE: PASS" in r1_taskbook
+
+    # Project State：已验收 → PASS / INDEPENDENTLY ACCEPTED
+    assert "PASS / INDEPENDENTLY ACCEPTED" in current
+    assert "PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "PASS / INDEPENDENTLY ACCEPTED" in limitations
+    assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
+    # 不得出现旧的 awaiting / 未验收表述
+    assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in current
+    assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in next_phase
+    assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in limitations
+    assert "MERGE AUTHORIZED" not in current
+    # P7-D1 仍 NOT AUTHORIZED；D0 已 PASS
+    assert "P7-D0" in next_phase and "PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "P7-D1" in next_phase and "NOT AUTHORIZED" in next_phase
 
 
 def test_phase6_shared_contract_frozen():

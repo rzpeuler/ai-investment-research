@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/scenario_data_requirement.schema.json",
+  "title": "ScenarioDataRequirement",
+  "description": "场景数据需求契约（P7-D0）。场景只声明需要什么 Data Type，不声明具体来源。禁止 source_id / provider / URL / API endpoint。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requirement_id", "scenario", "purpose", "data_type", "scope",
+    "time_policy", "required", "minimum_fields", "minimum_coverage",
+    "minimum_source_tier", "freshness_seconds", "point_in_time_policy",
+    "acceptable_fallback_modes", "degradation_policy", "notes"
+  ],
+  "properties": {
+    "requirement_id": { "type": "string", "minLength": 1 },
+    "scenario": {
+      "type": "string",
+      "enum": [
+        "morning_brief", "evening_brief", "daily_review",
+        "abnormal_move_analysis", "stock_research_report", "first_coverage",
+        "stock_review", "industry_research", "theme_discovery",
+        "earnings_expectation"
+      ]
+    },
+    "purpose": {
+      "type": "string",
+      "enum": ["research_input", "brief_event_discovery", "brief_attention_monitoring"]
+    },
+    "data_type": { "type": "string", "minLength": 1 },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_type", "reference", "watchlist_group"],
+      "properties": {
+        "scope_type": {
+          "type": "string",
+          "enum": ["global", "subject", "benchmark", "peers", "industry", "watchlist", "scenario"]
+        },
+        "reference": { "type": ["string", "null"] },
+        "watchlist_group": { "type": ["string", "null"] }
+      }
+    },
+    "time_policy": {
+      "type": "string",
+      "enum": ["scenario_window", "explicit_request_window", "as_of_snapshot", "latest_available", "lookback_trading_days"]
+    },
+    "required": { "type": "boolean" },
+    "minimum_fields": { "type": "array", "items": { "type": "string" } },
+    "minimum_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+    "minimum_source_tier": { "type": "string", "enum": ["S", "A", "B", "C", "D"] },
+    "freshness_seconds": { "type": "integer", "minimum": 0 },
+    "point_in_time_policy": {
+      "type": "string",
+      "enum": ["strict_as_of", "window_bounded", "current_snapshot", "not_applicable"]
+    },
+    "acceptable_fallback_modes": { "type": "array", "items": { "type": "string" } },
+    "degradation_policy": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" }
+  }
+}

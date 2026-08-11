@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/acquisition_plan.schema.json",
+  "title": "AcquisitionPlan",
+  "description": "数据获取计划（P7-D0）。只描述动作类型，禁止提前选择具体 Source；source_id / selected_source / provider_id 不得出现。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "scenario", "as_of", "steps", "warnings"],
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "scenario": {
+      "type": "string",
+      "enum": [
+        "morning_brief", "evening_brief", "daily_review",
+        "abnormal_move_analysis", "stock_research_report", "first_coverage",
+        "stock_review", "industry_research", "theme_discovery",
+        "earnings_expectation"
+      ]
+    },
+    "as_of": { "type": "string", "format": "date-time" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step_id", "requirement_id", "data_type", "action", "dependencies", "status", "warnings"],
+        "properties": {
+          "step_id": { "type": "string", "minLength": 1 },
+          "requirement_id": { "type": "string", "minLength": 1 },
+          "data_type": { "type": "string", "minLength": 1 },
+          "action": {
+            "type": "string",
+            "enum": [
+              "route_existing_sources", "derive_existing", "request_manual_input",
+              "request_human_review", "governed_workflow", "unavailable"
+            ]
+          },
+          "dependencies": { "type": "array", "items": { "type": "string" } },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "completed", "blocked", "failed"]
+          },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}
