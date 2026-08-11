@@ -3042,15 +3042,19 @@ artifact 的创建、状态、任务血缘和持久化继续由 Orchestrator / R
 ### 69A.4 实施门禁
 
 ```text
-P7-UX1: IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE
+P7-UX1: PASS / INDEPENDENTLY ACCEPTED
 P7 DATA ACQUISITION: NOT_STARTED
 PHASE6.1: NOT_AUTHORIZED
 PHASE6 RESEARCH→GRAPHCHANGE CANDIDATE: DEFERRED
 DB: v6
 MIGRATIONS: NONE
+SCHEMAS: 80
 ```
 
-在独立验收前不得声明 P7-UX1 PASS、merge 或 Phase 7 全阶段完成。
+P7-UX1 已完成独立验收并完成 governance closeout（Decision #46.7 / #46.8）。该 terminal
+状态只覆盖本地 Chat UX / control-plane adapter，不授权 P7 数据采集、Phase 6.1、
+Graph write、source expansion、collector work 或 database migration。任何后续工作必须
+`new taskbook → architecture approval → explicit authorization`。
 
 ---
 

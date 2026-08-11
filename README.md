@@ -73,11 +73,12 @@ Schema 30→51，迁移 user_version=5。
 统一入口已经可用，但运行结果仍受数据与 Evidence availability 约束；
 `insufficient_evidence` 是合法业务结果，不代表执行器故障。
 
-## P7-UX1：会话式研究入口（等待独立验收）
+## P7-UX1：会话式研究入口（PASS / INDEPENDENTLY ACCEPTED）
 
-P7-UX1 已实现，但当前仍是 `IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE`，不是 PASS。
-它只为现有十个研究场景增加本地会话入口，没有扩展数据源、Collector、研究 Pipeline、
-Graph 写入或数据库迁移。
+P7-UX1 已完成独立验收并通过 governance closeout（`PASS / INDEPENDENTLY ACCEPTED`，
+Decision #46.7）。它只为现有十个研究场景增加本地会话入口，没有扩展数据源、Collector、
+研究 Pipeline、Graph 写入或数据库迁移。该状态只覆盖本地 Chat UX / control-plane
+adapter，不代表 Phase 7 数据采集或 Phase 6.1 授权。
 
 普通用户最简入口：
 
@@ -104,7 +105,9 @@ DeepSeek 密钥只在本机环境变量设置：`DEEPSEEK_API_KEY`；可选地�
 时仍有有限的确定性回退，但复杂自然语言会要求澄清。
 
 当前 Schema registry 为 **80**，数据库为 **v6**，没有新增 migration。P7 data acquisition
-仍为 `NOT_STARTED`；Phase 6.1 未授权。
+仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1 已通过独立验收（`PASS /
+INDEPENDENTLY ACCEPTED`），但未改变任何数据源、Collector、Source Registry、Graph 或
+数据库行为。
 
 ## 快速开始
 

@@ -2,7 +2,7 @@
 
 > 更新日期：2026-08-10
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
-> P7-UX1：IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE（LIMITED AUTHORIZATION）
+> P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > 权威规范：`docs/engineering-guide.md` V1.4
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -49,7 +49,7 @@
 | P6-G0 | PASS / MERGED | Phase 6 顶层设计治理冻结（PR #13）。 |
 | P6-F0 | PASS / MERGED | 共享契约冻结（PR #14）。 |
 | Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
-| P7-UX1 Conversational Research Gateway | IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE | 仅本地 Chat UX / control-plane adapter；不代表 Phase 7 PASS，不授权数据采集或 Phase 6.1。 |
+| P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -161,10 +161,11 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   USER_TRIAL_READY: YES。该数字是 Decision #45 的历史验收快照，不是当前注册表数量。
 - Current registry after P7-UX1 implementation: Schemas: 80；DB: v6；migrations: NONE。
 
-## P7-UX1 当前状态（非历史快照）
+## P7-UX1 当前状态（terminal / governance closeout）
 
-- 授权：`LIMITED AUTHORIZATION`；状态：`IMPLEMENTED / IN_PROGRESS /
-  AWAITING INDEPENDENT ACCEPTANCE`。不得声明 P7-UX1 PASS 或 merge。
+- 授权：`LIMITED AUTHORIZATION`；状态：`PASS / INDEPENDENTLY ACCEPTED`（2026-08-10
+  governance closeout，Decision #46.7 / #46.8）。P7-UX1 独立验收通过，但该状态
+  不覆盖 Phase 7 全阶段，不授权数据采集或 Phase 6.1。
 - 本地会话入口已经实现：`research dashboard` 或 `scripts/start_dashboard.bat`；用户选择
   具体场景或 AUTO 后使用自然语言，无需填写 JSON。
 - Chat 只生成 Public Request Draft 与确定性 Minimal Public Request；正式执行仍唯一进入
@@ -175,3 +176,6 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   Collector、Source Registry、Pipeline 或 Graph write。
 - `P7 DATA ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION`；
   `PHASE6.1: NOT_AUTHORIZED`；Phase 6 Research→GraphChange Candidate 继续 `DEFERRED`。
+- Governance closeout 保持：`DATA_ACQUISITION_CHANGED: NO`、`COLLECTORS_CHANGED: NO`、
+  `SOURCE_REGISTRY_CHANGED: NO`、`GRAPH_WRITE: NONE`、`DB: v6`、`MIGRATIONS: NONE`、
+  `SCHEMAS: 80`。

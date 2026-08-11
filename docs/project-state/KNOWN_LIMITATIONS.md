@@ -7,8 +7,8 @@
 > Graph→Research = read-only Phase 6A path enabled；
 > Phase 6 Research→GraphChange Candidate integration = DEFERRED；
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
-> P7-UX1 = IMPLEMENTED / IN_PROGRESS /
-> AWAITING INDEPENDENT ACCEPTANCE（LIMITED AUTHORIZATION）。
+> P7-UX1 = PASS / INDEPENDENTLY ACCEPTED（governance closeout，
+> Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -131,7 +131,7 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   branch 普通 push 不触发，PR 会触发；GHA Node.js 20 deprecation warning 为 non-blocking
   （runner 强制使用 Node 24）；在线能力仍靠显式 live acceptance，不得由 Offline CI PASS 替代。
 
-## 15. P7-UX1 会话网关首版限制（当前状态，不覆盖历史快照）
+## 15. P7-UX1 会话网关首版限制（terminal 状态，不覆盖历史快照）
 
 - 网关是 local / loopback-only 的个人入口，只监听 `127.0.0.1`；不是远程服务或多租户
   SaaS。浏览器不得直接访问 DeepSeek。
@@ -151,4 +151,6 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   当前 Schema registry 为 80；DB 仍为 v6；migrations 为 NONE。
 - P7 DATA ACQUISITION = NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION；Phase 6.1 =
   NOT_AUTHORIZED；Phase 6 Research→GraphChange Candidate integration 继续 DEFERRED。
-- 本地实现与测试通过不等于独立验收；当前不得声明 P7-UX1 PASS 或 merge。
+- P7-UX1 已完成独立验收（PASS / INDEPENDENTLY ACCEPTED，2026-08-10 governance
+  closeout）。该 terminal 状态只覆盖本地 Chat UX / control-plane adapter，不代表
+  Phase 7 数据采集或 Phase 6.1 授权。

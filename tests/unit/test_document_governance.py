@@ -217,8 +217,8 @@ def test_phase6_terminal_governance_closeout():
 
     assert "CURRENT ENGINEERING MILESTONE**: P7-UX1 Conversational Research Gateway" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
-    assert "Phase 7**: UX1 LIMITED AUTHORIZATION ONLY" in next_phase6
-    assert "P7-UX1**: IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE" in next_phase6
+    assert "Phase 7**: UX1 ONLY（数据采集 NOT_STARTED）" in next_phase6
+    assert "P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Current authorized milestone" not in next_phase6
 
     assert "Phase 6 research workflows = PASS / centrally enabled" in limitations_header
@@ -254,8 +254,8 @@ def test_phase6_terminal_governance_closeout():
     assert "DB: v6" in current_phase6
 
 
-def test_phase7_ux1_governance_is_consistent_and_awaits_independent_acceptance():
-    """P7-UX1 living surfaces expose the limited gateway without claiming PASS."""
+def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
+    """P7-UX1 living surfaces agree on terminal state after independent acceptance."""
     decisions = _read("docs/project-state/DECISIONS.md")
     taskbook = _read("docs/tasks/phase7-conversational-research-ux.md")
     current = _read("docs/project-state/CURRENT_STATE.md")
@@ -274,20 +274,35 @@ def test_phase7_ux1_governance_is_consistent_and_awaits_independent_acceptance()
         "PHASE6.1: NOT_AUTHORIZED", "P7 DATA ACQUISITION: NOT_STARTED",
     ):
         assert required in decision_46
+    # 46.7 records independent acceptance / terminal status; 46.8 keeps boundaries.
+    assert "### 46.7 Independent Acceptance and Terminal Status" in decision_46
+    assert "P7-UX1: PASS / INDEPENDENTLY ACCEPTED" in decision_46
+    assert "### 46.8 Terminal Boundary" in decision_46
+    for kept in (
+        "DATA_ACQUISITION_CHANGED: NO", "COLLECTORS_CHANGED: NO",
+        "SOURCE_REGISTRY_CHANGED: NO", "GRAPH_WRITE: NONE", "PHASE6_1: NOT_AUTHORIZED",
+        "DB: v6", "MIGRATIONS: NONE", "SCHEMAS: 80",
+    ):
+        assert kept in decision_46
 
-    header = "\n".join(taskbook.splitlines()[:24])
-    assert "IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE" in header
+    header = "\n".join(taskbook.splitlines()[:30])
+    assert "TASKBOOK_STATUS: PASS / INDEPENDENTLY ACCEPTED" in header
     assert "P7 DATA ACQUISITION: NOT_STARTED" in header
-    assert "TASKBOOK_STATUS: PASS" not in header
+    for kept in (
+        "DATA_ACQUISITION_CHANGED: NO", "COLLECTORS_CHANGED: NO",
+        "SOURCE_REGISTRY_CHANGED: NO", "GRAPH_WRITE: NONE",
+        "DB: v6", "MIGRATIONS: NONE", "SCHEMAS: 80",
+    ):
+        assert kept in header
 
     for surface in (current, next_phase, limitations, guide, readme):
-        assert "AWAITING INDEPENDENT ACCEPTANCE" in surface
+        assert "PASS / INDEPENDENTLY ACCEPTED" in surface
         assert "Phase 6.1" in surface or "PHASE6.1" in surface
     assert "P7 DATA ACQUISITION: NOT_STARTED" in current
     assert "P7 DATA ACQUISITION**: NOT_STARTED" in next_phase
     assert "P7 DATA ACQUISITION = NOT_STARTED" in limitations
     assert "P7 DATA ACQUISITION: NOT_STARTED" in guide
-    assert "P7 data acquisition\n仍为 `NOT_STARTED`" in readme
+    assert "仍为 `NOT_STARTED`" in readme
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
     assert schema_count == 80

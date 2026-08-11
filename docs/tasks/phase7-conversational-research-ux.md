@@ -1,6 +1,6 @@
 # Phase 7 UX1：Schema-Driven Conversational Research Gateway
 
-**TASKBOOK_STATUS: IMPLEMENTED / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE**
+**TASKBOOK_STATUS: PASS / INDEPENDENTLY ACCEPTED**
 
 **PHASE: Phase 7（LIMITED AUTHORIZATION）**
 
@@ -10,11 +10,23 @@
 
 **IMPLEMENTATION_HEAD_BEFORE_GOVERNANCE: `55160cd`**
 
+**ACCEPTED_HEAD: `75d2ccf`**
+
 **PHASE6.1: NOT AUTHORIZED**
 
 **P7 DATA ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION**
 
-> 当前状态不是 PASS。实现和本地验证完成后仍须独立验收；执行 Agent 不得自行合并。
+**DATA_ACQUISITION_CHANGED: NO**
+**COLLECTORS_CHANGED: NO**
+**SOURCE_REGISTRY_CHANGED: NO**
+**GRAPH_WRITE: NONE**
+**DB: v6**
+**MIGRATIONS: NONE**
+**SCHEMAS: 80**
+
+> P7-UX1 已通过独立验收（INDEPENDENT_ACCEPTANCE: PASS），terminal 状态为
+> PASS / INDEPENDENTLY ACCEPTED。该状态只覆盖本地 Chat UX / control-plane adapter，
+> 不授权 P7 数据采集、Phase 6.1、图谱写入或数据库迁移。
 
 ## 1. 目标与范围
 
@@ -334,23 +346,33 @@ migration。最终还要检查允许目录 diff，并取得与最终 head 完全
   `research_os/dashboard/static/index.html`、`dashboard.js`、`dashboard.css`。
 - Scope gate：未修改 Runner、Pipeline、Collector、Source Registry、Graph core 或 migration。
 
-上述仅为本地实现验证，不是独立验收、P7-UX1 PASS 或 merge 授权。
+上述本地实现验证与 Offline CI 通过后，P7-UX1 已完成独立验收；terminal 状态见
+本任务书头部与 Decision #46.7 / #46.8。
 
 ## 13. 治理与交付
 
 实现阶段新增 Decision #46，冻结本任务的架构和三类字段所有权；同步更新
 `CURRENT_STATE.md`、`NEXT_PHASE.md`、`KNOWN_LIMITATIONS.md`、工程指南和 README。
-独立验收前只能声明 `P7-UX1: IN_PROGRESS`。
+P7-UX1 已完成独立验收（`INDEPENDENT_ACCEPTANCE: PASS`），terminal 状态为
+`PASS / INDEPENDENTLY ACCEPTED`。
 
 分支固定为 `phase7/ux1-conversational-research`，PR 标题固定为
-`Phase 7 UX1: Schema-Driven Conversational Research`。PR 必须保持 OPEN / NOT MERGED；
-执行 Agent 不得自行合并。
+`Phase 7 UX1: Schema-Driven Conversational Research`。PR 改为 READY 后保持
+OPEN / NOT MERGED；执行 Agent 不得自行合并。
 
-实现、测试、治理和 CI 全部通过后，只能报告：
+实现、测试、治理和 CI 全部通过后，报告：
 
 ```text
-P7_UX1: READY_FOR_INDEPENDENT_ACCEPTANCE
+P7_UX1: PASS / INDEPENDENTLY ACCEPTED
 P7_DATA_ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION
+PHASE6.1: NOT_AUTHORIZED
+DATA_ACQUISITION_CHANGED: NO
+COLLECTORS_CHANGED: NO
+SOURCE_REGISTRY_CHANGED: NO
+GRAPH_WRITE: NONE
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 80
 ```
 
 完成后停止，不开始数据采集或 Phase 6.1。

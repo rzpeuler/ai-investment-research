@@ -2290,3 +2290,38 @@ MIGRATIONS: none
 P7-UX1 authorizes no second orchestrator, research pipeline, graph write, GraphChange candidate
 integration, ontology/source expansion, collector work, source-registry change, migration, or
 Phase 6.1 work. Implementation and local validation do not constitute independent acceptance.
+
+### 46.7 Independent Acceptance and Terminal Status
+
+> 本节只追加独立验收与 terminal 状态记录，不修改 46.1–46.6 的冻结设计。验收对象为
+> P7-UX1 实现 head（governance-only closeout 提交不建立新的 accepted code baseline，
+> 与 P6-S6 治理约定一致）。
+
+```text
+P7-UX1: PASS / INDEPENDENTLY ACCEPTED
+P7-UX1_IMPLEMENTATION_HEAD: 75d2ccf
+INDEPENDENT_ACCEPTANCE: PASS
+P7 DATA ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION
+PHASE6.1: NOT_AUTHORIZED
+PHASE6 RESEARCH→GRAPHCHANGE CANDIDATE: DEFERRED
+```
+
+独立验收结论：P7-UX1 会话式研究网关的冻结设计（46.1–46.6）与实现一致，本地实现验证
+与 Offline CI 通过。验收对象只包括本地 Chat UX / control-plane adapter，不代表
+Phase 7 全阶段 PASS。
+
+### 46.8 Terminal Boundary（governance closeout 后仍保持）
+
+P7-UX1 governance closeout 为 governance-only，不得被解释为任何生产行为变更。以下
+边界在 closeout 后明确保持：
+
+```text
+DATA_ACQUISITION_CHANGED: NO
+COLLECTORS_CHANGED: NO
+SOURCE_REGISTRY_CHANGED: NO
+GRAPH_WRITE: NONE
+PHASE6_1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 80
+```
