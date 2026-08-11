@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI＋A股投研工作台</title><link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+  <header><div><strong>AI＋A股投研工作台</strong><span>本地会话式研究入口</span></div><span id="health">连接中…</span></header>
+  <main>
+    <aside><h2>研究场景</h2><div id="scenarios" class="scenario-list"></div>
+      <label class="toggle"><input id="llm" type="checkbox">使用 LLM 理解自然语言</label>
+      <label class="toggle"><input id="live" type="checkbox">Research Live 数据</label>
+      <p class="hint">两个开关相互独立。研究信息完整后将自动执行。</p>
+    </aside>
+    <section class="chat-panel"><div id="messages" class="messages" aria-live="polite"></div>
+      <form id="chat-form"><textarea id="message" required maxlength="10000" placeholder="例如：生成今天晨报；或选择个股研报后输入 600519.SH"></textarea><button>发送</button></form>
+    </section>
+    <aside class="result-panel"><h2>识别与执行</h2><dl><dt>状态</dt><dd id="status">等待输入</dd><dt>识别结果</dt><dd id="recognized">—</dd><dt>缺失数据</dt><dd id="missing">—</dd></dl>
+      <section><h3>报告</h3><pre id="report">—</pre></section>
+      <details><summary>高级调试</summary><p class="warning">Public Draft 不是正式 Request</p><h3>Public Draft</h3><pre id="draft">—</pre><h3>Minimal Request</h3><pre id="minimal">—</pre><h3>ScenarioExecutionResult</h3><pre id="result">—</pre></details>
+    </aside>
+  </main>
+  <script src="/dashboard.js" defer></script>
+</body></html>

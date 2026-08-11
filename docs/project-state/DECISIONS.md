@@ -2200,3 +2200,128 @@ PHASE7: NOT_DEFINED / NOT_AUTHORIZED
 ```
 
 Phase 6 terminal closeout 不自动授权 Phase 6.1 或 Phase 7。
+
+---
+
+## 46. Schema-Driven Conversational Research Gateway
+
+**Date**: 2026-08-10
+**Status**: FROZEN / APPROVED
+**Scope**: P7-UX1 local conversational gateway; control-plane and UX adapter only
+
+### 46.1 Gateway Role and Execution Authority
+
+P7-UX1 is a Chat UX / control-plane adapter for the ten existing research scenarios. The LLM
+produces a **Public Request Draft**, never the Runner's **Formal Persisted Request**. The only
+authorized execution path is:
+
+```text
+natural language / selected scenario
+→ scenario Chat JSON Schema
+→ Public Request Draft
+→ deterministic resolvers
+→ Minimal Public Request
+→ Orchestrator.execute()
+→ Runner.validate_request()
+→ Formal Persisted Request / Run / ScenarioExecutionResult
+```
+
+`Orchestrator.execute()` remains the sole business execution authority. The gateway must not
+create a second orchestrator, pipeline, formal request writer, graph writer, evidence authority,
+entity authority, time authority, or data-acquisition path. A user-selected concrete scenario
+always overrides routing; only `AUTO` may route, and an ambiguous company-only `AUTO` request
+must clarify rather than guess.
+
+### 46.2 Field Ownership
+
+Three ownership classes are frozen:
+
+1. **LLM_WRITABLE / USER_SEMANTIC**: mentions, research question/focus, temporal or forecast
+   expressions, depth hint, theme keywords, metrics, scenario expressions, and assumptions the
+   user explicitly stated.
+2. **AUTHORITATIVE_RESOLVED**: symbol, company/security IDs, industry/graph identity,
+   Phase 4 result identity, prior cutoff, manifests, and canonical company/security identity.
+   These come only from deterministic code plus accepted SQLite/ontology/research state.
+3. **SYSTEM_CONTROLLED**: task/request/run IDs, timestamps, `as_of`, timezone, status, versions,
+   rule versions, validation status, and idempotency key. These come only from system code.
+
+Chat Schemas use `additionalProperties: false` and exclude the latter two classes. Schema-valid
+syntax never upgrades an LLM value into business authority.
+
+### 46.3 Model Budget and Provider Boundary
+
+Chat reuses the existing DeepSeek path through `LlmClient`; no direct HTTP client is authorized.
+The frozen per-turn budget is `AUTO route <= 1 Flash`, `scenario extraction <= 1 Flash`,
+`total <= 2 Flash`, `Pro = 0`. Invalid Schema, provider errors, retries, or repairs do not grant
+another call in the same stage and never trigger Pro. Provider configuration remains governed by
+`config/llm_providers.yaml`; `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` are local
+environment values and must not enter browser payloads, reports, logs, or repository files.
+
+### 46.4 Deterministic Resolution and Defaults
+
+Entity, industry, time, and system defaults are deterministic. Entity resolution is unique exact
+matching after safe normalization; no fuzzy selection, exchange guessing, LLM ticker memory, or
+internet lookup. Each turn captures one Shanghai `reference_now`; all relative time, `as_of`, and
+explicit-assumption `known_at` values derive from it. Runner defaults remain authoritative and are
+not duplicated into the gateway when the user omitted a value. Earnings expectation requires an
+authoritative company, forecast period, and at least one explicit user assumption; the system
+must not invent assumptions.
+
+### 46.5 Dual Gates, Session, HTTP and Security
+
+The `LLM natural-language understanding` switch and `Research Live data` switch are independent.
+LLM-off mode has only the documented deterministic limited fallback and must never pretend a model
+was called. Sessions are local memory only, retain at most 20 turns and 128 sessions, disappear on
+server exit, and create no chat/conversation database or migration. The HTTP server binds only to
+loopback, applies strict JSON/body/path controls, and serves reports only from the resolved reports
+root. Browser code never calls DeepSeek directly.
+
+### 46.6 Authorization Boundary
+
+```text
+P7-UX1: LIMITED AUTHORIZATION / IN_PROGRESS / AWAITING INDEPENDENT ACCEPTANCE
+P7 DATA ACQUISITION: NOT_STARTED
+PHASE6.1: NOT_AUTHORIZED
+PHASE6 RESEARCH→GRAPHCHANGE CANDIDATE: DEFERRED
+DB: v6 / unchanged
+MIGRATIONS: none
+```
+
+P7-UX1 authorizes no second orchestrator, research pipeline, graph write, GraphChange candidate
+integration, ontology/source expansion, collector work, source-registry change, migration, or
+Phase 6.1 work. Implementation and local validation do not constitute independent acceptance.
+
+### 46.7 Independent Acceptance and Terminal Status
+
+> 本节只追加独立验收与 terminal 状态记录，不修改 46.1–46.6 的冻结设计。验收对象为
+> P7-UX1 实现 head（governance-only closeout 提交不建立新的 accepted code baseline，
+> 与 P6-S6 治理约定一致）。
+
+```text
+P7-UX1: PASS / INDEPENDENTLY ACCEPTED
+P7-UX1_IMPLEMENTATION_HEAD: 75d2ccf
+INDEPENDENT_ACCEPTANCE: PASS
+P7 DATA ACQUISITION: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION
+PHASE6.1: NOT_AUTHORIZED
+PHASE6 RESEARCH→GRAPHCHANGE CANDIDATE: DEFERRED
+```
+
+独立验收结论：P7-UX1 会话式研究网关的冻结设计（46.1–46.6）与实现一致，本地实现验证
+与 Offline CI 通过。验收对象只包括本地 Chat UX / control-plane adapter，不代表
+Phase 7 全阶段 PASS。
+
+### 46.8 Terminal Boundary（governance closeout 后仍保持）
+
+P7-UX1 governance closeout 为 governance-only，不得被解释为任何生产行为变更。以下
+边界在 closeout 后明确保持：
+
+```text
+DATA_ACQUISITION_CHANGED: NO
+COLLECTORS_CHANGED: NO
+SOURCE_REGISTRY_CHANGED: NO
+GRAPH_WRITE: NONE
+PHASE6_1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 80
+```

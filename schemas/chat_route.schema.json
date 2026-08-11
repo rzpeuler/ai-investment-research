@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/chat_route.schema.json",
+  "title": "ChatRoute",
+  "description": "会话入口的场景识别结果，仅表达语义路由判断。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenario", "confidence", "needs_clarification", "clarification_question"],
+  "properties": {
+    "scenario": {
+      "enum": [null, "morning_brief", "evening_brief", "daily_review", "abnormal_move_analysis", "stock_research_report", "first_coverage", "stock_review", "industry_research", "theme_discovery", "earnings_expectation"]
+    },
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "needs_clarification": {"type": "boolean"},
+    "clarification_question": {
+      "anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]
+    }
+  }
+}

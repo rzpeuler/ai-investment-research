@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/chat_earnings_expectation_input.schema.json",
+  "title": "ChatEarningsExpectationInput",
+  "description": "财报预期会话中用户明确表达的预测语义；不得由系统补造假设。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["company_mentions", "forecast_period_expression", "metric_expressions", "scenario_expressions", "explicit_assumptions", "complete", "clarification_question"],
+  "properties": {
+    "company_mentions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "forecast_period_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "metric_expressions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "scenario_expressions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "explicit_assumptions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "metric_expression", "value_expression", "period_expression"],
+        "properties": {
+          "statement": {"type": "string", "minLength": 1},
+          "metric_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+          "value_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+          "period_expression": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+        }
+      }
+    },
+    "complete": {"type": "boolean"},
+    "clarification_question": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+  }
+}

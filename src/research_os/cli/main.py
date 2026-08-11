@@ -16,6 +16,7 @@ import os
 import json
 import sys
 import uuid
+import webbrowser
 from pathlib import Path
 
 import click
@@ -49,6 +50,37 @@ def _project_root() -> Path:
 @click.group()
 def cli() -> None:
     """AI＋A股投研 Skill 系统 CLI。"""
+
+
+@cli.command("dashboard")
+@click.option("--port", default=8765, show_default=True,
+              type=click.IntRange(1, 65535), help="本地 Dashboard 端口。")
+@click.option("--no-browser", is_flag=True, help="启动后不自动打开浏览器。")
+def dashboard_command(port: int, no_browser: bool) -> None:
+    """启动仅监听 127.0.0.1 的本地会话式研究 Dashboard。"""
+    from research_os.dashboard.runtime import build_dashboard_runtime
+    from research_os.dashboard.server import create_server
+
+    root = _project_root()
+    app, llm_configured, _provider_status = build_dashboard_runtime(root)
+    try:
+        server = create_server(app, port=port)
+    except Exception:
+        close = getattr(app, "close", None)
+        if close:
+            close()
+        raise
+    url = f"http://127.0.0.1:{server.server_port}/"
+    click.echo(f"Dashboard: {url}")
+    click.echo(f"LLM configured: {llm_configured}")
+    try:
+        if not no_browser:
+            webbrowser.open(url)
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("Dashboard stopped.")
+    finally:
+        server.server_close()
 
 
 def _validate_uuid(ctx: click.Context, param: click.Parameter, value: Optional[str]) -> Optional[str]:

@@ -7,7 +7,8 @@
 > Graph→Research = read-only Phase 6A path enabled；
 > Phase 6 Research→GraphChange Candidate integration = DEFERRED；
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
-> Phase 5 = CLOSED / PASS。
+> P7-UX1 = PASS / INDEPENDENTLY ACCEPTED（governance closeout，
+> Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -129,3 +130,27 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - Offline CI 限制：不验证 DeepSeek live provider / 真实 CNINFO / 外部服务；
   branch 普通 push 不触发，PR 会触发；GHA Node.js 20 deprecation warning 为 non-blocking
   （runner 强制使用 Node 24）；在线能力仍靠显式 live acceptance，不得由 Offline CI PASS 替代。
+
+## 15. P7-UX1 会话网关首版限制（terminal 状态，不覆盖历史快照）
+
+- 网关是 local / loopback-only 的个人入口，只监听 `127.0.0.1`；不是远程服务或多租户
+  SaaS。浏览器不得直接访问 DeepSeek。
+- session 仅在进程内存保存，最多 20 轮、最多 128 sessions；服务退出后会话消失，
+  不持久化到 SQLite，也没有 conversation/chat 数据表。
+- 实体解析只允许安全归一化后的唯一精确匹配；不做 fuzzy matching、编辑距离选择、
+  LLM ticker 记忆、联网补全或根据六位代码首位猜交易所。未知或歧义输入会要求澄清。
+- 行业解析只使用 accepted ontology / 权威图谱状态或首次覆盖允许的唯一 profile industry；
+  多命中、零命中或冲突会澄清。
+- DeepSeek 未配置或 LLM gate 关闭时，只支持完整 symbol、唯一精确名称，以及 AUTO 下
+  “今天晨报/今天晚报”等有限确定性回退；复杂自然语言不会伪装为已调用 LLM。
+- Chat 只帮助构造请求，不执行 report 完成后的第二轮 LLM QA、事实核查或报告改写；
+  报告质量仍由既有 Runner / Pipeline / Validator 与 Evidence availability 决定。
+- 两个开关相互独立：LLM gate 仅控制自然语言理解，Research Live gate 仅控制正式研究
+  live 能力。关闭其中一个不会隐式改变另一个。
+- P7-UX1 没有扩展数据源、Collector、Source Registry、研究 Pipeline 或 Graph write。
+  当前 Schema registry 为 80；DB 仍为 v6；migrations 为 NONE。
+- P7 DATA ACQUISITION = NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION；Phase 6.1 =
+  NOT_AUTHORIZED；Phase 6 Research→GraphChange Candidate integration 继续 DEFERRED。
+- P7-UX1 已完成独立验收（PASS / INDEPENDENTLY ACCEPTED，2026-08-10 governance
+  closeout）。该 terminal 状态只覆盖本地 Chat UX / control-plane adapter，不代表
+  Phase 7 数据采集或 Phase 6.1 授权。
