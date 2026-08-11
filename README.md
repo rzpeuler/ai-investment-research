@@ -104,9 +104,10 @@ DeepSeek 密钥只在本机环境变量设置：`DEEPSEEK_API_KEY`；可选地�
 `DEEPSEEK_BASE_URL`。不要把密钥填进浏览器、请求文本、日志或仓库文件。未配置 DeepSeek
 时仍有有限的确定性回退，但复杂自然语言会要求澄清。
 
-## P7-D0：统一数据层契约（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
+## P7-D0：统一数据层契约（PASS / INDEPENDENTLY ACCEPTED）
 
-P7-D0 冻结统一数据层契约与 Brief A/C 需求（Decision #47）：
+P7-D0 冻结统一数据层契约与 Brief A/C 需求（Decision #47；独立验收通过，
+Decision #47.8/#47.9）：
 
 - 5 个新契约：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
   `AcquisitionPlan`、`BriefAttentionSnapshot`；Schema registry 85、DB v6、无 migration。
@@ -118,10 +119,10 @@ P7-D0 冻结统一数据层契约与 Brief A/C 需求（Decision #47）：
   Phase 6.1 未授权、P7-D1 未授权。
 
 当前 Schema registry 为 **85**，数据库为 **v6**，没有新增 migration。P7 data acquisition
-仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1 已通过独立验收（`PASS /
-INDEPENDENTLY ACCEPTED`）；P7-D0 已冻结统一数据层契约（`IMPLEMENTED /
-AWAITING INDEPENDENT ACCEPTANCE`），两者均未改变任何数据源、Collector、Source
-Registry、Graph 或数据库行为。
+仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1 与 P7-D0 均已通过独立验收（`PASS /
+INDEPENDENTLY ACCEPTED`），两者均未改变任何数据源、Collector、Source
+Registry、Graph 或数据库行为。P7-D1 未授权；P7-D0 只冻结契约与 Registry，不包含
+任何数据采集能力。
 
 ## 快速开始
 

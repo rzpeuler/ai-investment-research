@@ -2428,3 +2428,37 @@ DB: v6
 MIGRATIONS: NONE
 SCHEMAS: 85
 ```
+
+### 47.8 Independent Acceptance
+
+P7-D0（含 P7-D0-R1 返修）已通过独立架构验收：
+
+```text
+P7-D0_IMPLEMENTATION_HEAD: d06d8d714958f58d44fb130f8fb30a3aff7e4a7a
+P7-D0-R1: PASS
+INDEPENDENT_ACCEPTANCE: PASS
+
+ACCEPTANCE_CI: 31501777548
+PYTEST: 3019 passed / 6 skipped / 0 failed
+SCHEMAS: 85/85 PASS
+```
+
+### 47.9 Terminal Boundary（P7-D0 独立验收后）
+
+```text
+P7-D0: PASS / INDEPENDENTLY ACCEPTED
+P7_D0_ACCEPTED_IMPLEMENTATION_HEAD: d06d8d714958f58d44fb130f8fb30a3aff7e4a7a
+
+P7-D1: NOT AUTHORIZED
+NEW_COLLECTORS: NO
+SOURCE_EXPANSION: NO
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+治理 closeout 只写回已发生的验收事实，不改变 accepted implementation baseline
+（accepted code = `d06d8d7`）；governance-only closeout commit 不建立新的 accepted
+code baseline，与 Phase 6 / P7-UX1 的治理 closeout 原则一致。

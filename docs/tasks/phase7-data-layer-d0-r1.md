@@ -17,6 +17,14 @@
 > R1 scope: contract strictness + governance closure（3 个阻塞问题 + 2 个治理收口）
 > 本任务不是重新实现 P7-D0，只修独立验收发现的问题。
 
+**Terminal record（governance closeout 追加，不改写历史任务要求）**
+
+```text
+R1: PASS
+INDEPENDENT_RE_ACCEPTANCE: PASS
+（含入 P7-D0 独立验收 head d06d8d7；Decision #47.8/#47.9）
+```
+
 ## 1. R1-01 BriefAttentionSnapshot.public_metrics 彻底 strict
 
 原 `public_metrics` 为 `additionalProperties: true` 的自由键 object，形成契约旁路

@@ -15,6 +15,14 @@
 > 本任务只冻结统一数据层契约与 Brief A/C 需求，不执行任何数据采集。
 > 完成状态为 `IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`，不得声明 PASS。
 
+**Terminal record（governance closeout 追加，不改写原始授权内容）**
+
+```text
+IMPLEMENTATION: PASS / INDEPENDENTLY ACCEPTED
+ACCEPTED_HEAD: d06d8d714958f58d44fb130f8fb30a3aff7e4a7a
+INDEPENDENT_ACCEPTANCE: PASS（含 P7-D0-R1 返修；Decision #47.8/#47.9）
+```
+
 ## 1. 本里程碑唯一目标
 
 P7-D0 不负责"把数据采回来"，只回答四个结构问题并正式冻结 Brief 需求：

@@ -9,8 +9,8 @@
 > Phase 4 full research capability = PASS（独立验收 SHA `9506f6a`）；
 > P7-UX1 = PASS / INDEPENDENTLY ACCEPTED（governance closeout，
 > Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）；
-> P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #47，
-> R1 返修完成；统一数据层契约与 Brief A/C 冻结；非 PASS）。
+> P7-D0 = PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9，
+> governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -157,7 +157,7 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   closeout）。该 terminal 状态只覆盖本地 Chat UX / control-plane adapter，不代表
   Phase 7 数据采集或 Phase 6.1 授权。
 
-## 16. P7-D0 统一数据层契约限制（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
+## 16. P7-D0 统一数据层契约限制（PASS / INDEPENDENTLY ACCEPTED）
 
 - P7-D0 只冻结契约与 Registry，不实现任何采集：无新 Collector、无 Source expansion、
   无 Router v2、无 DataReadinessService DB 查询、无 GapClassifier、无 AcquisitionExecutor、
