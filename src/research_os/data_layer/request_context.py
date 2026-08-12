@@ -29,6 +29,10 @@ class CanonicalRequestContext:
     explicit_window_end: Optional[str] = None
     report_date: Optional[str] = None
     request_material_refs: List[str] = field(default_factory=list)
+    # R3-05：prior-run 专用字段（不得塞进 request_material_refs，§37-38）
+    previous_run_ids: List[str] = field(default_factory=list)
+    previous_report_paths: List[str] = field(default_factory=list)
+    previous_cutoff: Optional[str] = None
 
     @property
     def task_entities(self) -> List[str]:
@@ -188,6 +192,11 @@ class NormalizedRequestContextAdapter:
             val = normalized_request.get(key)
             if val:
                 ctx.request_material_refs.extend(_as_str_list(val))
+        # R3-05：prior-run 专用字段（DailyReview 真实契约，§38）
+        ctx.previous_run_ids = _as_str_list(normalized_request.get("previous_run_ids"))
+        ctx.previous_report_paths = _as_str_list(normalized_request.get("previous_report_paths"))
+        pc = normalized_request.get("previous_cutoff")
+        ctx.previous_cutoff = str(pc) if pc is not None else None
         return ctx
 
     # ---------- R2-02：Scenario Time Context ----------

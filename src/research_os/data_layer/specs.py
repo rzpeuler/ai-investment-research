@@ -74,10 +74,10 @@ DATA_TYPE_SPECS: List[DataTypeReadinessSpec] = [
                           "as_of", source_tier_applicable=True),
     # ---- 文档 ----
     DataTypeReadinessSpec("company_document", "sqlite_table", "document_records", "DocumentChecker",
-                          "SUBJECT", "published_at", "evidence_ids", "SINGLETON_TARGET",
+                          "SUBJECT", "published_at", "document_source", "SINGLETON_TARGET",
                           "published_at", source_tier_applicable=True),
     DataTypeReadinessSpec("document_corpus", "sqlite_table", "document_records", "DocumentChecker",
-                          "GLOBAL", "published_at", "evidence_ids", "OPEN_WORLD",
+                          "GLOBAL", "published_at", "document_source", "OPEN_WORLD",
                           "published_at", source_tier_applicable=True),
     # ---- evidence / claims / findings（内部权威，但 tier 经 provenance）----
     DataTypeReadinessSpec("evidence", "sqlite_table", "evidence", "EvidenceContentChecker",

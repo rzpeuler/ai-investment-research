@@ -2597,3 +2597,35 @@ authority。返修完成后：
 ```text
 P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
 ```
+
+---
+
+### 48.8 R3 Independent Re-Acceptance Finding & Runtime Closure
+
+P7-D1-R2 独立复验发现：R2 的 binding/projector 存在但未 runtime-authoritative
+（design-time semantics ≠ runtime semantics）。R3 将其接入 production preflight/readiness：
+
+```text
+R3-01: BindingResolver 入 Preflight（同一 RequirementRegistry；43/43 closure +
+       RuntimeStrategyGate 生产执行）
+R3-02: ReadinessFieldProjector 入 runtime（canonical available_fields；
+       Financial value / statement_scope direct；symbol 非 alias；
+       未知 projection → CONFIG ERROR）
+R3-03: Evidence subject scope 经 RawItem provenance（raw_item_id → entities；
+       无法解引用 → ineligible）
+R3-04: Coverage 用 binding.coverage_strategy（claims open-world null；
+       REQUESTED_RUN_SET）
+R3-05: previous_run_ids 专用 context + prior_run_lineage 共享 helper
+       （DailyReview + Data Layer 共用；validation 强校验；run_id 实证）
+R3-06: timezone-aware PIT/window（parse_iso 比较，禁字典序）
+R3-07: Provenance 用 binding.provenance_strategy（Document source_id；
+       IndustryMembership tier）
+R3-10: Strategy Implementation Registry（binding strategy ∈ runtime supported）
+```
+
+R3 无新 contract correction；所有 Registry 冻结。返修完成后：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+（R1/R2/R3 repair chain）
+```

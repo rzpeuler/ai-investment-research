@@ -106,9 +106,10 @@ class TestSemanticClosureMatrix:
             assert "UNKNOWN" not in b.pit_strategy
 
     def test_unknown_strategy_raises_config_error(self):
-        # 未知 projection → fail closed
+        # R3-24：未知 projection → CONTROL_PLANE_CONFIGURATION_ERROR（不得伪装成普通 missing field）
         projector = ReadinessFieldProjector()
-        assert projector.has_field({}, "x", "projection:unknown_thing", {}) is False
+        with pytest.raises(ValueError, match="CONTROL_PLANE_CONFIGURATION_ERROR"):
+            projector.has_field({}, "x", "projection:unknown_thing", {})
 
     def test_checker_and_binding_dual_gate(self, requirement_registry, bindings):
         checker_reg = ReadinessCheckerRegistry()

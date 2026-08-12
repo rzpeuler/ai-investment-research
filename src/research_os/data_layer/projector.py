@@ -29,7 +29,7 @@ AUTHORITY_DIRECT_FIELDS: Dict[str, Set[str]] = {
                           "current_name", "source_ids", "evidence_ids", "status", "updated_at"},
     "financial_facts": {"fact_id", "fact_key", "company_entity_id", "statement_type",
                         "taxonomy_code", "period_end", "raw_value", "normalized_value",
-                        "value_status", "source_document_id", "evidence_ids"},
+                        "value_status", "statement_scope", "source_document_id", "evidence_ids"},
     "valuation_snapshots": {"valuation_snapshot_id", "company_entity_id", "security_entity_id",
                             "as_of", "price", "market_cap", "enterprise_value", "metrics",
                             "peer_selection_id", "percentile_method", "source_ids", "evidence_ids",
@@ -84,12 +84,16 @@ class ReadinessFieldProjector:
             return payload.get(field) is not None or context.get(field) is not None
         if source == "projection:evidence.source_id":
             return payload.get("source_id") is not None
-        if source == "projection:entities.symbol_or_alias":
-            return payload.get("symbol") is not None or bool(payload.get("aliases"))
+        if source == "projection:entities.symbol_via_security_profile":
+            # §22：symbol 必须来自可证明 authority 字段（entity.symbol / entity.security_symbol），
+            # 不得用通用 aliases 冒充证券代码。
+            symbol = payload.get("symbol") or payload.get("security_symbol")
+            return symbol is not None
         if source == "projection:financial_facts.statement_type":
             return payload.get("statement_type") is not None
-        # 未知 projection → fail closed
-        return False
+        # 未知 projection → CONTROL_PLANE_CONFIGURATION_ERROR（§24，不得伪装成普通 missing field）
+        raise ValueError(
+            f"CONTROL_PLANE_CONFIGURATION_ERROR: 未知 projection source {source!r}")
 
     # ---------- 具体投影 ----------
 

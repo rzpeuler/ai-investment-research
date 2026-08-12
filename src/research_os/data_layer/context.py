@@ -44,6 +44,12 @@ class ResolvedRequirementContext:
     watchlist_group: Optional[str] = None
     request_material_refs: List[str] = field(default_factory=list)
     unresolved: List[str] = field(default_factory=list)
+    # R3：runtime semantic binding（生产 preflight 注入；checker 必须消费，不得绕回 generic spec）
+    binding: Optional[Any] = None
+    # R3：canonical field projector（runtime 计算 requirement-facing available_fields）
+    projector: Optional[Any] = None
+    # R3-05：prior-run 专用字段（RunArtifactChecker 只查 requested runs）
+    previous_run_ids: List[str] = field(default_factory=list)
 
 
 class RequirementContextResolver:
@@ -66,6 +72,7 @@ class RequirementContextResolver:
             task_id=task_id,
             as_of=task_as_of,
         )
+        ctx.previous_run_ids = list(canonical.previous_run_ids)
         self._resolve_scope(ctx, canonical)
         self._resolve_time(ctx, canonical)
         ctx.request_material_refs = list(canonical.request_material_refs)

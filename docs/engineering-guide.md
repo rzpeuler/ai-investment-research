@@ -220,6 +220,24 @@
   - SecurityProfile 生命周期（listing_date/status）与 Valuation（complete/partial）
     按各自 Schema 语义，禁止被其他对象状态规则污染；Valuation 多 snapshot 确定性
     选 latest eligible（禁止 field union）。
+- **R3 Runtime Semantic Binding Closure**（V1.6 内，不升级 V1.7）：
+  - **Requirement Binding MUST be runtime authority**：BindingResolver 在 production
+    preflight 构造（同一 RequirementRegistry），每 requirement 取得 binding 注入
+    context；checker 消费 binding（scope/pit/coverage/provenance/freshness/tier/
+    minimum-field），禁止绕回 generic DataType spec。
+  - **Canonical Projector MUST be consumed by runtime**：available_fields 按
+    requirement-facing canonical names 计算（binding.minimum_field_sources 判定），
+    FinancialFact value / statement_scope direct / symbol 非 alias / unknown
+    projection → CONFIG ERROR。
+  - **design-time-only semantic closure is insufficient**：43/43 binding 定义 +
+    RuntimeStrategyGate（strategy ∈ supported）才构成 runtime closure。
+  - **Evidence subject scope via RawItem provenance**：Evidence.raw_item_id →
+    RawItem.entities → scope validation；无法解引用 → ineligible。
+  - **prior-run lineage must reuse existing DailyReview authority**：
+    `review/prior_run_lineage.py` 共享 helper；validation.json 强制；
+    run_id 来自 scenario_execution_result.json；previous_run_ids 专用 context。
+  - **datetime PIT/window comparisons must be timezone-aware**：parse_iso 后比较，
+    禁止 ISO 字典序。
 
 ---
 

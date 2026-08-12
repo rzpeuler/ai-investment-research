@@ -679,3 +679,44 @@ def test_p7_d1_r2_governance_is_consistent():
     assert "P7-D1: PASS" not in current
     assert "MERGE AUTHORIZED" not in current
     assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
+
+
+def test_p7_d1_r3_governance_is_consistent():
+    """P7-D1-R3 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d1-r3.md")
+    r2_taskbook = _read("docs/tasks/phase7-data-layer-d1-r2.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    guide = _read("docs/engineering-guide.md")
+
+    # R3 taskbook 版本化
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED — P7-D1-R3 ONLY" in taskbook
+    assert "START_HEAD" in taskbook and "87591f3" in taskbook
+    assert "R2_INDEPENDENT_REACCEPTANCE: CHANGES_REQUIRED" in taskbook
+    assert "P7-D2: NOT AUTHORIZED" in taskbook
+
+    # r2 taskbook 追加 CHANGES_REQUIRED
+    assert "R2 independent re-acceptance: CHANGES_REQUIRED" in r2_taskbook
+    assert "phase7-data-layer-d1-r3.md" in r2_taskbook
+
+    # Decision #48 追加 R3
+    assert "48.8 R3 Independent Re-Acceptance Finding & Runtime Closure" in decisions
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
+
+    # engineering-guide V1.6 + R3 runtime closure 澄清
+    assert "版本：V1.6" in guide
+    assert "R3 Runtime Semantic Binding Closure" in guide
+    assert "Requirement Binding MUST be runtime authority" in guide
+    assert "Canonical Projector MUST be consumed by runtime" in guide
+    assert "design-time-only semantic closure is insufficient" in guide
+    assert "Evidence subject scope via RawItem provenance" in guide
+    assert "prior-run lineage must reuse existing DailyReview authority" in guide
+    assert "datetime PIT/window comparisons must be timezone-aware" in guide
+
+    # 项目状态：R1/R2/R3 chain；不得 PASS / MERGE AUTHORIZED
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
+    assert "R1/R2/R3 repair chain" in current or "R1/R2/R3" in current
+    assert "P7-D1: PASS" not in current
+    assert "MERGE AUTHORIZED" not in current
+    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase

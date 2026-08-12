@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from research_os.data_layer.bindings import RequirementReadinessBindingResolver
 from research_os.data_layer.capabilities import AcquisitionCapabilityRegistry
 from research_os.data_layer.checkers import (
     EmptyReadView,
@@ -25,6 +26,10 @@ from research_os.data_layer.context import RequirementContextResolver
 from research_os.data_layer.request_context import NormalizedRequestContextAdapter
 from research_os.data_layer.gaps import GapClassifier
 from research_os.data_layer.planning import AcquisitionPlanner
+from research_os.data_layer.projector import (
+    MinimumFieldClosureValidator,
+    ReadinessFieldProjector,
+)
 from research_os.data_layer.readiness import DataReadinessService
 from research_os.models import (
     AcquisitionPlan,
@@ -65,6 +70,14 @@ class DataPreflightService:
         self._gaps = GapClassifier(capability_registry)
         self._planner = AcquisitionPlanner()
         self._request_adapter = NormalizedRequestContextAdapter()
+        # R3-01：Binding Resolver 基于同一个 RequirementRegistry 构造（不得加载第二份 authority）
+        self._bindings = RequirementReadinessBindingResolver(requirement_registry)
+        # R3-01：production preflight 初始化即执行 43/43 closure gate（fail closed）
+        MinimumFieldClosureValidator(self._bindings.all()).assert_closure()
+        # R3-10：binding strategy ∈ runtime supported strategies（§75）
+        from research_os.data_layer.bindings import RuntimeStrategyGate
+        RuntimeStrategyGate().assert_runtime_supported(self._bindings.all())
+        self._projector = ReadinessFieldProjector()
 
     # ---------- 只读访问视图 ----------
 
@@ -146,10 +159,17 @@ class DataPreflightService:
             gap_by_req: Dict[str, DataGap] = {}
             requirement_order: List[str] = []
             for requirement in requirements:
+                # R3-01：每个 requirement 取得自己的 runtime binding（§7）
+                binding = self._bindings.get(requirement.requirement_id)
                 ctx = self._resolver.resolve(
                     requirement, scenario, task_id, canonical, task_as_of,
                 )
-                readiness = self._readiness.evaluate(requirement, ctx, view, checked_at_value)
+                ctx.binding = binding
+                ctx.projector = self._projector
+                readiness = self._readiness.evaluate(
+                    requirement, ctx, view, checked_at_value,
+                    binding=binding, projector=self._projector,
+                )
                 gap = self._gaps.classify(requirement, readiness)
                 bundle.requirements.append(requirement)
                 bundle.contexts.append(ctx)

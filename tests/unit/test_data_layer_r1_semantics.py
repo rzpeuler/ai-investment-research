@@ -334,6 +334,7 @@ class TestFreshness:
         db_path = tmp_path / "t.db"
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE TABLE evidence (payload TEXT)")
+        conn.execute("CREATE TABLE raw_items (payload TEXT)")
         evidence = {
             "evidence_id": "ev1", "source_id": "cninfo", "raw_item_id": "ri1",
             "title": "旧证据", "published_at": "2026-08-01T00:00:00+08:00",
@@ -341,6 +342,15 @@ class TestFreshness:
             "independence_group": "g1", "source_tier": "S",
         }
         conn.execute("INSERT INTO evidence VALUES (?)", (json.dumps(evidence, ensure_ascii=False),))
+        raw_item = {"raw_item_id": "ri1", "source_id": "cninfo", "url": "http://e",
+                    "title": "旧", "publisher": "cninfo",
+                    "published_at": "2026-08-01T00:00:00+08:00",
+                    "retrieved_at": "2026-08-01T00:05:00+08:00",
+                    "content_hash": "e" * 64, "content_excerpt": "x",
+                    "content_storage": "metadata_and_excerpt", "language": "zh-CN",
+                    "access_status": "ok", "entities": ["company:600519.SH"],
+                    "raw_category": "official_disclosure"}
+        conn.execute("INSERT INTO raw_items VALUES (?)", (json.dumps(raw_item, ensure_ascii=False),))
         conn.commit()
         conn.close()
         from research_os.storage import Database
@@ -358,6 +368,15 @@ class TestFreshness:
             "independence_group": "g1", "source_tier": "S",
         }
         conn.execute("INSERT INTO evidence VALUES (?)", (json.dumps(evidence2, ensure_ascii=False),))
+        raw_item2 = {"raw_item_id": "ri2", "source_id": "cninfo", "url": "http://e",
+                     "title": "窗口内", "publisher": "cninfo",
+                     "published_at": "2026-08-10T06:00:00+08:00",
+                     "retrieved_at": "2026-08-10T06:05:00+08:00",
+                     "content_hash": "f" * 64, "content_excerpt": "x",
+                     "content_storage": "metadata_and_excerpt", "language": "zh-CN",
+                     "access_status": "ok", "entities": ["600519.SH"],
+                     "raw_category": "official_disclosure"}
+        conn.execute("INSERT INTO raw_items VALUES (?)", (json.dumps(raw_item2, ensure_ascii=False),))
         conn.commit()
         conn.close()
         db = Database.open_read_only(db_path)

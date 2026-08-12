@@ -12,7 +12,7 @@
 > P7-D0 = PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9，
 > governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
 > P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #48，
-> R1/R2 返修完成；数据就绪控制面；非 PASS）。
+> R1/R2/R3 返修完成；数据就绪控制面；非 PASS）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或

@@ -49,6 +49,7 @@ PROV_EVIDENCE_TIER = "evidence_tier"
 PROV_RAW_SOURCE = "raw_item_source"
 PROV_EVIDENCE_IDS = "evidence_ids"
 PROV_DOCUMENT_CHAIN = "document_chain"
+PROV_DOCUMENT_SOURCE = "document_source"
 PROV_MANIFEST = "manifest"
 PROV_INTERNAL = "internal"
 PROV_NOT_APPLICABLE = "not_applicable"
@@ -60,6 +61,55 @@ FRESH_OBSERVED = "observed_at"
 FRESH_SNAPSHOT_AS_OF = "snapshot_as_of"
 FRESH_VALID_FROM = "valid_from"
 FRESH_NOT_APPLICABLE = "not_applicable"
+
+# ---------- R3-10：Strategy Implementation Registry（§75） ----------
+
+SUPPORTED_SCOPE_STRATEGIES = {CTX_SUBJECT, CTX_BENCHMARK, CTX_PEERS, CTX_INDUSTRY,
+                              CTX_GLOBAL, CTX_WATCHLIST, CTX_SCENARIO}
+SUPPORTED_AUTHORITY_STRATEGIES = {AUTH_SQLITE, AUTH_GRAPH, AUTH_RUN_ARTIFACT, AUTH_INTERNAL}
+SUPPORTED_PIT_STRATEGIES = {PIT_AS_OF, PIT_PUBLISHED, PIT_VALID_INTERVAL, PIT_TRADE_DATE,
+                            PIT_PUBLICATION_AVAILABILITY, PIT_CLAIM_BUSINESS_TIME}
+SUPPORTED_COVERAGE_STRATEGIES = {COV_SINGLETON, COV_ENTITY_SET, COV_PEER_SET, COV_WATCHLIST,
+                                 COV_OPEN_WORLD, COV_NOT_APPLICABLE,
+                                 "REQUESTED_RUN_SET", "AUTHORITATIVE_TRADING_CALENDAR"}
+SUPPORTED_PROVENANCE_STRATEGIES = {PROV_EVIDENCE_TIER, PROV_RAW_SOURCE, PROV_EVIDENCE_IDS,
+                                   PROV_DOCUMENT_CHAIN, PROV_DOCUMENT_SOURCE, PROV_MANIFEST,
+                                   PROV_INTERNAL, PROV_NOT_APPLICABLE}
+SUPPORTED_FRESHNESS_STRATEGIES = {FRESH_PUBLISHED, FRESH_TRADE_DATE, FRESH_UPDATED,
+                                  FRESH_OBSERVED, FRESH_SNAPSHOT_AS_OF, FRESH_VALID_FROM,
+                                  FRESH_NOT_APPLICABLE, "created_at"}
+SUPPORTED_PROJECTION_PREFIXES = ("canonical:", "projection:")
+
+
+class RuntimeStrategyGate:
+    """R3-10：binding strategy ∈ runtime supported strategies（防止 Binding 写名字、
+    Runtime 未实现）。"""
+
+    def validate(self, bindings: List["RequirementReadinessBinding"]) -> List[str]:
+        violations: List[str] = []
+        for b in bindings:
+            if b.scope_strategy not in SUPPORTED_SCOPE_STRATEGIES:
+                violations.append(f"{b.requirement_id}: scope {b.scope_strategy}")
+            if b.authority_strategy not in SUPPORTED_AUTHORITY_STRATEGIES:
+                violations.append(f"{b.requirement_id}: authority {b.authority_strategy}")
+            if b.pit_strategy not in SUPPORTED_PIT_STRATEGIES:
+                violations.append(f"{b.requirement_id}: pit {b.pit_strategy}")
+            if b.coverage_strategy not in SUPPORTED_COVERAGE_STRATEGIES:
+                violations.append(f"{b.requirement_id}: coverage {b.coverage_strategy}")
+            if b.provenance_strategy not in SUPPORTED_PROVENANCE_STRATEGIES:
+                violations.append(f"{b.requirement_id}: provenance {b.provenance_strategy}")
+            if b.freshness_strategy not in SUPPORTED_FRESHNESS_STRATEGIES:
+                violations.append(f"{b.requirement_id}: freshness {b.freshness_strategy}")
+            for field, source in b.minimum_field_sources.items():
+                if source != "direct" and not source.startswith(SUPPORTED_PROJECTION_PREFIXES):
+                    violations.append(f"{b.requirement_id}:{field} projection {source}")
+        return violations
+
+    def assert_runtime_supported(self, bindings: List["RequirementReadinessBinding"]) -> None:
+        violations = self.validate(bindings)
+        if violations:
+            raise ValueError(
+                f"CONTROL_PLANE_CONFIGURATION_ERROR: runtime strategy 未实现: {violations}")
 
 
 @dataclass(frozen=True)
@@ -125,7 +175,9 @@ class RequirementReadinessBindingResolver:
         # 已知 canonical projection（§10）
         if req.data_type == "financial_statement_data":
             field_sources["value"] = "canonical:financial_value"
-            field_sources["statement_scope"] = "projection:financial_facts.statement_type"
+            # §16：statement_scope 是 FinancialFact.statement_scope direct field
+            # （严禁 statement_type 投影；consolidated/parent 与 income/balance/cash_flow 不同）
+            field_sources["statement_scope"] = "direct"
         if req.data_type == "peer_financial_data":
             field_sources["value"] = "canonical:financial_value"
         if req.data_type == "industry_membership":
@@ -139,7 +191,8 @@ class RequirementReadinessBindingResolver:
             if "source_ref" in field_sources:
                 field_sources["source_ref"] = "projection:evidence.source_id"
         if req.data_type == "entity_mapping" and "symbol" in field_sources:
-            field_sources["symbol"] = "projection:entities.symbol_or_alias"
+            # §22：symbol 不得从任意 aliases 推断；须可证明 authority（SecurityProfile.symbol）
+            field_sources["symbol"] = "projection:entities.symbol_via_security_profile"
         if req.data_type == "knowledge_graph_snapshot":
             for f in ("node_refs", "edge_refs"):
                 if f in field_sources:
@@ -172,12 +225,17 @@ class RequirementReadinessBindingResolver:
     # ---------- 策略解析（scenario 相关覆盖） ----------
 
     def _scope_strategy(self, req, spec) -> str:
-        # 契约 scope 优先（R2-01 已纠偏）
+        # 契约 scope 优先（R2-01 已纠偏）；未知 scope → CONTROL_PLANE_CONFIGURATION_ERROR（§11）
         scope_map = {"global": CTX_GLOBAL, "subject": CTX_SUBJECT,
                      "benchmark": CTX_BENCHMARK, "peers": CTX_PEERS,
                      "industry": CTX_INDUSTRY, "watchlist": CTX_WATCHLIST,
                      "scenario": CTX_SCENARIO}
-        return scope_map.get(req.scope.scope_type, CTX_GLOBAL)
+        strategy = scope_map.get(req.scope.scope_type)
+        if strategy is None:
+            raise ValueError(
+                f"CONTROL_PLANE_CONFIGURATION_ERROR: requirement {req.requirement_id} "
+                f"未知 scope strategy {req.scope.scope_type!r}")
+        return strategy
 
     def _pit_strategy(self, req, spec) -> str:
         if req.point_in_time_policy == "strict_as_of":
@@ -208,6 +266,9 @@ class RequirementReadinessBindingResolver:
             return COV_SINGLETON  # 无合法 fact universe → null（checker 处理）
         if req.data_type == "peer_financial_data":
             return COV_PEER_SET
+        if req.data_type == "claims":
+            # §33：daily_review.claims 无合法 expected claim universe → OPEN_WORLD（null）
+            return COV_OPEN_WORLD
         return spec.coverage_strategy
 
     def _provenance_strategy(self, req, spec) -> str:
@@ -220,10 +281,11 @@ class RequirementReadinessBindingResolver:
             return PROV_EVIDENCE_IDS  # §42
         if req.data_type == "market_daily_ohlcv":
             return PROV_MANIFEST  # §44：bar via accepted manifest → source_id → tier
-        if req.data_type in ("company_profile", "security_profile", "company_document",
-                             "document_corpus", "financial_statement_data",
+        if req.data_type in ("company_profile", "security_profile", "financial_statement_data",
                              "peer_financial_data", "market_valuation_snapshot"):
             return PROV_EVIDENCE_IDS  # evidence_ids / source_ids / source_document（§43）
+        if req.data_type in ("company_document", "document_corpus"):
+            return PROV_DOCUMENT_SOURCE  # §56：DocumentRecord.source_id → SourceRegistry
         return spec.provenance_strategy
 
     def _freshness_strategy(self, req, spec) -> str:

@@ -62,6 +62,8 @@ class ReadinessProvenanceResolver:
             return self._from_evidence_ids(payload, view)
         if strategy == "manifest":
             return self._from_manifest(payload, view)
+        if strategy == "document_source":
+            return self._from_document_source(payload)
         return None, SOURCE_TIER_UNPROVEN
 
     # ---------- 各策略 ----------
@@ -122,6 +124,19 @@ class ReadinessProvenanceResolver:
                     tier = self._source_tier_from_governance(str(doc_source))
                     if tier:
                         return tier, None
+        return None, SOURCE_TIER_UNPROVEN
+
+    def _from_document_source(self, payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """§56-57：DocumentRecord.source_id → SourceRegistry → source_tier。
+
+        DocumentRecord 正式对象无 evidence_ids；source_id 是权威 provenance。
+        """
+        source_id = payload.get("source_id")
+        if not source_id:
+            return None, SOURCE_TIER_UNPROVEN
+        tier = self._source_tier_from_governance(str(source_id))
+        if tier:
+            return tier, None
         return None, SOURCE_TIER_UNPROVEN
 
     def _from_manifest(self, payload: Dict[str, Any], view: Any) -> Tuple[Optional[str], Optional[str]]:

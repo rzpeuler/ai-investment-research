@@ -4,7 +4,7 @@
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
-> P7-D1：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（R1/R2 返修后）
+> P7-D1：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（R1/R2/R3 repair chain）
 > 权威规范：`docs/engineering-guide.md` V1.6
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -209,6 +209,11 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 - Preflight 在 Runner.execute 前；普通数据不足不 gate Runner；配置错误 fail closed。
 - 非 dry-run 持久化 `data_readiness_before.jsonl` / `data_gaps.jsonl` /
   `acquisition_plan.json`；dry-run 零副作用。
+- R3（P7-D1-R3）完成 Runtime Semantic Binding Closure：
+  BindingResolver/Projector 接入 production preflight（design-time = runtime）、
+  Evidence subject scope 经 RawItem provenance、previous_run_ids 专用 context +
+  prior_run_lineage 共享 helper、timezone-aware PIT/window、Document/Industry tier。
+  详见 `docs/tasks/phase7-data-layer-d1-r3.md`。
 - R2（P7-D1-R2）完成 Authority Semantics Closure：43/43
   RequirementReadinessBinding、minimum-field closure 100%、精确 6 项 D0 contract
   纠偏、SecurityProfile/Valuation 生命周期、Financial canonical value、Tier 全链路、

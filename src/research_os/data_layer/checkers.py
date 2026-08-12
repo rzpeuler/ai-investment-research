@@ -65,6 +65,8 @@ class ReadinessCheckResult:
     record_refs: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     freshness_age_seconds: Optional[int] = None
+    # R3：eligible authority payloads（供 runtime canonical projector 判定 minimum fields）
+    eligible_payloads: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class DataReadView(ABC):
@@ -127,6 +129,40 @@ class ReadinessChecker(ABC):
         provenance: ReadinessProvenanceResolver,
     ) -> ReadinessCheckResult:
         ...
+
+    # ---------- R3-04/07：runtime binding 优先（§9/32/54） ----------
+
+    def _binding(self, ctx) -> Optional[Any]:
+        """runtime binding（production preflight 注入）；无 binding（单测）→ None。"""
+        return getattr(ctx, "binding", None)
+
+    def _cov_strategy(self, ctx, spec) -> str:
+        """R3-04：coverage 必须用 binding.coverage_strategy（§32），不得绕回 generic spec。"""
+        binding = self._binding(ctx)
+        if binding is not None:
+            return binding.coverage_strategy
+        return spec.coverage_strategy
+
+    def _prov_strategy(self, ctx, spec) -> str:
+        """R3-07：provenance 必须用 binding.provenance_strategy（§54）。"""
+        binding = self._binding(ctx)
+        if binding is not None:
+            return binding.provenance_strategy
+        return spec.provenance_strategy
+
+    def _tier_applicable(self, ctx, spec) -> bool:
+        """R3-07：tier 适用性必须用 binding.source_tier_applicable（§54）。"""
+        binding = self._binding(ctx)
+        if binding is not None:
+            return binding.source_tier_applicable
+        return spec.source_tier_applicable
+
+    def _fresh_strategy(self, ctx, spec) -> str:
+        """R3：freshness 必须用 binding.freshness_strategy（§9）。"""
+        binding = self._binding(ctx)
+        if binding is not None:
+            return binding.freshness_strategy
+        return spec.freshness_strategy
 
     # ---------- 通用工具 ----------
 
@@ -211,6 +247,7 @@ class ReadinessChecker(ABC):
                 ineligible_record_count=ineligible_count,
                 source_tiers_present=sorted(tiers_present), record_refs=refs,
                 warnings=warnings, freshness_age_seconds=freshness_age,
+                eligible_payloads=list(eligible),
             )
         if not eligible:
             return ReadinessCheckResult(
@@ -220,6 +257,7 @@ class ReadinessChecker(ABC):
                 source_tiers_present=sorted(tiers_present), record_refs=refs,
                 warnings=warnings + ([NO_ELIGIBLE_RECORDS] if NO_ELIGIBLE_RECORDS not in warnings else []),
                 freshness_age_seconds=freshness_age,
+                eligible_payloads=[],
             )
 
         # freshness（§56-57）：有合格数据时 freshness 失败 → STALE（优先于 coverage 降级）
@@ -237,6 +275,7 @@ class ReadinessChecker(ABC):
                 ineligible_record_count=ineligible_count,
                 source_tiers_present=sorted(tiers_present), record_refs=refs,
                 warnings=warnings, freshness_age_seconds=freshness_age,
+                eligible_payloads=list(eligible),
             )
         if freshness_issue == FRESHNESS_UNPROVEN:
             warnings.append(FRESHNESS_UNPROVEN)
@@ -264,6 +303,7 @@ class ReadinessChecker(ABC):
             ineligible_record_count=ineligible_count,
             source_tiers_present=sorted(tiers_present), record_refs=refs,
             warnings=warnings, freshness_age_seconds=freshness_age,
+            eligible_payloads=list(eligible),
         )
 
     def _miss(self, requirement, warnings: List[str]) -> ReadinessCheckResult:
@@ -337,7 +377,7 @@ class RawItemChecker(ReadinessChecker):
                 continue
             # PIT：published_at 不得晚于 as_of（§115；窗口下界之外再加 as_of 上界）
             published = payload.get("published_at")
-            if published and published > ctx.as_of:
+            if _iso_gt(published, ctx.as_of):
                 ineligible_count += 1
                 continue
             # scope（watchlist / global）
@@ -345,7 +385,7 @@ class RawItemChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             # provenance tier（raw_item_source → sources.yaml）
-            if spec.source_tier_applicable:
+            if self._tier_applicable(ctx, spec):
                 tier, warn = provenance.resolve(payload, "raw_item_source", view)
                 if tier is None:
                     ineligible_count += 1
@@ -390,7 +430,7 @@ class RawItemChecker(ReadinessChecker):
         return payload if isinstance(payload, dict) else None
 
     def _freshness_age(self, eligible, spec, ctx) -> Optional[int]:
-        if not eligible or spec.freshness_strategy == "not_applicable":
+        if not eligible or self._fresh_strategy(ctx, spec) == "not_applicable":
             return None
         from research_os.utils.time import parse_iso
         ages = []
@@ -436,7 +476,7 @@ class ProfileChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             # provenance（evidence_ids → tier）
-            if spec.source_tier_applicable:
+            if self._tier_applicable(ctx, spec):
                 tier, warn = provenance.resolve(payload, "evidence_ids", view)
                 if tier is None:
                     ineligible_count += 1
@@ -489,9 +529,9 @@ class ProfileChecker(ReadinessChecker):
         # company_profile：valid_from/valid_to + status
         valid_from = payload.get("valid_from")
         valid_to = payload.get("valid_to")
-        if valid_from and valid_from > as_of:
+        if _iso_gt(valid_from, as_of):
             return False
-        if valid_to and valid_to <= as_of:
+        if _iso_le(valid_to, as_of):
             return False
         status = payload.get("status")
         if status and str(status).lower() not in ("active", "approved", "valid"):
@@ -499,7 +539,7 @@ class ProfileChecker(ReadinessChecker):
         return True
 
     def _profile_age(self, eligible, spec, ctx, data_type: str) -> Optional[int]:
-        if not eligible or spec.freshness_strategy == "not_applicable":
+        if not eligible or self._fresh_strategy(ctx, spec) == "not_applicable":
             return None
         ages = []
         for p in eligible:
@@ -560,16 +600,27 @@ class IndustryMembershipChecker(ReadinessChecker):
                     ineligible_count += 1
                     continue
             valid_from, valid_to = payload.get("valid_from"), payload.get("valid_to")
-            if valid_from and valid_from > ctx.as_of:
+            if _iso_gt(valid_from, ctx.as_of):
                 ineligible_count += 1
                 continue
-            if valid_to and valid_to <= ctx.as_of:
+            if _iso_le(valid_to, ctx.as_of):
                 ineligible_count += 1
                 continue
             status = payload.get("status")
             if status and str(status).lower() not in ("active", "approved", "valid"):
                 ineligible_count += 1
                 continue
+            # R3-07/§55：IndustryMembership 必须执行 minimum_source_tier
+            # （CompanyProfile.source_ids/evidence_ids → Provenance；不能仅 membership 正确就跳过 tier）
+            if self._tier_applicable(ctx, spec):
+                tier, warn = provenance.resolve(
+                    payload, self._prov_strategy(ctx, spec), view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
             eligible.append(payload)
             ref = payload.get("company_profile_id") or payload.get("id")
             if ref:
@@ -632,7 +683,7 @@ class FinancialChecker(ReadinessChecker):
             if not self._canonical_value_ok(payload):
                 ineligible_count += 1
                 continue
-            if spec.source_tier_applicable:
+            if self._tier_applicable(ctx, spec):
                 tier, warn = provenance.resolve(payload, "evidence_ids", view)
                 if tier is None:
                     ineligible_count += 1
@@ -652,11 +703,11 @@ class FinancialChecker(ReadinessChecker):
         # - peer_financial_data：coverage = peers with ≥1 fully eligible canonical fact / N（§32-33）
         coverage = None
         warnings: List[str] = []
-        if spec.coverage_strategy == "SINGLETON_TARGET":
+        if self._cov_strategy(ctx, spec) == "SINGLETON_TARGET":
             # 无合法 expected complete fact universe → null（§31）
             coverage = None
             warnings.append(COVERAGE_NOT_MEASURABLE)
-        elif spec.coverage_strategy == "REQUESTED_PEER_SET":
+        elif self._cov_strategy(ctx, spec) == "REQUESTED_PEER_SET":
             if ctx.peer_entity_ids:
                 peer_fact_count = {p.get("company_entity_id") for p in eligible}
                 coverage = len(peer_fact_count & set(ctx.peer_entity_ids)) / len(ctx.peer_entity_ids)
@@ -753,7 +804,7 @@ class ValuationChecker(ReadinessChecker):
                 continue
             # PIT：snapshot as_of 不得晚于 requirement as_of（§29）
             snap_as_of = payload.get("as_of")
-            if snap_as_of and snap_as_of > ctx.as_of:
+            if _iso_gt(snap_as_of, ctx.as_of):
                 ineligible_count += 1
                 continue
             # R2-05：正式状态 complete / partial / not_applicable / insufficient_data（§27-28）
@@ -767,7 +818,7 @@ class ValuationChecker(ReadinessChecker):
                     ineligible_count += 1
                     continue
             # complete 或未知状态：继续按 PIT/fields/provenance 判定
-            if spec.source_tier_applicable:
+            if self._tier_applicable(ctx, spec):
                 tier, warn = provenance.resolve(payload, "evidence_ids", view)
                 if tier is None:
                     ineligible_count += 1
@@ -836,11 +887,13 @@ class DocumentChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             published = payload.get("published_at")
-            if published and published > ctx.as_of:
+            if _iso_gt(published, ctx.as_of):
                 ineligible_count += 1
                 continue
-            if spec.source_tier_applicable:
-                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+            if self._tier_applicable(ctx, spec):
+                # R3-07：Document 用 binding.provenance_strategy（document_source：source_id→SourceRegistry）
+                tier, warn = provenance.resolve(
+                    payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -854,9 +907,9 @@ class DocumentChecker(ReadinessChecker):
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
         coverage = None
-        if spec.coverage_strategy == "SINGLETON_TARGET":
+        if self._cov_strategy(ctx, spec) == "SINGLETON_TARGET":
             coverage = 1.0 if eligible else 0.0
-        elif spec.coverage_strategy == "OPEN_WORLD":
+        elif self._cov_strategy(ctx, spec) == "OPEN_WORLD":
             coverage = None
         else:
             coverage = None
@@ -906,12 +959,17 @@ class EvidenceContentChecker(ReadinessChecker):
             if payload is None:
                 ineligible_count += 1
                 continue
-            # evidence 系通过 raw_item 关联 subject（evidence 本身无 subject 字段）；
-            # 有 subject 字段时才精确匹配，无则通过（业务层 JOIN 处理）
-            has_subject_field = any(payload.get(k) is not None for k in scope_keys)
-            if has_subject_field and not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
-                ineligible_count += 1
-                continue
+            # R3-03：Evidence subject/industry scope 必须经 RawItem provenance（§25-29）。
+            # Evidence 无 subject 字段不再默认放行；通过 raw_item_id → RawItem.entities 校验。
+            if requirement.data_type in ("evidence", "event_evidence", "evidence_index"):
+                if not self._evidence_scope_ok(payload, ctx, view):
+                    ineligible_count += 1
+                    continue
+            else:
+                has_subject_field = any(payload.get(k) is not None for k in scope_keys)
+                if has_subject_field and not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                    ineligible_count += 1
+                    continue
             # R2-03：explicit window 真正过滤（§18-20）
             if ctx.window_start or ctx.window_end:
                 if requirement.data_type == "claims":
@@ -923,16 +981,16 @@ class EvidenceContentChecker(ReadinessChecker):
                     ineligible_count += 1
                     continue
             published = payload.get("published_at")
-            if published and published > ctx.as_of:
+            if _iso_gt(published, ctx.as_of):
                 ineligible_count += 1
                 continue
             # claims 的 as_of 不得晚于请求 cutoff（§115）
             claim_as_of = payload.get("as_of")
-            if claim_as_of and claim_as_of > ctx.as_of:
+            if _iso_gt(claim_as_of, ctx.as_of):
                 ineligible_count += 1
                 continue
-            if spec.source_tier_applicable:
-                tier, warn = provenance.resolve(payload, spec.provenance_strategy, view)
+            if self._tier_applicable(ctx, spec):
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -946,9 +1004,9 @@ class EvidenceContentChecker(ReadinessChecker):
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
         coverage = None
-        if spec.coverage_strategy == "SINGLETON_TARGET":
+        if self._cov_strategy(ctx, spec) == "SINGLETON_TARGET":
             coverage = 1.0 if eligible else 0.0
-        elif spec.coverage_strategy == "OPEN_WORLD":
+        elif self._cov_strategy(ctx, spec) == "OPEN_WORLD":
             coverage = None
         else:
             coverage = None
@@ -976,6 +1034,97 @@ class EvidenceContentChecker(ReadinessChecker):
                 return None
         return payload if isinstance(payload, dict) else None
 
+    # ---------- R3-03：EvidenceScopeResolver ----------
+
+    def _evidence_scope_ok(self, payload: Dict[str, Any], ctx, view) -> bool:
+        """Evidence subject/industry scope 经 RawItem provenance 校验（§25-29）。
+
+        - global scope：无需 join（但仍走 PIT/tier/freshness/canonical）。
+        - subject/industry：Evidence.raw_item_id → RawItem.entities；
+          RawItem 无法解引用 → ineligible（不得假设相关）。
+        """
+        scope_type = ctx.requirement.scope.scope_type
+        if scope_type == "global":
+            return True
+        raw_item_id = payload.get("raw_item_id")
+        if not raw_item_id:
+            return False  # subject/industry Evidence 必须可解引用 raw_item
+        entities = self._fetch_raw_item_entities(view, str(raw_item_id))
+        if entities is None:
+            return False  # raw_item 缺失 → ineligible
+        if scope_type in ("subject", "benchmark"):
+            if not ctx.entity_ids:
+                return False
+            return any(str(e) in ctx.entity_ids for e in entities)
+        if scope_type == "industry":
+            if not ctx.industry_ids:
+                return False
+            if any(str(e) in ctx.industry_ids for e in entities):
+                return True
+            companies = [str(e) for e in entities if str(e).startswith("company:")]
+            if companies and self._company_belongs_to_industry(view, companies, ctx.industry_ids):
+                return True
+            return False
+        if scope_type == "peers":
+            if not ctx.peer_entity_ids:
+                return False
+            return any(str(e) in ctx.peer_entity_ids for e in entities)
+        return False  # watchlist/scenario 未知 scope → fail closed
+
+    def _fetch_raw_item_entities(self, view, raw_item_id: str) -> Optional[List[str]]:
+        """RawItem.entities 确定性解引用（只读）。"""
+        has_table = getattr(view, "has_table", None)
+        if has_table is None or not has_table("raw_items"):
+            return None
+        try:
+            rows = view.query(
+                "SELECT payload FROM raw_items "
+                "WHERE json_extract(payload, '$.raw_item_id') = ?",
+                (raw_item_id,),
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        if not rows:
+            return None
+        payload = rows[0]["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        entities = payload.get("entities") if isinstance(payload, dict) else None
+        if not entities:
+            return []
+        return [str(e) for e in entities]
+
+    def _company_belongs_to_industry(self, view, companies: List[str],
+                                     industry_ids: List[str]) -> bool:
+        """company → valid CompanyProfile → requested industry membership（确定性证明）。"""
+        has_table = getattr(view, "has_table", None)
+        if has_table is None or not has_table("company_profiles"):
+            return False
+        try:
+            rows = view.query("SELECT payload FROM company_profiles")
+        except Exception:  # noqa: BLE001
+            return False
+        for row in rows:
+            payload = row["payload"]
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except (TypeError, ValueError):
+                    continue
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("entity_id")) not in companies:
+                continue
+            ids = payload.get("industry_ids") or []
+            if isinstance(ids, str):
+                ids = [ids]
+            if any(str(i) in industry_ids for i in ids):
+                return True
+        return False
+
 
 class EntityMappingChecker(ReadinessChecker):
     """entity_mapping（authority=entities，内部权威，tier 不适用）。"""
@@ -997,10 +1146,10 @@ class EntityMappingChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             valid_from, valid_to = payload.get("valid_from"), payload.get("valid_to")
-            if valid_from and valid_from > ctx.as_of:
+            if _iso_gt(valid_from, ctx.as_of):
                 ineligible_count += 1
                 continue
-            if valid_to and valid_to <= ctx.as_of:
+            if _iso_le(valid_to, ctx.as_of):
                 ineligible_count += 1
                 continue
             eligible.append(payload)
@@ -1008,9 +1157,42 @@ class EntityMappingChecker(ReadinessChecker):
             if ref:
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
+        # R3-02/§22：symbol 必须来自可证明 authority（SecurityProfile.symbol），
+        # 非 entities payload 直接字段；确定性 join 进 eligible payloads 供 projector 判定
+        if eligible:
+            symbols = self._resolve_symbols(view, eligible)
+            for payload in eligible:
+                if symbols.get(str(payload.get("entity_id"))):
+                    payload["security_symbol"] = symbols[str(payload.get("entity_id"))]
         coverage = 1.0 if eligible else 0.0
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
                               [], available, coverage, [], None)
+
+    def _resolve_symbols(self, view, entities) -> dict:
+        """Entity → SecurityProfile → SecurityProfile.symbol 确定性映射（只读）。"""
+        has_table = getattr(view, "has_table", None)
+        if has_table is None or not has_table("security_profiles"):
+            return {}
+        result: dict = {}
+        try:
+            rows = view.query("SELECT payload FROM security_profiles")
+        except Exception:  # noqa: BLE001
+            return {}
+        entity_ids = {str(e.get("entity_id")) for e in entities}
+        for row in rows:
+            payload = row["payload"]
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except (TypeError, ValueError):
+                    continue
+            if not isinstance(payload, dict):
+                continue
+            company = payload.get("company_entity_id")
+            symbol = payload.get("symbol")
+            if company and symbol and str(company) in entity_ids:
+                result[str(company)] = str(symbol)
+        return result
 
     def _payload(self, row):
         payload = row["payload"]
@@ -1043,11 +1225,11 @@ class ResearchFindingsChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             created = payload.get("created_at")
-            if created and created > ctx.as_of:
+            if _iso_gt(created, ctx.as_of):
                 ineligible_count += 1
                 continue
             # §42：tier via evidence_ids → Evidence provenance（无法证明 → SOURCE_TIER_UNPROVEN）
-            if spec.source_tier_applicable:
+            if self._tier_applicable(ctx, spec):
                 tier, warn = provenance.resolve(payload, "evidence_ids", view)
                 if tier is None:
                     ineligible_count += 1
@@ -1102,7 +1284,7 @@ class MarketSeriesChecker(ReadinessChecker):
                 continue
             # §44：bar tier via accepted manifest（bar symbol/date → manifest.source_id →
             # SourceRegistry tier）；无匹配 accepted manifest → SOURCE_TIER_UNPROVEN
-            if spec.source_tier_applicable:
+            if self._tier_applicable(ctx, spec):
                 tier, warn = provenance.resolve(payload, "manifest", view)
                 if tier is None:
                     ineligible_count += 1
@@ -1252,53 +1434,70 @@ class RunArtifactChecker(ReadinessChecker):
         runs_root = getattr(view, "runs_root", None)
         if runs_root is None or not runs_root.exists():
             return self._miss(requirement, [NO_ELIGIBLE_RECORDS])
-        requested = ctx.request_material_refs or []
-        dirs = [p for p in runs_root.iterdir() if p.is_dir()]
-        if requested:
-            dirs = [p for p in dirs if p.name in requested]
-        eligible_dirs = []
-        for d in dirs:
-            if self._valid_artifact(d, ctx.as_of):
-                eligible_dirs.append(d)
-        if not eligible_dirs:
-            return self._miss(requirement, [NO_ELIGIBLE_RECORDS])
+        # R3-05：previous_run_ids 专用 context 字段（§37-39）
+        previous_run_ids = getattr(ctx, "previous_run_ids", None)
+        if previous_run_ids is None:
+            previous_run_ids = []
+        eligible_meta: List[Dict[str, Any]] = []
+        if previous_run_ids:
+            for run_id in previous_run_ids:
+                meta = self._valid_artifact_meta(runs_root, run_id, ctx.as_of)
+                if meta is not None:
+                    eligible_meta.append(meta)
+        # 无 requested prior-run set → 不得扫描全部 runs（§39）；MISSING + coverage null
+        if not eligible_meta:
+            return self._miss(requirement, [NO_ELIGIBLE_RECORDS, "NO_REQUESTED_RUNS"])
         available = {"task_id", "run_id"}
-        return self._finalize(
-            requirement, spec, eligible_dirs, 0,
-            [d.name for d in eligible_dirs[:50]], [], available,
-            coverage=None, coverage_warnings=[COVERAGE_NOT_MEASURABLE],
-            freshness_age=None,
+        # run_id 来自正式 scenario_execution_result.json（§45），非目录名伪造
+        refs = [m["run_id"] for m in eligible_meta]
+        return ReadinessCheckResult(
+            status="READY" if available.issuperset(requirement.minimum_fields) else "PARTIAL",
+            available_fields=sorted(available),
+            coverage_ratio=1.0 if eligible_meta else None,
+            eligible_record_count=len(eligible_meta), ineligible_record_count=0,
+            source_tiers_present=[], record_refs=refs[:50],
+            warnings=[COVERAGE_NOT_MEASURABLE] if not eligible_meta else [],
+            freshness_age_seconds=None,
+            eligible_payloads=eligible_meta,
         )
 
-    def _valid_artifact(self, run_dir, as_of: str) -> bool:
-        """正式 lineage 校验（§22/§64）：task.json completed + validation pass-equivalent +
-        business cutoff <= as_of；禁止 filesystem mtime。"""
-        import json as _json
-        task_json = run_dir / "task.json"
-        validation_json = run_dir / "validation.json"
-        if not task_json.exists():
-            return False
+    def _valid_artifact_meta(self, runs_root, run_id: str, as_of: str) -> Optional[Dict[str, Any]]:
+        """复用共享 lineage helper（review.prior_run_lineage，§40-42）校验 prior run；
+        返回 lineage 元数据（含正式 task_id/run_id）。"""
+        from research_os.review.prior_run_lineage import (
+            extract_business_cutoff,
+            validate_prior_run,
+        )
+        from research_os.utils.time import parse_iso
         try:
-            task = _json.loads(task_json.read_text(encoding="utf-8"))
-        except (TypeError, ValueError, OSError):
-            return False
-        if task.get("status") != "completed":
-            return False
-        if task.get("task_id") != run_dir.name:
-            return False  # directory id == task_id
-        if validation_json.exists():
+            as_of_dt = parse_iso(as_of)
+        except ValueError:
+            return None
+        run_dir = runs_root / run_id
+        tdata = validate_prior_run(run_dir, run_id)
+        if tdata is None:
+            return None
+        scenario = str(tdata.get("scenario") or "").strip()
+        cutoff_dt = extract_business_cutoff(tdata, run_dir, scenario, as_of_dt)
+        if cutoff_dt is None or cutoff_dt > as_of_dt:
+            return None  # business cutoff 无法证明或晚于 as_of → reject
+        # run_id 来自 scenario_execution_result.json（§45），非目录名伪造
+        run_id_actual = run_id
+        result_json = run_dir / "scenario_execution_result.json"
+        if result_json.exists():
             try:
-                validation = _json.loads(validation_json.read_text(encoding="utf-8"))
+                import json as _json
+                rdata = _json.loads(result_json.read_text(encoding="utf-8"))
+                if rdata.get("run_id"):
+                    run_id_actual = str(rdata["run_id"])
             except (TypeError, ValueError, OSError):
-                validation = {}
-            verdict = validation.get("verdict") or validation.get("status") or validation.get("result")
-            if isinstance(verdict, str) and verdict.lower() in ("fail", "failed", "invalid"):
-                return False
-        # business cutoff <= as_of（task.as_of 不得晚于 requirement as_of）
-        task_as_of = task.get("as_of")
-        if task_as_of and task_as_of > as_of:
-            return False
-        return True
+                pass
+        return {
+            "task_id": str(tdata.get("task_id") or run_id),
+            "run_id": run_id_actual,
+            "scenario": scenario,
+            "business_cutoff": cutoff_dt.isoformat(timespec="seconds"),
+        }
 
 
 # ---------- ReadinessCheckerRegistry（22/22 注册） ----------
@@ -1363,12 +1562,61 @@ def _seconds_between(ts: str, as_of: str) -> int:
     return max(0, int((t1 - t0).total_seconds()))
 
 
+def _iso_gt(a: Optional[str], b: str) -> bool:
+    """R3-06：timezone-aware datetime 比较（a > b）；无法解析 → fail-closed（视为 ineligible）。
+
+    date-only（YYYY-MM-DD）视为当天 00:00 Asia/Shanghai 再比较（§52）。
+    """
+    if a is None:
+        return False
+    from research_os.utils.time import parse_iso
+    try:
+        return parse_iso(a) > parse_iso(b)
+    except ValueError:
+        # date-only fallback（validate_iso 拒绝纯日期时）
+        try:
+            from datetime import datetime
+            a_dt = datetime.fromisoformat(a)
+            return a_dt > parse_iso(b)
+        except ValueError:
+            return True  # 仍无法解析 → fail-closed
+
+
+def _iso_le(a: Optional[str], b: str) -> bool:
+    """R3-06：timezone-aware datetime 比较（a <= b）；date-only 同 _iso_gt 规则。"""
+    if a is None:
+        return False
+    from research_os.utils.time import parse_iso
+    try:
+        return parse_iso(a) <= parse_iso(b)
+    except ValueError:
+        try:
+            from datetime import datetime
+            a_dt = datetime.fromisoformat(a)
+            return a_dt <= parse_iso(b)
+        except ValueError:
+            return True  # 无法解析 → fail-closed
+
+
 def _in_window(value: str, start: Optional[str], end: Optional[str]) -> bool:
-    """[start, end) 窗口语义（与既有 load_evidence_in_range 一致）。"""
+    """[start, end) 窗口语义（R3-06：parse_iso 后按时间比较，禁止字典序）。"""
     if not start and not end:
         return True
-    if start and value < start:
-        return False
-    if end and value >= end:
-        return False
+    from research_os.utils.time import parse_iso
+    try:
+        value_dt = parse_iso(value)
+    except ValueError:
+        return False  # 无法解析 → fail closed
+    if start:
+        try:
+            if value_dt < parse_iso(start):
+                return False
+        except ValueError:
+            return False
+    if end:
+        try:
+            if value_dt >= parse_iso(end):
+                return False
+        except ValueError:
+            return False
     return True
