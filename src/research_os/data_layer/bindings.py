@@ -44,6 +44,7 @@ COV_PEER_SET = "REQUESTED_PEER_SET"
 COV_WATCHLIST = "CONFIGURED_WATCHLIST"
 COV_OPEN_WORLD = "OPEN_WORLD"
 COV_NOT_APPLICABLE = "NOT_APPLICABLE"
+COV_REQUESTED_RUN_SET = "REQUESTED_RUN_SET"
 
 PROV_EVIDENCE_TIER = "evidence_tier"
 PROV_RAW_SOURCE = "raw_item_source"
@@ -71,14 +72,28 @@ SUPPORTED_PIT_STRATEGIES = {PIT_AS_OF, PIT_PUBLISHED, PIT_VALID_INTERVAL, PIT_TR
                             PIT_PUBLICATION_AVAILABILITY, PIT_CLAIM_BUSINESS_TIME}
 SUPPORTED_COVERAGE_STRATEGIES = {COV_SINGLETON, COV_ENTITY_SET, COV_PEER_SET, COV_WATCHLIST,
                                  COV_OPEN_WORLD, COV_NOT_APPLICABLE,
-                                 "REQUESTED_RUN_SET", "AUTHORITATIVE_TRADING_CALENDAR"}
+                                 COV_REQUESTED_RUN_SET, "AUTHORITATIVE_TRADING_CALENDAR"}
 SUPPORTED_PROVENANCE_STRATEGIES = {PROV_EVIDENCE_TIER, PROV_RAW_SOURCE, PROV_EVIDENCE_IDS,
                                    PROV_DOCUMENT_CHAIN, PROV_DOCUMENT_SOURCE, PROV_MANIFEST,
                                    PROV_INTERNAL, PROV_NOT_APPLICABLE}
 SUPPORTED_FRESHNESS_STRATEGIES = {FRESH_PUBLISHED, FRESH_TRADE_DATE, FRESH_UPDATED,
                                   FRESH_OBSERVED, FRESH_SNAPSHOT_AS_OF, FRESH_VALID_FROM,
                                   FRESH_NOT_APPLICABLE, "created_at"}
-SUPPORTED_PROJECTION_PREFIXES = ("canonical:", "projection:")
+
+# ---------- R3.1-07：Exact Projection Strategy Registry（§51-56） ----------
+# 只登记当前真实实现且被 binding 正式使用的 projection（禁止"未来可能用"/前缀匹配）。
+# Projector 的 PROJECTION_HANDLERS 必须与此机械一致（closure 测试保证 parity）。
+SUPPORTED_PROJECTION_STRATEGIES = frozenset({
+    "canonical:financial_value",
+    "projection:company_profile.industry_ids",
+    "projection:date(published_at)",
+    "projection:raw_item.company_entity",
+    "projection:evidence.source_id",
+    "projection:entities.symbol_via_security_profile",
+    "projection:graph_query_result",
+    "projection:graph_industry_context",
+    "projection:artifact_lineage",
+})
 
 
 class RuntimeStrategyGate:
@@ -101,7 +116,7 @@ class RuntimeStrategyGate:
             if b.freshness_strategy not in SUPPORTED_FRESHNESS_STRATEGIES:
                 violations.append(f"{b.requirement_id}: freshness {b.freshness_strategy}")
             for field, source in b.minimum_field_sources.items():
-                if source != "direct" and not source.startswith(SUPPORTED_PROJECTION_PREFIXES):
+                if source != "direct" and source not in SUPPORTED_PROJECTION_STRATEGIES:
                     violations.append(f"{b.requirement_id}:{field} projection {source}")
         return violations
 
@@ -268,6 +283,14 @@ class RequirementReadinessBindingResolver:
             return COV_PEER_SET
         if req.data_type == "claims":
             # §33：daily_review.claims 无合法 expected claim universe → OPEN_WORLD（null）
+            return COV_OPEN_WORLD
+        if req.data_type == "run_artifacts":
+            # R3.1-02：daily_review.run_artifacts coverage = valid requested / requested（§15-16）
+            return COV_REQUESTED_RUN_SET
+        if req.data_type == "entity_mapping":
+            # R3.1-04：subject → SINGLETON_TARGET；industry/global → OPEN_WORLD（null，§28-31）
+            if req.scope.scope_type == "subject":
+                return COV_SINGLETON
             return COV_OPEN_WORLD
         return spec.coverage_strategy
 

@@ -194,3 +194,8 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - dry-run 零副作用（不创建 DB / 不写 artifacts）；Preflight 只读、零 LLM、
   零网络。
 - P7-D2 未授权；Phase6.1 未授权。
+- R3.1（Final Runtime Closure）进一步收口但仍有边界：industry/global
+  entity_mapping 与 open-world requirement 的 coverage 恒为 null（无完整权威
+  denominator）；run_artifacts coverage 仅对 requested run set 计算；market
+  bar 的 tier 依赖 accepted manifest（无 manifest → SOURCE_TIER_UNPROVEN）；
+  无自动历史日线/财务源；projection 仅支持已登记的 9 个策略（新增需先登记）。

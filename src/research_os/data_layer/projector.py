@@ -52,6 +52,22 @@ AUTHORITY_DIRECT_FIELDS: Dict[str, Set[str]] = {
 CANONICAL_PREFIXES = ("canonical:", "projection:")
 
 
+# ---------- R3.1-07：Projection Handler Table（§56） ----------
+# 与 bindings.SUPPORTED_PROJECTION_STRATEGIES 机械一致的唯一 capability declaration。
+# closure 测试断言：PROJECTION_HANDLERS.keys() == SUPPORTED_PROJECTION_STRATEGIES。
+PROJECTION_HANDLERS: Dict[str, str] = {
+    "canonical:financial_value": "financial_value",
+    "projection:company_profile.industry_ids": "industry_membership",
+    "projection:date(published_at)": "date_published",
+    "projection:raw_item.company_entity": "company_subject",
+    "projection:evidence.source_id": "evidence_source",
+    "projection:entities.symbol_via_security_profile": "symbol_security_profile",
+    "projection:graph_query_result": "graph_query",
+    "projection:graph_industry_context": "graph_industry",
+    "projection:artifact_lineage": "artifact_lineage",
+}
+
+
 class ReadinessFieldProjector:
     """确定性 canonical field projection（只读，不回写）。"""
 
@@ -60,40 +76,37 @@ class ReadinessFieldProjector:
         """判断 payload 是否满足某 minimum_field。
 
         source == "direct" → 直接字段存在（非 None）
-        source == "canonical:financial_value" → normalized/raw_value + value_status
-        source == "projection:company_profile.industry_ids" → 匹配请求 industry
-        source == "projection:date(published_at)" → publish_date = date(published_at)
-        source == "projection:raw_item.company_entity" → 存在可确定 company subject
-        source == "projection:graph_query_result" / "graph_industry_context" → graph result
-        source == "projection:artifact_lineage" → 正式 artifact lineage
+        其余 source 必须 ∈ SUPPORTED_PROJECTION_STRATEGIES（exact，禁止前缀匹配，§51）；
+        未知 source → CONTROL_PLANE_CONFIGURATION_ERROR。
         """
         if source == "direct":
             return payload.get(field) is not None
-        if source == "canonical:financial_value":
+        handler = PROJECTION_HANDLERS.get(source)
+        if handler is None:
+            # 未知 projection → CONTROL_PLANE_CONFIGURATION_ERROR（§24，不得伪装成普通 missing field）
+            raise ValueError(
+                f"CONTROL_PLANE_CONFIGURATION_ERROR: 未知 projection source {source!r}")
+        if handler == "financial_value":
             return self._financial_value_exists(payload)
-        if source == "projection:company_profile.industry_ids":
+        if handler == "industry_membership":
             return self._industry_membership_exists(payload, context)
-        if source == "projection:date(published_at)":
+        if handler == "date_published":
             return payload.get("published_at") is not None
-        if source == "projection:raw_item.company_entity":
+        if handler == "company_subject":
             return self._company_subject_exists(payload)
-        if source in ("projection:graph_query_result", "projection:graph_industry_context"):
+        if handler in ("graph_query", "graph_industry"):
             # graph result 由 checker 填充到 payload/context
             return payload.get(field) is not None or context.get(field) is not None
-        if source == "projection:artifact_lineage":
+        if handler == "artifact_lineage":
             return payload.get(field) is not None or context.get(field) is not None
-        if source == "projection:evidence.source_id":
+        if handler == "evidence_source":
             return payload.get("source_id") is not None
-        if source == "projection:entities.symbol_via_security_profile":
+        if handler == "symbol_security_profile":
             # §22：symbol 必须来自可证明 authority 字段（entity.symbol / entity.security_symbol），
             # 不得用通用 aliases 冒充证券代码。
             symbol = payload.get("symbol") or payload.get("security_symbol")
             return symbol is not None
-        if source == "projection:financial_facts.statement_type":
-            return payload.get("statement_type") is not None
-        # 未知 projection → CONTROL_PLANE_CONFIGURATION_ERROR（§24，不得伪装成普通 missing field）
-        raise ValueError(
-            f"CONTROL_PLANE_CONFIGURATION_ERROR: 未知 projection source {source!r}")
+        return False
 
     # ---------- 具体投影 ----------
 
@@ -131,6 +144,7 @@ class MinimumFieldClosureValidator:
 
     def validate(self) -> List[str]:
         """返回全部 closure 违规 requirement_id；空 = 通过。"""
+        from research_os.data_layer.bindings import SUPPORTED_PROJECTION_STRATEGIES
         violations: List[str] = []
         for binding in self._bindings:
             authority_fields = AUTHORITY_DIRECT_FIELDS.get(binding.authority_location, set())
@@ -140,9 +154,10 @@ class MinimumFieldClosureValidator:
                         violations.append(
                             f"{binding.requirement_id}:{field} 非 {binding.authority_location} direct field"
                         )
-                elif not source.startswith(CANONICAL_PREFIXES):
+                elif source not in SUPPORTED_PROJECTION_STRATEGIES:
+                    # R3.1-07：projection 必须 exact ∈ 已实现策略 registry（§54）
                     violations.append(
-                        f"{binding.requirement_id}:{field} 无合法 projection source"
+                        f"{binding.requirement_id}:{field} 无已实现 projection source {source}"
                     )
         return violations
 

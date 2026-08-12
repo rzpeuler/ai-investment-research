@@ -143,3 +143,33 @@ def pass_equivalent_statuses() -> set:
 
 def eligible_scenarios() -> set:
     return set(_ELIGIBLE_SCENARIOS)
+
+
+def validate_execution_result(run_dir: Path, run_id: str) -> Optional[dict]:
+    """R3.1-03：scenario_execution_result.json 身份校验（共享 helper，供 RunArtifactChecker 使用）。
+
+    返回 result dict；任一不通过 → None：
+    - 文件必须存在且 JSON 可读
+    - task_id 存在非空且 == requested run_id
+    - run_id 存在非空（canonical run_id 必须由正式 artifact 证明）
+    - validation_status 若存在必须 pass-equivalent（不得与 validation.json 矛盾）
+    """
+    rp = run_dir / "scenario_execution_result.json"
+    if not rp.exists():
+        return None
+    try:
+        rdata = json.loads(rp.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    if not isinstance(rdata, dict):
+        return None
+    task_id = str(rdata.get("task_id") or "").strip()
+    result_run_id = str(rdata.get("run_id") or "").strip()
+    if not task_id or not result_run_id:
+        return None
+    if task_id != run_id:
+        return None
+    vstatus = rdata.get("validation_status")
+    if vstatus is not None and str(vstatus).strip() not in _PASS_EQUIVALENT:
+        return None
+    return rdata

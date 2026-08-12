@@ -137,7 +137,7 @@ P7-D1 实现 Data Readiness + Gap Classification + Acquisition Planning 控制�
 当前 Schema registry 为 **85**，数据库为 **v6**，没有新增 migration。P7 data acquisition
 仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1 与 P7-D0 均已通过独立验收（`PASS /
 INDEPENDENTLY ACCEPTED`）；P7-D1 为 `IMPLEMENTED / AWAITING INDEPENDENT
-RE-ACCEPTANCE`（R1/R2/R3 返修后，非 PASS）。均未改变任何数据源、Collector、Source Registry、Graph 或
+RE-ACCEPTANCE`（R1/R2/R3/R3.1 返修链后，非 PASS）。均未改变任何数据源、Collector、Source Registry、Graph 或
 数据库行为。P7-D2 未授权；P7-D0/P7-D1 只包含契约与控制面，不含数据采集执行能力。
 
 ## 快速开始

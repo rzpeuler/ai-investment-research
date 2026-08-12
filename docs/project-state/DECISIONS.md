@@ -2629,3 +2629,56 @@ R3 无新 contract correction；所有 Registry 冻结。返修完成后：
 P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
 （R1/R2/R3 repair chain）
 ```
+
+### 48.9 R3.1 Final Runtime Closure（2026-08-11）
+
+P7-D1-R3 独立复验 = **CHANGES_REQUIRED**。确认 R3 主架构方向正确
+（binding/projector runtime wired、Evidence→RawItem、lineage、provenance、dry-run、
+graph query），无架构重写；只关闭剩余 runtime correctness blockers：
+
+```text
+B1. Remaining lexical datetime eligibility（RawItem SQL window prefilter /
+    Financial publication SQL string compare / Valuation latest 字符串排序）
+B2. REQUESTED_RUN_SET coverage 未实现（binding 仍 NOT_APPLICABLE）
+B3. run_id 仍有 directory-name fallback
+B4. EntityMapping scenario coverage 绕过 Binding（无条件 1.0/0.0）
+B5. Graph result 经 canonical projector 后丢失
+B6. Runtime positive fixtures 未全 Schema-valid
+B7. RuntimeStrategyGate 接受任意 projection 前缀
+```
+
+R3.1 收口：
+
+```text
+DATETIME ELIGIBILITY: PARSE THEN COMPARE（无 lexical datetime；date-only 显式
+    Asia/Shanghai 边界；malformed fail-closed）
+RUN_ARTIFACT BINDING: coverage_strategy = REQUESTED_RUN_SET
+RUN_COVERAGE: valid requested / unique requested（去重；empty → null / MISSING /
+    NO AUTO SCAN；minimum_coverage → PARTIAL + COVERAGE_BELOW_MINIMUM）
+RUN_ID PROOF: scenario_execution_result.json 必须存在且 task_id/run_id 非空且
+    task_id 一致；validation_status 与共享 acceptance 不矛盾；禁止 directory fallback
+ENTITY_MAPPING COVERAGE: subject → SINGLETON_TARGET；industry/global → OPEN_WORLD null
+GRAPH PROJECTOR: 仅实际 query 证明后生成 projectable payload（node_refs/edge_refs/
+    as_of/industry_id）；runtime binding+projector 下不丢失；global fail-closed；零写入
+RUNTIME FIXTURES: Pydantic → model_dump → validate_instance → persist → actual checker
+    → DataReadinessService（8 类对象全循环）
+PROJECTION GATE: SUPPORTED_PROJECTION_STRATEGIES exact registry（9 个已实现）；
+    PROJECTION_HANDLERS 与其机械一致（parity 测试）；未知 projection 初始化即
+    CONTROL_PLANE_CONFIGURATION_ERROR；删除 dead projection:financial_facts.statement_type
+BINDING RUNTIME AUTHORITY: provenance/coverage/freshness 全部 binding-owned
+    （_prov_strategy/_cov_strategy/_fresh_strategy）；production preflight 强制 binding
+    + projector，无 generic fallback
+```
+
+Registry 全冻结（R3.1 无第 7 个 contract correction）；Router/Collectors/schemas/
+runners 不变；DB v6 / Migrations NONE / Schemas 85 / Network 0 / LLM 0 /
+Graph write NONE / P7-D2 NOT_AUTHORIZED / PHASE6.1 NOT_AUTHORIZED。
+
+R3.1 完成后只能报告：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+（R1/R2/R3/R3.1 repair chain）
+```
+
+不得自行声明 PASS / ACCEPTED / CLOSED / MERGE AUTHORIZED。

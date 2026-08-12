@@ -44,6 +44,7 @@ from research_os.data_layer.context import ResolvedRequirementContext
 from research_os.data_layer.provenance import ReadinessProvenanceResolver
 from research_os.data_layer.specs import DataTypeReadinessSpec, get_spec
 from research_os.models import ScenarioDataRequirement
+from research_os.utils.time import parse_iso
 
 # ---------- 标准化 reason / warning 常量（§40） ----------
 
@@ -340,17 +341,10 @@ class RawItemChecker(ReadinessChecker):
             if not ctx.watchlist_group:
                 return self._miss(requirement, [SCOPE_MISMATCH, "watchlist"])
 
-        # 只读 raw_items；按窗口过滤
-        rows = []
-        if ctx.window_start and ctx.window_end:
-            rows = view.query(
-                "SELECT payload FROM raw_items "
-                "WHERE json_extract(payload, '$.published_at') >= ? "
-                "AND json_extract(payload, '$.published_at') < ?",
-                (ctx.window_start, ctx.window_end),
-            )
-        else:
-            rows = view.query("SELECT payload FROM raw_items")
+        # 只读 raw_items；窗口 eligibility 必须在 Python parse_iso 后判定（§5）：
+        # SQL 字符串 prefilter 不得作为 authoritative eligibility（不同 offset 表示等价时间
+        # 但字符串排序不等价）。D1 数据量非瓶颈 → 取全部候选，Python 过滤。
+        rows = view.query("SELECT payload FROM raw_items")
 
         eligible: List[Dict[str, Any]] = []
         ineligible_count = 0
@@ -380,13 +374,17 @@ class RawItemChecker(ReadinessChecker):
             if _iso_gt(published, ctx.as_of):
                 ineligible_count += 1
                 continue
+            # R3.1-01：窗口 eligibility 按 instant 判定（parse_iso，禁止字典序；§5/§11）
+            if not _in_window(published, ctx.window_start, ctx.window_end):
+                ineligible_count += 1
+                continue
             # scope（watchlist / global）
             if not self._scope_eligible(payload, ctx):
                 ineligible_count += 1
                 continue
             # provenance tier（raw_item_source → sources.yaml）
             if self._tier_applicable(ctx, spec):
-                tier, warn = provenance.resolve(payload, "raw_item_source", view)
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -477,7 +475,7 @@ class ProfileChecker(ReadinessChecker):
                 continue
             # provenance（evidence_ids → tier）
             if self._tier_applicable(ctx, spec):
-                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -491,11 +489,17 @@ class ProfileChecker(ReadinessChecker):
             if ref:
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
-        # SINGLETON_TARGET：存在合格对象 → 1.0；缺失 → 0.0（§40）
-        coverage = 1.0 if eligible else 0.0
+        # R3.1-08：coverage 走 binding（§59）；SINGLETON_TARGET：存在合格对象 → 1.0；
+        # 缺失 → 0.0（§40）
+        if self._cov_strategy(ctx, spec) == "SINGLETON_TARGET":
+            coverage = 1.0 if eligible else 0.0
+        else:
+            coverage = None
         freshness_age = self._profile_age(eligible, spec, ctx, requirement.data_type)
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
-                              list(tiers_present), available, coverage, [], freshness_age)
+                              list(tiers_present), available, coverage,
+                              [] if coverage is not None else [COVERAGE_NOT_MEASURABLE],
+                              freshness_age)
 
     def _pit_covers(self, payload, as_of: str, data_type: str) -> bool:
         """R2-04：SecurityProfile 生命周期 ≠ CompanyProfile 生命周期。
@@ -506,11 +510,14 @@ class ProfileChecker(ReadinessChecker):
         CompanyProfile: valid_from/valid_to/status ∈ {active, approved, valid}。
         """
         if data_type == "security_profile":
+            # §9：date-only 字段（listing_date/delisting_date）用 date.fromisoformat 显式
+            # 比较，不做 naive datetime 混合（as_of 取日期部分，均为 YYYY-MM-DD）。
+            as_of_date = as_of[:10]
             listing_date = payload.get("listing_date")
-            if listing_date and listing_date > as_of[:10]:
+            if listing_date and str(listing_date) > as_of_date:
                 return False  # 尚未上市
             delisting_date = payload.get("delisting_date")
-            if delisting_date and delisting_date <= as_of[:10]:
+            if delisting_date and str(delisting_date) <= as_of_date:
                 status = str(payload.get("status") or "").lower()
                 # delisted 历史映射：delisting_date 已过 → as_of 时不可用
                 return False
@@ -626,12 +633,13 @@ class IndustryMembershipChecker(ReadinessChecker):
             if ref:
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
-        # coverage（§35-37）：
-        # - subject scope（stock）：valid membership exists → 1.0；missing → 0.0（SINGLETON）
+        # R3.1-08：coverage 走 binding.coverage_strategy（§59；binding 已把
+        # subject→SINGLETON_TARGET、industry→OPEN_WORLD 固化，§28-30）：
+        # - subject scope（stock）：valid membership exists → 1.0；missing → 0.0
         # - industry scope 无权威完整成员全集：coverage = null（不得"一个成员 → 1.0"）
         coverage = None
         warnings: List[str] = []
-        if ctx.requirement.scope.scope_type == "subject":
+        if self._cov_strategy(ctx, spec) == "SINGLETON_TARGET":
             coverage = 1.0 if eligible else 0.0
         else:
             coverage = None
@@ -684,7 +692,7 @@ class FinancialChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             if self._tier_applicable(ctx, spec):
-                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -746,28 +754,42 @@ class FinancialChecker(ReadinessChecker):
         优先：evidence_ids → evidence.published_at <= as_of；或
         source_document_id → document_records.published_at <= as_of；
         period_end <= as_of 不足以证明（发布可能晚于 as_of）。
+        R3.1-01：必须 fetch exact referenced object → parse published_at → parse as_of
+        → 按 instant 比较（published_at <= as_of）。禁止 SQL 字符串时间比较（§6）。
         """
+        try:
+            as_of_dt = parse_iso(as_of)
+        except ValueError:
+            return False
         evidence_ids = payload.get("evidence_ids") or []
         if evidence_ids and view.has_table("evidence"):
             for eid in evidence_ids:
                 rows = view.query(
                     "SELECT payload FROM evidence "
-                    "WHERE json_extract(payload, '$.evidence_id') = ? "
-                    "AND json_extract(payload, '$.published_at') <= ?",
-                    (str(eid), as_of),
+                    "WHERE json_extract(payload, '$.evidence_id') = ?",
+                    (str(eid),),
                 )
-                if rows:
-                    return True
+                for row in rows:
+                    ep = self._payload(row)
+                    if ep is None:
+                        continue
+                    pub = ep.get("published_at")
+                    if _iso_le(pub, as_of_dt):
+                        return True
         source_doc = payload.get("source_document_id")
         if source_doc and view.has_table("document_records"):
             rows = view.query(
                 "SELECT payload FROM document_records "
-                "WHERE json_extract(payload, '$.document_id') = ? "
-                "AND json_extract(payload, '$.published_at') <= ?",
-                (str(source_doc), as_of),
+                "WHERE json_extract(payload, '$.document_id') = ?",
+                (str(source_doc),),
             )
-            if rows:
-                return True
+            for row in rows:
+                dp = self._payload(row)
+                if dp is None:
+                    continue
+                pub = dp.get("published_at")
+                if _iso_le(pub, as_of_dt):
+                    return True
         return False
 
     def _payload(self, row):
@@ -819,7 +841,7 @@ class ValuationChecker(ReadinessChecker):
                     continue
             # complete 或未知状态：继续按 PIT/fields/provenance 判定
             if self._tier_applicable(ctx, spec):
-                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -831,18 +853,25 @@ class ValuationChecker(ReadinessChecker):
             ref = payload.get("valuation_snapshot_id") or payload.get("id")
             refs.append(str(ref) if ref else "")
         # §29：多个 snapshot 时确定性选取 latest eligible snapshot（as_of <= requirement as_of）；
-        # 禁止 field union（不得把多个历史 snapshot 的字段拼成完整快照）
-        # 显式 (payload, ref) 配对排序，避免 zip 截断/错位
+        # R3.1-01：必须按 instant 排序（parse_iso），禁止字符串排序（§7/§14）；
+        # malformed as_of → candidate ineligible（不得排进 latest selection）。
         if eligible:
-            paired = sorted(
-                zip(eligible, refs),
-                key=lambda pr: str(pr[0].get("as_of") or ""), reverse=True,
-            )
-            latest, latest_ref = paired[0]
-            eligible = [latest]
-            refs = [latest_ref] if latest_ref else []
-            available = {k for k in latest.keys() if latest.get(k) is not None}
-            coverage = 1.0
+            latest: Optional[Dict[str, Any]] = None
+            latest_dt: Optional[Any] = None
+            latest_ref = ""
+            for payload, ref in zip(eligible, refs):
+                snap_dt = _parse_dt(str(payload.get("as_of") or ""))
+                if snap_dt is None:
+                    continue  # malformed → ineligible（§10）
+                if latest_dt is None or snap_dt > latest_dt:
+                    latest, latest_dt, latest_ref = payload, snap_dt, ref
+            if latest is None:
+                eligible, refs, available, coverage = [], [], set(), 0.0
+            else:
+                eligible = [latest]
+                refs = [latest_ref] if latest_ref else []
+                available = {k for k in latest.keys() if latest.get(k) is not None}
+                coverage = 1.0
         else:
             coverage = 0.0
         freshness_age = None
@@ -1164,9 +1193,17 @@ class EntityMappingChecker(ReadinessChecker):
             for payload in eligible:
                 if symbols.get(str(payload.get("entity_id"))):
                     payload["security_symbol"] = symbols[str(payload.get("entity_id"))]
-        coverage = 1.0 if eligible else 0.0
+        # R3.1-04：coverage 必须服从 binding.coverage_strategy（§27-31）：
+        # subject → SINGLETON_TARGET（1.0/0.0）；industry/global → OPEN_WORLD（null，
+        # 本阶段无完整权威 denominator，不得"一条映射 → 1.0"）。
+        cov = self._cov_strategy(ctx, spec)
+        if cov == "SINGLETON_TARGET":
+            coverage = 1.0 if eligible else 0.0
+        else:
+            coverage = None  # OPEN_WORLD：coverage_ratio = null（§28/§30-31）
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
-                              [], available, coverage, [], None)
+                              [], available, coverage, [] if coverage is not None
+                              else [COVERAGE_NOT_MEASURABLE], None)
 
     def _resolve_symbols(self, view, entities) -> dict:
         """Entity → SecurityProfile → SecurityProfile.symbol 确定性映射（只读）。"""
@@ -1230,7 +1267,7 @@ class ResearchFindingsChecker(ReadinessChecker):
                 continue
             # §42：tier via evidence_ids → Evidence provenance（无法证明 → SOURCE_TIER_UNPROVEN）
             if self._tier_applicable(ctx, spec):
-                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -1242,9 +1279,14 @@ class ResearchFindingsChecker(ReadinessChecker):
             if ref:
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
-        coverage = 1.0 if eligible else 0.0
+        # R3.1-08：coverage 走 binding（§59）；research_findings → SINGLETON_TARGET
+        if self._cov_strategy(ctx, spec) == "SINGLETON_TARGET":
+            coverage = 1.0 if eligible else 0.0
+        else:
+            coverage = None
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
-                              [], available, coverage, [], None)
+                              [], available, coverage,
+                              [] if coverage is not None else [COVERAGE_NOT_MEASURABLE], None)
 
     def _payload(self, row):
         payload = row["payload"]
@@ -1279,13 +1321,14 @@ class MarketSeriesChecker(ReadinessChecker):
                 ineligible_count += 1
                 continue
             trade_date = payload.get("trade_date")
-            if trade_date and trade_date > ctx.as_of[:10]:
+            # §9：trade_date 为 date-only 语义，与 as_of 日期部分显式比较（非 naive datetime）
+            if trade_date and str(trade_date) > ctx.as_of[:10]:
                 ineligible_count += 1
                 continue
             # §44：bar tier via accepted manifest（bar symbol/date → manifest.source_id →
             # SourceRegistry tier）；无匹配 accepted manifest → SOURCE_TIER_UNPROVEN
             if self._tier_applicable(ctx, spec):
-                tier, warn = provenance.resolve(payload, "manifest", view)
+                tier, warn = provenance.resolve(payload, self._prov_strategy(ctx, spec), view)
                 if tier is None:
                     ineligible_count += 1
                     continue
@@ -1372,11 +1415,23 @@ class GraphSnapshotChecker(ReadinessChecker):
         if missing:
             warnings.append(MISSING_REQUIRED_FIELDS)
         status = "PARTIAL" if missing or requirement.minimum_coverage > 0 else "READY"
+        # R3.1-05：仅在实际 Graph query 被证明后生成 projectable authority payload（§34）：
+        # 供 runtime canonical projector 判定 node_refs/edge_refs/as_of/industry_id，
+        # 不得 synthetic fake IDs；空结果不伪造 payload（字段存在性由 available 证明）。
+        eligible_payloads: List[Dict[str, Any]] = []
+        if node_refs or edge_refs:
+            eligible_payloads.append({
+                "node_refs": list(node_refs),
+                "edge_refs": list(edge_refs),
+                "as_of": ctx.as_of,
+                "industry_id": industry_id,
+            })
         return ReadinessCheckResult(
             status=status, available_fields=sorted(available), coverage_ratio=None,
             eligible_record_count=1 if node_refs else 0, ineligible_record_count=0,
             source_tiers_present=[], record_refs=node_refs[:50],
             warnings=warnings, freshness_age_seconds=None,
+            eligible_payloads=eligible_payloads,
         )
 
     @staticmethod
@@ -1438,34 +1493,65 @@ class RunArtifactChecker(ReadinessChecker):
         previous_run_ids = getattr(ctx, "previous_run_ids", None)
         if previous_run_ids is None:
             previous_run_ids = []
+        # R3.1-02：deterministic 去重（保留首次出现；重复 ID 不得扭曲 denominator，§18）
+        seen: set = set()
+        unique_requested: List[str] = []
+        for run_id in previous_run_ids:
+            if run_id not in seen:
+                seen.add(run_id)
+                unique_requested.append(run_id)
         eligible_meta: List[Dict[str, Any]] = []
-        if previous_run_ids:
-            for run_id in previous_run_ids:
-                meta = self._valid_artifact_meta(runs_root, run_id, ctx.as_of)
-                if meta is not None:
-                    eligible_meta.append(meta)
-        # 无 requested prior-run set → 不得扫描全部 runs（§39）；MISSING + coverage null
-        if not eligible_meta:
+        ineligible_count = 0
+        for run_id in unique_requested:
+            meta = self._valid_artifact_meta(runs_root, run_id, ctx.as_of)
+            if meta is not None:
+                eligible_meta.append(meta)
+            else:
+                ineligible_count += 1
+        # 无 requested prior-run set → 不得扫描全部 runs（§17）；MISSING + coverage null
+        if not unique_requested:
             return self._miss(requirement, [NO_ELIGIBLE_RECORDS, "NO_REQUESTED_RUNS"])
+        # R3.1-02：coverage = valid requested / unique requested（§16）
+        coverage = len(eligible_meta) / len(unique_requested) if unique_requested else None
         available = {"task_id", "run_id"}
-        # run_id 来自正式 scenario_execution_result.json（§45），非目录名伪造
+        # run_id 来自正式 scenario_execution_result.json（§20-22），非目录名伪造
         refs = [m["run_id"] for m in eligible_meta]
+        if not eligible_meta:
+            return ReadinessCheckResult(
+                status="MISSING", available_fields=sorted(available),
+                coverage_ratio=coverage, eligible_record_count=0,
+                ineligible_record_count=ineligible_count,
+                source_tiers_present=[], record_refs=[],
+                warnings=[NO_ELIGIBLE_RECORDS, "NO_VALID_REQUESTED_RUNS"],
+                freshness_age_seconds=None,
+                eligible_payloads=[],
+            )
+        # §19：minimum_coverage 必须真实影响 RunArtifact readiness（PARTIAL + COVERAGE_BELOW_MINIMUM）
+        status = "READY" if available.issuperset(requirement.minimum_fields) else "PARTIAL"
+        warnings: List[str] = []
+        if requirement.minimum_coverage > 0 and coverage < requirement.minimum_coverage:
+            status = "PARTIAL"
+            warnings.append(COVERAGE_BELOW_MINIMUM)
         return ReadinessCheckResult(
-            status="READY" if available.issuperset(requirement.minimum_fields) else "PARTIAL",
+            status=status,
             available_fields=sorted(available),
-            coverage_ratio=1.0 if eligible_meta else None,
-            eligible_record_count=len(eligible_meta), ineligible_record_count=0,
+            coverage_ratio=coverage,
+            eligible_record_count=len(eligible_meta), ineligible_record_count=ineligible_count,
             source_tiers_present=[], record_refs=refs[:50],
-            warnings=[COVERAGE_NOT_MEASURABLE] if not eligible_meta else [],
+            warnings=warnings,
             freshness_age_seconds=None,
             eligible_payloads=eligible_meta,
         )
 
     def _valid_artifact_meta(self, runs_root, run_id: str, as_of: str) -> Optional[Dict[str, Any]]:
         """复用共享 lineage helper（review.prior_run_lineage，§40-42）校验 prior run；
-        返回 lineage 元数据（含正式 task_id/run_id）。"""
+        返回 lineage 元数据（含正式 task_id/run_id）。
+        R3.1-03：run_id 必须由 scenario_execution_result.json 正式证明（§20-23），
+        禁止 directory-name fallback；validation_status 与共享 acceptance 必须一致。
+        """
         from research_os.review.prior_run_lineage import (
             extract_business_cutoff,
+            validate_execution_result,
             validate_prior_run,
         )
         from research_os.utils.time import parse_iso
@@ -1481,20 +1567,14 @@ class RunArtifactChecker(ReadinessChecker):
         cutoff_dt = extract_business_cutoff(tdata, run_dir, scenario, as_of_dt)
         if cutoff_dt is None or cutoff_dt > as_of_dt:
             return None  # business cutoff 无法证明或晚于 as_of → reject
-        # run_id 来自 scenario_execution_result.json（§45），非目录名伪造
-        run_id_actual = run_id
-        result_json = run_dir / "scenario_execution_result.json"
-        if result_json.exists():
-            try:
-                import json as _json
-                rdata = _json.loads(result_json.read_text(encoding="utf-8"))
-                if rdata.get("run_id"):
-                    run_id_actual = str(rdata["run_id"])
-            except (TypeError, ValueError, OSError):
-                pass
+        # R3.1-03：run_id 必须由正式 scenario_execution_result.json 证明（§20-22），
+        # 禁止 directory-name fallback；validation_status 一致性由共享 helper 校验（§23/§25）。
+        rdata = validate_execution_result(run_dir, run_id)
+        if rdata is None:
+            return None
         return {
-            "task_id": str(tdata.get("task_id") or run_id),
-            "run_id": run_id_actual,
+            "task_id": str(rdata.get("task_id") or "").strip(),
+            "run_id": str(rdata.get("run_id") or "").strip(),
             "scenario": scenario,
             "business_cutoff": cutoff_dt.isoformat(timespec="seconds"),
         }
@@ -1562,40 +1642,68 @@ def _seconds_between(ts: str, as_of: str) -> int:
     return max(0, int((t1 - t0).total_seconds()))
 
 
-def _iso_gt(a: Optional[str], b: str) -> bool:
-    """R3-06：timezone-aware datetime 比较（a > b）；无法解析 → fail-closed（视为 ineligible）。
+def _iso_gt(a: Optional[str], b: Any) -> bool:
+    """R3-06/R3.1-01：timezone-aware datetime 比较（a > b）；无法解析 → fail-closed。
 
-    date-only（YYYY-MM-DD）视为当天 00:00 Asia/Shanghai 再比较（§52）。
+    a 为 payload 时间字段（str）；b 为 as_of（str 或已 parse 的 naive datetime，
+    语义 Asia/Shanghai）。date-only（YYYY-MM-DD）显式视为当天 00:00 Asia/Shanghai，
+    不得以 naive datetime 与不同语义混合（§9）。
     """
     if a is None:
         return False
     from research_os.utils.time import parse_iso
-    try:
-        return parse_iso(a) > parse_iso(b)
-    except ValueError:
-        # date-only fallback（validate_iso 拒绝纯日期时）
-        try:
-            from datetime import datetime
-            a_dt = datetime.fromisoformat(a)
-            return a_dt > parse_iso(b)
-        except ValueError:
-            return True  # 仍无法解析 → fail-closed
+    a_dt = _parse_dt(a)
+    if a_dt is None:
+        return True  # 无法解析 → fail-closed（视为 ineligible）
+    b_dt = _as_dt(b)
+    if b_dt is None:
+        return True  # as_of 无法解析 → fail-closed
+    return a_dt > b_dt
 
 
-def _iso_le(a: Optional[str], b: str) -> bool:
-    """R3-06：timezone-aware datetime 比较（a <= b）；date-only 同 _iso_gt 规则。"""
+def _iso_le(a: Optional[str], b: Any) -> bool:
+    """R3-06/R3.1-01：timezone-aware datetime 比较（a <= b）；date-only 同 _iso_gt 规则。"""
     if a is None:
         return False
     from research_os.utils.time import parse_iso
+    a_dt = _parse_dt(a)
+    if a_dt is None:
+        return True  # 无法解析 → fail-closed
+    b_dt = _as_dt(b)
+    if b_dt is None:
+        return True
+    return a_dt <= b_dt
+
+
+def _parse_dt(value: str) -> Optional[Any]:
+    """str → Asia/Shanghai 语义 naive datetime；date-only → 当天 00:00（§9）。"""
     try:
-        return parse_iso(a) <= parse_iso(b)
+        return parse_iso(value)
     except ValueError:
+        return _parse_date_only(value)
+def _parse_date_only(value: str) -> Optional[Any]:
+    """date-only（YYYY-MM-DD）→ 当天 00:00 Asia/Shanghai 语义的 naive datetime（§9）。"""
+    from datetime import date, datetime as _dt, time
+    try:
+        d = date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return _dt.combine(d, time(0, 0))
+
+
+def _as_dt(value: Any) -> Optional[Any]:
+    """str → parse_iso；datetime 原样；无法解析 → None。"""
+    if value is None:
+        return None
+    if isinstance(value, str):
         try:
-            from datetime import datetime
-            a_dt = datetime.fromisoformat(a)
-            return a_dt <= parse_iso(b)
+            return parse_iso(value)
         except ValueError:
-            return True  # 无法解析 → fail-closed
+            return _parse_date_only(value)
+    if hasattr(value, "tzinfo"):  # datetime
+        return value
+    return None
+
 
 
 def _in_window(value: str, start: Optional[str], end: Optional[str]) -> bool:

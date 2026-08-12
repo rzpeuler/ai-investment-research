@@ -154,8 +154,9 @@ class ReadinessProvenanceResolver:
         try:
             rows = view.query(
                 "SELECT m.payload FROM market_daily_series_manifests m "
-                "WHERE m.validation_status = 'accepted' "
-                "AND m.date_start <= ? AND m.date_end >= ? "
+                "WHERE json_extract(m.payload, '$.validation_status') = 'accepted' "
+                "AND json_extract(m.payload, '$.date_start') <= ? "
+                "AND json_extract(m.payload, '$.date_end') >= ? "
                 "AND EXISTS (SELECT 1 FROM json_each(json_extract(m.payload, '$.symbols')) "
                 "            WHERE json_each.value = ?)",
                 (trade_date, trade_date, symbol),

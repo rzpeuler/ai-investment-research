@@ -107,3 +107,18 @@ P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
 ```
 
 不得自行声明 PASS / ACCEPTED / CLOSED / MERGE AUTHORIZED。
+
+---
+
+## Independent Re-Acceptance（R3.1）
+
+```text
+INDEPENDENT_REACCEPTANCE:
+CHANGES_REQUIRED
+
+FOLLOW_UP:
+P7-D1-R3.1 Final Runtime Closure
+（B1 datetime lexical / B2 REQUESTED_RUN_SET / B3 run_id proof /
+ B4 EntityMapping coverage / B5 Graph projector / B6 schema-valid fixtures /
+ B7 exact projection gate）
+```

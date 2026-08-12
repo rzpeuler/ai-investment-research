@@ -238,6 +238,32 @@
     run_id 来自 scenario_execution_result.json；previous_run_ids 专用 context。
   - **datetime PIT/window comparisons must be timezone-aware**：parse_iso 后比较，
     禁止 ISO 字典序。
+  - **R3.1 Final Runtime Closure**（V1.6 内，不升级 V1.7）：
+    - **no lexical datetime eligibility**：RawItem 窗口过滤在 Python parse_iso 后
+      判定（SQL prefilter 不得 authoritative）；Financial publication PIT fetch
+      exact object 后按 instant 比较；Valuation latest 按 instant 排序；
+      date-only 字段显式 Asia/Shanghai 边界；malformed 时间 fail-closed。
+    - **requested-run-set coverage is actual valid/requested ratio**：
+      `daily_review.run_artifacts` binding = REQUESTED_RUN_SET；coverage =
+      valid/unique requested；empty → null/MISSING/no auto-scan；重复 ID 不扭曲
+      denominator；minimum_coverage 真实影响 readiness。
+    - **run_id requires formal execution artifact proof**：
+      scenario_execution_result.json 必须存在且 task_id/run_id 非空一致；
+      validation_status 与共享 lineage acceptance 不矛盾；禁止 directory fallback。
+    - **scenario EntityMapping coverage obeys Binding**：subject → SINGLETON_TARGET；
+      industry/global → OPEN_WORLD null（本阶段无完整权威 denominator）。
+    - **Graph canonical fields survive runtime projection**：仅实际 query 证明后
+      生成 projectable payload；node_refs/edge_refs 经 runtime projector 保留；
+      global fail-closed；零写入。
+    - **production runtime fixtures must be Pydantic + Schema-valid**：Pydantic →
+      model_dump → validate_instance → persist → actual checker → service；
+      partial dict 不得称为 Schema-valid fixture。
+    - **projection strategy support is exact, not prefix-based**：
+      SUPPORTED_PROJECTION_STRATEGIES 精确注册（9 个已实现）；Projector handler
+      与其机械一致；未知 projection 初始化即 CONTROL_PLANE_CONFIGURATION_ERROR。
+    - **binding-owned provenance/coverage/freshness**：checker 一律经
+      `_prov_strategy/_cov_strategy/_fresh_strategy` 消费 binding；production
+      preflight 强制 binding+projector，无 generic fallback。
 
 ---
 
