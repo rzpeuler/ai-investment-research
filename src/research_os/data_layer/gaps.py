@@ -15,6 +15,35 @@ from typing import List, Optional
 from research_os.data_layer.capabilities import AcquisitionCapability, AcquisitionCapabilityRegistry
 from research_os.models import DataGap, DataReadiness, ScenarioDataRequirement
 
+# ---------- R1-08：DerivationPrerequisiteResolver ----------
+
+# 显式 derivation prerequisite 证明器（§79-84）。
+# 任何 deterministic_derivation=true 但没有显式 prerequisite resolver 的 data_type
+# 不得 AUTO_DERIVABLE（§80）。禁止 eligible_record_count>0 通用规则（§81）。
+
+
+class DerivationPrerequisiteResolver:
+    """确定性推导前提证明器。
+
+    默认规则：任何 data_type 若无显式证明器 → prerequisites NOT proven
+    （保守，不得从空气生成推导）。
+    """
+
+    def __init__(self) -> None:
+        # data_type → 前提证明函数（严格确定性；当前无 data_type 提供显式证明器）
+        self._resolvers = {}
+
+    def prerequisites_proven(self, data_type: str, readiness: DataReadiness) -> bool:
+        resolver = self._resolvers.get(data_type)
+        if resolver is None:
+            # §80：无显式 prerequisite resolver → 不得 AUTO_DERIVABLE
+            return False
+        return bool(resolver(readiness))
+
+    def register(self, data_type: str, fn) -> None:
+        self._resolvers[data_type] = fn
+
+
 # 标准化 reason codes（§62）
 READINESS_READY = "READINESS_READY"
 NO_ELIGIBLE_RECORDS = "NO_ELIGIBLE_RECORDS"
@@ -44,8 +73,10 @@ _RECOMMENDED_ACTION = {
 class GapClassifier:
     """确定性 Gap 分类器。"""
 
-    def __init__(self, capabilities: AcquisitionCapabilityRegistry):
+    def __init__(self, capabilities: AcquisitionCapabilityRegistry,
+                 derivation_resolver: Optional[DerivationPrerequisiteResolver] = None):
         self._capabilities = capabilities
+        self._derivation = derivation_resolver or DerivationPrerequisiteResolver()
 
     def classify(
         self,
@@ -78,9 +109,13 @@ class GapClassifier:
             return ("AVAILABLE", [READINESS_READY], missing_fields,
                     False, False, False, warnings)
 
-        if capability.deterministic_derivation and self._derivation_inputs_sufficient(readiness):
-            return ("AUTO_DERIVABLE", [DETERMINISTIC_DERIVATION_AVAILABLE], missing_fields,
-                    False, False, False, warnings)
+        # R1-08：AUTO_DERIVABLE 必须显式证明 prerequisites（禁止 eligible_count 通用规则）
+        if capability.deterministic_derivation:
+            proven = self._derivation.prerequisites_proven(requirement.data_type, readiness)
+            if proven:
+                return ("AUTO_DERIVABLE", [DETERMINISTIC_DERIVATION_AVAILABLE], missing_fields,
+                        False, False, False, warnings)
+            warnings.append("DERIVATION_PREREQUISITES_UNPROVEN")
 
         if readiness.status == "STALE" and \
                 capability.automatic_acquisition_lifecycle == "BUSINESS_SUFFICIENT":
@@ -112,11 +147,3 @@ class GapClassifier:
 
         return ("UNAVAILABLE", [NO_ACQUISITION_PATH], missing_fields,
                 False, False, False, warnings)
-
-    @staticmethod
-    def _derivation_inputs_sufficient(readiness: DataReadiness) -> bool:
-        """确定性推导需要已有权威输入足以执行现有 derivation。
-
-        D1 保守规则：仅当 readiness 已有合格记录（eligible > 0）时才认为可推导。
-        """
-        return readiness.eligible_record_count > 0

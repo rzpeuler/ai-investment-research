@@ -2539,3 +2539,29 @@ DB: v6
 MIGRATIONS: NONE
 SCHEMAS: 85
 ```
+
+---
+
+### 48.6 R1 Independent Acceptance Finding & Repair Scope
+
+P7-D1 首次独立验收发现：REGISTERED CHECKER COVERAGE ≠ SEMANTICALLY CORRECT
+READINESS。R1 返修（Readiness Semantic Correctness & Authority Alignment）已授权并
+实现：
+
+```text
+R1-01: NormalizedRequestContextAdapter（10/10 真实 Runner 契约；Task.entities 共享）
+R1-02: DataTypeReadinessSpec 22/22 authority mapping（claims/security_profiles/valuation_snapshots 修正）
+R1-03: ReadinessProvenanceResolver（evidence/raw source/evidence_ids 既有治理解析）
+R1-04: coverage 策略分离（open-world null；去工作日近似）
+R1-05: freshness_seconds 执行 + STALE + FRESHNESS_UNPROVEN
+R1-06: Graph 复用既有 lifecycle/query authority + as_of 强制
+R1-07: dry-run 读已有 DB（open_read_only）+ 连接关闭
+R1-08: DerivationPrerequisiteResolver（eligible_count 不充分）
+```
+
+R1 不改变 D1 已正确的架构（central authority / preflight before runner /
+normal gaps 不 gate runner / no acquisition execution）。返修完成后：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+```

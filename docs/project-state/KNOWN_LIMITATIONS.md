@@ -11,8 +11,8 @@
 > Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）；
 > P7-D0 = PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9，
 > governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
-> P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（Decision #48，
-> 数据就绪控制面；非 PASS）。
+> P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #48，
+> R1 返修完成；数据就绪控制面；非 PASS）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -178,7 +178,7 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   不是投资价值、不是机构交易行为；Heat 算法未实现，留给后续 Brief Acquisition milestone。
 - P7-D0 为纯离线契约任务，未进行任何联网验收；P7-D1 未授权。
 
-## 17. P7-D1 数据就绪控制面限制（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+## 17. P7-D1 数据就绪控制面限制（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
 
 - P7-D1 只实现控制面（readiness / gap / planning），不执行 Acquisition：
   无 AcquisitionExecutor、无 acquisition 后 Readiness Recheck、Router 仍只返回

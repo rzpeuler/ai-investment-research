@@ -100,45 +100,67 @@ class TestCapabilityCoverage:
 
 
 class TestRequirementContextResolver:
-    def test_subject_scope_resolves(self, requirement_registry):
-        req = requirement_registry.get("abnormal_move_analysis.market_daily_ohlcv")
+    def _resolve(self, requirement_registry, req_id, scenario, request):
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
+        adapter = NormalizedRequestContextAdapter()
+        canonical = adapter.extract(scenario, request)
         resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "abnormal_move_analysis", "t1",
-                               {"entities": ["600519.SH"],
-                                "window_start": "2026-08-09T00:00:00+08:00",
-                                "window_end": "2026-08-11T08:00:00+08:00"}, AS_OF)
+        return resolver.resolve(requirement_registry.get(req_id), scenario, "t1", canonical, AS_OF)
+
+    def test_subject_scope_resolves(self, requirement_registry):
+        # abnormal_move_analysis 正式契约: entity_id
+        ctx = self._resolve(requirement_registry, "abnormal_move_analysis.market_daily_ohlcv",
+                            "abnormal_move_analysis",
+                            {"entity_id": "600519.SH",
+                             "window_start": "2026-08-09T00:00:00+08:00",
+                             "window_end": "2026-08-11T08:00:00+08:00"})
         assert ctx.entity_ids == ["600519.SH"]
         assert not ctx.unresolved
 
     def test_subject_scope_missing_fail_closed(self, requirement_registry):
-        req = requirement_registry.get("abnormal_move_analysis.market_daily_ohlcv")
-        resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "abnormal_move_analysis", "t1", {}, AS_OF)
+        ctx = self._resolve(requirement_registry, "abnormal_move_analysis.market_daily_ohlcv",
+                            "abnormal_move_analysis", {})
         assert "subject" in ctx.unresolved
 
+    def test_stock_research_entity_field(self, requirement_registry):
+        # stock_research_report 正式契约: entity
+        ctx = self._resolve(requirement_registry, "stock_research_report.company_profile",
+                            "stock_research_report", {"entity": "company:600519.SH"})
+        assert ctx.entity_ids == ["company:600519.SH"]
+        assert not ctx.unresolved
+
+    def test_industry_research_industry_id(self, requirement_registry):
+        # industry_research 正式契约: industry_id
+        ctx = self._resolve(requirement_registry, "industry_research.knowledge_graph_snapshot",
+                            "industry_research", {"industry_id": "ind:semiconductor"})
+        assert ctx.industry_ids == ["ind:semiconductor"]
+        assert not ctx.unresolved
+
     def test_watchlist_scope(self, requirement_registry):
-        req = requirement_registry.get("morning_brief.attention.brief_attention_content")
-        resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "morning_brief", "t1",
-                               {"report_date": "2026-08-11"}, AS_OF)
+        ctx = self._resolve(requirement_registry, "morning_brief.attention.brief_attention_content",
+                            "morning_brief", {"report_date": "2026-08-11"})
         assert ctx.watchlist_group == "brief_watchlist"
 
     def test_scenario_window_uses_brief_policy(self, requirement_registry):
-        req = requirement_registry.get("morning_brief.event.news_flash")
-        resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "morning_brief", "t1",
-                               {"report_date": "2026-08-11"}, AS_OF)
+        ctx = self._resolve(requirement_registry, "morning_brief.event.news_flash",
+                            "morning_brief", {"report_date": "2026-08-11"})
         assert ctx.window_start == "2026-08-10T20:00:00+08:00"
         assert ctx.window_end == "2026-08-11T08:00:00+08:00"
 
 
 class TestReadinessService:
+    def _resolve(self, requirement_registry, req_id, scenario, request):
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
+        adapter = NormalizedRequestContextAdapter()
+        canonical = adapter.extract(scenario, request)
+        resolver = RequirementContextResolver()
+        return resolver.resolve(requirement_registry.get(req_id), scenario, "t1", canonical, AS_OF)
+
     def test_no_data_missing(self, requirement_registry, checker_registry):
         req = requirement_registry.get("morning_brief.event.news_flash")
         service = DataReadinessService(checker_registry)
-        resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "morning_brief", "t1",
-                               {"report_date": "2026-08-11"}, AS_OF)
+        ctx = self._resolve(requirement_registry, "morning_brief.event.news_flash",
+                            "morning_brief", {"report_date": "2026-08-11"})
         r = service.evaluate(req, ctx, EmptyReadView(), CHECKED_AT)
         assert r.status == "MISSING"
         assert r.as_of == AS_OF
@@ -147,12 +169,12 @@ class TestReadinessService:
     def test_missing_coverage_null_for_open_world(self, requirement_registry, checker_registry):
         req = requirement_registry.get("morning_brief.event.brief_event_content")
         service = DataReadinessService(checker_registry)
-        resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "morning_brief", "t1",
-                               {"report_date": "2026-08-11"}, AS_OF)
+        ctx = self._resolve(requirement_registry, "morning_brief.event.brief_event_content",
+                            "morning_brief", {"report_date": "2026-08-11"})
         r = service.evaluate(req, ctx, EmptyReadView(), CHECKED_AT)
-        assert r.coverage_ratio is None or r.coverage_ratio == 0.0
-        assert r.model_dump()["coverage_ratio"] is not None  # 字段必须存在（即使 null）
+        # R1-04：open-world 空结果 → coverage 必须为 null（禁止 0.0）
+        assert r.coverage_ratio is None
+        assert "coverage_ratio" in r.model_dump()  # 字段必须存在（即使 null）
 
 
 class TestGapClassifier:
@@ -374,14 +396,17 @@ class TestPitAndCoverageRules:
         conn.close()
 
         from research_os.storage import Database
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
         db = Database.open_read_only(db_path)
         view = SqliteReadView(db)
         req_reg = ScenarioDataRequirementRegistry(REQ_PATH)
         req = req_reg.get("stock_research_report.financial_statement_data")
         service = DataReadinessService(ReadinessCheckerRegistry())
         resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "stock_research_report", "t1",
-                               {"entities": ["600519.SH"]}, "2026-08-11T08:00:00+08:00")
+        adapter = NormalizedRequestContextAdapter()
+        canonical = adapter.extract("stock_research_report", {"entity": "company:600519.SH"})
+        ctx = resolver.resolve(req, "stock_research_report", "t1", canonical,
+                               "2026-08-11T08:00:00+08:00")
         r = service.evaluate(req, ctx, view, CHECKED_AT)
         # created_at (2026-09-01) 晚于 as_of (2026-08-11) → PIT ineligible → MISSING/PARTIAL 而非 READY
         assert r.status in ("MISSING", "PARTIAL")
@@ -412,16 +437,20 @@ class TestPitAndCoverageRules:
         conn.close()
 
         from research_os.storage import Database
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
         db = Database.open_read_only(db_path)
         view = SqliteReadView(db)
         req_reg = ScenarioDataRequirementRegistry(REQ_PATH)
         req = req_reg.get("abnormal_move_analysis.market_daily_ohlcv")
         service = DataReadinessService(ReadinessCheckerRegistry())
         resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "abnormal_move_analysis", "t1",
-                               {"entities": ["600519.SH"],
-                                "window_start": "2026-08-09T00:00:00+08:00",
-                                "window_end": "2026-08-11T08:00:00+08:00"},
+        adapter = NormalizedRequestContextAdapter()
+        canonical = adapter.extract("abnormal_move_analysis", {
+            "entity_id": "600519.SH",
+            "window_start": "2026-08-09T00:00:00+08:00",
+            "window_end": "2026-08-11T08:00:00+08:00",
+        })
+        ctx = resolver.resolve(req, "abnormal_move_analysis", "t1", canonical,
                                "2026-08-11T08:00:00+08:00")
         r = service.evaluate(req, ctx, view, CHECKED_AT)
         # 未来 trade_date 被排除；只计入 2026-08-10
@@ -459,23 +488,25 @@ class TestMarketCoverage:
         conn.close()
 
         from research_os.storage import Database
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
         db = Database.open_read_only(db_path)
         view = SqliteReadView(db)
         req_reg = ScenarioDataRequirementRegistry(REQ_PATH)
         req = req_reg.get("abnormal_move_analysis.market_daily_ohlcv")
         service = DataReadinessService(ReadinessCheckerRegistry())
         resolver = RequirementContextResolver()
-        ctx = resolver.resolve(req, "abnormal_move_analysis", "t1",
-                               {"entities": ["600519.SH"],
-                                "window_start": "2026-08-07T00:00:00+08:00",
-                                "window_end": "2026-08-11T08:00:00+08:00"},
+        adapter = NormalizedRequestContextAdapter()
+        canonical = adapter.extract("abnormal_move_analysis", {
+            "entity_id": "600519.SH",
+            "window_start": "2026-08-07T00:00:00+08:00",
+            "window_end": "2026-08-11T08:00:00+08:00",
+        })
+        ctx = resolver.resolve(req, "abnormal_move_analysis", "t1", canonical,
                                "2026-08-11T08:00:00+08:00")
-        # 窗口 [08-07(五), 08-11(二) 08:00)，end 日期不含 → 预期交易日 08-07、08-10 = 2 天
-        # 只插入 08-10 → coverage = 1/2
+        # R1-04/47：无权威交易日历 → coverage 必须 null（禁止工作日近似/硬编码 1.0）
         r = service.evaluate(req, ctx, view, CHECKED_AT)
-        assert r.coverage_ratio is not None
-        assert r.coverage_ratio < 1.0
-        assert abs(r.coverage_ratio - 1 / 2) < 1e-6
+        assert r.coverage_ratio is None
+        assert "COVERAGE_NOT_MEASURABLE" in r.warnings
         db.close()
 
 
@@ -488,11 +519,14 @@ class TestGraphReadinessFailClosed:
         from research_os.data_layer.context import RequirementContextResolver
         from research_os.data_layer.checkers import ReadinessCheckerRegistry, EmptyReadView
 
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
         req = requirement_registry.get("industry_research.knowledge_graph_snapshot")
         service = DataReadinessService(ReadinessCheckerRegistry())
         resolver = RequirementContextResolver()
-        # 无 industries → industry scope 无法解析 → fail closed
-        ctx = resolver.resolve(req, "industry_research", "t1", {}, AS_OF)
+        # 无 industry_id → industry scope 无法解析 → fail closed
+        adapter = NormalizedRequestContextAdapter()
+        canonical = adapter.extract("industry_research", {})
+        ctx = resolver.resolve(req, "industry_research", "t1", canonical, AS_OF)
         r = service.evaluate(req, ctx, EmptyReadView(), CHECKED_AT)
         assert r.status == "MISSING"
 

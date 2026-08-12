@@ -1,9 +1,11 @@
-"""RequirementContextResolver（P7-D1）。
+"""RequirementContextResolver（P7-D1 / R1）。
 
-将 ScenarioDataRequirement + normalized request + Task 解析为
+将 ScenarioDataRequirement + CanonicalRequestContext + Task 解析为
 ResolvedRequirementContext。必须是 ScenarioRunner.validate_request() 之后执行；
-scenario_window 必须复用现有权威窗口逻辑（morning/evening BriefWindowPolicy），
-禁止在 data_layer 重新实现第二套窗口计算。
+scenario_window 复用现有权威窗口逻辑（morning/evening BriefWindowPolicy）。
+
+R1：context inputs 由 NormalizedRequestContextAdapter 唯一产生（禁止 alias 猜测），
+与 Orchestrator Task.entities 共享同一 adapter（§9）。
 
 只读、确定性、零 LLM、零网络、零写入。
 """
@@ -13,8 +15,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional
 
+from research_os.data_layer.request_context import CanonicalRequestContext
 from research_os.models import ScenarioDataRequirement
-from research_os.utils.time import parse_iso
 
 # scenario_window 的权威窗口解析器（morning/evening 复用既有 BriefWindowPolicy）
 _BRIEF_WINDOW_RESOLVERS: Dict[str, Any] = {}
@@ -55,7 +57,7 @@ class RequirementContextResolver:
         requirement: ScenarioDataRequirement,
         scenario: str,
         task_id: str,
-        normalized_request: Dict[str, Any],
+        canonical: CanonicalRequestContext,
         task_as_of: str,
     ) -> ResolvedRequirementContext:
         ctx = ResolvedRequirementContext(
@@ -64,41 +66,36 @@ class RequirementContextResolver:
             task_id=task_id,
             as_of=task_as_of,
         )
-        self._resolve_scope(ctx, normalized_request)
-        self._resolve_time(ctx, normalized_request)
+        self._resolve_scope(ctx, canonical)
+        self._resolve_time(ctx, canonical)
+        ctx.request_material_refs = list(canonical.request_material_refs)
         return ctx
 
     # ---------- scope ----------
 
     def _resolve_scope(self, ctx: ResolvedRequirementContext,
-                       normalized_request: Dict[str, Any]) -> None:
+                       canonical: CanonicalRequestContext) -> None:
         scope_type = ctx.requirement.scope.scope_type
         if scope_type == "global":
             return
         if scope_type == "subject":
-            entity_ids = list(normalized_request.get("entities") or [])
-            if not entity_ids:
+            ctx.entity_ids = list(canonical.subject_entity_ids)
+            if not ctx.entity_ids:
                 ctx.unresolved.append("subject")
-            ctx.entity_ids = entity_ids
             return
         if scope_type == "benchmark":
-            benchmark = normalized_request.get("benchmark")
-            if benchmark:
-                ctx.entity_ids = [str(benchmark)]
-            else:
+            ctx.entity_ids = list(canonical.benchmark_entity_ids)
+            if not ctx.entity_ids:
                 ctx.unresolved.append("benchmark")
             return
         if scope_type == "peers":
-            peers = list(normalized_request.get("peers") or [])
-            ctx.peer_entity_ids = peers
-            if not peers:
+            ctx.peer_entity_ids = list(canonical.peer_entity_ids)
+            if not ctx.peer_entity_ids:
                 ctx.unresolved.append("peers")
             return
         if scope_type == "industry":
-            industries = list(normalized_request.get("industries")
-                              or normalized_request.get("industry_ids") or [])
-            ctx.industry_ids = industries
-            if not industries:
+            ctx.industry_ids = list(canonical.industry_ids)
+            if not ctx.industry_ids:
                 ctx.unresolved.append("industry")
             return
         if scope_type == "watchlist":
@@ -116,13 +113,13 @@ class RequirementContextResolver:
     # ---------- time ----------
 
     def _resolve_time(self, ctx: ResolvedRequirementContext,
-                      normalized_request: Dict[str, Any]) -> None:
+                      canonical: CanonicalRequestContext) -> None:
         policy = ctx.requirement.time_policy
         if policy == "scenario_window":
-            self._resolve_scenario_window(ctx, normalized_request)
+            self._resolve_scenario_window(ctx, canonical)
         elif policy == "explicit_request_window":
-            ctx.window_start = normalized_request.get("window_start")
-            ctx.window_end = normalized_request.get("window_end")
+            ctx.window_start = canonical.explicit_window_start
+            ctx.window_end = canonical.explicit_window_end
             if not ctx.window_start or not ctx.window_end:
                 ctx.unresolved.append("window")
         elif policy in ("as_of_snapshot", "latest_available", "lookback_trading_days"):
@@ -131,13 +128,13 @@ class RequirementContextResolver:
             pass
 
     def _resolve_scenario_window(self, ctx: ResolvedRequirementContext,
-                                 normalized_request: Dict[str, Any]) -> None:
+                                 canonical: CanonicalRequestContext) -> None:
         """scenario_window 必须调用现有权威窗口逻辑，禁止第二套窗口计算。"""
         policy = _BRIEF_WINDOW_RESOLVERS.get(ctx.scenario)
         if policy is None:
             ctx.unresolved.append("scenario_window")
             return
-        report_date = normalized_request.get("report_date") or normalized_request.get("date")
+        report_date = canonical.report_date
         if not report_date:
             ctx.unresolved.append("scenario_window")
             return

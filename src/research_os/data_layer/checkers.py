@@ -1,76 +1,55 @@
-"""ReadinessCheckerRegistry 与 checker families（P7-D1）。
+"""ReadinessCheckerRegistry 与 checker families（P7-D1-R1）。
 
-每个 Scenario Requirement 的 data_type 必须存在 checker（43/43 全覆盖）；
-缺 checker 时抛 CONTROL_PLANE_CONFIGURATION_ERROR（fail closed），不得返回 MISSING。
+每个 data_type 必须有 checker（22/22）+ 显式 DataTypeReadinessSpec（22/22）；
+缺任一 → CONTROL_PLANE_CONFIGURATION_ERROR（fail closed），不得返回 MISSING。
 
-判定顺序统一冻结（§22）：
-1. Scope eligibility → 2. PIT eligibility → 3. Minimum fields → 4. Minimum coverage
-→ 5. Minimum source/tier → 6. Freshness → 7. Final status
+R1 语义修正：
+- authority 表映射按 specs（claims→claims、security_profile→security_profiles、
+  market_valuation_snapshot→valuation_snapshots、company_profile→company_profiles）
+- RawItem 系共享 raw_items 但 semantic eligibility 独立（raw_category/source 约束）
+- coverage 策略显式声明；open-world 恒 null；禁止工作日≈交易日
+- freshness_seconds 真正执行（STALE）
+- provenance 由 ReadinessProvenanceResolver 解析（禁止 payload.source_tier 通用伪造）
 
-只读、零网络、零写入、零 LLM；dry-run 使用 open_read_only 或空 read view。
+判定顺序（§87）：1 Scope → 2 PIT → 3 Required Fields → 4 Coverage → 5 Provenance/Tier
+→ 6 Freshness → 7 Source Health → 8 Final Status
+
+只读、零网络、零写入、零 LLM。
 """
 from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from research_os.data_layer.constants import (
+    COVERAGE_BELOW_MINIMUM,
+    COVERAGE_NOT_MEASURABLE,
+    FRESHNESS_UNPROVEN,
+    GRAPH_SCOPE_UNRESOLVED,
+    MISSING_REQUIRED_FIELDS,
+    NO_ELIGIBLE_RECORDS,
+    PIT_INELIGIBLE,
+    RAW_TYPE_INELIGIBLE,
+    REQUEST_MATERIAL_PENDING_NORMALIZATION,
+    SCOPE_MISMATCH,
+    SOURCE_HEALTH_UNPROVEN,
+    SOURCE_TIER_BELOW_MINIMUM,
+    SOURCE_TIER_UNPROVEN,
+    STALE_DATA,
+)
 from research_os.data_layer.context import ResolvedRequirementContext
+from research_os.data_layer.provenance import ReadinessProvenanceResolver
+from research_os.data_layer.specs import DataTypeReadinessSpec, get_spec
 from research_os.models import ScenarioDataRequirement
 
 # ---------- 标准化 reason / warning 常量（§40） ----------
 
-NO_ELIGIBLE_RECORDS = "NO_ELIGIBLE_RECORDS"
-SCOPE_MISMATCH = "SCOPE_MISMATCH"
-PIT_INELIGIBLE = "PIT_INELIGIBLE"
-MISSING_REQUIRED_FIELDS = "MISSING_REQUIRED_FIELDS"
-COVERAGE_BELOW_MINIMUM = "COVERAGE_BELOW_MINIMUM"
-COVERAGE_NOT_MEASURABLE = "COVERAGE_NOT_MEASURABLE"
-SOURCE_TIER_BELOW_MINIMUM = "SOURCE_TIER_BELOW_MINIMUM"
-SOURCE_TIER_UNPROVEN = "SOURCE_TIER_UNPROVEN"
-STALE_DATA = "STALE_DATA"
-SOURCE_HEALTH_UNPROVEN = "SOURCE_HEALTH_UNPROVEN"
-REQUEST_MATERIAL_PENDING_NORMALIZATION = "REQUEST_MATERIAL_PENDING_NORMALIZATION"
-
-# 分层：S > A > B > C > D
 _TIER_ORDER = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4}
 
-
-def _trading_days_between(start: str, end: str) -> List[str]:
-    """known trading window 的确定性近似：工作日日历（周末排除，节假日留给后续治理）。
-
-    仅当 start/end 为 ISO 且可解析时返回；无法解析返回空（调用方 → COVERAGE_NOT_MEASURABLE）。
-    """
-    from datetime import date, datetime, timedelta
-    try:
-        s = datetime.fromisoformat(start)
-        e = datetime.fromisoformat(end)
-    except ValueError:
-        return []
-    days: List[str] = []
-    cur = s.date()
-    end_date = e.date()
-    while cur < end_date:
-        if cur.weekday() < 5:
-            days.append(cur.isoformat())
-        cur += timedelta(days=1)
-    return days
-
-
-def _within_window(trade_date: str, window_start: str, window_end: str) -> bool:
-    """trade_date（date-only 或 datetime）与 [start, end) 窗口比较；口径统一为日期。
-
-    date-only 值视为当天任意时刻（该日属于窗口即计入）；datetime 值按 ISO 比较。
-    """
-    from datetime import datetime
-    start_dt = datetime.fromisoformat(window_start)
-    end_dt = datetime.fromisoformat(window_end)
-    if "T" in trade_date or " " in trade_date:
-        val = datetime.fromisoformat(trade_date)
-        return start_dt <= val < end_dt
-    # date-only：与窗口的日期边界比较
-    return start_dt.date().isoformat() <= trade_date < end_dt.date().isoformat()
+_STATUS_ORDER = ["READY", "PARTIAL", "MISSING", "STALE", "SOURCE_UNHEALTHY"]
 
 
 @dataclass
@@ -107,7 +86,7 @@ class SqliteReadView(DataReadView):
         self._db = db
 
     def query(self, sql: str, params: Tuple[Any, ...] = ()) -> List[Dict[str, Any]]:
-        if ";" in sql and not sql.strip().rstrip(";").endswith("SELECT"):
+        if not sql.lstrip().upper().startswith("SELECT"):
             raise ValueError("ReadView 只允许只读查询")
         return self._db.query(sql, params)
 
@@ -123,7 +102,7 @@ class SqliteReadView(DataReadView):
 
 
 class EmptyReadView(DataReadView):
-    """空 read view：dry-run 且 DB 不存在时使用（不创建 DB、不初始化）。"""
+    """空 read view：DB 不存在时使用（不创建 DB、不初始化）。"""
 
     def query(self, sql: str, params: Tuple[Any, ...] = ()) -> List[Dict[str, Any]]:
         return []
@@ -132,13 +111,12 @@ class EmptyReadView(DataReadView):
         return False
 
 
-# ---------- checker families（§20） ----------
+# ---------- checker families（§20，按 spec 驱动） ----------
 
 class ReadinessChecker(ABC):
     """checker 家族基类。data_types 声明支持的 data_type 集合。"""
 
     data_types: Tuple[str, ...] = ()
-    source_tier_applicable: bool = True
 
     @abstractmethod
     def check(
@@ -146,44 +124,42 @@ class ReadinessChecker(ABC):
         ctx: ResolvedRequirementContext,
         requirement: ScenarioDataRequirement,
         view: DataReadView,
+        provenance: ReadinessProvenanceResolver,
     ) -> ReadinessCheckResult:
         ...
 
-    def _tier_ok(self, present: List[str], minimum: str) -> Tuple[bool, List[str], List[str]]:
-        """返回 (合格, eligible_tiers, ineligible_tiers)。无法证明 tier 时按 SOURCE_TIER_UNPROVEN。"""
-        eligible, ineligible = [], []
-        for tier in present:
-            if tier not in _TIER_ORDER:
-                ineligible.append(tier)
-                continue
-            if _TIER_ORDER[tier] <= _TIER_ORDER[minimum]:
-                eligible.append(tier)
-            else:
-                ineligible.append(tier)
-        return bool(eligible), eligible, ineligible
+    # ---------- 通用工具 ----------
 
-    def _scope_eligible(self, payload: Dict[str, Any], ctx) -> bool:
-        """subject / industry scope 精确匹配（fail closed）；不匹配 → ineligible。"""
+    def _scope_eligible(
+        self,
+        payload: Dict[str, Any],
+        ctx: ResolvedRequirementContext,
+        scope_payload_keys: Tuple[str, ...] = ("symbol", "company_entity_id",
+                                               "security_entity_id", "entity_id",
+                                               "subject"),
+        industry_payload_keys: Tuple[str, ...] = ("industry_ids", "industry_id"),
+    ) -> bool:
+        """subject / industry / peers scope 精确匹配（fail closed）；不匹配 → ineligible。"""
         scope_type = ctx.requirement.scope.scope_type
         if scope_type == "global":
             return True
         if scope_type in ("subject", "benchmark"):
             if not ctx.entity_ids:
                 return False
-            values = []
-            for key in self.scope_payload_keys:
+            values: List[str] = []
+            for key in scope_payload_keys:
                 v = payload.get(key)
                 if v is None:
                     continue
                 values.extend(v if isinstance(v, list) else [v])
             if not values:
-                return False  # 无法证明属于 subject → ineligible（不猜测）
+                return False
             return any(str(v) in ctx.entity_ids for v in values)
         if scope_type == "industry":
             if not ctx.industry_ids:
                 return False
             values = []
-            for key in self.industry_payload_keys:
+            for key in industry_payload_keys:
                 v = payload.get(key)
                 if v is None:
                     continue
@@ -195,7 +171,7 @@ class ReadinessChecker(ABC):
             if not ctx.peer_entity_ids:
                 return False
             values = []
-            for key in self.scope_payload_keys:
+            for key in scope_payload_keys:
                 v = payload.get(key)
                 if v is None:
                     continue
@@ -203,407 +179,940 @@ class ReadinessChecker(ABC):
             if not values:
                 return False
             return any(str(v) in ctx.peer_entity_ids for v in values)
-        # watchlist / scenario 由上层（capability/planner）处理；此处不误判
+        # watchlist / scenario 由上层处理；此处不误判
         return True
 
-
-class SqliteObjectChecker(ReadinessChecker):
-    """通用 SQLite 对象 checker：按表查 payload，做 scope/PIT/字段/coverage 判定。
-
-    PIT 列映射：published_at / effective_at / valid_from / event_time /
-    observed_at / trade_date / created_at（按 data_type 领域解释，禁止万能 timestamp<=as_of）。
-    """
-
-    data_types: Tuple[str, ...] = ()
-    table: str = ""
-    pit_column: str = "published_at"   # 或 trade_date / created_at 等
-    record_id_expr: str = "json_extract(payload, '$.raw_item_id')"  # record_ref 来源
-    default_scope_column: str = ""      # 若表有 subject 列（如 symbol/company_entity_id）
-    scope_payload_keys: Tuple[str, ...] = ("symbol", "company_entity_id", "entity_id", "subject")
-    industry_payload_keys: Tuple[str, ...] = ("industry_id", "industry_ids")
-
-    def check(self, ctx, requirement, view) -> ReadinessCheckResult:
-        if not view.has_table(self.table):
-            return self._miss(requirement, [f"TABLE_ABSENT:{self.table}"])
-        if ctx.unresolved:
-            return self._miss(requirement, [SCOPE_MISMATCH] + list(ctx.unresolved))
-
-        clauses, params = [], []
-        if self.default_scope_column and ctx.entity_ids:
-            placeholders = ",".join("?" for _ in ctx.entity_ids)
-            clauses.append(f"{self.default_scope_column} IN ({placeholders})")
-            params.extend(ctx.entity_ids)
-        if ctx.window_start and self.pit_column == "published_at":
-            clauses.append(f"json_extract(payload, '$.published_at') >= ?")
-            params.append(ctx.window_start)
-            if ctx.window_end:
-                clauses.append(f"json_extract(payload, '$.published_at') < ?")
-                params.append(ctx.window_end)
-        if self.pit_column == "trade_date":
-            clauses.append(f"trade_date <= ?")
-            params.append(ctx.as_of)
-        elif self.pit_column == "created_at":
-            clauses.append(f"json_extract(payload, '$.created_at') <= ?")
-            params.append(ctx.as_of)
-
-        where = " AND ".join(clauses) if clauses else "1=1"
-        rows = view.query(f"SELECT payload FROM {self.table} WHERE {where}", tuple(params))
-
-        eligible: List[Dict[str, Any]] = []
-        ineligible_count = 0
-        available: set[str] = set()
-        tiers_present: set[str] = set()
-        refs: List[str] = []
-        for row in rows:
-            payload = row["payload"]
-            if isinstance(payload, str):
-                try:
-                    payload = json.loads(payload)
-                except (TypeError, ValueError):
-                    ineligible_count += 1
-                    continue
-            if not isinstance(payload, dict):
-                ineligible_count += 1
-                continue
-            # scope eligibility：subject / industry 精确匹配（payload 级，fail closed）
-            if not self._scope_eligible(payload, ctx):
-                ineligible_count += 1
-                continue
-            # tier
-            tier = payload.get("source_tier")
-            if tier is None:
-                tier = payload.get("tier")
-            if self.source_tier_applicable and tier is not None:
-                tiers_present.add(str(tier))
-                ok, _, _ = self._tier_ok([str(tier)], requirement.minimum_source_tier)
-                if not ok:
-                    ineligible_count += 1
-                    continue
-            elif self.source_tier_applicable and tier is None:
-                # 无法证明 provenance：quality ineligible（SOURCE_TIER_UNPROVEN）
-                ineligible_count += 1
-                continue
-            eligible.append(payload)
-            ref = payload.get("raw_item_id") or payload.get("id") or payload.get("bar_id")
-            if ref:
-                refs.append(str(ref))
-            available.update(k for k in payload.keys() if payload.get(k) is not None)
-
-        if not eligible:
-            return ReadinessCheckResult(
-                status="MISSING",
-                eligible_record_count=0,
-                ineligible_record_count=ineligible_count,
-                source_tiers_present=sorted(tiers_present),
-                coverage_ratio=0.0,
-                warnings=[NO_ELIGIBLE_RECORDS, *(
-                    [SOURCE_TIER_UNPROVEN] if ineligible_count and not tiers_present else [])],
-            )
-        return self._score(requirement, eligible, ineligible_count, refs, tiers_present, available)
-
-    def _score(self, requirement, eligible, ineligible_count, refs, tiers_present, available):
+    def _finalize(
+        self,
+        requirement: ScenarioDataRequirement,
+        spec: DataTypeReadinessSpec,
+        eligible: List[Dict[str, Any]],
+        ineligible_count: int,
+        refs: List[str],
+        tiers_present: List[str],
+        available: set,
+        coverage: Optional[float],
+        coverage_warnings: List[str],
+        freshness_age: Optional[int],
+        health_warning: Optional[str] = None,
+    ) -> ReadinessCheckResult:
+        """统一状态定级（ReadinessFinalizer，§86-89）。"""
         missing = [f for f in requirement.minimum_fields if f not in available]
-        coverage = None
-        warnings: List[str] = []
-        if requirement.minimum_fields:
-            coverage = len([f for f in requirement.minimum_fields if f in available]) / len(requirement.minimum_fields)
-        if requirement.minimum_coverage > 0 and coverage is not None and coverage < requirement.minimum_coverage:
-            warnings.append(COVERAGE_BELOW_MINIMUM)
+        warnings: List[str] = list(coverage_warnings)
         if missing:
             warnings.append(MISSING_REQUIRED_FIELDS)
-        status = "PARTIAL" if missing else "READY"
-        if status == "READY" and requirement.minimum_coverage > 0 and coverage is not None \
-                and coverage < requirement.minimum_coverage:
+        if health_warning:
+            warnings.append(health_warning)
+
+        if health_warning == "SOURCE_UNHEALTHY":
+            return ReadinessCheckResult(
+                status="SOURCE_UNHEALTHY", available_fields=sorted(available),
+                coverage_ratio=coverage, eligible_record_count=len(eligible),
+                ineligible_record_count=ineligible_count,
+                source_tiers_present=sorted(tiers_present), record_refs=refs,
+                warnings=warnings, freshness_age_seconds=freshness_age,
+            )
+        if not eligible:
+            return ReadinessCheckResult(
+                status="MISSING", available_fields=sorted(available),
+                coverage_ratio=coverage, eligible_record_count=0,
+                ineligible_record_count=ineligible_count,
+                source_tiers_present=sorted(tiers_present), record_refs=refs,
+                warnings=warnings + ([NO_ELIGIBLE_RECORDS] if NO_ELIGIBLE_RECORDS not in warnings else []),
+                freshness_age_seconds=freshness_age,
+            )
+
+        # freshness（§56-57）：有合格数据时 freshness 失败 → STALE（优先于 coverage 降级）
+        freshness_issue: Optional[str] = None
+        if requirement.freshness_seconds > 0:
+            if freshness_age is None:
+                freshness_issue = FRESHNESS_UNPROVEN
+            elif freshness_age > requirement.freshness_seconds:
+                freshness_issue = STALE_DATA
+        if freshness_issue == STALE_DATA:
+            warnings.append(STALE_DATA)
+            return ReadinessCheckResult(
+                status="STALE", available_fields=sorted(available),
+                coverage_ratio=coverage, eligible_record_count=len(eligible),
+                ineligible_record_count=ineligible_count,
+                source_tiers_present=sorted(tiers_present), record_refs=refs,
+                warnings=warnings, freshness_age_seconds=freshness_age,
+            )
+        if freshness_issue == FRESHNESS_UNPROVEN:
+            warnings.append(FRESHNESS_UNPROVEN)
+
+        # coverage 规则（§45-46）
+        if requirement.minimum_coverage > 0 and coverage is None:
             status = "PARTIAL"
-        if status == "READY" and not eligible:
-            status = "MISSING"
+            if COVERAGE_NOT_MEASURABLE not in warnings:
+                warnings.append(COVERAGE_NOT_MEASURABLE)
+        elif coverage is not None and coverage < requirement.minimum_coverage \
+                and requirement.minimum_coverage > 0:
+            status = "PARTIAL"
+            if COVERAGE_BELOW_MINIMUM not in warnings:
+                warnings.append(COVERAGE_BELOW_MINIMUM)
+        elif missing:
+            status = "PARTIAL"
+        elif freshness_issue == FRESHNESS_UNPROVEN:
+            status = "PARTIAL"
+        else:
+            status = "READY"
+
         return ReadinessCheckResult(
-            status=status,
-            available_fields=sorted(available),
-            coverage_ratio=coverage,
-            eligible_record_count=len(eligible),
+            status=status, available_fields=sorted(available),
+            coverage_ratio=coverage, eligible_record_count=len(eligible),
             ineligible_record_count=ineligible_count,
-            source_tiers_present=sorted(tiers_present),
-            record_refs=refs,
-            warnings=warnings,
+            source_tiers_present=sorted(tiers_present), record_refs=refs,
+            warnings=warnings, freshness_age_seconds=freshness_age,
         )
 
     def _miss(self, requirement, warnings: List[str]) -> ReadinessCheckResult:
         return ReadinessCheckResult(
-            status="MISSING",
-            coverage_ratio=0.0,
-            warnings=warnings,
+            status="MISSING", coverage_ratio=None, warnings=warnings,
         )
 
 
-class MarketSeriesChecker(SqliteObjectChecker):
-    """日线 checker：trade_date PIT + available history + requested window。
+class RawItemChecker(ReadinessChecker):
+    """RawItem 系 checker（news_flash / company_announcement / macro_data /
+    brief_event_content / brief_attention_content）。
 
-    实时 snapshot 不冒充 daily history（数据源独立）。coverage = eligible dates /
-    expected trading dates（known trading window）。
+    共享 raw_items 表，但 semantic eligibility 独立（§21-26）：
+    只读 raw_items 中 source_id / raw_category 满足该 canonical data_type 的确定性约束。
+    禁止任意 RawItem 跨类型满足 Requirement（§22）。
     """
 
-    data_types = ("market_daily_ohlcv",)
-    table = "market_daily_ohlcv"
-    pit_column = "trade_date"
-    default_scope_column = "symbol"
+    data_types = ("news_flash", "company_announcement", "macro_data",
+                  "brief_event_content", "brief_attention_content")
 
-    def check(self, ctx, requirement, view) -> ReadinessCheckResult:
-        if not view.has_table(self.table):
-            return self._miss(requirement, [f"TABLE_ABSENT:{self.table}"])
+    # data_type → 确定性 eligibility 约束（source 治理已注册 / raw_category）
+    _TYPE_RAW_CATEGORY: Dict[str, Tuple[str, ...]] = {
+        "news_flash": ("fast_news", "news", "market_news"),
+        "company_announcement": ("official_disclosure", "announcement"),
+        "macro_data": ("government_and_regulator", "macro", "macro_data"),
+    }
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("raw_items"):
+            return self._miss(requirement, [f"TABLE_ABSENT:raw_items"])
+        if spec.scope_strategy == "WATCHLIST" and ctx.requirement.scope.scope_type == "watchlist":
+            # watchlist scope：无 watchlist 上下文 → fail closed（不猜测）
+            if not ctx.watchlist_group:
+                return self._miss(requirement, [SCOPE_MISMATCH, "watchlist"])
+
+        # 只读 raw_items；按窗口过滤
+        rows = []
+        if ctx.window_start and ctx.window_end:
+            rows = view.query(
+                "SELECT payload FROM raw_items "
+                "WHERE json_extract(payload, '$.published_at') >= ? "
+                "AND json_extract(payload, '$.published_at') < ?",
+                (ctx.window_start, ctx.window_end),
+            )
+        else:
+            rows = view.query("SELECT payload FROM raw_items")
+
+        eligible: List[Dict[str, Any]] = []
+        ineligible_count = 0
+        available: set = set()
+        tiers_present: set = set()
+        refs: List[str] = []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            # semantic eligibility（§23）：raw_category 或 source_id 映射
+            raw_category = (payload.get("raw_category") or "").lower()
+            allowed_categories = self._TYPE_RAW_CATEGORY.get(requirement.data_type)
+            eligible_type = False
+            if allowed_categories and raw_category in allowed_categories:
+                eligible_type = True
+            source_id = payload.get("source_id")
+            if not eligible_type and source_id and \
+                    self._source_maps_to_type(source_id, requirement.data_type):
+                eligible_type = True
+            if not eligible_type:
+                ineligible_count += 1
+                continue
+            # PIT：published_at 不得晚于 as_of（§115；窗口下界之外再加 as_of 上界）
+            published = payload.get("published_at")
+            if published and published > ctx.as_of:
+                ineligible_count += 1
+                continue
+            # scope（watchlist / global）
+            if not self._scope_eligible(payload, ctx):
+                ineligible_count += 1
+                continue
+            # provenance tier（raw_item_source → sources.yaml）
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "raw_item_source", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                tiers_present.add(tier)
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
+            eligible.append(payload)
+            ref = payload.get("raw_item_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+
+        # coverage：open-world（无合法 denominator）→ null（§43-44）
+        coverage = None
+        warnings = [COVERAGE_NOT_MEASURABLE]
+        freshness_age = self._freshness_age(eligible, spec, ctx)
+        return self._finalize(
+            requirement, spec, eligible, ineligible_count, refs,
+            list(tiers_present), available, coverage, warnings, freshness_age,
+        )
+
+    def _source_maps_to_type(self, source_id: str, data_type: str) -> bool:
+        """source_id → canonical data_type 的确定性映射（既有治理信息，只读）。"""
+        # cninfo → company_announcement；nbs → macro_data；cls → news_flash
+        if data_type == "company_announcement" and source_id in ("cninfo", "sse", "szse", "csrc"):
+            return True
+        if data_type == "macro_data" and source_id in ("nbs", "csrc"):
+            return True
+        if data_type == "news_flash" and source_id in ("cls",):
+            return True
+        return False
+
+    def _payload(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+    def _freshness_age(self, eligible, spec, ctx) -> Optional[int]:
+        if not eligible or spec.freshness_strategy == "not_applicable":
+            return None
+        from research_os.utils.time import parse_iso
+        ages = []
+        for p in eligible:
+            ts = p.get("published_at")
+            if ts:
+                try:
+                    ages.append(_seconds_between(ts, ctx.as_of))
+                except ValueError:
+                    continue
+        if not ages:
+            return None
+        return max(ages)  # 保守：满足 requirement 所需记录集合中的最大 age（§55）
+
+
+class ProfileChecker(ReadinessChecker):
+    """company_profile / security_profile 系 checker（authority 按 spec 映射）。"""
+
+    data_types = ("company_profile", "security_profile")
+    _TABLE = {"company_profile": "company_profiles", "security_profile": "security_profiles"}
+    _ID_KEYS = {"company_profile": ("company_entity_id", "entity_id"),
+                "security_profile": ("security_entity_id", "entity_id")}
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        table = self._TABLE[requirement.data_type]
+        if not view.has_table(table):
+            return self._miss(requirement, [f"TABLE_ABSENT:{table}"])
         if not ctx.entity_ids:
             return self._miss(requirement, [SCOPE_MISMATCH, "subject"])
-        bars: List[Dict[str, Any]] = []
-        for symbol in ctx.entity_ids:
-            rows = view.query(
-                "SELECT payload FROM market_daily_ohlcv WHERE symbol = ? AND trade_date <= ?",
-                (symbol, ctx.as_of),
-            )
-            for row in rows:
-                payload = row["payload"]
-                if isinstance(payload, str):
-                    try:
-                        payload = json.loads(payload)
-                    except (TypeError, ValueError):
-                        continue
-                if isinstance(payload, dict):
-                    bars.append(payload)
-        if not bars:
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=0.0,
-                warnings=[NO_ELIGIBLE_RECORDS, PIT_INELIGIBLE],
-            )
-        available_fields = sorted({k for b in bars for k in b.keys() if b.get(k) is not None})
-        missing = [f for f in requirement.minimum_fields if f not in available_fields]
-        warnings: List[str] = []
-        if missing:
-            warnings.append(MISSING_REQUIRED_FIELDS)
-        # coverage：known trading window（requested window 内的交易日历）为 denominator
-        per_symbol_dates = {}
-        for b in bars:
-            d = b.get("trade_date")
-            if d:
-                per_symbol_dates.setdefault(b.get("symbol", "?"), set()).add(d)
+        rows = view.query(f"SELECT payload FROM {table}")
+        eligible, ineligible_count, available, tiers_present, refs = [], 0, set(), set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=self._ID_KEYS[requirement.data_type]):
+                ineligible_count += 1
+                continue
+            # PIT：valid_from/valid_to 区间必须覆盖 as_of（valid_interval，§17）
+            if not self._valid_interval_covers(payload, ctx.as_of):
+                ineligible_count += 1
+                continue
+            # provenance（evidence_ids → tier）
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                tiers_present.add(tier)
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
+            eligible.append(payload)
+            ref = payload.get("company_profile_id") or payload.get("security_profile_id") \
+                or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        # SINGLETON_TARGET：存在合格对象 → 1.0；缺失 → 0.0（§40）
+        coverage = 1.0 if eligible else 0.0
+        freshness_age = self._profile_age(eligible, spec, ctx)
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              list(tiers_present), available, coverage, [], freshness_age)
+
+    def _valid_interval_covers(self, payload, as_of: str) -> bool:
+        valid_from = payload.get("valid_from")
+        valid_to = payload.get("valid_to")
+        if valid_from and valid_from > as_of:
+            return False  # 尚未生效
+        if valid_to and valid_to <= as_of:
+            return False  # 已过期
+        status = payload.get("status")
+        if status and str(status).lower() not in ("active", "approved", "valid"):
+            return False
+        return True
+
+    def _profile_age(self, eligible, spec, ctx) -> Optional[int]:
+        if not eligible or spec.freshness_strategy == "not_applicable":
+            return None
+        ages = []
+        for p in eligible:
+            ts = p.get("valid_from")
+            if ts:
+                try:
+                    ages.append(_seconds_between(ts, ctx.as_of))
+                except ValueError:
+                    continue
+        return max(ages) if ages else None
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class IndustryMembershipChecker(ReadinessChecker):
+    """industry_membership：机械证明 requested company → valid industry membership（§20）。"""
+
+    data_types = ("industry_membership",)
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("company_profiles"):
+            return self._miss(requirement, [f"TABLE_ABSENT:company_profiles"])
+        if not ctx.industry_ids:
+            return self._miss(requirement, [SCOPE_MISMATCH, "industry"])
+        rows = view.query("SELECT payload FROM company_profiles")
+        eligible, ineligible_count, available, refs = [], 0, set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            industry_ids = payload.get("industry_ids") or []
+            if isinstance(industry_ids, str):
+                industry_ids = [industry_ids]
+            if not any(str(i) in ctx.industry_ids for i in industry_ids):
+                ineligible_count += 1
+                continue
+            valid_from, valid_to = payload.get("valid_from"), payload.get("valid_to")
+            if valid_from and valid_from > ctx.as_of:
+                ineligible_count += 1
+                continue
+            if valid_to and valid_to <= ctx.as_of:
+                ineligible_count += 1
+                continue
+            eligible.append(payload)
+            ref = payload.get("company_profile_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        # REQUESTED_ENTITY_SET（§41）：industries with eligible membership / requested industries
         coverage = None
-        if ctx.window_start and ctx.window_end:
-            expected = _trading_days_between(ctx.window_start, ctx.window_end)
-            if expected:
-                eligible_dates = set()
-                for dates in per_symbol_dates.values():
-                    eligible_dates |= {
-                        d for d in dates
-                        if _within_window(d, ctx.window_start, ctx.window_end)
-                    }
-                coverage = len(eligible_dates) / len(expected)
-                coverage = max(0.0, min(1.0, coverage))
-            else:
-                coverage = None
-                warnings.append(COVERAGE_NOT_MEASURABLE)
+        if ctx.industry_ids:
+            industries_with_eligible = set()
+            for p in eligible:
+                ids = p.get("industry_ids") or []
+                if isinstance(ids, str):
+                    ids = [ids]
+                industries_with_eligible.update(str(i) for i in ids if str(i) in ctx.industry_ids)
+            if ctx.industry_ids:
+                coverage = len(industries_with_eligible) / len(ctx.industry_ids)
+        freshness_age = None
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              [], available, coverage, [], freshness_age)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class FinancialChecker(ReadinessChecker):
+    """financial_statement_data / peer_financial_data（authority=financial_facts，§18-19）。"""
+
+    data_types = ("financial_statement_data", "peer_financial_data")
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("financial_facts"):
+            return self._miss(requirement, [f"TABLE_ABSENT:financial_facts"])
+        rows = view.query("SELECT payload FROM financial_facts")
+        scope_keys = ("company_entity_id",)
+        if spec.scope_strategy == "PEERS" and not ctx.peer_entity_ids:
+            # peer set unresolved → coverage null（§42），不发明 denominator
+            return self._finalize(requirement, spec, [], 0, [], [], set(),
+                                  None, [COVERAGE_NOT_MEASURABLE], None)
+        eligible, ineligible_count, available, tiers_present, refs = [], 0, set(), set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                ineligible_count += 1
+                continue
+            # PIT：publication availability（§18）——证据或 document 发布必须早于 as_of
+            if not self._publication_proven(payload, view, ctx.as_of):
+                ineligible_count += 1
+                continue
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                tiers_present.add(tier)
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
+            eligible.append(payload)
+            ref = payload.get("fact_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        # coverage：SINGLETON / REQUESTED_PEER_SET
+        coverage = None
+        if spec.coverage_strategy == "SINGLETON_TARGET":
+            coverage = 1.0 if eligible else 0.0
+        elif spec.coverage_strategy == "REQUESTED_PEER_SET" and ctx.peer_entity_ids:
+            if eligible:
+                coverage = 1.0
         else:
             coverage = None
-            warnings.append(COVERAGE_NOT_MEASURABLE)
-        status = "MISSING" if not bars else ("PARTIAL" if missing else "READY")
-        if status == "READY" and coverage is not None and requirement.minimum_coverage > 0 \
-                and coverage < requirement.minimum_coverage:
-            status = "PARTIAL"
-            warnings.append(COVERAGE_BELOW_MINIMUM)
-        if status == "READY" and requirement.minimum_coverage > 0 and coverage is None:
-            # open-world / 无合法 denominator：minimum_coverage>0 时不得 READY
-            status = "PARTIAL"
-            warnings.append(COVERAGE_NOT_MEASURABLE)
-        return ReadinessCheckResult(
-            status=status,
-            available_fields=available_fields,
-            coverage_ratio=coverage,
-            eligible_record_count=len(bars),
-            ineligible_record_count=0,
-            source_tiers_present=[],
-            record_refs=[f"{b.get('symbol')}:{b.get('trade_date')}" for b in bars],
-            warnings=warnings,
-        )
+        freshness_age = None
+        if eligible:
+            ages = []
+            for p in eligible:
+                ts = p.get("observed_at") or p.get("created_at")
+                if ts:
+                    try:
+                        ages.append(_seconds_between(ts, ctx.as_of))
+                    except ValueError:
+                        continue
+            freshness_age = max(ages) if ages else None
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              list(tiers_present), available, coverage, [], freshness_age)
+
+    def _publication_proven(self, payload, view, as_of: str) -> bool:
+        """机械证明 as_of 时财务信息已公开（§18，防 look-ahead）。
+
+        优先：evidence_ids → evidence.published_at <= as_of；或
+        source_document_id → document_records.published_at <= as_of；
+        period_end <= as_of 不足以证明（发布可能晚于 as_of）。
+        """
+        evidence_ids = payload.get("evidence_ids") or []
+        if evidence_ids and view.has_table("evidence"):
+            for eid in evidence_ids:
+                rows = view.query(
+                    "SELECT payload FROM evidence "
+                    "WHERE json_extract(payload, '$.evidence_id') = ? "
+                    "AND json_extract(payload, '$.published_at') <= ?",
+                    (str(eid), as_of),
+                )
+                if rows:
+                    return True
+        source_doc = payload.get("source_document_id")
+        if source_doc and view.has_table("document_records"):
+            rows = view.query(
+                "SELECT payload FROM document_records "
+                "WHERE json_extract(payload, '$.document_id') = ? "
+                "AND json_extract(payload, '$.published_at') <= ?",
+                (str(source_doc), as_of),
+            )
+            if rows:
+                return True
+        return False
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class ValuationChecker(ReadinessChecker):
+    """market_valuation_snapshot（authority=valuation_snapshots，§16 修正）。"""
+
+    data_types = ("market_valuation_snapshot",)
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("valuation_snapshots"):
+            return self._miss(requirement, [f"TABLE_ABSENT:valuation_snapshots"])
+        if not ctx.entity_ids:
+            return self._miss(requirement, [SCOPE_MISMATCH, "subject"])
+        rows = view.query("SELECT payload FROM valuation_snapshots")
+        scope_keys = ("company_entity_id", "security_entity_id", "entity_id")
+        eligible, ineligible_count, available, tiers_present, refs = [], 0, set(), set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                ineligible_count += 1
+                continue
+            # PIT：snapshot as_of 不得晚于 requirement as_of（as_of 策略）
+            snap_as_of = payload.get("as_of")
+            if snap_as_of and snap_as_of > ctx.as_of:
+                ineligible_count += 1
+                continue
+            status = payload.get("status")
+            if status and str(status).lower() not in ("active", "approved", "valid"):
+                ineligible_count += 1
+                continue
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                tiers_present.add(tier)
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
+            eligible.append(payload)
+            ref = payload.get("valuation_snapshot_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        coverage = 1.0 if eligible else 0.0
+        freshness_age = None
+        if eligible:
+            ages = []
+            for p in eligible:
+                ts = p.get("as_of")
+                if ts:
+                    try:
+                        ages.append(_seconds_between(ts, ctx.as_of))
+                    except ValueError:
+                        continue
+            freshness_age = max(ages) if ages else None
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              list(tiers_present), available, coverage, [], freshness_age)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class DocumentChecker(ReadinessChecker):
+    """company_document / document_corpus（authority=document_records）。"""
+
+    data_types = ("company_document", "document_corpus")
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("document_records"):
+            return self._miss(requirement, [f"TABLE_ABSENT:document_records"])
+        rows = view.query("SELECT payload FROM document_records")
+        scope_keys = ("company_entity_id", "security_entity_id", "entity_id")
+        eligible, ineligible_count, available, tiers_present, refs = [], 0, set(), set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                ineligible_count += 1
+                continue
+            published = payload.get("published_at")
+            if published and published > ctx.as_of:
+                ineligible_count += 1
+                continue
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                tiers_present.add(tier)
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
+            eligible.append(payload)
+            ref = payload.get("document_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        coverage = None
+        if spec.coverage_strategy == "SINGLETON_TARGET":
+            coverage = 1.0 if eligible else 0.0
+        elif spec.coverage_strategy == "OPEN_WORLD":
+            coverage = None
+        else:
+            coverage = None
+        freshness_age = None
+        if eligible:
+            ages = []
+            for p in eligible:
+                ts = p.get("published_at")
+                if ts:
+                    try:
+                        ages.append(_seconds_between(ts, ctx.as_of))
+                    except ValueError:
+                        continue
+            freshness_age = max(ages) if ages else None
+        warnings = [COVERAGE_NOT_MEASURABLE] if coverage is None else []
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              list(tiers_present), available, coverage, warnings, freshness_age)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class EvidenceContentChecker(ReadinessChecker):
+    """evidence / claims / event_evidence / evidence_index（authority 按 spec 映射）。"""
+
+    data_types = ("evidence", "claims", "event_evidence", "evidence_index")
+
+    _TABLE = {"evidence": "evidence", "claims": "claims",
+              "event_evidence": "evidence", "evidence_index": "evidence"}
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        table = self._TABLE[requirement.data_type]
+        if not view.has_table(table):
+            return self._miss(requirement, [f"TABLE_ABSENT:{table}"])
+        rows = view.query(f"SELECT payload FROM {table}")
+        scope_keys = ("subject_entities", "entities", "company_entity_id", "entity_id", "subject")
+        eligible, ineligible_count, available, tiers_present, refs = [], 0, set(), set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                ineligible_count += 1
+                continue
+            published = payload.get("published_at")
+            if published and published > ctx.as_of:
+                ineligible_count += 1
+                continue
+            # claims 的 as_of 不得晚于请求 cutoff（§115）
+            claim_as_of = payload.get("as_of")
+            if claim_as_of and claim_as_of > ctx.as_of:
+                ineligible_count += 1
+                continue
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, spec.provenance_strategy, view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                tiers_present.add(tier)
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
+            eligible.append(payload)
+            ref = payload.get("evidence_id") or payload.get("claim_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        coverage = None
+        if spec.coverage_strategy == "SINGLETON_TARGET":
+            coverage = 1.0 if eligible else 0.0
+        elif spec.coverage_strategy == "OPEN_WORLD":
+            coverage = None
+        else:
+            coverage = None
+        freshness_age = None
+        if eligible:
+            ages = []
+            for p in eligible:
+                ts = p.get("published_at") or p.get("created_at")
+                if ts:
+                    try:
+                        ages.append(_seconds_between(ts, ctx.as_of))
+                    except ValueError:
+                        continue
+            freshness_age = max(ages) if ages else None
+        warnings = [COVERAGE_NOT_MEASURABLE] if coverage is None else []
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              list(tiers_present), available, coverage, warnings, freshness_age)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class EntityMappingChecker(ReadinessChecker):
+    """entity_mapping（authority=entities，内部权威，tier 不适用）。"""
+
+    data_types = ("entity_mapping",)
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("entities"):
+            return self._miss(requirement, [f"TABLE_ABSENT:entities"])
+        rows = view.query("SELECT payload FROM entities")
+        eligible, ineligible_count, available, refs = [], 0, set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=("entity_id", "aliases")):
+                ineligible_count += 1
+                continue
+            valid_from, valid_to = payload.get("valid_from"), payload.get("valid_to")
+            if valid_from and valid_from > ctx.as_of:
+                ineligible_count += 1
+                continue
+            if valid_to and valid_to <= ctx.as_of:
+                ineligible_count += 1
+                continue
+            eligible.append(payload)
+            ref = payload.get("entity_id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        coverage = 1.0 if eligible else 0.0
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              [], available, coverage, [], None)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class ResearchFindingsChecker(ReadinessChecker):
+    """research_findings（authority=research_findings，内部权威）。"""
+
+    data_types = ("research_findings",)
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("research_findings"):
+            return self._miss(requirement, [f"TABLE_ABSENT:research_findings"])
+        rows = view.query("SELECT payload FROM research_findings")
+        scope_keys = ("company_entity_id", "entity_id", "subject")
+        eligible, ineligible_count, available, refs = [], 0, set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                ineligible_count += 1
+                continue
+            created = payload.get("created_at")
+            if created and created > ctx.as_of:
+                ineligible_count += 1
+                continue
+            eligible.append(payload)
+            ref = payload.get("finding_id") or payload.get("id")
+            if ref:
+                refs.append(str(ref))
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        coverage = 1.0 if eligible else 0.0
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              [], available, coverage, [], None)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
+
+
+class MarketSeriesChecker(ReadinessChecker):
+    """market_daily_ohlcv（authority=market_daily_ohlcv，trade_date PIT）。"""
+
+    data_types = ("market_daily_ohlcv",)
+
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        if not view.has_table("market_daily_ohlcv"):
+            return self._miss(requirement, [f"TABLE_ABSENT:market_daily_ohlcv"])
+        if not ctx.entity_ids:
+            return self._miss(requirement, [SCOPE_MISMATCH, "subject"])
+        rows = view.query("SELECT payload FROM market_daily_ohlcv")
+        scope_keys = ("symbol", "company_entity_id", "entity_id")
+        eligible, ineligible_count, available, refs = [], 0, set(), []
+        for row in rows:
+            payload = self._payload(row)
+            if payload is None:
+                ineligible_count += 1
+                continue
+            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+                ineligible_count += 1
+                continue
+            trade_date = payload.get("trade_date")
+            if trade_date and trade_date > ctx.as_of[:10]:
+                ineligible_count += 1
+                continue
+            eligible.append(payload)
+            ref = f"{payload.get('symbol')}:{payload.get('trade_date')}"
+            refs.append(ref)
+            available.update(k for k in payload.keys() if payload.get(k) is not None)
+        # coverage：AUTHORITATIVE_TRADING_CALENDAR
+        # 仓库当前无权威交易日历 authority → null + COVERAGE_NOT_MEASURABLE（§47-48, 104）
+        coverage = None
+        warnings = [COVERAGE_NOT_MEASURABLE]
+        freshness_age = None
+        if eligible:
+            ages = []
+            for p in eligible:
+                ts = p.get("trade_date")
+                if ts:
+                    try:
+                        ages.append(_seconds_between(ts + "T00:00:00+08:00", ctx.as_of))
+                    except ValueError:
+                        continue
+            freshness_age = max(ages) if ages else None
+        return self._finalize(requirement, spec, eligible, ineligible_count, refs,
+                              [], available, coverage, warnings, freshness_age)
+
+    def _payload(self, row):
+        payload = row["payload"]
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return None
+        return payload if isinstance(payload, dict) else None
 
 
 class GraphSnapshotChecker(ReadinessChecker):
-    """知识图谱只读快照 checker：version/as_of 约束读；零 Graph write。
-
-    fail closed：industry scope 过滤、minimum_fields 检查、minimum_coverage
-    （open-world 无合法 denominator → 若 min>0 降级）。
-    """
+    """knowledge_graph_snapshot（复用既有 Graph lifecycle/query authority，§62-68）。"""
 
     data_types = ("knowledge_graph_snapshot",)
-    source_tier_applicable = False
 
-    def check(self, ctx, requirement, view) -> ReadinessCheckResult:
-        # 复用 GraphRepository 只读 count 路径（version/as_of 约束）；无连接时视为未就绪
-        repo = getattr(view, "graph_repo", None)
-        if repo is None:
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=None,
-                warnings=[COVERAGE_NOT_MEASURABLE, "GRAPH_SNAPSHOT_UNAVAILABLE"],
-            )
-        try:
-            node_count = repo.count_nodes() or 0
-            edge_count = repo.count_edges() or 0
-        except Exception:  # noqa: BLE001
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=None,
-                warnings=[COVERAGE_NOT_MEASURABLE, "GRAPH_READ_FAILED"],
-            )
-        warnings: List[str] = []
-        # industry scope：无 industry 上下文时不猜测（fail closed）
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
+        graph_query = getattr(view, "graph_query_service", None)
+        history = getattr(view, "graph_history_service", None)
+        if graph_query is None or history is None:
+            return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, "GRAPH_AUTHORITY_UNAVAILABLE"])
+        # industry scope：现有 graph identity resolution（industry_id → root node）
         if ctx.requirement.scope.scope_type == "industry" and not ctx.industry_ids:
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=None,
-                warnings=[SCOPE_MISMATCH, "industry", COVERAGE_NOT_MEASURABLE],
-            )
-        if node_count == 0 and edge_count == 0:
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=0.0,
-                warnings=[NO_ELIGIBLE_RECORDS],
-            )
-        # minimum_fields：industry_id / node_refs / edge_refs 等
-        available_fields = ["node_refs", "edge_refs"]
+            return self._miss(requirement, [SCOPE_MISMATCH, "industry", GRAPH_SCOPE_UNRESOLVED])
+        try:
+            # 用 HistoryService.resolve_node_as_of 证明 industry root 在 as_of 有效
+            for industry_id in ctx.industry_ids or [None]:
+                if industry_id is None:
+                    continue
+                resolved = history.resolve_node_as_of(industry_id, ctx.as_of)
+                if resolved is None:
+                    return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"ROOT_MISSING:{industry_id}"])
+                node = graph_query.get_node(industry_id, ctx.as_of)
+                if node is None or getattr(node, "error", None):
+                    return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"NOT_VALID_AT_AS_OF:{industry_id}"])
+        except Exception as exc:  # noqa: BLE001
+            return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"GRAPH_READ_FAILED:{type(exc).__name__}"])
+        # global scope：无法机械证明 global snapshot coverage → coverage null
+        coverage = None
+        warnings = [COVERAGE_NOT_MEASURABLE]
+        if not ctx.industry_ids and ctx.requirement.scope.scope_type == "global":
+            # 无 industry root 可证明 → 保守 not READY（§67）
+            return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, "GLOBAL_SNAPSHOT_UNPROVEN"])
+        available = {"node_refs", "edge_refs", "as_of"}
         if ctx.industry_ids:
-            available_fields.append("industry_id")
-        missing = [f for f in requirement.minimum_fields if f not in available_fields]
+            available.add("industry_id")
+        missing = [f for f in requirement.minimum_fields if f not in available]
         if missing:
             warnings.append(MISSING_REQUIRED_FIELDS)
-        # coverage：open-world 无合法 denominator → None；min>0 时不得 READY
-        coverage = None
-        if requirement.minimum_coverage > 0:
-            warnings.append(COVERAGE_NOT_MEASURABLE)
-        status = "PARTIAL" if missing or (requirement.minimum_coverage > 0) else "READY"
-        if status == "PARTIAL" and not missing and requirement.minimum_coverage == 0:
-            status = "READY"
+        status = "PARTIAL" if missing or requirement.minimum_coverage > 0 else "READY"
         return ReadinessCheckResult(
-            status=status,
-            available_fields=sorted(available_fields),
-            coverage_ratio=coverage,
-            eligible_record_count=node_count + edge_count,
-            ineligible_record_count=0,
-            source_tiers_present=[],
-            record_refs=[],
-            warnings=warnings,
+            status=status, available_fields=sorted(available), coverage_ratio=coverage,
+            eligible_record_count=1 if ctx.industry_ids else 0, ineligible_record_count=0,
+            source_tiers_present=[], record_refs=list(ctx.industry_ids or []),
+            warnings=warnings, freshness_age_seconds=None,
         )
 
 
 class RunArtifactChecker(ReadinessChecker):
-    """Run 产物 checker：检查 reports/runs/ 下既有产物。"""
+    """run_artifacts（authority=runs_root 目录产物，内部权威）。"""
 
     data_types = ("run_artifacts",)
-    source_tier_applicable = False
 
-    def check(self, ctx, requirement, view) -> ReadinessCheckResult:
+    def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
+        spec = get_spec(requirement.data_type)
         runs_root = getattr(view, "runs_root", None)
         if runs_root is None or not runs_root.exists():
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=0.0,
-                warnings=[NO_ELIGIBLE_RECORDS],
-            )
-        artifacts = []
-        if runs_root.exists():
-            artifacts = [p for p in runs_root.iterdir() if p.is_dir()]
+            return self._miss(requirement, [NO_ELIGIBLE_RECORDS])
+        artifacts = [p for p in runs_root.iterdir() if p.is_dir()]
         if not artifacts:
-            return ReadinessCheckResult(
-                status="MISSING", coverage_ratio=0.0,
-                warnings=[NO_ELIGIBLE_RECORDS],
-            )
-        return ReadinessCheckResult(
-            status="READY",
-            available_fields=["task_id", "run_id"],
-            coverage_ratio=None,
-            eligible_record_count=len(artifacts),
-            ineligible_record_count=0,
-            source_tiers_present=[],
-            record_refs=[a.name for a in artifacts[:50]],
-            warnings=[COVERAGE_NOT_MEASURABLE],
+            return self._miss(requirement, [NO_ELIGIBLE_RECORDS])
+        # 走 _finalize：minimum_fields / coverage / freshness 统一判定
+        available = {"task_id", "run_id"}
+        return self._finalize(
+            requirement, spec, artifacts, 0,
+            [a.name for a in artifacts[:50]], [], available,
+            coverage=None, coverage_warnings=[COVERAGE_NOT_MEASURABLE],
+            freshness_age=None,
         )
 
 
-class CompositeChecker(ReadinessChecker):
-    """复合 checker：组合多个 family（如 evidence + claims 共用 EvidenceContentChecker）。
-
-    取最差状态（fail closed）：READY 最轻，SOURCE_UNHEALTHY 最重。
-    """
-
-    data_types: Tuple[str, ...] = ()
-    inner: List[ReadinessChecker] = []
-
-    def check(self, ctx, requirement, view) -> ReadinessCheckResult:
-        results = [c.check(ctx, requirement, view) for c in self.inner]
-        return max(results, key=lambda r: _STATUS_ORDER.index(r.status))
-
-
-_STATUS_ORDER = ["READY", "PARTIAL", "MISSING", "STALE", "SOURCE_UNHEALTHY"]
-
-
-# ---------- 具体 data_type → checker 映射 ----------
-
-class EvidenceContentChecker(SqliteObjectChecker):
-    """Evidence 内容 checker（evidence / claims / event_evidence / evidence_index）。"""
-
-    data_types = ("evidence", "claims", "event_evidence", "evidence_index")
-    table = "evidence"
-    source_tier_applicable = False
-
-
-class DocumentChecker(SqliteObjectChecker):
-    """文档 checker（company_document / document_corpus / company_profile / security_profile）。"""
-
-    data_types = ("company_document", "document_corpus")
-    table = "document_records"
-    source_tier_applicable = True
-
-
-class ProfileChecker(SqliteObjectChecker):
-    """主体 profile checker（company_profile / security_profile / industry_membership）。"""
-
-    data_types = ("company_profile", "security_profile", "industry_membership")
-    table = "company_profiles"
-    pit_column = "created_at"
-    source_tier_applicable = True
-
-
-class FinancialChecker(SqliteObjectChecker):
-    """财务 checker（financial_statement_data / peer_financial_data / market_valuation_snapshot）。"""
-
-    data_types = ("financial_statement_data", "peer_financial_data", "market_valuation_snapshot")
-    table = "financial_facts"
-    pit_column = "created_at"
-    source_tier_applicable = True
-
-
-class AnnouncementChecker(SqliteObjectChecker):
-    """公告/快讯/宏观 checker。"""
-
-    data_types = ("news_flash", "company_announcement", "macro_data",
-                  "brief_event_content", "brief_attention_content")
-    table = "raw_items"
-    source_tier_applicable = True
-
-
-class EntityMappingChecker(SqliteObjectChecker):
-    data_types = ("entity_mapping",)
-    table = "entities"
-    source_tier_applicable = False
-
-
-class ResearchFindingsChecker(SqliteObjectChecker):
-    data_types = ("research_findings",)
-    table = "research_findings"
-    pit_column = "created_at"
-    source_tier_applicable = False
-
+# ---------- ReadinessCheckerRegistry（22/22 注册） ----------
 
 class ReadinessCheckerRegistry:
     """data_type → checker 映射；缺 checker 抛 CONTROL_PLANE_CONFIGURATION_ERROR。"""
 
-    def __init__(self, checkers: Optional[List[ReadinessChecker]] = None):
+    def __init__(self, checkers: Optional[List[ReadinessChecker]] = None,
+                 provenance: Optional[ReadinessProvenanceResolver] = None):
         self._map: Dict[str, ReadinessChecker] = {}
         selected = checkers if checkers is not None else _DEFAULT_CHECKERS
         for checker in selected:
             for dtype in checker.data_types:
                 self._map[dtype] = checker
+        # 默认加载仓库 sources.yaml 治理（provenance tier 必须来自既有 Source authority）
+        if provenance is None:
+            _repo_root = Path(__file__).resolve().parents[3]
+            sources_path = _repo_root / "registry" / "sources.yaml"
+            provenance = ReadinessProvenanceResolver(
+                sources_yaml_path=str(sources_path) if sources_path.exists() else None)
+        self._provenance = provenance
 
     def has(self, data_type: str) -> bool:
         return data_type in self._map
@@ -619,16 +1128,29 @@ class ReadinessCheckerRegistry:
     def data_types(self) -> List[str]:
         return sorted(self._map)
 
+    def evaluate(self, ctx, requirement, view, checked_at: str):
+        from research_os.data_layer.readiness import DataReadinessService
+        return DataReadinessService(self).evaluate(requirement, ctx, view, checked_at, self._provenance)
+
 
 _DEFAULT_CHECKERS: List[ReadinessChecker] = [
+    RawItemChecker(),
+    ProfileChecker(),
+    IndustryMembershipChecker(),
+    FinancialChecker(),
+    ValuationChecker(),
+    DocumentChecker(),
+    EvidenceContentChecker(),
+    EntityMappingChecker(),
+    ResearchFindingsChecker(),
     MarketSeriesChecker(),
     GraphSnapshotChecker(),
     RunArtifactChecker(),
-    EvidenceContentChecker(),
-    DocumentChecker(),
-    ProfileChecker(),
-    FinancialChecker(),
-    AnnouncementChecker(),
-    EntityMappingChecker(),
-    ResearchFindingsChecker(),
 ]
+
+
+def _seconds_between(ts: str, as_of: str) -> int:
+    from research_os.utils.time import parse_iso
+    t0 = parse_iso(ts)
+    t1 = parse_iso(as_of)
+    return max(0, int((t1 - t0).total_seconds()))

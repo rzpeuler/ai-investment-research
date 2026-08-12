@@ -256,6 +256,11 @@ class Orchestrator:
         return ScenarioDataRequirementRegistry(
             _REPO_ROOT / "registry" / "scenario_data_requirements.yaml")
 
+    def _request_context(self):
+        """R1-01：唯一 canonical request context adapter（Task.entities 与 Resolver 共享）。"""
+        from research_os.data_layer.request_context import NormalizedRequestContextAdapter
+        return NormalizedRequestContextAdapter()
+
     def execute(self, scenario: str, request: Dict[str, Any]) -> ScenarioExecutionResult:
         """统一执行入口；未注册场景、请求错误和 Runner 异常均转为结构化失败。"""
         started = perf_counter()
@@ -266,9 +271,11 @@ class Orchestrator:
         try:
             runner = self.registry.get(scenario)
             normalized = runner.validate_request(dict(request))
+            # R1-01：Task.entities 与 Resolver 共享同一 NormalizedRequestContextAdapter
+            canonical = self._request_context().extract(scenario, normalized)
             task = self.create_task(
                 scenario=scenario,
-                entities=list(normalized.get("entities") or []),
+                entities=canonical.task_entities,
                 depth=normalized.get("depth", "standard"),
                 as_of=normalized.get("as_of"),
                 task_id=task_id,

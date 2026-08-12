@@ -22,6 +22,7 @@ from research_os.data_layer.checkers import (
     SqliteReadView,
 )
 from research_os.data_layer.context import RequirementContextResolver
+from research_os.data_layer.request_context import NormalizedRequestContextAdapter
 from research_os.data_layer.gaps import GapClassifier
 from research_os.data_layer.planning import AcquisitionPlanner
 from research_os.data_layer.readiness import DataReadinessService
@@ -63,6 +64,7 @@ class DataPreflightService:
         self._readiness = DataReadinessService(self._checkers)
         self._gaps = GapClassifier(capability_registry)
         self._planner = AcquisitionPlanner()
+        self._request_adapter = NormalizedRequestContextAdapter()
 
     # ---------- 只读访问视图 ----------
 
@@ -74,27 +76,41 @@ class DataPreflightService:
         graph_repo: Optional[Any] = None,
         dry_run: bool = False,
     ) -> Any:
-        """dry-run：DB 存在用 open_read_only，否则空 read view（不创建 DB）。"""
+        """R1-07：dry-run 在 DB 存在时用 open_read_only 读取真实数据（ZERO WRITE）。
+
+        返回 (view, owned_conn)；owned_conn 为 preflight 自己打开的只读连接，
+        由调用方 finally close()（§74，禁止连接泄漏）。
+        DB 不存在时不创建、不 initialize、不跑 migration（EmptyReadView）。
+        """
+        owned_conn: Optional[Any] = None
         view = EmptyReadView()
         if db is not None:
             view = SqliteReadView(db)
-        elif not dry_run:
+        else:
             db_path = project_root / "data" / "sqlite" / "research.db"
             if db_path.is_file():
                 from research_os.storage import Database
-                view = SqliteReadView(Database.open_read_only(db_path))
-            else:
-                view = EmptyReadView()
-        # 附加只读服务引用
-        if graph_repo is None and db is not None:
+                owned_conn = Database.open_read_only(db_path)
+                view = SqliteReadView(owned_conn)
+            # DB 不存在 → EmptyReadView（不创建）
+        # 附加只读服务引用（GraphQueryService + HistoryService 复用既有 authority）
+        conn = db if db is not None else owned_conn
+        if conn is not None:
+            from research_os.knowledge.history import HistoryService
+            from research_os.knowledge.query import GraphQueryService
             from research_os.knowledge.repository import GraphRepository
             try:
-                graph_repo = GraphRepository(db)
+                graph_repo = graph_repo or GraphRepository(conn)
+                graph_query = GraphQueryService(conn, graph_repo=graph_repo)
+                history = HistoryService(conn, graph_repo)
+                view.graph_query_service = graph_query  # type: ignore[attr-defined]
+                view.graph_history_service = history  # type: ignore[attr-defined]
+                view.graph_repo = graph_repo  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001
                 graph_repo = None
-        view.graph_repo = graph_repo  # type: ignore[attr-defined]
+                view.graph_repo = None  # type: ignore[attr-defined]
         view.runs_root = runs_root  # type: ignore[attr-defined]
-        return view
+        return view, owned_conn
 
     # ---------- 主入口 ----------
 
@@ -122,32 +138,36 @@ class DataPreflightService:
                     f"CONTROL_PLANE_CONFIGURATION_ERROR: capability {dtype!r} 缺失")
 
         checked_at_value = checked_at or now_iso()
-        view = self._build_view(project_root, db, runs_root, graph_repo, dry_run)
-
-        requirements = self._requirements.for_scenario(scenario)
-        bundle = DataPreflightBundle(checked_at=checked_at_value)
-        gap_by_req: Dict[str, DataGap] = {}
-        requirement_order: List[str] = []
-        for requirement in requirements:
-            ctx = self._resolver.resolve(
-                requirement, scenario, task_id, normalized_request, task_as_of,
+        view, owned_conn = self._build_view(project_root, db, runs_root, graph_repo, dry_run)
+        try:
+            requirements = self._requirements.for_scenario(scenario)
+            bundle = DataPreflightBundle(checked_at=checked_at_value)
+            canonical = self._request_adapter.extract(scenario, normalized_request)
+            gap_by_req: Dict[str, DataGap] = {}
+            requirement_order: List[str] = []
+            for requirement in requirements:
+                ctx = self._resolver.resolve(
+                    requirement, scenario, task_id, canonical, task_as_of,
+                )
+                readiness = self._readiness.evaluate(requirement, ctx, view, checked_at_value)
+                gap = self._gaps.classify(requirement, readiness)
+                bundle.requirements.append(requirement)
+                bundle.contexts.append(ctx)
+                bundle.readiness.append(readiness)
+                bundle.gaps.append(gap)
+                gap_by_req[gap.requirement_id] = gap
+                requirement_order.append(requirement.requirement_id)
+            bundle.acquisition_plan = self._planner.plan(
+                task_id=task_id,
+                scenario=scenario,
+                as_of=task_as_of,
+                gaps=list(gap_by_req.values()),
+                requirement_order=requirement_order,
             )
-            readiness = self._readiness.evaluate(requirement, ctx, view, checked_at_value)
-            gap = self._gaps.classify(requirement, readiness)
-            bundle.requirements.append(requirement)
-            bundle.contexts.append(ctx)
-            bundle.readiness.append(readiness)
-            bundle.gaps.append(gap)
-            gap_by_req[gap.requirement_id] = gap
-            requirement_order.append(requirement.requirement_id)
-        bundle.acquisition_plan = self._planner.plan(
-            task_id=task_id,
-            scenario=scenario,
-            as_of=task_as_of,
-            gaps=list(gap_by_req.values()),
-            requirement_order=requirement_order,
-        )
-        return bundle
+            return bundle
+        finally:
+            if owned_conn is not None:
+                owned_conn.close()
 
     # ---------- artifact 持久化（非 dry-run） ----------
 

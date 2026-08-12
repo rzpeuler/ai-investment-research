@@ -178,6 +178,24 @@
   不创建 reports/runs artifacts；Preflight 仅内存运行。
 - **D2 才允许 Acquisition Execution**：route_existing_sources / fetch / normalize /
   persist / readiness recheck 全部属于后续 P7-D2，当前禁止实现。
+- **R1 Readiness 语义修正**（V1.6 内，不升级 V1.7）：
+  - coverage 与 field completeness 分离：open-world（事件发现/宏观/广义新闻）无论
+    多少条 → `coverage_ratio = null` + COVERAGE_NOT_MEASURABLE；禁止用
+    `0.0` 表示 open-world 空结果。
+  - 禁止工作日≈交易日近似作为权威 denominator；市场无既有权威交易日历时
+    coverage = null（R1 不授权新增交易日历数据）。
+  - authority 映射按 `DataTypeReadinessSpec`（22/22）：claims→claims 表、
+    security_profile→security_profiles、market_valuation_snapshot→valuation_snapshots。
+  - provenance tier 由既有治理解析（Evidence.source_tier / sources.yaml），
+    禁止领域 payload 通用伪造 source_tier/tier。
+  - freshness_seconds 真正执行：有合格数据但超限 → STALE；无法证明 →
+    FRESHNESS_UNPROVEN；age = as_of - timestamp（支持历史 as_of 重放）。
+  - Graph readiness 复用既有 HistoryService/GraphQueryService（as_of 强制），
+    禁止 count 作为 READY 权威。
+  - dry-run 在 DB 存在时用 open_read_only 读取真实数据（ZERO WRITE），
+    DB 不存在时用 EmptyReadView（不创建）。
+  - AUTO_DERIVABLE 需 DerivationPrerequisiteResolver 显式证明前提；
+    eligible_record_count>0 单独不构成证明。
 
 ---
 

@@ -99,3 +99,8 @@ P7-D1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 ```
 
 不得自行声明 PASS / CLOSED / INDEPENDENTLY ACCEPTED。
+
+---
+
+**Independent acceptance: CHANGES_REQUIRED**
+See `docs/tasks/phase7-data-layer-d1-r1.md`（Readiness Semantic Correctness & Authority Alignment）。

@@ -4,7 +4,7 @@
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
-> P7-D1：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+> P7-D1：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（R1 返修后）
 > 权威规范：`docs/engineering-guide.md` V1.5
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -194,10 +194,11 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   增加 `content_scope`（财联社 = non_fast_news_only）、未验证条目
   `last_verified_at: null`、Router 治理措辞收口。详见 `docs/tasks/phase7-data-layer-d0-r1.md`。
 
-## P7-D1 当前状态（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+## P7-D1 当前状态（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
 
 - 授权：`IMPLEMENTATION AUTHORIZED — P7-D1 ONLY`；状态：`IMPLEMENTED /
-  AWAITING INDEPENDENT ACCEPTANCE`（2026-08-11，Decision #48）。不得声明 P7-D1 PASS
+  AWAITING INDEPENDENT RE-ACCEPTANCE`（2026-08-11，Decision #48；R1 返修完成，
+  等待独立复验）。不得声明 P7-D1 PASS
   或自行 merge；独立验收由架构审查方完成。
 - 实现 `src/research_os/data_layer/*` 控制面：RequirementContextResolver →
   DataReadinessService → GapClassifier → AcquisitionPlanner → DataPreflightService。

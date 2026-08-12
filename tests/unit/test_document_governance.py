@@ -374,7 +374,7 @@ def test_p7_d0_governance_is_consistent():
     # accepted implementation head 必须明确
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
     # P7-D1 已 IMPLEMENTED；D2 仍 NOT AUTHORIZED（eligible ≠ authorized）
-    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
+    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
     assert "NEXT ELIGIBLE MILESTONE" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
@@ -419,18 +419,18 @@ def test_p7_d0_r1_governance():
     assert "PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "PASS / INDEPENDENTLY ACCEPTED" in limitations
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
-    # 不得出现旧的 awaiting / 未验收表述
-    assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in current
-    assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in next_phase
-    assert "AWAITING INDEPENDENT RE-ACCEPTANCE" not in limitations
+    # 不得出现旧的 P7-D0 awaiting / 未验收表述（P7-D1 的 RE-ACCEPTANCE 是合法状态）
+    assert "P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" not in current
+    assert "P7-D0：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" not in current
+    assert "P7-D0: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" not in next_phase
     assert "MERGE AUTHORIZED" not in current
     # P7-D1 已 IMPLEMENTED；D0 已 PASS
     assert "P7-D0" in next_phase and "PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
+    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
 
 
 def test_p7_d1_governance_is_consistent():
-    """P7-D1 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE."""
+    """P7-D1 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
     decisions = _read("docs/project-state/DECISIONS.md")
     taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
     current = _read("docs/project-state/CURRENT_STATE.md")
@@ -461,10 +461,10 @@ def test_p7_d1_governance_is_consistent():
     assert "MILESTONE: P7-D1" in header
     assert "P7-D2: NOT AUTHORIZED" in header
 
-    assert "P7-D1：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in current
-    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
-    assert "P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in limitations
-    assert "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in readme
+    assert "P7-D1：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
+    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
+    assert "P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in limitations
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in readme
     assert "版本：V1.6" in guide
     assert "P7-D1" in guide and "Data Readiness" in guide
     assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
@@ -600,3 +600,39 @@ def test_phase6_shared_contract_frozen():
     # 13. P6-S5 中央集成，非 P6-I0
     assert "P6-S5" in contract
     assert "P6-I0" not in contract
+
+
+def test_p7_d1_r1_governance_is_consistent():
+    """P7-D1-R1 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d1-r1.md")
+    d1_taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    readme = _read("README.md")
+
+    # R1 taskbook 版本化
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED — P7-D1-R1 ONLY" in taskbook
+    assert "START_HEAD" in taskbook and "91f8386" in taskbook
+    assert "INDEPENDENT_ACCEPTANCE: CHANGES_REQUIRED" in taskbook
+    assert "P7-D2: NOT AUTHORIZED" in taskbook
+
+    # D1 taskbook 追加验收结论，未重写
+    assert "Independent acceptance: CHANGES_REQUIRED" in d1_taskbook
+    assert "phase7-data-layer-d1-r1.md" in d1_taskbook
+
+    # Decision #48 追加 R1 finding
+    assert "48.6 R1 Independent Acceptance Finding & Repair Scope" in decisions
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
+
+    # Project State：RE-ACCEPTANCE（不得 PASS / CLOSED / MERGE AUTHORIZED）
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in limitations
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in readme
+    assert "P7-D1: PASS" not in current
+    assert "P7-D1: CLOSED" not in next_phase
+    assert "MERGE AUTHORIZED" not in current
+    # P7-D2 仍 NOT AUTHORIZED
+    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase

@@ -1,4 +1,4 @@
-"""DataReadinessService（P7-D1）。
+"""DataReadinessService（P7-D1 / R1）。
 
 判断"当前已经存在的权威数据"是否满足某个 ScenarioDataRequirement。
 严格只读：ZERO NETWORK / ZERO WRITE / ZERO LLM。
@@ -6,14 +6,14 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from research_os.data_layer.checkers import (
     SCOPE_MISMATCH,
-    ReadinessCheckResult,
     ReadinessCheckerRegistry,
 )
 from research_os.data_layer.context import ResolvedRequirementContext
+from research_os.data_layer.provenance import ReadinessProvenanceResolver
 from research_os.models import DataReadiness, ScenarioDataRequirement
 
 
@@ -29,16 +29,18 @@ class DataReadinessService:
         ctx: ResolvedRequirementContext,
         view: Any,
         checked_at: str,
+        provenance: Optional[ReadinessProvenanceResolver] = None,
     ) -> DataReadiness:
         checker = self._checkers.get(requirement.data_type)  # 缺 checker → CONFIG ERROR
-        result = checker.check(ctx, requirement, view)
+        result = checker.check(
+            ctx, requirement, view, provenance or self._checkers._provenance)
         return self._to_readiness(requirement, ctx, result, checked_at)
 
     @staticmethod
     def _to_readiness(
         requirement: ScenarioDataRequirement,
         ctx: ResolvedRequirementContext,
-        result: ReadinessCheckResult,
+        result,
         checked_at: str,
     ) -> DataReadiness:
         warnings = list(result.warnings)
