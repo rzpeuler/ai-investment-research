@@ -111,3 +111,8 @@ P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
 ```
 
 不得自行声明 PASS / ACCEPTED / CLOSED / MERGE AUTHORIZED。
+
+---
+
+**R1 independent re-acceptance: CHANGES_REQUIRED**
+See `docs/tasks/phase7-data-layer-d1-r2.md`。

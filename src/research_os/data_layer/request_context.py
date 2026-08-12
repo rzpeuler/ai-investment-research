@@ -107,6 +107,46 @@ def _as_str_list(value: Any) -> List[str]:
     return [str(value)]
 
 
+def _next_day_iso(day: str) -> str:
+    from datetime import date, timedelta
+    d = date.fromisoformat(str(day))
+    return (d + timedelta(days=1)).isoformat() + "T00:00:00+08:00"
+
+
+def _min_iso(a: str, b: Optional[str]) -> str:
+    """取两个 ISO 时间中较早者（aware datetime 比较，避免跨时区字符串序错误）；b 为 None 返回 a。"""
+    if b is None:
+        return a
+    from research_os.utils.time import parse_iso
+    try:
+        return a if parse_iso(a) <= parse_iso(b) else b
+    except ValueError:
+        return min(a, b)
+
+
+def _abnormal_window(request: Dict[str, Any]):
+    """复用 existing abnormal_move.resolve_window authority（§15）。
+
+    仅当可以确定性证明时返回 (window_start, window_end)；否则 None（fail closed，
+    不调用 wall-clock 假装历史窗口）。
+    """
+    analysis_date = request.get("analysis_date") or request.get("date")
+    window_start = request.get("window_start")
+    window_end = request.get("window_end")
+    if window_start and window_end:
+        return window_start, window_end
+    if not analysis_date:
+        return None
+    try:
+        from research_os.abnormal_move.window import resolve_window
+        from research_os.abnormal_move.market_data_loader import TradingCalendar
+        calendar = TradingCalendar()  # 确定性日历（无网络）
+        resolved = resolve_window(str(analysis_date), calendar)
+        return resolved.window_start.isoformat(), resolved.window_end.isoformat()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class NormalizedRequestContextAdapter:
     """scenario → canonical context（确定性机械映射，零猜测）。"""
 
@@ -134,19 +174,8 @@ class NormalizedRequestContextAdapter:
         if ind is not None:
             ctx.industry_ids = _as_str_list(ind)
 
-        # window（显式请求窗口；scenario_window 由 Resolver 复用 BriefWindowPolicy）
-        ws = _first_present(normalized_request, [f for f in _SCENARIO_WINDOW_FIELDS.get(scenario, []) if f.startswith("window_start")])
-        we = _first_present(normalized_request, [f for f in _SCENARIO_WINDOW_FIELDS.get(scenario, []) if f.startswith("window_end")])
-        if ws is None:
-            ws = normalized_request.get("window_start")
-        if we is None:
-            we = normalized_request.get("window_end")
-        if scenario == "stock_review":
-            # 正式契约 review_start/review_end
-            ws = normalized_request.get("review_start") or ws
-            we = normalized_request.get("review_end") or we
-        ctx.explicit_window_start = ws
-        ctx.explicit_window_end = we
+        # R2-02：统一 Scenario Time Context（按 scenario 复用既有业务权威，禁止第二套规则）
+        self._resolve_time_context(ctx, scenario, normalized_request)
 
         # report_date
         rd = _first_present(normalized_request, _SCENARIO_REPORT_DATE_FIELDS.get(scenario, []))
@@ -160,3 +189,52 @@ class NormalizedRequestContextAdapter:
             if val:
                 ctx.request_material_refs.extend(_as_str_list(val))
         return ctx
+
+    # ---------- R2-02：Scenario Time Context ----------
+
+    def _resolve_time_context(self, ctx: CanonicalRequestContext, scenario: str,
+                              request: Dict[str, Any]) -> None:
+        """按 scenario 的正式时间权威解析窗口；as_of_snapshot requirement 不需要窗口。
+
+        显式窗口只用于 time_policy=explicit_request_window 的 requirement（checker 真正过滤）。
+        """
+        # 显式窗口（原样保留；abnormal 优先显式，其次 resolve_window）
+        ws = request.get("window_start")
+        we = request.get("window_end")
+
+        if scenario == "daily_review":
+            # DailyReview 既有权威：day_start = review_business_date 00:00；day_end = 次日 00:00；
+            # effective_end = min(day_end, as_of)；窗口 [start, end)
+            day = request.get("review_business_date") or request.get("report_date")
+            if day:
+                ctx.explicit_window_start = f"{day}T00:00:00+08:00"
+                day_end = _next_day_iso(day)
+                as_of = request.get("as_of")
+                ctx.explicit_window_end = _min_iso(day_end, as_of) if as_of else day_end
+            return
+        if scenario == "stock_review":
+            # StockReview 既有权威：start = review_start 00:00；raw_end = review_end 23:59:59；
+            # effective_end = min(raw_end, as_of)
+            rs = request.get("review_start")
+            re_ = request.get("review_end")
+            if rs:
+                ctx.explicit_window_start = f"{rs}T00:00:00+08:00"
+            if re_:
+                raw_end = f"{re_}T23:59:59+08:00"
+                as_of = request.get("as_of")
+                ctx.explicit_window_end = _min_iso(raw_end, as_of) if as_of else raw_end
+            return
+        if scenario == "abnormal_move_analysis":
+            # 优先级：显式 window → existing abnormal_move.resolve_window authority → unresolved
+            if ws and we:
+                ctx.explicit_window_start = ws
+                ctx.explicit_window_end = we
+                return
+            resolved = _abnormal_window(request)
+            if resolved is not None:
+                ctx.explicit_window_start, ctx.explicit_window_end = resolved
+            # 无法证明的 window 保持 None（fail closed，不调用 wall-clock 假装历史窗口）
+            return
+        # 其他场景：显式窗口原样（若无显式 → None；as_of_snapshot 不需要窗口）
+        ctx.explicit_window_start = ws
+        ctx.explicit_window_end = we

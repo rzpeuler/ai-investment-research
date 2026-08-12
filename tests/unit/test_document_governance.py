@@ -636,3 +636,46 @@ def test_p7_d1_r1_governance_is_consistent():
     assert "MERGE AUTHORIZED" not in current
     # P7-D2 仍 NOT AUTHORIZED
     assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
+
+
+def test_p7_d1_r2_governance_is_consistent():
+    """P7-D1-R2 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d1-r2.md")
+    d1_taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
+    r1_taskbook = _read("docs/tasks/phase7-data-layer-d1-r1.md")
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    guide = _read("docs/engineering-guide.md")
+
+    # R2 taskbook 版本化
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED — P7-D1-R2 ONLY" in taskbook
+    assert "START_HEAD" in taskbook and "834f5c2" in taskbook
+    assert "R1_INDEPENDENT_REACCEPTANCE: CHANGES_REQUIRED" in taskbook
+    assert "P7-D2: NOT AUTHORIZED" in taskbook
+
+    # d1/r1 taskbook 追加 CHANGES_REQUIRED
+    assert "R1 independent re-acceptance: CHANGES_REQUIRED" in d1_taskbook
+    assert "phase7-data-layer-d1-r2.md" in d1_taskbook
+    assert "R1 independent re-acceptance: CHANGES_REQUIRED" in r1_taskbook
+
+    # Decision #48 追加 R2 findings
+    assert "48.7 R2 Independent Re-Acceptance Findings & Contract Corrections" in decisions
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
+
+    # CURRENT_STATE guide version 修复为 V1.6（§85）
+    assert "权威规范：`docs/engineering-guide.md` V1.6" in current
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
+
+    # engineering-guide V1.6 + R2 semantics
+    assert "版本：V1.6" in guide
+    assert "Requirement Binding" in guide
+    assert "Canonical Field Projection" in guide
+    assert "No Candidate Field Union" in guide
+    assert "Tier via provenance" in guide
+    assert "Scenario-specific time authority" in guide
+
+    # P7-D1 不得 PASS；P7-D2 仍 NOT AUTHORIZED
+    assert "P7-D1: PASS" not in current
+    assert "MERGE AUTHORIZED" not in current
+    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase

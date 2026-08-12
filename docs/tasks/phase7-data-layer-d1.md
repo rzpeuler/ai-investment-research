@@ -104,3 +104,8 @@ P7-D1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 
 **Independent acceptance: CHANGES_REQUIRED**
 See `docs/tasks/phase7-data-layer-d1-r1.md`（Readiness Semantic Correctness & Authority Alignment）。
+
+---
+
+**R1 independent re-acceptance: CHANGES_REQUIRED**
+See `docs/tasks/phase7-data-layer-d1-r2.md`（Authority Semantics Closure & Requirement Contract Alignment）。

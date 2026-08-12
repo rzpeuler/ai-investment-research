@@ -181,15 +181,29 @@ class TestCrossTypeContamination:
         return Database.open_read_only(db_path)
 
     def test_claim_only_in_claims_not_evidence(self, tmp_path, requirement_registry, provenance):
+        # claims tier via evidence_ids：提供 B 级 evidence 支持
+        import sqlite3
+        db_path = tmp_path / "t.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE claims (payload TEXT)")
+        conn.execute("CREATE TABLE evidence (payload TEXT)")
+        conn.execute("INSERT INTO evidence VALUES (?)",
+                     (json.dumps({"evidence_id": "ev1", "source_id": "cls",
+                                  "published_at": "2026-08-11T06:00:00+08:00",
+                                  "source_tier": "B", "title": "e", "url": "http://e"}, ensure_ascii=False),))
         claim = {
             "claim_id": "c1", "claim_type": "FACT", "statement": "测试声明",
             "subject_entities": ["company:600519.SH"], "predicate": "has",
             "object": {"value": "x"},
-            "as_of": "2026-08-10T00:00:00+08:00", "evidence_ids": [],
+            "as_of": "2026-08-11T06:00:00+08:00", "evidence_ids": ["ev1"],
             "support_level": "inferred", "confidence": 0.9,
             "review_status": "unreviewed",
         }
-        db = self._db_with(tmp_path, "claims", [claim])
+        conn.execute("INSERT INTO claims VALUES (?)", (json.dumps(claim, ensure_ascii=False),))
+        conn.commit()
+        conn.close()
+        from research_os.storage import Database
+        db = Database.open_read_only(db_path)
         view = SqliteReadView(db)
         req = requirement_registry.get("daily_review.claims")
         service = DataReadinessService(ReadinessCheckerRegistry())
@@ -315,24 +329,41 @@ class TestCoverageR1:
 
 class TestFreshness:
     def test_stale_reachable(self, requirement_registry, provenance, tmp_path):
+        # §118：用 Evidence checker 测 freshness（published_at 远早于 as_of → STALE）
         import sqlite3
         db_path = tmp_path / "t.db"
         conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE market_daily_ohlcv (payload TEXT, symbol TEXT, trade_date TEXT, close REAL)")
-        # trade_date 8/1（合法 PIT：<= as_of），但 freshness age（10 天）> 86400 → STALE
-        bar = {"symbol": "600519.SH", "trade_date": "2026-08-01", "open": 1, "close": 2}
-        conn.execute(
-            "INSERT INTO market_daily_ohlcv VALUES (?, ?, ?, ?)",
-            (json.dumps(bar, ensure_ascii=False), "600519.SH", "2026-08-01", 2.0),
-        )
+        conn.execute("CREATE TABLE evidence (payload TEXT)")
+        evidence = {
+            "evidence_id": "ev1", "source_id": "cninfo", "raw_item_id": "ri1",
+            "title": "旧证据", "published_at": "2026-08-01T00:00:00+08:00",
+            "url": "http://e", "excerpt": "x", "evidence_type": "official_disclosure",
+            "independence_group": "g1", "source_tier": "S",
+        }
+        conn.execute("INSERT INTO evidence VALUES (?)", (json.dumps(evidence, ensure_ascii=False),))
         conn.commit()
         conn.close()
         from research_os.storage import Database
         db = Database.open_read_only(db_path)
         view = SqliteReadView(db)
-        req = requirement_registry.get("abnormal_move_analysis.market_daily_ohlcv")
-        # market_daily_ohlcv freshness_seconds=86400；8/1 到 8/11 = 10 天远超
-        assert req.freshness_seconds == 86400
+        # abnormal_move event_evidence：窗口 [08-09, 08-11)；evidence 8/1 在窗口外 → 不在窗口内
+        # 改用窗口内 evidence 且 freshness 过期：published 8/10 06:00（窗口内）但 age 26h > 43200
+        import sqlite3 as _sq
+        conn = _sq.connect(db_path)
+        conn.execute("DELETE FROM evidence")
+        evidence2 = {
+            "evidence_id": "ev2", "source_id": "cninfo", "raw_item_id": "ri2",
+            "title": "窗口内旧证据", "published_at": "2026-08-10T06:00:00+08:00",
+            "url": "http://e", "excerpt": "x", "evidence_type": "official_disclosure",
+            "independence_group": "g1", "source_tier": "S",
+        }
+        conn.execute("INSERT INTO evidence VALUES (?)", (json.dumps(evidence2, ensure_ascii=False),))
+        conn.commit()
+        conn.close()
+        db = Database.open_read_only(db_path)
+        view = SqliteReadView(db)
+        req = requirement_registry.get("abnormal_move_analysis.event_evidence")
+        assert req.freshness_seconds == 43200
         service = DataReadinessService(ReadinessCheckerRegistry())
         adapter = NormalizedRequestContextAdapter()
         canonical = adapter.extract("abnormal_move_analysis", {
@@ -456,10 +487,19 @@ class TestGraphPITAuthority:
         class FakeGraphQuery:
             def __init__(self):
                 self.received_as_of = None
+                self.query_called = False
 
             def get_node(self, node_id, as_of):
                 self.received_as_of = as_of
                 return type("N", (), {"error": None})()
+
+            def query_graph(self, root_node_id, as_of, max_depth=1, direction="both"):
+                self.received_as_of = as_of
+                self.query_called = True
+                return type("R", (), {
+                    "nodes": [type("N", (), {"node_id": "n1"})()],
+                    "edges": [type("E", (), {"edge_id": "e1"})()],
+                })()
 
         history = FakeHistory()
         query = FakeGraphQuery()
@@ -489,3 +529,4 @@ class TestGraphPITAuthority:
         # 既有 authority 实际收到 as_of（非仅 class 存在）
         assert history.received_as_of == AS_OF
         assert query.received_as_of == AS_OF
+        assert query.query_called is True

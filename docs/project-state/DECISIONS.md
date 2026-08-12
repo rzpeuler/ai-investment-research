@@ -2565,3 +2565,35 @@ normal gaps 不 gate runner / no acquisition execution）。返修完成后：
 ```text
 P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
 ```
+
+---
+
+### 48.7 R2 Independent Re-Acceptance Findings & Contract Corrections
+
+P7-D1-R1 独立复验发现仍需 Authority Semantics Closure。R2 完成：
+
+```text
+R2-01: D0 Contract Corrections（精确 6 项：1 scope_type + 5 time_policy + 5 PIT）
+        stock_research_report.company_document / industry_membership
+        industry_research.evidence_index
+        theme_discovery.evidence_index / document_corpus
+        earnings_expectation.company_announcement
+        属于 verified correction of mismatch，NOT requirement expansion
+R2-02: RequirementReadinessBinding 43/43 + MinimumFieldClosure 100%
+R2-03: ScenarioTimeContext（DailyReview/StockReview/AbnormalMove 复用既有权威）
+R2-04: SecurityProfile 生命周期（listing_date/status）
+R2-05: Valuation 生命周期（complete/partial；单候选无 field union）
+R2-06: Financial canonical value + coverage（subject null / peer N）
+R2-07: Industry scope/coverage（subject singleton / industry open-world null）
+R2-08: Evidence/Claim/Finding/Market-manifest tier 全链路
+R2-09: Graph query_graph 实证 + node_refs/edge_refs 真实
+R2-10: Dry-run 拆两测试（read + zero write proof）
+```
+
+R2 Authority Semantics Closure Rules：Requirement Binding 43/43、Canonical Field
+Projection、No Candidate Field Union、Tier via provenance、Scenario-specific time
+authority。返修完成后：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+```

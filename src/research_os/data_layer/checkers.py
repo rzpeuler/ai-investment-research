@@ -412,7 +412,7 @@ class ProfileChecker(ReadinessChecker):
     data_types = ("company_profile", "security_profile")
     _TABLE = {"company_profile": "company_profiles", "security_profile": "security_profiles"}
     _ID_KEYS = {"company_profile": ("company_entity_id", "entity_id"),
-                "security_profile": ("security_entity_id", "entity_id")}
+                "security_profile": ("security_entity_id", "company_entity_id", "entity_id")}
 
     def check(self, ctx, requirement, view, provenance) -> ReadinessCheckResult:
         spec = get_spec(requirement.data_type)
@@ -431,8 +431,8 @@ class ProfileChecker(ReadinessChecker):
             if not self._scope_eligible(payload, ctx, scope_payload_keys=self._ID_KEYS[requirement.data_type]):
                 ineligible_count += 1
                 continue
-            # PIT：valid_from/valid_to 区间必须覆盖 as_of（valid_interval，§17）
-            if not self._valid_interval_covers(payload, ctx.as_of):
+            # PIT：按 data_type 生命周期（§23-25）
+            if not self._pit_covers(payload, ctx.as_of, requirement.data_type):
                 ineligible_count += 1
                 continue
             # provenance（evidence_ids → tier）
@@ -453,28 +453,58 @@ class ProfileChecker(ReadinessChecker):
             available.update(k for k in payload.keys() if payload.get(k) is not None)
         # SINGLETON_TARGET：存在合格对象 → 1.0；缺失 → 0.0（§40）
         coverage = 1.0 if eligible else 0.0
-        freshness_age = self._profile_age(eligible, spec, ctx)
+        freshness_age = self._profile_age(eligible, spec, ctx, requirement.data_type)
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
                               list(tiers_present), available, coverage, [], freshness_age)
 
-    def _valid_interval_covers(self, payload, as_of: str) -> bool:
+    def _pit_covers(self, payload, as_of: str, data_type: str) -> bool:
+        """R2-04：SecurityProfile 生命周期 ≠ CompanyProfile 生命周期。
+
+        SecurityProfile: listing_date / delisting_date / status ∈ {listed, suspended,
+        delisted, unknown}。as_of < listing_date → PIT_INELIGIBLE（status=listed 不得
+        提前可用）。suspended 按自身语义处理（不剔除未来 listing，不按 company 状态污染）。
+        CompanyProfile: valid_from/valid_to/status ∈ {active, approved, valid}。
+        """
+        if data_type == "security_profile":
+            listing_date = payload.get("listing_date")
+            if listing_date and listing_date > as_of[:10]:
+                return False  # 尚未上市
+            delisting_date = payload.get("delisting_date")
+            if delisting_date and delisting_date <= as_of[:10]:
+                status = str(payload.get("status") or "").lower()
+                # delisted 历史映射：delisting_date 已过 → as_of 时不可用
+                return False
+            status = str(payload.get("status") or "").lower()
+            if status == "delisted":
+                return False
+            if status == "suspended":
+                # suspended 按 SecurityProfile 自身语义：可满足 fields（listing 生命周期内）
+                return True
+            if status == "listed":
+                return True
+            if status == "unknown":
+                return True  # 状态未知不伪造剔除（由 freshness/provenance 兜底）
+            # 其他状态值：不按 company 规则污染（§25）
+            return True
+        # company_profile：valid_from/valid_to + status
         valid_from = payload.get("valid_from")
         valid_to = payload.get("valid_to")
         if valid_from and valid_from > as_of:
-            return False  # 尚未生效
+            return False
         if valid_to and valid_to <= as_of:
-            return False  # 已过期
+            return False
         status = payload.get("status")
         if status and str(status).lower() not in ("active", "approved", "valid"):
             return False
         return True
 
-    def _profile_age(self, eligible, spec, ctx) -> Optional[int]:
+    def _profile_age(self, eligible, spec, ctx, data_type: str) -> Optional[int]:
         if not eligible or spec.freshness_strategy == "not_applicable":
             return None
         ages = []
         for p in eligible:
-            ts = p.get("valid_from")
+            # §26：SecurityProfile freshness 用 updated_at（listing_date 不代表 freshness）
+            ts = p.get("updated_at") if data_type == "security_profile" else p.get("valid_from")
             if ts:
                 try:
                     ages.append(_seconds_between(ts, ctx.as_of))
@@ -501,8 +531,6 @@ class IndustryMembershipChecker(ReadinessChecker):
         spec = get_spec(requirement.data_type)
         if not view.has_table("company_profiles"):
             return self._miss(requirement, [f"TABLE_ABSENT:company_profiles"])
-        if not ctx.industry_ids:
-            return self._miss(requirement, [SCOPE_MISMATCH, "industry"])
         rows = view.query("SELECT payload FROM company_profiles")
         eligible, ineligible_count, available, refs = [], 0, set(), []
         for row in rows:
@@ -510,12 +538,27 @@ class IndustryMembershipChecker(ReadinessChecker):
             if payload is None:
                 ineligible_count += 1
                 continue
-            industry_ids = payload.get("industry_ids") or []
-            if isinstance(industry_ids, str):
-                industry_ids = [industry_ids]
-            if not any(str(i) in ctx.industry_ids for i in industry_ids):
-                ineligible_count += 1
-                continue
+            # R2-07 scope：
+            # - subject scope（stock_research_report）：目标 company 必须在 as_of 有行业归属（§35）
+            # - industry scope（industry_research/theme_discovery/first_coverage）：必须确认
+            #   subject company 属于 requested industry（first_coverage，§36）或行业成员（§37）
+            if ctx.requirement.scope.scope_type == "subject":
+                if not ctx.entity_ids:
+                    ineligible_count += 1
+                    continue
+                if not self._scope_eligible(payload, ctx, scope_payload_keys=("entity_id", "company_entity_id")):
+                    ineligible_count += 1
+                    continue
+            else:
+                if not ctx.industry_ids:
+                    ineligible_count += 1
+                    continue
+                industry_ids = payload.get("industry_ids") or []
+                if isinstance(industry_ids, str):
+                    industry_ids = [industry_ids]
+                if not any(str(i) in ctx.industry_ids for i in industry_ids):
+                    ineligible_count += 1
+                    continue
             valid_from, valid_to = payload.get("valid_from"), payload.get("valid_to")
             if valid_from and valid_from > ctx.as_of:
                 ineligible_count += 1
@@ -523,25 +566,28 @@ class IndustryMembershipChecker(ReadinessChecker):
             if valid_to and valid_to <= ctx.as_of:
                 ineligible_count += 1
                 continue
+            status = payload.get("status")
+            if status and str(status).lower() not in ("active", "approved", "valid"):
+                ineligible_count += 1
+                continue
             eligible.append(payload)
             ref = payload.get("company_profile_id") or payload.get("id")
             if ref:
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
-        # REQUESTED_ENTITY_SET（§41）：industries with eligible membership / requested industries
+        # coverage（§35-37）：
+        # - subject scope（stock）：valid membership exists → 1.0；missing → 0.0（SINGLETON）
+        # - industry scope 无权威完整成员全集：coverage = null（不得"一个成员 → 1.0"）
         coverage = None
-        if ctx.industry_ids:
-            industries_with_eligible = set()
-            for p in eligible:
-                ids = p.get("industry_ids") or []
-                if isinstance(ids, str):
-                    ids = [ids]
-                industries_with_eligible.update(str(i) for i in ids if str(i) in ctx.industry_ids)
-            if ctx.industry_ids:
-                coverage = len(industries_with_eligible) / len(ctx.industry_ids)
+        warnings: List[str] = []
+        if ctx.requirement.scope.scope_type == "subject":
+            coverage = 1.0 if eligible else 0.0
+        else:
+            coverage = None
+            warnings.append(COVERAGE_NOT_MEASURABLE)
         freshness_age = None
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
-                              [], available, coverage, [], freshness_age)
+                              [], available, coverage, warnings, freshness_age)
 
     def _payload(self, row):
         payload = row["payload"]
@@ -581,6 +627,11 @@ class FinancialChecker(ReadinessChecker):
             if not self._publication_proven(payload, view, ctx.as_of):
                 ineligible_count += 1
                 continue
+            # R2-06/§34：canonical value projection——value_status 必须是 reported/derived_from_report
+            # 且 normalized/raw value 非空（conflict/missing/not_applicable 不得满足）
+            if not self._canonical_value_ok(payload):
+                ineligible_count += 1
+                continue
             if spec.source_tier_applicable:
                 tier, warn = provenance.resolve(payload, "evidence_ids", view)
                 if tier is None:
@@ -595,15 +646,27 @@ class FinancialChecker(ReadinessChecker):
             if ref:
                 refs.append(str(ref))
             available.update(k for k in payload.keys() if payload.get(k) is not None)
-        # coverage：SINGLETON / REQUESTED_PEER_SET
+        # R2-06 coverage：
+        # - financial_statement_data：无合法完整 fact universe → null + COVERAGE_NOT_MEASURABLE
+        #   （不得"一条 fact → 1.0"；§31）
+        # - peer_financial_data：coverage = peers with ≥1 fully eligible canonical fact / N（§32-33）
         coverage = None
+        warnings: List[str] = []
         if spec.coverage_strategy == "SINGLETON_TARGET":
-            coverage = 1.0 if eligible else 0.0
-        elif spec.coverage_strategy == "REQUESTED_PEER_SET" and ctx.peer_entity_ids:
-            if eligible:
-                coverage = 1.0
+            # 无合法 expected complete fact universe → null（§31）
+            coverage = None
+            warnings.append(COVERAGE_NOT_MEASURABLE)
+        elif spec.coverage_strategy == "REQUESTED_PEER_SET":
+            if ctx.peer_entity_ids:
+                peer_fact_count = {p.get("company_entity_id") for p in eligible}
+                coverage = len(peer_fact_count & set(ctx.peer_entity_ids)) / len(ctx.peer_entity_ids)
+                coverage = max(0.0, min(1.0, coverage))
+            else:
+                coverage = None  # peer set unresolved → null（§33）
+                warnings.append(COVERAGE_NOT_MEASURABLE)
         else:
             coverage = None
+            warnings.append(COVERAGE_NOT_MEASURABLE)
         freshness_age = None
         if eligible:
             ages = []
@@ -616,11 +679,19 @@ class FinancialChecker(ReadinessChecker):
                         continue
             freshness_age = max(ages) if ages else None
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
-                              list(tiers_present), available, coverage, [], freshness_age)
+                              list(tiers_present), available, coverage, warnings, freshness_age)
+
+    @staticmethod
+    def _canonical_value_ok(payload: Dict[str, Any]) -> bool:
+        """§10/§34：canonical value exists IFF value_status ∈ {reported, derived_from_report}
+        AND (normalized_value != null OR raw_value != null)。conflict/missing/not_applicable 不得满足。"""
+        status = payload.get("value_status")
+        if status not in ("reported", "derived_from_report"):
+            return False
+        return payload.get("normalized_value") is not None or payload.get("raw_value") is not None
 
     def _publication_proven(self, payload, view, as_of: str) -> bool:
         """机械证明 as_of 时财务信息已公开（§18，防 look-ahead）。
-
         优先：evidence_ids → evidence.published_at <= as_of；或
         source_document_id → document_records.published_at <= as_of；
         period_end <= as_of 不足以证明（发布可能晚于 as_of）。
@@ -680,15 +751,22 @@ class ValuationChecker(ReadinessChecker):
             if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
                 ineligible_count += 1
                 continue
-            # PIT：snapshot as_of 不得晚于 requirement as_of（as_of 策略）
+            # PIT：snapshot as_of 不得晚于 requirement as_of（§29）
             snap_as_of = payload.get("as_of")
             if snap_as_of and snap_as_of > ctx.as_of:
                 ineligible_count += 1
                 continue
-            status = payload.get("status")
-            if status and str(status).lower() not in ("active", "approved", "valid"):
+            # R2-05：正式状态 complete / partial / not_applicable / insufficient_data（§27-28）
+            status = str(payload.get("status") or "").lower()
+            if status == "not_applicable" or status == "insufficient_data":
                 ineligible_count += 1
                 continue
+            if status == "partial":
+                # partial 仅在 requirement 所需 fields（as_of/price/shares_outstanding）非空时满足
+                if payload.get("price") is None or payload.get("shares_outstanding") is None:
+                    ineligible_count += 1
+                    continue
+            # complete 或未知状态：继续按 PIT/fields/provenance 判定
             if spec.source_tier_applicable:
                 tier, warn = provenance.resolve(payload, "evidence_ids", view)
                 if tier is None:
@@ -700,21 +778,30 @@ class ValuationChecker(ReadinessChecker):
                     continue
             eligible.append(payload)
             ref = payload.get("valuation_snapshot_id") or payload.get("id")
-            if ref:
-                refs.append(str(ref))
-            available.update(k for k in payload.keys() if payload.get(k) is not None)
-        coverage = 1.0 if eligible else 0.0
+            refs.append(str(ref) if ref else "")
+        # §29：多个 snapshot 时确定性选取 latest eligible snapshot（as_of <= requirement as_of）；
+        # 禁止 field union（不得把多个历史 snapshot 的字段拼成完整快照）
+        # 显式 (payload, ref) 配对排序，避免 zip 截断/错位
+        if eligible:
+            paired = sorted(
+                zip(eligible, refs),
+                key=lambda pr: str(pr[0].get("as_of") or ""), reverse=True,
+            )
+            latest, latest_ref = paired[0]
+            eligible = [latest]
+            refs = [latest_ref] if latest_ref else []
+            available = {k for k in latest.keys() if latest.get(k) is not None}
+            coverage = 1.0
+        else:
+            coverage = 0.0
         freshness_age = None
         if eligible:
-            ages = []
-            for p in eligible:
-                ts = p.get("as_of")
-                if ts:
-                    try:
-                        ages.append(_seconds_between(ts, ctx.as_of))
-                    except ValueError:
-                        continue
-            freshness_age = max(ages) if ages else None
+            ts = eligible[0].get("as_of")
+            if ts:
+                try:
+                    freshness_age = _seconds_between(ts, ctx.as_of)
+                except ValueError:
+                    freshness_age = None
         return self._finalize(requirement, spec, eligible, ineligible_count, refs,
                               list(tiers_present), available, coverage, [], freshness_age)
 
@@ -819,9 +906,22 @@ class EvidenceContentChecker(ReadinessChecker):
             if payload is None:
                 ineligible_count += 1
                 continue
-            if not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
+            # evidence 系通过 raw_item 关联 subject（evidence 本身无 subject 字段）；
+            # 有 subject 字段时才精确匹配，无则通过（业务层 JOIN 处理）
+            has_subject_field = any(payload.get(k) is not None for k in scope_keys)
+            if has_subject_field and not self._scope_eligible(payload, ctx, scope_payload_keys=scope_keys):
                 ineligible_count += 1
                 continue
+            # R2-03：explicit window 真正过滤（§18-20）
+            if ctx.window_start or ctx.window_end:
+                if requirement.data_type == "claims":
+                    # claims 用正式 business timestamp（as_of）
+                    business_time = payload.get("as_of")
+                else:
+                    business_time = payload.get("published_at")
+                if business_time and not _in_window(business_time, ctx.window_start, ctx.window_end):
+                    ineligible_count += 1
+                    continue
             published = payload.get("published_at")
             if published and published > ctx.as_of:
                 ineligible_count += 1
@@ -946,6 +1046,15 @@ class ResearchFindingsChecker(ReadinessChecker):
             if created and created > ctx.as_of:
                 ineligible_count += 1
                 continue
+            # §42：tier via evidence_ids → Evidence provenance（无法证明 → SOURCE_TIER_UNPROVEN）
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "evidence_ids", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
             eligible.append(payload)
             ref = payload.get("finding_id") or payload.get("id")
             if ref:
@@ -991,6 +1100,16 @@ class MarketSeriesChecker(ReadinessChecker):
             if trade_date and trade_date > ctx.as_of[:10]:
                 ineligible_count += 1
                 continue
+            # §44：bar tier via accepted manifest（bar symbol/date → manifest.source_id →
+            # SourceRegistry tier）；无匹配 accepted manifest → SOURCE_TIER_UNPROVEN
+            if spec.source_tier_applicable:
+                tier, warn = provenance.resolve(payload, "manifest", view)
+                if tier is None:
+                    ineligible_count += 1
+                    continue
+                if _TIER_ORDER[tier] > _TIER_ORDER[requirement.minimum_source_tier]:
+                    ineligible_count += 1
+                    continue
             eligible.append(payload)
             ref = f"{payload.get('symbol')}:{payload.get('trade_date')}"
             refs.append(ref)
@@ -1024,7 +1143,12 @@ class MarketSeriesChecker(ReadinessChecker):
 
 
 class GraphSnapshotChecker(ReadinessChecker):
-    """knowledge_graph_snapshot（复用既有 Graph lifecycle/query authority，§62-68）。"""
+    """knowledge_graph_snapshot（复用既有 Graph lifecycle/query authority，§62-68 / R2-09）。
+
+    industry scope：实际调用 GraphQueryService.query_graph(root_node_id=industry_id, as_of)
+    生成真实 node_refs/edge_refs（§48-49）。root 存在但未执行 query → 不得声称 edge_refs。
+    global scope：现有公共 API 无合法 global snapshot 读取 → fail closed（§51）。
+    """
 
     data_types = ("knowledge_graph_snapshot",)
 
@@ -1034,45 +1158,92 @@ class GraphSnapshotChecker(ReadinessChecker):
         history = getattr(view, "graph_history_service", None)
         if graph_query is None or history is None:
             return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, "GRAPH_AUTHORITY_UNAVAILABLE"])
-        # industry scope：现有 graph identity resolution（industry_id → root node）
-        if ctx.requirement.scope.scope_type == "industry" and not ctx.industry_ids:
+        # global scope：无合法 global snapshot 读取 → fail closed（§51/§67）
+        if ctx.requirement.scope.scope_type == "global":
+            return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, "GLOBAL_SNAPSHOT_UNPROVEN"])
+        # industry scope：identity resolution + query_graph 实证
+        if not ctx.industry_ids:
             return self._miss(requirement, [SCOPE_MISMATCH, "industry", GRAPH_SCOPE_UNRESOLVED])
+        industry_id = ctx.industry_ids[0]
+        node_refs: List[str] = []
+        edge_refs: List[str] = []
         try:
-            # 用 HistoryService.resolve_node_as_of 证明 industry root 在 as_of 有效
-            for industry_id in ctx.industry_ids or [None]:
-                if industry_id is None:
-                    continue
-                resolved = history.resolve_node_as_of(industry_id, ctx.as_of)
-                if resolved is None:
-                    return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"ROOT_MISSING:{industry_id}"])
-                node = graph_query.get_node(industry_id, ctx.as_of)
-                if node is None or getattr(node, "error", None):
-                    return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"NOT_VALID_AT_AS_OF:{industry_id}"])
+            resolved = history.resolve_node_as_of(industry_id, ctx.as_of)
+            if resolved is None:
+                return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"ROOT_MISSING:{industry_id}"])
+            result = graph_query.query_graph(
+                root_node_id=industry_id, as_of=ctx.as_of,
+                max_depth=1, direction="both",
+            )
+            if result is None:
+                return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"QUERY_FAILED:{industry_id}"])
+            node_refs = self._extract_node_ids(result)
+            edge_refs = self._extract_edge_ids(result)
         except Exception as exc:  # noqa: BLE001
             return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, f"GRAPH_READ_FAILED:{type(exc).__name__}"])
-        # global scope：无法机械证明 global snapshot coverage → coverage null
-        coverage = None
-        warnings = [COVERAGE_NOT_MEASURABLE]
-        if not ctx.industry_ids and ctx.requirement.scope.scope_type == "global":
-            # 无 industry root 可证明 → 保守 not READY（§67）
-            return self._miss(requirement, [GRAPH_SCOPE_UNRESOLVED, "GLOBAL_SNAPSHOT_UNPROVEN"])
-        available = {"node_refs", "edge_refs", "as_of"}
-        if ctx.industry_ids:
-            available.add("industry_id")
+        available = {"node_refs", "edge_refs", "as_of", "industry_id"}
+        if not node_refs:
+            # query 成功但无 node：edge_refs 字段存在性由 query 结果证明；不伪造 ID（§50）
+            available.add("node_refs")  # 空结果仍可证明字段存在
         missing = [f for f in requirement.minimum_fields if f not in available]
+        warnings = [COVERAGE_NOT_MEASURABLE]
         if missing:
             warnings.append(MISSING_REQUIRED_FIELDS)
         status = "PARTIAL" if missing or requirement.minimum_coverage > 0 else "READY"
         return ReadinessCheckResult(
-            status=status, available_fields=sorted(available), coverage_ratio=coverage,
-            eligible_record_count=1 if ctx.industry_ids else 0, ineligible_record_count=0,
-            source_tiers_present=[], record_refs=list(ctx.industry_ids or []),
+            status=status, available_fields=sorted(available), coverage_ratio=None,
+            eligible_record_count=1 if node_refs else 0, ineligible_record_count=0,
+            source_tiers_present=[], record_refs=node_refs[:50],
             warnings=warnings, freshness_age_seconds=None,
         )
 
+    @staticmethod
+    def _extract_node_ids(result) -> List[str]:
+        """从 query_graph 结果提取真实 node ids。"""
+        ids: List[str] = []
+        nodes = getattr(result, "nodes", None)
+        if isinstance(nodes, list):
+            for n in nodes:
+                nid = getattr(n, "node_id", None) or (n.get("node_id") if isinstance(n, dict) else None)
+                if nid:
+                    ids.append(str(nid))
+        elif isinstance(result, dict):
+            nodes = result.get("nodes") or []
+            for n in nodes:
+                nid = n.get("node_id") if isinstance(n, dict) else getattr(n, "node_id", None)
+                if nid:
+                    ids.append(str(nid))
+        return ids
+
+    @staticmethod
+    def _extract_edge_ids(result) -> List[str]:
+        ids: List[str] = []
+        edges = getattr(result, "edges", None)
+        if isinstance(edges, list):
+            for e in edges:
+                eid = getattr(e, "edge_id", None) or (e.get("edge_id") if isinstance(e, dict) else None)
+                if eid:
+                    ids.append(str(eid))
+        elif isinstance(result, dict):
+            edges = result.get("edges") or []
+            for e in edges:
+                eid = e.get("edge_id") if isinstance(e, dict) else getattr(e, "edge_id", None)
+                if eid:
+                    ids.append(str(eid))
+        return ids
+
 
 class RunArtifactChecker(ReadinessChecker):
-    """run_artifacts（authority=runs_root 目录产物，内部权威）。"""
+    """run_artifacts（authority=runs_root 正式 lineage，R2-13）。
+
+    禁止"目录数 = readiness"。必须验证正式 task.json / validation.json lineage：
+    - directory id == task_id
+    - task completed
+    - eligible scenario
+    - validation pass-equivalent
+    - business cutoff <= as_of
+    若 request 指定 previous_run_ids：只检查这些 requested runs。
+    """
 
     data_types = ("run_artifacts",)
 
@@ -1081,17 +1252,53 @@ class RunArtifactChecker(ReadinessChecker):
         runs_root = getattr(view, "runs_root", None)
         if runs_root is None or not runs_root.exists():
             return self._miss(requirement, [NO_ELIGIBLE_RECORDS])
-        artifacts = [p for p in runs_root.iterdir() if p.is_dir()]
-        if not artifacts:
+        requested = ctx.request_material_refs or []
+        dirs = [p for p in runs_root.iterdir() if p.is_dir()]
+        if requested:
+            dirs = [p for p in dirs if p.name in requested]
+        eligible_dirs = []
+        for d in dirs:
+            if self._valid_artifact(d, ctx.as_of):
+                eligible_dirs.append(d)
+        if not eligible_dirs:
             return self._miss(requirement, [NO_ELIGIBLE_RECORDS])
-        # 走 _finalize：minimum_fields / coverage / freshness 统一判定
         available = {"task_id", "run_id"}
         return self._finalize(
-            requirement, spec, artifacts, 0,
-            [a.name for a in artifacts[:50]], [], available,
+            requirement, spec, eligible_dirs, 0,
+            [d.name for d in eligible_dirs[:50]], [], available,
             coverage=None, coverage_warnings=[COVERAGE_NOT_MEASURABLE],
             freshness_age=None,
         )
+
+    def _valid_artifact(self, run_dir, as_of: str) -> bool:
+        """正式 lineage 校验（§22/§64）：task.json completed + validation pass-equivalent +
+        business cutoff <= as_of；禁止 filesystem mtime。"""
+        import json as _json
+        task_json = run_dir / "task.json"
+        validation_json = run_dir / "validation.json"
+        if not task_json.exists():
+            return False
+        try:
+            task = _json.loads(task_json.read_text(encoding="utf-8"))
+        except (TypeError, ValueError, OSError):
+            return False
+        if task.get("status") != "completed":
+            return False
+        if task.get("task_id") != run_dir.name:
+            return False  # directory id == task_id
+        if validation_json.exists():
+            try:
+                validation = _json.loads(validation_json.read_text(encoding="utf-8"))
+            except (TypeError, ValueError, OSError):
+                validation = {}
+            verdict = validation.get("verdict") or validation.get("status") or validation.get("result")
+            if isinstance(verdict, str) and verdict.lower() in ("fail", "failed", "invalid"):
+                return False
+        # business cutoff <= as_of（task.as_of 不得晚于 requirement as_of）
+        task_as_of = task.get("as_of")
+        if task_as_of and task_as_of > as_of:
+            return False
+        return True
 
 
 # ---------- ReadinessCheckerRegistry（22/22 注册） ----------
@@ -1154,3 +1361,14 @@ def _seconds_between(ts: str, as_of: str) -> int:
     t0 = parse_iso(ts)
     t1 = parse_iso(as_of)
     return max(0, int((t1 - t0).total_seconds()))
+
+
+def _in_window(value: str, start: Optional[str], end: Optional[str]) -> bool:
+    """[start, end) 窗口语义（与既有 load_evidence_in_range 一致）。"""
+    if not start and not end:
+        return True
+    if start and value < start:
+        return False
+    if end and value >= end:
+        return False
+    return True

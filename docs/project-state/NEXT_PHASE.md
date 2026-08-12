@@ -74,7 +74,7 @@ Phase 5: CLOSED / PASS
 - **Phase 7**: D0 CLOSED / PASS；UX1 CLOSED / PASS；数据采集 NOT_STARTED
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
 - **P7-D0**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9；accepted head d06d8d7）
-- **P7-D1**: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #48；R1 返修完成 2026-08-11）
+- **P7-D1**: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #48；R1/R2 返修完成 2026-08-11）
 - **P7 DATA ACQUISITION**: NOT_STARTED / AWAITING_ARCHITECTURE_DISCUSSION
 - **Current Schema registry**: 85（Phase 6 terminal historical snapshot was 69）
 - **DB / migrations**: v6 / NONE

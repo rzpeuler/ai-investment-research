@@ -196,6 +196,30 @@
     DB 不存在时用 EmptyReadView（不创建）。
   - AUTO_DERIVABLE 需 DerivationPrerequisiteResolver 显式证明前提；
     eligible_record_count>0 单独不构成证明。
+- **R2 Authority Semantics Closure**（V1.6 内，不升级 V1.7）：
+  - **Requirement Binding**：每个 ScenarioDataRequirement 恰好一个
+    `RequirementReadinessBinding`（43/43），不允许同一 data_type 在所有 scenario
+    下假设语义完全相同（如 industry_membership 在 stock（subject/singleton）与
+    industry（open-world null）不同）。
+  - **Canonical Field Projection**：`minimum_fields` 每个字段必须是 authority
+    direct field 或 explicit deterministic projection（FinancialFact value /
+    industry_ids / date(published_at) / company subject / graph query result /
+    artifact lineage）；否则 CONTROL_PLANE_CONFIGURATION_ERROR。
+  - **No Candidate Field Union**：singleton 对象（CompanyProfile/SecurityProfile/
+    ValuationSnapshot/Document）必须同一 eligible candidate 满足全部 minimum_fields；
+    collection 型（FinancialFacts/Evidence corpus/peer data）允许集合级 fields 但
+    coverage 与 per-member eligibility 独立正确。
+  - **Tier via provenance**：Evidence 用 evidence_tier；Claim/ResearchFinding 用
+    evidence_ids→Evidence；Market bar 用 accepted manifest→source_id→SourceRegistry；
+    FinancialFact 支持 source_document→Evidence 链；无法证明 →
+    SOURCE_TIER_UNPROVEN。
+  - **Scenario-specific time authority**：DailyReview（day_start→min(day_end,as_of)）、
+    StockReview（review_start→min(review_end 23:59:59,as_of)）、AbnormalMove
+    （explicit→resolve_window→unresolved fail-closed）、morning/evening
+    （BriefWindowPolicy）；explicit window 必须真正过滤 candidates。
+  - SecurityProfile 生命周期（listing_date/status）与 Valuation（complete/partial）
+    按各自 Schema 语义，禁止被其他对象状态规则污染；Valuation 多 snapshot 确定性
+    选 latest eligible（禁止 field union）。
 
 ---
 
