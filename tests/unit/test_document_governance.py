@@ -216,6 +216,7 @@ def test_phase6_terminal_governance_closeout():
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
     assert "CURRENT ENGINEERING MILESTONE**: P7-D1 Data Readiness + Gap + Acquisition Planning" in next_phase6
+    assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
     assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
     assert "P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
@@ -373,9 +374,9 @@ def test_p7_d0_governance_is_consistent():
     assert "SCHEMAS: 85" in current
     # accepted implementation head 必须明确
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
-    # P7-D1 已 IMPLEMENTED；D2 仍 NOT AUTHORIZED（eligible ≠ authorized）
-    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
-    assert "NEXT ELIGIBLE MILESTONE" in next_phase
+    # P7-D1 已 PASS；D2 仅设计授权，implementation 仍 NOT AUTHORIZED
+    assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "NEXT AUTHORIZED WORK" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
     # governance closeout taskbook 存在
@@ -423,14 +424,13 @@ def test_p7_d0_r1_governance():
     assert "P7-D0 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" not in current
     assert "P7-D0：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" not in current
     assert "P7-D0: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" not in next_phase
-    assert "MERGE AUTHORIZED" not in current
-    # P7-D1 已 IMPLEMENTED；D0 已 PASS
+    # P7-D1 与 D0 均已 PASS
     assert "P7-D0" in next_phase and "PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
+    assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
 
 
 def test_p7_d1_governance_is_consistent():
-    """P7-D1 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    """P7-D1 living surfaces agree on independent re-acceptance terminal state."""
     decisions = _read("docs/project-state/DECISIONS.md")
     taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
     current = _read("docs/project-state/CURRENT_STATE.md")
@@ -438,6 +438,7 @@ def test_p7_d1_governance_is_consistent():
     limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
     guide = _read("docs/engineering-guide.md")
     readme = _read("README.md")
+    gc_taskbook = _read("docs/tasks/phase7-data-layer-d1-governance-closeout.md")
 
     decision_48 = decisions[decisions.index("## 48. P7-D1 Data Readiness & Acquisition Planning"):]
     assert "SCENARIO_REQUIREMENT_AUTHORITY: registry/scenario_data_requirements.yaml" in decision_48
@@ -461,15 +462,22 @@ def test_p7_d1_governance_is_consistent():
     assert "MILESTONE: P7-D1" in header
     assert "P7-D2: NOT AUTHORIZED" in header
 
-    assert "P7-D1：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
-    assert "P7-D1" in next_phase and "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
-    assert "P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in limitations
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in readme
+    assert "### 48.10 Independent Re-Acceptance" in decision_48
+    assert "### 48.11 Terminal Boundary and Next-Step Authorization" in decision_48
+    assert "P7-D1_ACCEPTED_IMPLEMENTATION_HEAD: bc277817ee419410803f5541d74be75a330e9713" in decision_48
+    assert "ACCEPTANCE_CI: 31899546501" in decision_48
+    assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
+    assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "P7-D1 = PASS / INDEPENDENTLY ACCEPTED" in limitations
+    assert "P7-D1：数据就绪控制面（PASS / INDEPENDENTLY ACCEPTED）" in readme
     assert "版本：V1.6" in guide
     assert "P7-D1" in guide and "Data Readiness" in guide
-    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
-    assert "P7-D1: PASS" not in current
-    assert "P7-D1: CLOSED" not in next_phase
+    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D2 TASKBOOK DRAFTING: AUTHORIZED" in decision_48
+    assert "P7-D2 ARCHITECTURE DESIGN: AUTHORIZED" in decision_48
+    assert "PR_25: MERGE AUTHORIZED / NOT MERGED" in decision_48
+    assert "P7-D1-GC" in gc_taskbook and "SCOPE: governance-only" in gc_taskbook
+    assert "bc277817ee419410803f5541d74be75a330e9713" in gc_taskbook
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
     assert schema_count == 85
@@ -603,7 +611,7 @@ def test_phase6_shared_contract_frozen():
 
 
 def test_p7_d1_r1_governance_is_consistent():
-    """P7-D1-R1 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    """P7-D1-R1 history is preserved while living surfaces are terminal PASS."""
     decisions = _read("docs/project-state/DECISIONS.md")
     taskbook = _read("docs/tasks/phase7-data-layer-d1-r1.md")
     d1_taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
@@ -626,20 +634,16 @@ def test_p7_d1_r1_governance_is_consistent():
     assert "48.6 R1 Independent Acceptance Finding & Repair Scope" in decisions
     assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
 
-    # Project State：RE-ACCEPTANCE（不得 PASS / CLOSED / MERGE AUTHORIZED）
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in next_phase
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in limitations
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in readme
-    assert "P7-D1: PASS" not in current
-    assert "P7-D1: CLOSED" not in next_phase
-    assert "MERGE AUTHORIZED" not in current
-    # P7-D2 仍 NOT AUTHORIZED
-    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
+    # 历史返修记录保留；living surfaces 已进入 terminal PASS
+    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
+    for surface in (current, next_phase, limitations, readme):
+        assert "PASS / INDEPENDLY ACCEPTED" not in surface
+        assert "PASS / INDEPENDENTLY ACCEPTED" in surface
+    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
 
 
 def test_p7_d1_r2_governance_is_consistent():
-    """P7-D1-R2 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    """P7-D1-R2 history is preserved while living surfaces are terminal PASS."""
     decisions = _read("docs/project-state/DECISIONS.md")
     taskbook = _read("docs/tasks/phase7-data-layer-d1-r2.md")
     d1_taskbook = _read("docs/tasks/phase7-data-layer-d1.md")
@@ -665,7 +669,7 @@ def test_p7_d1_r2_governance_is_consistent():
 
     # CURRENT_STATE guide version 修复为 V1.6（§85）
     assert "权威规范：`docs/engineering-guide.md` V1.6" in current
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
+    assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
 
     # engineering-guide V1.6 + R2 semantics
     assert "版本：V1.6" in guide
@@ -675,14 +679,13 @@ def test_p7_d1_r2_governance_is_consistent():
     assert "Tier via provenance" in guide
     assert "Scenario-specific time authority" in guide
 
-    # P7-D1 不得 PASS；P7-D2 仍 NOT AUTHORIZED
-    assert "P7-D1: PASS" not in current
-    assert "MERGE AUTHORIZED" not in current
-    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
+    # P7-D1 已 PASS；P7-D2 implementation 仍 NOT AUTHORIZED
+    assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
 
 
 def test_p7_d1_r3_governance_is_consistent():
-    """P7-D1-R3 living surfaces agree on IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE."""
+    """P7-D1-R3 history is preserved while living surfaces are terminal PASS."""
     decisions = _read("docs/project-state/DECISIONS.md")
     taskbook = _read("docs/tasks/phase7-data-layer-d1-r3.md")
     r2_taskbook = _read("docs/tasks/phase7-data-layer-d1-r2.md")
@@ -714,9 +717,8 @@ def test_p7_d1_r3_governance_is_consistent():
     assert "prior-run lineage must reuse existing DailyReview authority" in guide
     assert "datetime PIT/window comparisons must be timezone-aware" in guide
 
-    # 项目状态：R1/R2/R3 chain；不得 PASS / MERGE AUTHORIZED
-    assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in current
+    # 项目状态：R1/R2/R3 chain 已完成并通过独立复验
+    assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
     assert "R1/R2/R3 repair chain" in current or "R1/R2/R3" in current
-    assert "P7-D1: PASS" not in current
-    assert "MERGE AUTHORIZED" not in current
-    assert "P7-D2" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase

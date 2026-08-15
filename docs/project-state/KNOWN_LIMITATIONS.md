@@ -2,7 +2,7 @@
 
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
-> 当前统一结论（2026-08-11）：Phase 4 engineering foundation = PASS；
+> 当前统一结论（2026-08-16）：Phase 4 engineering foundation = PASS；
 > Phase 5 = CLOSED / PASS；Phase 6 research workflows = PASS / centrally enabled；
 > Graph→Research = read-only Phase 6A path enabled；
 > Phase 6 Research→GraphChange Candidate integration = DEFERRED；
@@ -11,8 +11,8 @@
 > Decision #46.7；仅覆盖本地 Chat UX / control-plane adapter）；
 > P7-D0 = PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9，
 > governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
-> P7-D1 = IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（Decision #48，
-> R1/R2/R3 返修完成；数据就绪控制面；非 PASS）。
+> P7-D1 = PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11，accepted
+> implementation head `bc27781`；数据就绪控制面）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -176,9 +176,10 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   `last_verified_at: null`，不伪造联网验证时间。
 - heat_score 仅表示本次窗口本次样本内相对关注程度，不是历史变化、不是事实可信度、
   不是投资价值、不是机构交易行为；Heat 算法未实现，留给后续 Brief Acquisition milestone。
-- P7-D0 为纯离线契约任务，未进行任何联网验收；P7-D1 未授权。
+- P7-D0 为纯离线契约任务，未进行任何联网验收；其 terminal boundary 当时未授权
+  P7-D1，后续 P7-D1 已经独立授权、实施并验收。
 
-## 17. P7-D1 数据就绪控制面限制（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
+## 17. P7-D1 数据就绪控制面限制（PASS / INDEPENDENTLY ACCEPTED）
 
 - P7-D1 只实现控制面（readiness / gap / planning），不执行 Acquisition：
   无 AcquisitionExecutor、无 acquisition 后 Readiness Recheck、Router 仍只返回
@@ -193,7 +194,8 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   不得发明百分比。
 - dry-run 零副作用（不创建 DB / 不写 artifacts）；Preflight 只读、零 LLM、
   零网络。
-- P7-D2 未授权；Phase6.1 未授权。
+- P7-D2 taskbook drafting + architecture design 已授权；P7-D2 implementation、
+  Acquisition execution、任何具体外部数据源与 Collector 仍未授权；Phase6.1 未授权。
 - R3.1（Final Runtime Closure）进一步收口但仍有边界：industry/global
   entity_mapping 与 open-world requirement 的 coverage 恒为 null（无完整权威
   denominator）；run_artifacts coverage 仅对 requested run set 计算；market

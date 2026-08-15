@@ -1,10 +1,10 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-11
+> 更新日期：2026-08-16
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
-> P7-D1：IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE（R1/R2/R3/R3.1 repair chain）
+> P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
 > 权威规范：`docs/engineering-guide.md` V1.6
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -52,6 +52,7 @@
 | P6-F0 | PASS / MERGED | 共享契约冻结（PR #14）。 |
 | Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
 | P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
+| P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -194,12 +195,13 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   增加 `content_scope`（财联社 = non_fast_news_only）、未验证条目
   `last_verified_at: null`、Router 治理措辞收口。详见 `docs/tasks/phase7-data-layer-d0-r1.md`。
 
-## P7-D1 当前状态（IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE）
+## P7-D1 当前状态（PASS / INDEPENDENTLY ACCEPTED）
 
-- 授权：`IMPLEMENTATION AUTHORIZED — P7-D1 ONLY`；状态：`IMPLEMENTED /
-  AWAITING INDEPENDENT RE-ACCEPTANCE`（2026-08-11，Decision #48；R1/R2/R3/R3.1
-  返修链完成，等待独立复验）。不得声明 P7-D1 PASS
-  或自行 merge；独立验收由架构审查方完成。
+- 授权：`IMPLEMENTATION AUTHORIZED — P7-D1 ONLY`；终态：`PASS /
+  INDEPENDENTLY ACCEPTED`（2026-08-16，Decision #48.10/#48.11）。accepted
+  implementation head = `bc277817ee419410803f5541d74be75a330e9713`；Acceptance CI
+  `31899546501`：3215 passed / 6 skipped / 0 failed，85/85 schemas，compileall PASS。
+  PR #25 已获 merge authorization，但仍 OPEN / NOT MERGED。
 - 实现 `src/research_os/data_layer/*` 控制面：RequirementContextResolver →
   DataReadinessService → GapClassifier → AcquisitionPlanner → DataPreflightService。
 - `Plan.data_requirements` / `data_requirement_ids` 由中央
@@ -238,5 +240,6 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   “舆论监测体系”整体语义）：`A = NEW EVENT DISCOVERY`、`C = CURRENT-WINDOW
   ATTENTION MONITORING`；`FAST_NEWS ∈ A`、`FAST_NEWS ∉ C`；C 为一次性窗口扫描，
   无持续监控 / 热度历史 / 排名变化 / 速度 / 加速度 / 持久化。
-- `P7-D1: NOT AUTHORIZED`；`NEW COLLECTORS: NOT AUTHORIZED`；`SOURCE EXPANSION:
-  NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
+- P7-D2 的 taskbook drafting 与 architecture design 已授权；P7-D2 implementation、
+  Acquisition execution、具体外部数据源、new collectors、source expansion 仍
+  `NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
