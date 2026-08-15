@@ -119,13 +119,11 @@ def _next_day_iso(day: str) -> str:
 
 def _min_iso(a: str, b: Optional[str]) -> str:
     """取两个 ISO 时间中较早者（aware datetime 比较，避免跨时区字符串序错误）；b 为 None 返回 a。"""
+    from research_os.utils.time import parse_iso
+    a_dt = parse_iso(a)
     if b is None:
         return a
-    from research_os.utils.time import parse_iso
-    try:
-        return a if parse_iso(a) <= parse_iso(b) else b
-    except ValueError:
-        return min(a, b)
+    return a if a_dt <= parse_iso(b) else b
 
 
 def _abnormal_window(request: Dict[str, Any]):

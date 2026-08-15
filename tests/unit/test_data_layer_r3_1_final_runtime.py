@@ -32,6 +32,8 @@ from research_os.data_layer.bindings import (
 from research_os.data_layer.capabilities import AcquisitionCapabilityRegistry
 from research_os.data_layer.checkers import (
     EmptyReadView,
+    FinancialChecker,
+    ProfileChecker,
     ReadinessCheckerRegistry,
     SqliteReadView,
 )
@@ -43,7 +45,7 @@ from research_os.data_layer.projector import (
 )
 from research_os.data_layer.provenance import ReadinessProvenanceResolver
 from research_os.data_layer.readiness import DataReadinessService
-from research_os.data_layer.request_context import NormalizedRequestContextAdapter
+from research_os.data_layer.request_context import NormalizedRequestContextAdapter, _min_iso
 from research_os.models import (
     Claim,
     DocumentRecord,
@@ -352,6 +354,114 @@ class TestDatetimeRuntime:
         # latest 必须是 B（01:00+08 > 00:00+08）
         assert r.record_refs == ["vsB"], r.record_refs
         db.close()
+
+
+# ============================================================
+# R3.1-01：fail-closed regression coverage
+# ============================================================
+
+class TestDatetimeFailClosedRegressions:
+    def test_min_iso_rejects_malformed_cutoff_and_compares_instants(self):
+        assert _min_iso(
+            "2026-08-11T00:30:00+08:00",
+            "2026-08-10T16:45:00Z",
+        ) == "2026-08-11T00:30:00+08:00"
+        with pytest.raises(ValueError):
+            _min_iso("2026-08-11T00:30:00+08:00", "not-a-datetime")
+        with pytest.raises(ValueError):
+            _min_iso("not-a-datetime", "2026-08-11T00:30:00+08:00")
+        with pytest.raises(ValueError):
+            _min_iso("not-a-datetime", None)
+
+    @pytest.mark.parametrize("authority_table", ["evidence", "document_records"])
+    def test_malformed_publication_cannot_prove_financial_availability(
+        self, authority_table,
+    ):
+        class PublicationView:
+            def has_table(self, table):
+                return table == authority_table
+
+            def query(self, sql, params=()):
+                return [{"payload": {"published_at": "not-a-datetime"}}]
+
+        payload = (
+            {"evidence_ids": ["e1"]}
+            if authority_table == "evidence"
+            else {"source_document_id": "d1"}
+        )
+        assert not FinancialChecker()._publication_proven(
+            payload,
+            PublicationView(),
+            "2026-08-11T08:00:00+08:00",
+        )
+
+    @pytest.mark.parametrize(
+        ("payload", "as_of"),
+        [
+            ({"listing_date": "not-a-date", "status": "listed"}, AS_OF),
+            ({"listing_date": "2020-01-01", "delisting_date": "not-a-date",
+              "status": "listed"}, AS_OF),
+            ({"listing_date": "2020-01-01", "status": "listed"}, "not-a-datetime"),
+        ],
+    )
+    def test_security_profile_malformed_lifecycle_date_is_ineligible(self, payload, as_of):
+        assert not ProfileChecker()._pit_covers(payload, as_of, "security_profile")
+
+    def test_market_malformed_trade_date_is_ineligible(
+        self, tmp_path, requirement_registry, provenance,
+    ):
+        db_path = tmp_path / "malformed-market.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE market_daily_ohlcv (payload TEXT)")
+        conn.execute("CREATE TABLE market_daily_series_manifests (payload TEXT)")
+        _insert(conn, "market_daily_series_manifests", _schema_valid(
+            MarketDailySeriesManifest(
+                import_id=_uuid("malformed-market-manifest"), source_id="sse",
+                source_kind="manual_import", file_name="f.csv", file_checksum="a" * 64,
+                imported_at="2026-08-11T00:35:00+08:00", imported_by="admin",
+                symbols=["600519.SH"], date_start="2026-08-01", date_end="2026-08-11",
+                row_count=1, adjustment_method="none",
+                adjustment_description="no adjustment", calendar_id="cn-sse",
+                calendar_version="v1", currency="CNY", price_unit="CNY",
+                volume_unit="shares", data_version="v1", validation_status="accepted",
+                validation_errors=[], warnings=[],
+            )
+        ))
+        _insert(conn, "market_daily_ohlcv", {
+            "bar_id": _uuid("malformed-market-bar"), "symbol": "600519.SH",
+            "trade_date": "2026-08-0x", "open": 10.0, "high": 11.0,
+            "low": 9.0, "close": 10.5, "volume": 1000, "amount": 10500.0,
+        })
+        conn.commit()
+        conn.close()
+
+        from research_os.storage import Database
+        db = Database.open_read_only(db_path)
+        try:
+            req = requirement_registry.get("abnormal_move_analysis.market_daily_ohlcv")
+            binding = RequirementReadinessBindingResolver(requirement_registry).get(
+                req.requirement_id
+            )
+            ctx = _resolve(
+                requirement_registry,
+                req.requirement_id,
+                "abnormal_move_analysis",
+                {"entity_id": "600519.SH"},
+            )
+            ctx.binding = binding
+            ctx.projector = ReadinessFieldProjector()
+            result = DataReadinessService(ReadinessCheckerRegistry()).evaluate(
+                req,
+                ctx,
+                _view_from(db),
+                CHECKED_AT,
+                provenance=provenance,
+                binding=binding,
+                projector=ReadinessFieldProjector(),
+            )
+            assert result.eligible_record_count == 0
+        finally:
+            db.close()
 
 
 # ============================================================

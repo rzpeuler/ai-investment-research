@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -512,13 +513,22 @@ class ProfileChecker(ReadinessChecker):
         if data_type == "security_profile":
             # §9：date-only 字段（listing_date/delisting_date）用 date.fromisoformat 显式
             # 比较，不做 naive datetime 混合（as_of 取日期部分，均为 YYYY-MM-DD）。
-            as_of_date = as_of[:10]
-            listing_date = payload.get("listing_date")
-            if listing_date and str(listing_date) > as_of_date:
+            try:
+                as_of_date = parse_iso(as_of).date()
+                listing_raw = payload.get("listing_date")
+                listing_date = (
+                    date.fromisoformat(str(listing_raw)) if listing_raw is not None else None
+                )
+                delisting_raw = payload.get("delisting_date")
+                delisting_date = (
+                    date.fromisoformat(str(delisting_raw))
+                    if delisting_raw is not None else None
+                )
+            except (TypeError, ValueError):
+                return False
+            if listing_date and listing_date > as_of_date:
                 return False  # 尚未上市
-            delisting_date = payload.get("delisting_date")
-            if delisting_date and str(delisting_date) <= as_of_date:
-                status = str(payload.get("status") or "").lower()
+            if delisting_date and delisting_date <= as_of_date:
                 # delisted 历史映射：delisting_date 已过 → as_of 时不可用
                 return False
             status = str(payload.get("status") or "").lower()
@@ -774,7 +784,11 @@ class FinancialChecker(ReadinessChecker):
                     if ep is None:
                         continue
                     pub = ep.get("published_at")
-                    if _iso_le(pub, as_of_dt):
+                    try:
+                        pub_dt = parse_iso(pub)
+                    except ValueError:
+                        continue
+                    if pub_dt <= as_of_dt:
                         return True
         source_doc = payload.get("source_document_id")
         if source_doc and view.has_table("document_records"):
@@ -788,7 +802,11 @@ class FinancialChecker(ReadinessChecker):
                 if dp is None:
                     continue
                 pub = dp.get("published_at")
-                if _iso_le(pub, as_of_dt):
+                try:
+                    pub_dt = parse_iso(pub)
+                except ValueError:
+                    continue
+                if pub_dt <= as_of_dt:
                     return True
         return False
 
@@ -1322,7 +1340,13 @@ class MarketSeriesChecker(ReadinessChecker):
                 continue
             trade_date = payload.get("trade_date")
             # §9：trade_date 为 date-only 语义，与 as_of 日期部分显式比较（非 naive datetime）
-            if trade_date and str(trade_date) > ctx.as_of[:10]:
+            try:
+                trade_day = date.fromisoformat(str(trade_date))
+                as_of_date = parse_iso(ctx.as_of).date()
+            except (TypeError, ValueError):
+                ineligible_count += 1
+                continue
+            if trade_day > as_of_date:
                 ineligible_count += 1
                 continue
             # §44：bar tier via accepted manifest（bar symbol/date → manifest.source_id →
