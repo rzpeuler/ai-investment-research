@@ -5,6 +5,7 @@ import hashlib
 import json
 import uuid
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -870,16 +871,87 @@ def _mutate_after_readiness(bundle, attack):
         bundle.readiness[0] = bundle.readiness[0].model_copy(update={
             "as_of": "2026-08-16T09:00:00+08:00",
         })
+    elif attack == "readiness_checked_at":
+        bundle.readiness[0] = bundle.readiness[0].model_copy(update={
+            "checked_at": "2000-01-01T00:00:00+08:00",
+        })
+    elif attack == "readiness_schema":
+        bundle.readiness[0] = bundle.readiness[0].model_copy(update={
+            "status": "FORGED",
+        })
     elif attack == "context_id":
         bundle.contexts[0].requirement = bundle.contexts[0].requirement.model_copy(
             update={"requirement_id": "forged.context.requirement"},
         )
+    elif attack == "requirement_minimum_fields":
+        bundle.requirements[0] = bundle.requirements[0].model_copy(update={
+            "minimum_fields": ["forged_field"],
+        })
+    elif attack == "requirement_alias_mutation":
+        bundle.requirements[0].minimum_fields.append("forged_alias_field")
+    elif attack == "requirement_freshness":
+        bundle.requirements[0] = bundle.requirements[0].model_copy(update={
+            "freshness_seconds": bundle.requirements[0].freshness_seconds + 1,
+        })
+    elif attack == "requirement_tier":
+        forged_tier = "S" if bundle.requirements[0].minimum_source_tier != "S" else "D"
+        bundle.requirements[0] = bundle.requirements[0].model_copy(update={
+            "minimum_source_tier": forged_tier,
+        })
+    elif attack == "context_scope":
+        context = bundle.contexts[0]
+        context.requirement = context.requirement.model_copy(update={
+            "scope": context.requirement.scope.model_copy(update={"scope_type": "subject"}),
+        })
+    elif attack == "context_window":
+        bundle.contexts[0].window_start = "2000-01-01T00:00:00+08:00"
+    elif attack == "context_entities":
+        bundle.contexts[0].entity_ids = ["company:forged"]
+    elif attack == "context_material":
+        bundle.contexts[0].request_material_refs = ["forged-material"]
+    elif attack == "context_binding":
+        bundle.contexts[0].binding = replace(
+            bundle.contexts[0].binding, authority_location="forged-authority",
+        )
+    elif attack == "context_binding_alias_mutation":
+        bundle.contexts[0].binding.minimum_field_sources["forged"] = "direct"
+    elif attack == "context_projector":
+        bundle.contexts[0].projector = object()
+    elif attack == "gap_classification":
+        bundle.gaps[0] = bundle.gaps[0].model_copy(update={"classification": "UNAVAILABLE"})
+    elif attack == "gap_reasons":
+        bundle.gaps[0] = bundle.gaps[0].model_copy(update={"reason_codes": ["FORGED"]})
+    elif attack == "gap_recommended":
+        bundle.gaps[0] = bundle.gaps[0].model_copy(update={
+            "recommended_action": "forged_action", "requires_network": True,
+            "requires_user_input": True, "requires_human_review": True,
+        })
+    elif attack == "gap_warnings":
+        bundle.gaps[0] = bundle.gaps[0].model_copy(update={"warnings": ["forged warning"]})
+    elif attack.startswith("plan_"):
+        if attack == "plan_root_warnings":
+            bundle.acquisition_plan = bundle.acquisition_plan.model_copy(update={
+                "warnings": ["forged plan warning"],
+            })
+            return bundle
+        step = bundle.acquisition_plan.steps[0]
+        field_updates = {
+            "plan_step_id": {"step_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, "forged-step"))},
+            "plan_action": {"action": "request_manual_input"},
+            "plan_dependencies": {"dependencies": ["forged-dependency"]},
+            "plan_status": {"status": "completed"},
+            "plan_warnings": {"warnings": ["forged warning"]},
+        }
+        bundle.acquisition_plan.steps[0] = step.model_copy(update=field_updates[attack])
     else:  # pragma: no cover - test helper misuse
         raise AssertionError(attack)
     return bundle
 
 
-@pytest.mark.parametrize("attack", ["forged_id", "data_type", "as_of", "context_id"])
+@pytest.mark.parametrize("attack", [
+    "forged_id", "data_type", "as_of", "readiness_checked_at",
+    "readiness_schema", "context_id",
+])
 def test_committed_forged_recheck_is_sanitized_partial_without_forged_artifact(
     tmp_path, attack,
 ):
@@ -960,4 +1032,60 @@ def test_recheck_accepts_offset_equivalent_readiness_as_of(tmp_path):
     assert runner.context["data_acquisition"].readiness_after is not None
     assert runner.context["acquisition_execution"].status == "completed"
     assert (Path(result.run_dir) / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+@pytest.mark.parametrize("attack", [
+    "requirement_minimum_fields", "requirement_alias_mutation",
+    "requirement_freshness", "requirement_tier",
+    "context_scope", "context_window", "context_entities", "context_material",
+    "context_binding", "context_binding_alias_mutation", "context_projector",
+    "gap_classification", "gap_reasons",
+    "gap_recommended", "gap_warnings",
+])
+def test_same_preflight_authority_rejects_cross_layer_recheck_substitution(
+    tmp_path, attack,
+):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    authoritative_recheck = orchestrator.preflight.recheck
+
+    def forged_recheck(**kwargs):
+        return _mutate_after_readiness(authoritative_recheck(**kwargs), attack)
+
+    orchestrator.preflight.recheck = forged_recheck
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 0
+    execution = runner.context["acquisition_execution"]
+    assert execution.status == "partial_success"
+    assert execution.readiness_after_requirement_ids == []
+    assert [error.code for error in execution.errors] == ["RECHECK_FAILED"]
+    assert runner.context["data_acquisition"].readiness_after is None
+    assert not (Path(result.run_dir) / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+@pytest.mark.parametrize("attack", [
+    "plan_step_id", "plan_action", "plan_dependencies", "plan_status", "plan_warnings",
+    "plan_root_warnings",
+])
+def test_same_preflight_authority_rejects_full_plan_substitution(tmp_path, attack):
+    project, events, runner, db, orchestrator = _wired(tmp_path, empty=True)
+    authoritative_recheck = orchestrator.preflight.recheck
+
+    def forged_recheck(**kwargs):
+        return _mutate_after_readiness(authoritative_recheck(**kwargs), attack)
+
+    orchestrator.preflight.recheck = forged_recheck
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_EMPTY, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 0
+    execution = runner.context["acquisition_execution"]
+    assert execution.status == "partial_success"
+    assert execution.readiness_after_requirement_ids == []
+    assert [error.code for error in execution.errors] == ["RECHECK_FAILED"]
+    assert runner.context["data_acquisition"].readiness_after is None
+    assert not (Path(result.run_dir) / "data_readiness_after.jsonl").exists()
     orchestrator.close()
