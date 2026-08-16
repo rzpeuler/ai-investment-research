@@ -8,5 +8,18 @@ from research_os.data_layer.collector_bridge import (
     CollectorBridgeError,
     CollectorFetcherBridge,
 )
+from research_os.data_layer.execution import (
+    AcquisitionExecutionService,
+    AcquisitionPersistenceResult,
+    AcquisitionStepFailure,
+    RouteExecutionInput,
+)
 
-__all__ = ["CollectorBridgeError", "CollectorFetcherBridge"]
+__all__ = [
+    "AcquisitionExecutionService",
+    "AcquisitionPersistenceResult",
+    "AcquisitionStepFailure",
+    "CollectorBridgeError",
+    "CollectorFetcherBridge",
+    "RouteExecutionInput",
+]
