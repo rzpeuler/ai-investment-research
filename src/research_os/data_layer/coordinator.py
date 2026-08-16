@@ -177,7 +177,23 @@ class AcquisitionCoordinator:
         execution_text = json_dumps(execution.model_dump())
         execution_path = run_dir / "acquisition_execution.json"
         if result.readiness_after is None:
-            _atomic_write(execution_path, execution_text)
+            original: bytes | None = None
+            existed = False
+            original_captured = False
+            try:
+                existed = execution_path.exists()
+                original = execution_path.read_bytes() if existed else None
+                original_captured = True
+                _atomic_write(execution_path, execution_text)
+            except OSError:
+                if original_captured:
+                    AcquisitionCoordinator._restore_artifact_pair({
+                        execution_path: original if existed else None,
+                    })
+                AcquisitionCoordinator._cleanup_artifact_temps((execution_path,))
+                raise ValueError(
+                    "CONTROL_PLANE_CONFIGURATION_ERROR: acquisition artifact publish failed"
+                ) from None
             return
 
         readiness_text = AcquisitionCoordinator._serialize_readiness_after(
@@ -186,24 +202,25 @@ class AcquisitionCoordinator:
         readiness_path = run_dir / "data_readiness_after.jsonl"
         staged_execution = execution_path.with_suffix(execution_path.suffix + ".p7d2.tmp")
         staged_readiness = readiness_path.with_suffix(readiness_path.suffix + ".p7d2.tmp")
-        originals = {
-            execution_path: execution_path.read_bytes() if execution_path.exists() else None,
-            readiness_path: readiness_path.read_bytes() if readiness_path.exists() else None,
-        }
+        originals: dict[Path, bytes | None] = {}
         try:
+            originals = {
+                execution_path: execution_path.read_bytes() if execution_path.exists() else None,
+                readiness_path: readiness_path.read_bytes() if readiness_path.exists() else None,
+            }
             staged_execution.write_text(execution_text, encoding="utf-8")
             staged_readiness.write_text(readiness_text, encoding="utf-8")
             os.replace(staged_execution, execution_path)
             os.replace(staged_readiness, readiness_path)
-        except Exception:
+        except OSError:
             AcquisitionCoordinator._restore_artifact_pair(originals)
-            raise
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: acquisition artifact publish failed"
+            ) from None
         finally:
-            for staged in (staged_execution, staged_readiness):
-                try:
-                    staged.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            AcquisitionCoordinator._cleanup_artifact_temps((
+                execution_path, readiness_path,
+            ))
 
     @staticmethod
     def _serialize_readiness_after(bundle: DataPreflightBundle) -> str:
@@ -230,6 +247,16 @@ class AcquisitionCoordinator:
             except Exception:  # noqa: BLE001 -- rollback is explicitly best effort
                 # The original publishing exception remains authoritative.
                 pass
+
+    @staticmethod
+    def _cleanup_artifact_temps(paths: tuple[Path, ...]) -> None:
+        for path in paths:
+            for suffix in (".p7d2.tmp", ".rollback.tmp", ".tmp"):
+                temporary = path.with_suffix(path.suffix + suffix)
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 __all__ = ["AcquisitionCoordinationResult", "AcquisitionCoordinator"]

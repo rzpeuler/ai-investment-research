@@ -565,11 +565,51 @@ def test_artifact_pair_rolls_back_when_second_publish_fails(tmp_path, monkeypatc
         return real_replace(source, destination)
 
     monkeypatch.setattr(coordinator_module.os, "replace", fail_second)
-    with pytest.raises(OSError):
+    with pytest.raises(ValueError, match="CONTROL_PLANE_CONFIGURATION_ERROR") as exc:
         orchestrator.acquisition_coordinator.persist_artifacts(target, coordination)
+    assert "injected" not in str(exc.value)
+    assert str(target) not in str(exc.value)
     assert not (target / "acquisition_execution.json").exists()
     assert not (target / "data_readiness_after.jsonl").exists()
     assert not list(target.glob("*.tmp"))
+    orchestrator.close()
+
+
+def test_realistic_second_publish_oserror_is_structured_and_marks_task_failed(
+    tmp_path, monkeypatch,
+):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    import research_os.data_layer.coordinator as coordinator_module
+
+    real_replace = coordinator_module.os.replace
+    failed = {"value": False}
+
+    def fail_d2_readiness_publish_once(source, destination):
+        if (
+            not failed["value"]
+            and str(source).endswith("data_readiness_after.jsonl.p7d2.tmp")
+        ):
+            failed["value"] = True
+            raise OSError(f"injected filesystem detail: {destination}")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(coordinator_module.os, "replace", fail_d2_readiness_publish_once)
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert result.validation_status == "fail"
+    assert result.run_dir
+    assert result.message == (
+        "CONTROL_PLANE_CONFIGURATION_ERROR: acquisition artifact publish failed"
+    )
+    assert "injected" not in result.message
+    run_dir = Path(result.run_dir)
+    assert not (run_dir / "acquisition_execution.json").exists()
+    assert not (run_dir / "data_readiness_after.jsonl").exists()
+    assert not list(run_dir.glob("*.tmp"))
+    assert json.loads((run_dir / "task.json").read_text("utf-8"))["status"] == "failed"
+    assert db.get("tasks", TASK_FOUNDATION)["status"] == "failed"
     orchestrator.close()
 
 
