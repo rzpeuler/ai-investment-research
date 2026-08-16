@@ -97,9 +97,10 @@ class Orchestrator:
             for runner_type in DEFAULT_RUNNER_TYPES:
                 self.registry.register(runner_type())
         self.preflight = preflight or self._default_preflight()
-        self.acquisition_coordinator = (
-            acquisition_coordinator or self._default_acquisition_coordinator(self.preflight)
-        )
+        if acquisition_coordinator is None:
+            self._assert_acquisition_preflight_protocol(self.preflight)
+            acquisition_coordinator = self._default_acquisition_coordinator(self.preflight)
+        self.acquisition_coordinator = acquisition_coordinator
 
     @staticmethod
     def _default_preflight() -> Any:
@@ -146,6 +147,19 @@ class Orchestrator:
         return AcquisitionCoordinator(
             preflight=preflight, execution=execution, live_authorized=False,
         )
+
+    @staticmethod
+    def _assert_acquisition_preflight_protocol(preflight: Any) -> None:
+        required = (
+            "requirement_registry", "capability_registry", "recheck",
+            "persist_artifacts", "persist_readiness_after",
+        )
+        missing = [name for name in required if not hasattr(preflight, name)]
+        if missing:
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: injected preflight is not P7-D2 "
+                f"compatible; missing={missing}"
+            )
 
     @property
     def db(self) -> Database:
@@ -357,15 +371,26 @@ class Orchestrator:
             context["data_acquisition"] = coordination
             context["acquisition_execution"] = coordination.execution
             context["data_preflight_before"] = preflight
-            context["data_preflight"] = coordination.readiness_after or preflight
+            context["data_preflight"] = (
+                coordination.readiness_after
+                if coordination.persistence_committed and coordination.readiness_after is not None
+                else preflight
+            )
             if control_run_dir is not None:
                 self.acquisition_coordinator.persist_artifacts(
                     control_run_dir.root, coordination,
                 )
         except ValueError as exc:
+            if task is not None and control_run_dir is not None and control_run_dir.exists():
+                try:
+                    self._mark_failed(task, control_run_dir, exc)
+                except Exception:  # noqa: BLE001 -- preserve the authoritative control failure
+                    pass
             result = ScenarioExecutionResult(
                 status="failed", exit_code=2, task_id=task_id,
-                validation_status="not_run", message=str(exc),
+                run_dir=(str(control_run_dir.root) if control_run_dir is not None else None),
+                validation_status=("fail" if control_run_dir is not None else "not_run"),
+                message=str(exc),
             )
         else:
             try:

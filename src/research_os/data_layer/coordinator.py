@@ -6,6 +6,7 @@ the *same* ``DataPreflightService`` instance to re-evaluate readiness after pers
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -23,6 +24,7 @@ class AcquisitionCoordinationResult:
     readiness_before: DataPreflightBundle
     execution: AcquisitionExecutionResult
     readiness_after: Optional[DataPreflightBundle]
+    persistence_committed: bool
 
 
 class AcquisitionCoordinator:
@@ -58,7 +60,7 @@ class AcquisitionCoordinator:
         if before.acquisition_plan is None:
             raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: preflight plan missing")
         route_inputs = self._route_inputs(before)
-        execution = self._execution.execute(
+        execution = self._validated_execution(self._execution.execute(
             plan=before.acquisition_plan,
             task_id=task_id,
             scenario=scenario,
@@ -66,7 +68,8 @@ class AcquisitionCoordinator:
             dry_run=dry_run,
             live_authorized=self._live_authorized,
             route_inputs=route_inputs,
-        )
+        ))
+        persistence_committed = self._has_committed_attempt(execution)
 
         try:
             after = self._preflight.recheck(
@@ -81,11 +84,11 @@ class AcquisitionCoordinator:
                 dry_run=dry_run,
             )
         except Exception as exc:  # noqa: BLE001 -- never retain arbitrary exception detail
-            if not self._has_committed_attempt(execution):
+            if not persistence_committed:
                 raise ValueError(
                     "CONTROL_PLANE_CONFIGURATION_ERROR: readiness recheck failed"
                 ) from exc
-            execution = execution.model_copy(update={
+            execution = self._updated_execution(execution, {
                 "status": "partial_success",
                 "readiness_after_requirement_ids": [],
                 "errors": [
@@ -96,16 +99,18 @@ class AcquisitionCoordinator:
                         component="data_preflight",
                     ),
                 ],
-            }, deep=True)
+            })
             after = None
 
         if after is not None:
-            execution = execution.model_copy(update={
+            execution = self._updated_execution(execution, {
                 "readiness_after_requirement_ids": [
                     item.requirement_id for item in after.readiness
                 ],
-            }, deep=True)
-        return AcquisitionCoordinationResult(before, execution, after)
+            })
+        return AcquisitionCoordinationResult(
+            before, execution, after, persistence_committed,
+        )
 
     @staticmethod
     def _route_inputs(bundle: DataPreflightBundle) -> dict[str, RouteExecutionInput]:
@@ -129,21 +134,102 @@ class AcquisitionCoordinator:
     def _has_committed_attempt(result: AcquisitionExecutionResult) -> bool:
         return any(
             step.route is not None
-            and step.status in {"completed", "partial_success"}
-            and "PERSIST_FAILED" not in step.reason_codes
+            and (
+                step.status in {"completed", "partial_success"}
+                or (
+                    step.status == "failed"
+                    and "FUTURE_ITEM_REJECTED" in step.reason_codes
+                )
+            )
+            and not set(step.reason_codes).intersection({
+                "RAW_ITEM_SCHEMA_INVALID", "PERSIST_FAILED", "ROUTE_UNAVAILABLE",
+            })
             for step in result.steps
         )
 
     @staticmethod
+    def _validated_execution(value: Any) -> AcquisitionExecutionResult:
+        """Reconstruct and validate every collaborator result against both authorities."""
+        try:
+            payload = value.model_dump() if hasattr(value, "model_dump") else value
+            checked = AcquisitionExecutionResult.model_validate(payload)
+            errors = validate_instance(checked.model_dump(), "acquisition_execution_result")
+            if errors:
+                raise ValueError(str(errors))
+            return checked
+        except Exception as exc:  # noqa: BLE001 -- collaborator output is untrusted
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: invalid acquisition execution result"
+            ) from exc
+
+    @classmethod
+    def _updated_execution(
+        cls, execution: AcquisitionExecutionResult, updates: Mapping[str, Any],
+    ) -> AcquisitionExecutionResult:
+        payload = execution.model_dump()
+        payload.update(dict(updates))
+        return cls._validated_execution(payload)
+
+    @staticmethod
     def persist_artifacts(run_dir: Path, result: AcquisitionCoordinationResult) -> None:
-        """Persist P7-D2 artifacts atomically after a non-dry-run coordination."""
-        payload = result.execution.model_dump()
-        errors = validate_instance(payload, "acquisition_execution_result")
-        if errors:
-            raise ValueError(f"AcquisitionExecutionResult 未通过 Schema 校验: {errors}")
-        _atomic_write(run_dir / "acquisition_execution.json", json_dumps(payload))
-        if result.readiness_after is not None:
-            DataPreflightService.persist_readiness_after(run_dir, result.readiness_after)
+        """Prevalidate, stage, and publish the P7-D2 artifact pair as one best-effort unit."""
+        execution = AcquisitionCoordinator._validated_execution(result.execution)
+        execution_text = json_dumps(execution.model_dump())
+        execution_path = run_dir / "acquisition_execution.json"
+        if result.readiness_after is None:
+            _atomic_write(execution_path, execution_text)
+            return
+
+        readiness_text = AcquisitionCoordinator._serialize_readiness_after(
+            result.readiness_after,
+        )
+        readiness_path = run_dir / "data_readiness_after.jsonl"
+        staged_execution = execution_path.with_suffix(execution_path.suffix + ".p7d2.tmp")
+        staged_readiness = readiness_path.with_suffix(readiness_path.suffix + ".p7d2.tmp")
+        originals = {
+            execution_path: execution_path.read_bytes() if execution_path.exists() else None,
+            readiness_path: readiness_path.read_bytes() if readiness_path.exists() else None,
+        }
+        try:
+            staged_execution.write_text(execution_text, encoding="utf-8")
+            staged_readiness.write_text(readiness_text, encoding="utf-8")
+            os.replace(staged_execution, execution_path)
+            os.replace(staged_readiness, readiness_path)
+        except Exception:
+            AcquisitionCoordinator._restore_artifact_pair(originals)
+            raise
+        finally:
+            for staged in (staged_execution, staged_readiness):
+                try:
+                    staged.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _serialize_readiness_after(bundle: DataPreflightBundle) -> str:
+        lines: list[str] = []
+        for readiness in bundle.readiness:
+            payload = readiness.model_dump()
+            errors = validate_instance(payload, "data_readiness")
+            if errors:
+                raise ValueError(f"DataReadiness 未通过 Schema 校验: {errors}")
+            lines.append(json_dumps(payload))
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _restore_artifact_pair(originals: Mapping[Path, bytes | None]) -> None:
+        """Best-effort rollback; never leave a newly published half-pair."""
+        for path, original in originals.items():
+            try:
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    rollback = path.with_suffix(path.suffix + ".rollback.tmp")
+                    rollback.write_bytes(original)
+                    os.replace(rollback, path)
+            except Exception:  # noqa: BLE001 -- rollback is explicitly best effort
+                # The original publishing exception remains authoritative.
+                pass
 
 
 __all__ = ["AcquisitionCoordinationResult", "AcquisitionCoordinator"]

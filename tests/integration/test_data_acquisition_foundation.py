@@ -4,16 +4,20 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from copy import deepcopy
 from pathlib import Path
+
+import pytest
 
 from research_os.collectors import CollectorAdapter, HealthStatus, ItemRef, RateLimitPolicy, RawPayload
 from research_os.data_layer import (
+    AcquisitionCoordinationResult,
     AcquisitionCoordinator,
     AcquisitionExecutionService,
     AcquisitionRepository,
     CollectorFetcherBridge,
 )
-from research_os.data_layer.capabilities import AcquisitionCapability, AcquisitionCapabilityRegistry
+from research_os.data_layer.capabilities import AcquisitionCapability
 from research_os.data_layer.checkers import RawItemChecker, ReadinessCheckerRegistry
 from research_os.data_layer.execution_policy import ExecutionPolicy
 from research_os.data_layer.preflight import DataPreflightService
@@ -312,6 +316,18 @@ def test_default_production_path_is_closed_and_preserves_runner_result(tmp_path,
     monkeypatch.setattr("research_os.routing.router.Router.resolve_with_items", boom)
     monkeypatch.setattr("research_os.data_layer.acquisition_repository.AcquisitionRepository.persist_batch", boom)
     orchestrator = Orchestrator(project, registry=registry)
+    original_recheck = orchestrator.preflight.recheck
+
+    def concurrent_read_recheck(**kwargs):
+        bundle = original_recheck(**kwargs)
+        bundle.checked_at = "2099-01-01T00:00:00+08:00"
+        bundle.readiness = [
+            item.model_copy(update={"checked_at": bundle.checked_at})
+            for item in bundle.readiness
+        ]
+        return bundle
+
+    orchestrator.preflight.recheck = concurrent_read_recheck
     result = orchestrator.execute("morning_brief", {
         "task_id": TASK_CLOSED, "report_date": "2026-08-16", "as_of": AS_OF,
     })
@@ -325,6 +341,12 @@ def test_default_production_path_is_closed_and_preserves_runner_result(tmp_path,
     assert {reason for step in payload["steps"] for reason in step["reason_codes"]} == {
         "EXECUTION_DISABLED"
     }
+    coordination = runner.context["data_acquisition"]
+    assert coordination.persistence_committed is False
+    assert coordination.readiness_after is not None
+    assert coordination.readiness_after.checked_at == "2099-01-01T00:00:00+08:00"
+    assert coordination.readiness_before.checked_at != coordination.readiness_after.checked_at
+    assert runner.context["data_preflight"] is coordination.readiness_before
     orchestrator.close()
 
 
@@ -422,4 +444,155 @@ def test_committed_write_recheck_failure_is_partial_and_does_not_invent_readines
     assert db.count("raw_items") == 1
     assert result.exit_code == 0
     assert not (Path(result.run_dir) / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+def test_all_future_route_commit_plus_recheck_failure_is_partial(tmp_path):
+    project, events, runner, db, orchestrator = _wired(
+        tmp_path, published_at="2026-08-16T08:01:00+08:00",
+    )
+
+    def recheck_boom(**kwargs):
+        raise RuntimeError("secret=must-not-leak")
+
+    orchestrator.preflight.recheck = recheck_boom
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    execution = runner.context["acquisition_execution"]
+    assert execution.status == "partial_success"
+    assert execution.steps[0].status == "failed"
+    assert execution.steps[0].reason_codes == ["FUTURE_ITEM_REJECTED"]
+    assert execution.readiness_after_requirement_ids == []
+    assert runner.context["data_acquisition"].persistence_committed is True
+    assert db.count("raw_items") == 0
+    assert db.count("data_routes") == 1
+    assert result.exit_code == 0
+    orchestrator.close()
+
+
+def test_coordinator_control_failure_marks_started_task_and_db_failed(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+
+    def coordinate_boom(**kwargs):
+        raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: injected failure")
+
+    orchestrator.acquisition_coordinator.coordinate = coordinate_boom
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert result.validation_status == "fail"
+    assert result.run_dir
+    assert json.loads((Path(result.run_dir) / "task.json").read_text("utf-8"))["status"] == "failed"
+    assert db.get("tasks", TASK_FOUNDATION)["status"] == "failed"
+    orchestrator.close()
+
+
+def test_artifact_failure_marks_started_task_and_db_failed(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+
+    def artifact_boom(*args, **kwargs):
+        raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: second artifact failed")
+
+    orchestrator.acquisition_coordinator.persist_artifacts = artifact_boom
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert json.loads((Path(result.run_dir) / "task.json").read_text("utf-8"))["status"] == "failed"
+    assert db.get("tasks", TASK_FOUNDATION)["status"] == "failed"
+    orchestrator.close()
+
+
+def test_injected_preflight_protocol_fails_early_without_custom_coordinator(tmp_path):
+    class _LegacyPreflight:
+        pass
+
+    class _CustomCoordinator:
+        pass
+
+    project = tmp_path / "project"
+    with pytest.raises(ValueError, match="CONTROL_PLANE_CONFIGURATION_ERROR"):
+        Orchestrator(project, preflight=_LegacyPreflight())
+    # Explicit coordinator injection owns compatibility and therefore remains supported.
+    orchestrator = Orchestrator(
+        project, preflight=_LegacyPreflight(), acquisition_coordinator=_CustomCoordinator(),
+    )
+    assert isinstance(orchestrator.acquisition_coordinator, _CustomCoordinator)
+    orchestrator.close()
+
+
+def test_artifact_pair_prevalidation_prevents_malformed_half_publish(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    coordination = runner.context["data_acquisition"]
+    malformed_after = deepcopy(coordination.readiness_after)
+    malformed_after.readiness[0] = malformed_after.readiness[0].model_construct(
+        **{**malformed_after.readiness[0].model_dump(), "status": "BROKEN"}
+    )
+    malformed = AcquisitionCoordinationResult(
+        coordination.readiness_before, coordination.execution, malformed_after, True,
+    )
+    target = tmp_path / "malformed-pair"
+    target.mkdir()
+    with pytest.raises(ValueError):
+        orchestrator.acquisition_coordinator.persist_artifacts(target, malformed)
+    assert not (target / "acquisition_execution.json").exists()
+    assert not (target / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+def test_artifact_pair_rolls_back_when_second_publish_fails(tmp_path, monkeypatch):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    coordination = runner.context["data_acquisition"]
+    target = tmp_path / "publish-pair"
+    target.mkdir()
+    import research_os.data_layer.coordinator as coordinator_module
+
+    real_replace = coordinator_module.os.replace
+    calls = {"count": 0}
+
+    def fail_second(source, destination):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("injected second publish failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(coordinator_module.os, "replace", fail_second)
+    with pytest.raises(OSError):
+        orchestrator.acquisition_coordinator.persist_artifacts(target, coordination)
+    assert not (target / "acquisition_execution.json").exists()
+    assert not (target / "data_readiness_after.jsonl").exists()
+    assert not list(target.glob("*.tmp"))
+    orchestrator.close()
+
+
+def test_unchecked_execution_collaborator_payload_is_rejected_before_recheck(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+
+    class _MalformedExecution:
+        def execute(self, **kwargs):
+            return {
+                "execution_id": "20509024-d8a9-5a6d-82f1-bb2266fd66b7",
+                "task_id": TASK_FOUNDATION, "scenario": "morning_brief", "as_of": AS_OF,
+                "plan_sha256": "a" * 64, "started_at": AS_OF, "finished_at": AS_OF,
+                "status": "invented", "steps": [],
+                "readiness_before_requirement_ids": [],
+                "readiness_after_requirement_ids": [], "warnings": [], "errors": [],
+            }
+
+    orchestrator.acquisition_coordinator._execution = _MalformedExecution()
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert "invalid acquisition execution result" in result.message
+    assert "recheck" not in events
+    assert db.get("tasks", TASK_FOUNDATION)["status"] == "failed"
     orchestrator.close()
