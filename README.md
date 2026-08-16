@@ -145,11 +145,10 @@ Graph 或数据库行为。该段记录 P7-D1 terminal boundary；后续 P7-D2 F
 ## P7-D2：Acquisition Execution Foundation（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
 
 `P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`；
-`REAL DATA ACQUISITION COVERAGE: NONE`。最终 implementation code head 为
-`b8c8de8cf3c1e81bb5c34be22298462ae33c0227`，validation/test head 为
-`831afe4bc518ca2e5ffb23087d43ede4eadadd03`。Ubuntu / Python 3.12.13 Offline CI
-[run 31944228373](https://github.com/rzpeuler/ai-investment-research/actions/runs/31944228373)
-成功：3563 passed / 6 skipped / 0 failed / 1 warning，363.27s，86/86 schemas，compile success。
+`REAL DATA ACQUISITION COVERAGE: NONE`。最终 implementation / validation head 为
+`84f70b5dec1a65c9842628c974e1693738ab9cca`。Ubuntu / Python 3.12.13 Offline CI
+[run 31945487755](https://github.com/rzpeuler/ai-investment-research/actions/runs/31945487755)
+成功：3567 passed / 6 skipped / 0 failed / 1 warning，417.14s，86/86 schemas，compile success。
 
 该 Foundation 使用 Fake 证明 acquisition gates、existing Router bridge、原子 RawItem/DataRoute
 持久化、readiness recheck、Orchestrator 接入与十个 Runner 的关闭路径。生产策略仍关闭：

@@ -13,9 +13,8 @@
 > governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
 > P7-D1 = PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11，accepted
 > implementation head `bc27781`；数据就绪控制面）；
-> P7-D2 FOUNDATION = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（implementation
-> code head `b8c8de8cf3c1e81bb5c34be22298462ae33c0227`；validation/test head
-> `831afe4bc518ca2e5ffb23087d43ede4eadadd03`；真实采集覆盖 NONE）。
+> P7-D2 FOUNDATION = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（final implementation /
+> validation head `84f70b5dec1a65c9842628c974e1693738ab9cca`；真实采集覆盖 NONE）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -218,7 +217,7 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - 没有任何真实 capability 达到 BUSINESS_SUFFICIENT，因此 production acquisition 继续 fail closed；
   不得把 Fake 成功、已有 Collector 代码或 foundation wiring 解释为真实数据覆盖。
 - 独立验收前不得提升状态；之后任何具体来源仍须独立 source governance、真实验证和显式授权。
-- Offline CI run `31944228373` 已在 Ubuntu / Python 3.12.13 成功（3563 passed /
-  6 skipped / 0 failed / 1 warning，363.27s；86/86 schemas；compile success），但离线
+- Offline CI run `31945487755` 已在 Ubuntu / Python 3.12.13 成功（3567 passed /
+  6 skipped / 0 failed / 1 warning，417.14s；86/86 schemas；compile success），但离线
   Fake 证明不能替代真实来源验证。前一 run `31943822195` 仅暴露 fresh-process
   source-path portability，已由 `831afe4` 修复。

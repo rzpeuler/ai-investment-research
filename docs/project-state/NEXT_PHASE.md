@@ -79,9 +79,8 @@ Phase 5: CLOSED / PASS
 - **REAL DATA ACQUISITION COVERAGE**: NONE
 - **Current Schema registry**: 86（Phase 6 terminal historical snapshot was 69）
 - **DB / migrations**: v6 / NONE
-- **IMPLEMENTATION CODE HEAD**: `b8c8de8cf3c1e81bb5c34be22298462ae33c0227`
-- **VALIDATION/TEST HEAD**: `831afe4bc518ca2e5ffb23087d43ede4eadadd03`
-- **OFFLINE CI**: SUCCESS — run `31944228373`（Ubuntu / Python 3.12.13）
+- **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`
+- **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
 - **NEXT WORK**: independent acceptance of the P7-D2 fake-proven Foundation
 - **REAL-SOURCE AUTHORIZATION**: NONE
 

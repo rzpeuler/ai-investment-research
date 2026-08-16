@@ -15,8 +15,7 @@
 **DB: v6**  
 **MIGRATIONS: NONE**  
 **EXPECTED_SCHEMA_COUNT: 86**
-**IMPLEMENTATION_CODE_HEAD: `b8c8de8cf3c1e81bb5c34be22298462ae33c0227`**
-**VALIDATION_TEST_HEAD: `831afe4bc518ca2e5ffb23087d43ede4eadadd03`**
+**FINAL_IMPLEMENTATION_VALIDATION_HEAD: `84f70b5dec1a65c9842628c974e1693738ab9cca`**
 
 > 用户已于 2026-08-16 显式批准 P7-D2 Foundation implementation。本授权仅覆盖
 > 本任务书冻结的 Foundation，不授权真实来源执行或任何具体来源。
@@ -376,8 +375,7 @@ REAL DATA ACQUISITION COVERAGE: NONE
 ```text
 P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 REAL DATA ACQUISITION COVERAGE: NONE
-Implementation code head: b8c8de8cf3c1e81bb5c34be22298462ae33c0227
-Validation/test head: 831afe4bc518ca2e5ffb23087d43ede4eadadd03
+Final implementation/validation head: 84f70b5dec1a65c9842628c974e1693738ab9cca
 Production policy enabled: false
 Real source execution: 0
 Production collector IDs: []
@@ -389,10 +387,10 @@ Graph writes: 0
 DB: v6
 Migrations: 6 / NONE added
 Schemas: 86
-Offline CI run: 31944228373
-Offline CI URL: https://github.com/rzpeuler/ai-investment-research/actions/runs/31944228373
+Offline CI run: 31945487755
+Offline CI URL: https://github.com/rzpeuler/ai-investment-research/actions/runs/31945487755
 Environment: Ubuntu / Python 3.12.13
-pytest full: 3563 passed / 6 skipped / 0 failed / 1 warning / 363.27s
+pytest full: 3567 passed / 6 skipped / 0 failed / 1 warning / 417.14s
 schema validation: 86/86 PASS
 compileall: PASS
 Offline CI: SUCCESS
@@ -402,5 +400,6 @@ Offline CI: SUCCESS
 operational / real-source ready，不授权任何具体真实来源或 Phase 6.1。
 
 首次 Ubuntu run `31943822195` 仅因 fresh-process source-path portability 失败；
-validation/test head `831afe4bc518ca2e5ffb23087d43ede4eadadd03` 修复该问题后，继任 run
-`31944228373` 成功。该成功仍只是 Offline/Fake 证明，不构成独立验收或真实来源授权。
+validation/test head `831afe4bc518ca2e5ffb23087d43ede4eadadd03` 修复该问题；最终 head
+`84f70b5dec1a65c9842628c974e1693738ab9cca` 的继任 run `31945487755` 成功。
+该成功仍只是 Offline/Fake 证明，不构成独立验收或真实来源授权。

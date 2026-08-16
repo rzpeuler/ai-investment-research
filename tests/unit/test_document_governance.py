@@ -796,7 +796,7 @@ def test_p7_d2_foundation_handoff_is_truthful_and_awaits_acceptance():
 
     assert "P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in living
     assert "REAL DATA ACQUISITION COVERAGE: NONE" in living
-    assert "b8c8de8cf3c1e81bb5c34be22298462ae33c0227" in living
+    assert "84f70b5dec1a65c9842628c974e1693738ab9cca" in living
     assert "831afe4bc518ca2e5ffb23087d43ede4eadadd03" in living
     for boundary in (
         "Production collector IDs: []",
@@ -816,10 +816,10 @@ def test_p7_d2_foundation_handoff_is_truthful_and_awaits_acceptance():
     }
     assert len(list((ROOT / "schemas").glob("*.schema.json"))) == 86
     assert len(list((ROOT / "src/research_os/storage/migrations").glob("*.sql"))) == 6
-    assert "pytest full: 3563 passed / 6 skipped / 0 failed / 1 warning / 363.27s" in taskbook
+    assert "pytest full: 3567 passed / 6 skipped / 0 failed / 1 warning / 417.14s" in taskbook
     assert "schema validation: 86/86 PASS" in taskbook
     assert "Offline CI: SUCCESS" in taskbook
-    assert "31944228373" in taskbook
+    assert "31945487755" in taskbook
     assert "31943822195" in taskbook
 
     # The handoff is deliberately pre-acceptance and grants no real-source authority.
