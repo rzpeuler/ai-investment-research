@@ -18,22 +18,35 @@ class CollectorBridgeError(RuntimeError):
     """单一来源 bridge attempt 失败；消息已做最小凭证脱敏。"""
 
 
-_SECRET_PATTERNS = (
-    re.compile(
-        r"(?i)(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+"
-    ),
-    re.compile(
-        r"(?i)((?:cookie|set-cookie|token|api[_-]?key|password|secret)\s*[:=]\s*)"
-        r"[^\s,;]+"
-    ),
+_SECRET_KEY = (
+    r"(?:authorization|cookie|set-cookie|x-api-key|api[_-]?key|"
+    r"x-(?:auth|access)-token|auth[_-]?token|access[_-]?token|"
+    r"refresh[_-]?token|token|password|secret)"
+)
+_QUOTED_SECRET_ASSIGNMENT = re.compile(
+    rf"(?i)(?P<prefix>(?:[\"']{_SECRET_KEY}[\"']|{_SECRET_KEY})"
+    rf"\s*[:=]\s*)(?P<value>\"(?:bearer\s+)?[^\"]*\"|"
+    rf"'(?:bearer\s+)?[^']*')"
+)
+_PLAIN_SECRET_ASSIGNMENT = re.compile(
+    rf"(?i)(?P<prefix>(?:[\"']{_SECRET_KEY}[\"']|{_SECRET_KEY})"
+    rf"\s*[:=]\s*)(?![\"'])(?:bearer\s+)?[^\s,;}}\]]+"
 )
 
 
 def _sanitize_message(message: str) -> str:
     """遮蔽明显凭证值；完整结构化错误治理属于后续执行服务。"""
-    sanitized = message
-    for pattern in _SECRET_PATTERNS:
-        sanitized = pattern.sub(r"\1[REDACTED]", sanitized)
+    sanitized = _QUOTED_SECRET_ASSIGNMENT.sub(
+        lambda match: (
+            f"{match.group('prefix')}{match.group('value')[0]}"
+            f"[REDACTED]{match.group('value')[0]}"
+        ),
+        message,
+    )
+    sanitized = _PLAIN_SECRET_ASSIGNMENT.sub(
+        lambda match: f"{match.group('prefix')}[REDACTED]",
+        sanitized,
+    )
     return sanitized
 
 

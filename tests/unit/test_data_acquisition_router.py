@@ -204,6 +204,7 @@ class FakeCollector(CollectorAdapter):
         self.payload_source = "fake"
         self.item_source = "fake"
         self.fail_fetch_for: str | None = None
+        self.fetch_error = "Authorization: Bearer top-secret-token"
         self.invalid_item = False
         self.extra_item = False
 
@@ -217,7 +218,7 @@ class FakeCollector(CollectorAdapter):
     def fetch(self, item_ref: ItemRef) -> RawPayload:
         self.calls.append(f"fetch:{item_ref.external_id}")
         if item_ref.external_id == self.fail_fetch_for:
-            raise RuntimeError("Authorization: Bearer top-secret-token")
+            raise RuntimeError(self.fetch_error)
         return RawPayload(
             source_id=self.payload_source,
             external_id=item_ref.external_id,
@@ -273,14 +274,42 @@ def test_bridge_invalid_raw_item_fails_closed():
         CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
 
 
-def test_bridge_any_ref_failure_rejects_entire_source_and_sanitizes_secret():
+@pytest.mark.parametrize(
+    ("error_message", "secret"),
+    [
+        ("Authorization: Bearer top-secret-token", "top-secret-token"),
+        ('{"Authorization": "Bearer json-secret-token"}', "json-secret-token"),
+        ("headers={'Authorization': 'Bearer dict-secret-token'}", "dict-secret-token"),
+        ("headers={'Cookie': 'sessionid=top-secret-cookie'}", "top-secret-cookie"),
+        ('{"Cookie": "sessionid=cookie-secret-with\'quote"}', "cookie-secret-with'quote"),
+        ('headers={"X-API-Key": "x-api-key-secret"}', "x-api-key-secret"),
+        ("api_key='api-key-secret'", "api-key-secret"),
+        ('headers={"access_token": "access-token-secret"}', "access-token-secret"),
+        ("headers={'X-Auth-Token': 'x-auth-token-secret'}", "x-auth-token-secret"),
+        ("token=plain-token-secret", "plain-token-secret"),
+    ],
+)
+def test_bridge_any_ref_failure_rejects_entire_source_and_sanitizes_secret(
+    error_message, secret
+):
     fake = FakeCollector()
     fake.fail_fetch_for = "2"
+    fake.fetch_error = error_message
     with pytest.raises(RuntimeError) as raised:
         CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
     message = str(raised.value)
-    assert "top-secret-token" not in message
+    assert secret not in message
     assert "[REDACTED]" in message
+
+
+def test_bridge_sanitizer_does_not_over_redact_ordinary_error_text():
+    fake = FakeCollector()
+    fake.fail_fetch_for = "2"
+    fake.fetch_error = "token refresh failed before a credential was returned"
+    with pytest.raises(RuntimeError) as raised:
+        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+    assert "token refresh failed" in str(raised.value)
+    assert "[REDACTED]" not in str(raised.value)
 
 
 def test_bridge_empty_discover_proves_no_fields_and_does_no_more_work():
