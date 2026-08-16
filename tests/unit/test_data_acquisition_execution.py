@@ -333,6 +333,36 @@ def test_route_window_end_accepts_equivalent_timezone_instant():
     assert len(router.calls) == 1
 
 
+@pytest.mark.parametrize(
+    "start",
+    ["not-a-time", "2026-08-16T09:31:00+08:00"],
+)
+def test_malformed_or_after_end_route_window_start_fails_before_io(start):
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(router=router, repository=repository),
+        route_inputs={"req-1": RouteExecutionInput(
+            query={}, time_window={"start": start, "end": AS_OF},
+        )},
+    )
+    assert result.status == "not_executable"
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
+    assert router.calls == repository.calls == []
+
+
+@pytest.mark.parametrize("start", [None, "2026-08-16T01:00:00Z"])
+def test_null_or_offset_equivalent_valid_route_window_start_is_accepted(start):
+    router = _Router()
+    result = _execute(
+        _service(router=router),
+        route_inputs={"req-1": RouteExecutionInput(
+            query={}, time_window={"start": start, "end": AS_OF},
+        )},
+    )
+    assert result.status == "completed"
+    assert len(router.calls) == 1
+
+
 def test_empty_result_persists_route_audit_and_is_partial_success():
     router = _Router(_batch(items=()))
     repository = _Repository(AcquisitionPersistenceResult((), ()))
@@ -399,7 +429,7 @@ def test_ineligible_or_schema_invalid_route_never_reaches_repository(route):
     assert repository.calls == []
 
 
-def test_route_and_persistence_warnings_are_sanitized_without_losing_safe_warnings():
+def test_all_untrusted_route_and_persistence_warnings_are_redacted_fail_closed():
     route = _route()
     route.warnings = [
         "fallback source used",
@@ -408,6 +438,8 @@ def test_route_and_persistence_warnings_are_sanitized_without_losing_safe_warnin
         "fallback failed Bearer loose-secret",
         "headers: {'Cookie': 'session=super-secret'}",
         "payload: complete upstream response",
+        "Set-Cookie session super-secret",
+        "entire private response fragment",
     ]
     repository = _Repository(AcquisitionPersistenceResult(
         ("raw-1",), (), warnings=(
@@ -416,19 +448,24 @@ def test_route_and_persistence_warnings_are_sanitized_without_losing_safe_warnin
             "<html>complete private page</html>",
         ),
     ))
+    plan = _plan()
+    plan.steps[0].warnings = ["short private plan fragment"]
     result = _execute(_service(
         router=_Router(RoutedDataBatch(route, (object(),), frozenset())),
         repository=repository,
-    ))
+    ), plan=plan)
     dumped = str(result.model_dump())
     assert "super-secret" not in dumped
     assert "loose-secret" not in dumped
     assert "complete private page" not in dumped
     assert "complete upstream response" not in dumped
-    assert "fallback source used" in result.steps[0].route.warnings
-    assert "token expired" in result.steps[0].route.warnings
-    assert "reused canonical identity" in result.steps[0].warnings
-    assert repository.calls[0]["route"].warnings.count("[REDACTED]") == 4
+    assert "fallback source used" not in dumped
+    assert "token expired" not in dumped
+    assert "reused canonical identity" not in dumped
+    assert "short private plan fragment" not in dumped
+    assert set(result.steps[0].route.warnings) == {"[REDACTED]"}
+    assert set(result.steps[0].warnings) == {"[REDACTED]"}
+    assert set(repository.calls[0]["route"].warnings) == {"[REDACTED]"}
 
 
 def test_route_gate_failure_prevents_an_earlier_valid_route_step_from_running():
@@ -495,4 +532,19 @@ def test_typed_step_failure_preserves_only_allowlisted_reason_and_generic_messag
     assert result.status == "failed"
     assert result.steps[0].reason_codes == ["RAW_ITEM_SCHEMA_INVALID"]
     assert result.steps[0].errors[0].message == "acquisition step failed"
+    assert "secret" not in str(result.model_dump())
+
+
+@pytest.mark.parametrize(
+    "forged_reason",
+    ["EXECUTION_DISABLED", "ACTION_SKIPPED", "RECHECK_FAILED", "ROUTE_UNAVAILABLE"],
+)
+def test_repository_cannot_forge_reason_codes_owned_by_other_components(forged_reason):
+    repository = _Repository(error=AcquisitionStepFailure(
+        forged_reason, "Authorization=secret",
+    ))
+    result = _execute(_service(repository=repository))
+    assert result.status == "failed"
+    assert result.steps[0].reason_codes == ["PERSIST_FAILED"]
+    assert result.steps[0].errors[0].code == "PERSIST_FAILED"
     assert "secret" not in str(result.model_dump())

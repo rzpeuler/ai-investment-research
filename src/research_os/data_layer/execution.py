@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
@@ -44,16 +43,9 @@ _REASON_CODES = {
     "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
     "CONTROL_PLANE_CONFIGURATION_ERROR",
 }
-_SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)(?<![a-z0-9_-])(?:\\[\"']|[\"'])?"
-    r"(?:(?:[a-z0-9]+[-_])*api[-_]?key|"
-    r"[a-z0-9_-]*(?:authorization|cookie|secret|password|token))"
-    r"(?:\\[\"']|[\"'])?\s*[:=]"
-)
-_UNTRUSTED_BODY_MARKER = re.compile(
-    r"(?i)(?:<html\b|\b(?:response[_ -]?body|payload|headers?)\s*[:=])"
-)
-_AUTH_SCHEME_VALUE = re.compile(r"(?i)\b(?:bearer|basic)\s+\S+")
+_REPOSITORY_OWNED_REASONS = {
+    "RAW_ITEM_SCHEMA_INVALID", "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED",
+}
 
 
 @dataclass(frozen=True)
@@ -322,9 +314,16 @@ class AcquisitionExecutionService:
             if not isinstance(persisted, AcquisitionPersistenceResult):
                 raise TypeError("invalid persistence result")
         except AcquisitionStepFailure as exc:
+            repository_reason = (
+                exc.reason_code
+                if exc.reason_code in _REPOSITORY_OWNED_REASONS
+                else cast(AcquisitionExecutionReason, "PERSIST_FAILED")
+            )
             return self._step(
-                step, "failed", (exc.reason_code,), route=route,
-                errors=(self._error(exc.reason_code, "acquisition step failed", "repository"),),
+                step, "failed", (repository_reason,), route=route,
+                errors=(self._error(
+                    repository_reason, "acquisition step failed", "repository",
+                ),),
             )
         except Exception:  # noqa: BLE001 -- never echo arbitrary exception content
             return self._step(
@@ -402,8 +401,15 @@ class AcquisitionExecutionService:
             return "CONTROL_PLANE_CONFIGURATION_ERROR"
         end = route_input.time_window.get("end")
         try:
-            if not isinstance(end, str) or parse_iso(end) != parse_iso(as_of):
+            if not isinstance(end, str):
                 return "CONTROL_PLANE_CONFIGURATION_ERROR"
+            parsed_end = parse_iso(end)
+            if parsed_end != parse_iso(as_of):
+                return "CONTROL_PLANE_CONFIGURATION_ERROR"
+            start = route_input.time_window.get("start")
+            if start is not None:
+                if not isinstance(start, str) or parse_iso(start) > parsed_end:
+                    return "CONTROL_PLANE_CONFIGURATION_ERROR"
         except (TypeError, ValueError):
             return "CONTROL_PLANE_CONFIGURATION_ERROR"
         return None
@@ -534,16 +540,8 @@ class AcquisitionExecutionService:
 
 
 def _sanitize_warning(value: str) -> str:
-    """Preserve ordinary audit context while discarding secrets and response bodies wholesale."""
-    if (
-        not isinstance(value, str)
-        or len(value) > 512
-        or _SENSITIVE_ASSIGNMENT.search(value)
-        or _UNTRUSTED_BODY_MARKER.search(value)
-        or _AUTH_SCHEME_VALUE.search(value)
-    ):
-        return "[REDACTED]"
-    return value
+    """Warnings cross an untrusted collaborator boundary, so their text is never persisted."""
+    return "[REDACTED]"
 
 
 __all__ = [
