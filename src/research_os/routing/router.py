@@ -11,8 +11,9 @@
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import AbstractSet, Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 
 from research_os.models import DataRoute
 from research_os.routing.requirements import DataRequirementRegistry
@@ -20,16 +21,16 @@ from research_os.validators.schema_validator import validate_instance
 
 # fetcher: (query, time_window) -> (items: list, fields_present: set[str])
 FetchCallable = Callable[[Dict[str, Any], Dict[str, Optional[str]]],
-                         Tuple[List[Any], set[str]]]
+                         Tuple[List[Any], AbstractSet[str]]]
 
 
-@dataclass(frozen=True)
+@dataclass
 class RoutedDataBatch:
     """一次既有路由决策及其选中来源数据（非持久化权威对象）。"""
 
     route: DataRoute
-    items: List[Any]
-    fields_present: set[str]
+    items: Tuple[Any, ...]
+    fields_present: FrozenSet[str]
 
 
 class Router:
@@ -75,7 +76,7 @@ class Router:
         selected: Optional[str] = None
         fallback_used = False
         items: List[Any] = []
-        fields_present: set[str] = set()
+        fields_present: AbstractSet[str] = set()
         last_error: Optional[str] = None
 
         # 1. 主源 + 备源
@@ -146,7 +147,10 @@ class Router:
         if errs:
             raise ValueError(f"DataRoute 未通过 Schema 校验: {errs}")
         return RoutedDataBatch(
-            route=route,
-            items=items if selected is not None else [],
-            fields_present=set(fields_present) if selected is not None else set(),
+            route=route.model_copy(deep=True),
+            items=tuple(deepcopy(items)) if selected is not None else (),
+            fields_present=(
+                frozenset(deepcopy(fields_present))
+                if selected is not None else frozenset()
+            ),
         )

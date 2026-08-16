@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 from types import MappingProxyType
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from research_os.collectors.base import CollectorAdapter, ItemRef, RawPayload
 from research_os.models import RawItem
@@ -22,31 +22,18 @@ _SECRET_KEY = (
     r"(?:authorization|cookie|set[-_]cookie|"
     r"(?:[a-z0-9]+[-_])*api[-_]?key|[a-z0-9_-]*token|password|secret)"
 )
-_QUOTED_SECRET_ASSIGNMENT = re.compile(
-    rf"(?i)(?P<prefix>(?:[\"']{_SECRET_KEY}[\"']|{_SECRET_KEY})"
-    rf"\s*[:=]\s*)(?P<value>\"(?:bearer\s+)?[^\"]*\"|"
-    rf"'(?:bearer\s+)?[^']*')"
-)
-_PLAIN_SECRET_ASSIGNMENT = re.compile(
-    rf"(?i)(?P<prefix>(?:[\"']{_SECRET_KEY}[\"']|{_SECRET_KEY})"
-    rf"\s*[:=]\s*)(?![\"'])(?:bearer\s+)?[^\s,;}}\]]+"
+_OPTIONAL_ESCAPED_QUOTE = r"(?:\\[\"']|[\"'])?"
+_SENSITIVE_ASSIGNMENT = re.compile(
+    rf"(?i)(?<![a-z0-9_-]){_OPTIONAL_ESCAPED_QUOTE}{_SECRET_KEY}"
+    rf"{_OPTIONAL_ESCAPED_QUOTE}\s*[:=]"
 )
 
 
 def _sanitize_message(message: str) -> str:
-    """遮蔽明显凭证值；完整结构化错误治理属于后续执行服务。"""
-    sanitized = _QUOTED_SECRET_ASSIGNMENT.sub(
-        lambda match: (
-            f"{match.group('prefix')}{match.group('value')[0]}"
-            f"[REDACTED]{match.group('value')[0]}"
-        ),
-        message,
-    )
-    sanitized = _PLAIN_SECRET_ASSIGNMENT.sub(
-        lambda match: f"{match.group('prefix')}[REDACTED]",
-        sanitized,
-    )
-    return sanitized
+    """敏感赋值命中即丢弃整段不可信详情；完整错误治理属于后续服务。"""
+    if _SENSITIVE_ASSIGNMENT.search(message):
+        return "[REDACTED]"
+    return message
 
 
 class CollectorFetcherBridge:
@@ -73,7 +60,7 @@ class CollectorFetcherBridge:
         def fetcher(
             query: Dict[str, Any],
             time_window: Dict[str, Optional[str]],
-        ) -> Tuple[List[RawItem], set[str]]:
+        ) -> Tuple[List[RawItem], FrozenSet[str]]:
             try:
                 return CollectorFetcherBridge._run_attempt(
                     source_id, adapter, query, time_window
@@ -92,7 +79,7 @@ class CollectorFetcherBridge:
         adapter: CollectorAdapter,
         query: Dict[str, Any],
         time_window: Dict[str, Optional[str]],
-    ) -> Tuple[List[RawItem], set[str]]:
+    ) -> Tuple[List[RawItem], FrozenSet[str]]:
         adapter_source_id = getattr(adapter, "source_id", None)
         if adapter_source_id != source_id:
             raise CollectorBridgeError(
@@ -120,12 +107,29 @@ class CollectorFetcherBridge:
                 normalized_items.append(item)
 
         if not normalized_items:
-            return [], set()
-        fields_present: set[str] = set()
+            return [], frozenset()
+
+        # Foundation 只证明权威 RawItem 契约字段：不读取 ItemRef.extra，不做 data_type
+        # alias/source-specific projection。一个字段必须在每条返回记录中都有非空值。
+        per_item_fields = []
         for item in normalized_items:
-            # nullable 值不能证明内容字段存在；这里只报告本次规范化结果的严格字段并集。
-            fields_present.update(item.model_dump(exclude_none=True).keys())
-        return normalized_items, fields_present
+            present = {
+                key for key, value in item.model_dump().items()
+                if CollectorFetcherBridge._has_authoritative_value(value)
+            }
+            per_item_fields.append(present)
+        fields_present = set.intersection(*per_item_fields)
+        return normalized_items, frozenset(fields_present)
+
+    @staticmethod
+    def _has_authoritative_value(value: object) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, frozenset, dict)):
+            return bool(value)
+        return True
 
     @staticmethod
     def _require_source(source_id: str, value: object, boundary: str) -> None:

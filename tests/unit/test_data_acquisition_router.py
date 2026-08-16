@@ -166,8 +166,72 @@ def test_resolve_with_items_has_exact_decision_parity(requirements):
         "document", {"q": "x"}, {"end": "2026-08-16"}
     )
     assert batch.route == route
-    assert batch.items == [{"id": 2}]
-    assert batch.fields_present == {"title", "published_at", "url"}
+    assert batch.items == ({"id": 2},)
+    assert batch.fields_present == frozenset({"title", "published_at", "url"})
+
+
+def test_resolve_with_items_fallback_and_failure_batches(requirements):
+    fallback = Router(
+        requirements,
+        {
+            "primary": _fetch(error=RuntimeError("p")),
+            "secondary": _fetch(error=RuntimeError("s")),
+        },
+        {"manual": _fetch([{"id": "manual"}], {"title", "published_at", "url"})},
+    ).resolve_with_items("document")
+    assert fallback.route.status == "degraded"
+    assert fallback.route.selected_source == "manual"
+    assert fallback.items == ({"id": "manual"},)
+
+    failed = Router(
+        requirements,
+        {
+            "primary": _fetch(error=RuntimeError("p")),
+            "secondary": _fetch(error=RuntimeError("s")),
+        },
+        {"manual": _fetch(error=RuntimeError("m"))},
+    ).resolve_with_items("document")
+    assert failed.route.status == "insufficient_data"
+    assert failed.items == ()
+    assert failed.fields_present == frozenset()
+
+
+def test_resolve_with_items_does_not_leak_rejected_source_items(requirements):
+    batch = Router(
+        requirements,
+        {
+            "primary": _fetch([{"id": "rejected"}], {"title"}),
+            "secondary": _fetch(
+                [{"id": "selected"}], {"title", "published_at", "url"}
+            ),
+        },
+    ).resolve_with_items("document")
+    assert batch.route.selected_source == "secondary"
+    assert batch.items == ({"id": "selected"},)
+
+
+def test_routed_batch_defensively_isolates_fetcher_mutables(requirements):
+    shared_item = {"nested": ["original"]}
+    shared_items = [shared_item]
+    shared_fields = {"title", "published_at", "url"}
+
+    def shared_fetcher(query, time_window):
+        return shared_items, shared_fields
+
+    router = Router(requirements, {"primary": shared_fetcher})
+    batch = router.resolve_with_items("document")
+
+    shared_item["nested"].append("fetcher mutation")
+    shared_items.append({"nested": ["new"]})
+    shared_fields.add("company")
+    assert batch.items == ({"nested": ["original"]},)
+    assert "company" not in batch.fields_present
+
+    batch.items[0]["nested"].append("batch mutation")
+    batch.route.warnings.append("batch route mutation")
+    assert shared_item["nested"] == ["original", "fetcher mutation"]
+    fresh = router.resolve_with_items("document")
+    assert "batch route mutation" not in fresh.route.warnings
 
 
 def _raw(source_id: str, suffix: str) -> RawItem:
@@ -231,6 +295,9 @@ class FakeCollector(CollectorAdapter):
     def normalize(self, raw_payload: RawPayload) -> List[RawItem]:
         self.calls.append(f"normalize:{raw_payload.external_id}")
         item = _raw(self.item_source, raw_payload.external_id)
+        if raw_payload.external_id == "1":
+            object.__setattr__(item, "entities", ["company:1"])
+            object.__setattr__(item, "raw_category", "news")
         if self.invalid_item:
             object.__setattr__(item, "content_hash", "invalid")
         result = [item]
@@ -249,9 +316,30 @@ def test_bridge_discover_fetch_normalize_order_multiple_refs_and_items():
     items, fields = fetcher({"q": "x"}, {"start": None, "end": None})
     assert fake.calls == ["discover", "fetch:1", "normalize:1", "fetch:2", "normalize:2"]
     assert [item.external_id for item in items] == ["1", "3", "2"]
-    assert fields == set(items[0].model_dump(exclude_none=True))
+    assert isinstance(fields, frozenset)
+    assert fields == frozenset({
+        "raw_item_id", "source_id", "external_id", "url", "title", "publisher",
+        "published_at", "retrieved_at", "content_hash", "content_excerpt",
+        "content_storage", "language", "access_status",
+    })
+    assert items[0].entities == ["company:1"]
+    assert items[0].raw_category == "news"
     assert "author" not in fields
     assert "raw_category" not in fields
+    assert "entities" not in fields
+
+
+def test_bridge_fields_are_raw_item_contract_only_without_semantic_aliases():
+    fake = FakeCollector(refs=[ItemRef(
+        source_id="fake",
+        external_id="1",
+        url="https://example.test/1",
+        extra={"company": "company:1", "publish_date": "2026-08-16"},
+    )])
+    _, fields = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+    assert "published_at" in fields
+    assert "company" not in fields
+    assert "publish_date" not in fields
 
 
 @pytest.mark.parametrize("boundary", ["ref", "payload", "item"])
@@ -278,9 +366,12 @@ def test_bridge_invalid_raw_item_fails_closed():
     ("error_message", "secret"),
     [
         ("Authorization: Bearer top-secret-token", "top-secret-token"),
+        ("Authorization: Basic basic-secret-payload", "basic-secret-payload"),
+        ("Authorization=Token alternate-secret-payload", "alternate-secret-payload"),
         ('{"Authorization": "Bearer json-secret-token"}', "json-secret-token"),
         ("headers={'Authorization': 'Bearer dict-secret-token'}", "dict-secret-token"),
         ("headers={'Cookie': 'sessionid=top-secret-cookie'}", "top-secret-cookie"),
+        ('Cookie: "session id=cookie secret; theme=dark"', "cookie secret"),
         ('{"Cookie": "sessionid=cookie-secret-with\'quote"}', "cookie-secret-with'quote"),
         ('headers={"X-API-Key": "x-api-key-secret"}', "x-api-key-secret"),
         ("api_key='api-key-secret'", "api-key-secret"),
@@ -290,6 +381,7 @@ def test_bridge_invalid_raw_item_fails_closed():
         ("headers={'session_token': 'session-token-secret'}", "session-token-secret"),
         ("id_token=plain-id-token-secret", "plain-id-token-secret"),
         ("token=plain-token-secret", "plain-token-secret"),
+        (r'{\"Authorization\": \"Basic escaped-secret\"}', "escaped-secret"),
     ],
 )
 def test_bridge_any_ref_failure_rejects_entire_source_and_sanitizes_secret(
@@ -303,6 +395,7 @@ def test_bridge_any_ref_failure_rejects_entire_source_and_sanitizes_secret(
     message = str(raised.value)
     assert secret not in message
     assert "[REDACTED]" in message
+    assert error_message not in message
 
 
 def test_bridge_sanitizer_does_not_over_redact_ordinary_error_text():
@@ -319,7 +412,7 @@ def test_bridge_empty_discover_proves_no_fields_and_does_no_more_work():
     fake = FakeCollector(refs=[])
     items, fields = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
     assert items == []
-    assert fields == set()
+    assert fields == frozenset()
     assert fake.calls == ["discover"]
 
 
