@@ -29,6 +29,10 @@ def canonicalize_http_url(value: str) -> str:
     """Apply only the URL normalization operations frozen by P7-D2."""
     if type(value) is not str or not value:
         raise ValueError("a nonempty HTTP URL is required")
+    # urllib.parse follows browser-style cleanup for these characters.  That silent mutation is
+    # outside the frozen normalization allowlist, so reject it before parsing.
+    if any(ord(character) <= 0x20 or ord(character) == 0x7F for character in value):
+        raise ValueError("HTTP URL contains an unescaped ASCII control or space")
     try:
         parts = urlsplit(value)
         scheme = parts.scheme.lower()
@@ -95,6 +99,16 @@ class AcquisitionRepository:
         route: DataRoute,
         items: Sequence[Any],
     ) -> AcquisitionPersistenceResult:
+        # Database.transaction() uses this same connection.  Entering it while a caller owns an
+        # active transaction could commit or roll back unrelated work, so reject before any query.
+        try:
+            connection = self._db._conn
+            caller_transaction_active = connection.in_transaction
+        except Exception as exc:
+            raise AcquisitionStepFailure("PERSIST_FAILED") from exc
+        if caller_transaction_active:
+            raise AcquisitionStepFailure("PERSIST_FAILED")
+
         try:
             prepared_route, authoritative_as_of, created_at = self._validate_context(
                 task_id=task_id, step_id=step_id, as_of=as_of, route=route,
@@ -108,38 +122,57 @@ class AcquisitionRepository:
         except Exception as exc:
             raise AcquisitionStepFailure("RAW_ITEM_SCHEMA_INVALID") from exc
 
-        unique: list[_PreparedItem] = []
-        seen: dict[str, tuple[str, str, str]] = {}
-        deduplicated = 0
+        groups: dict[str, list[_PreparedItem]] = {}
+        identities: dict[str, tuple[str, str, str]] = {}
         for candidate in prepared:
             raw_id = candidate.item.raw_item_id
-            if raw_id in seen:
-                if seen[raw_id] != candidate.identity:
-                    raise AcquisitionStepFailure("PERSIST_FAILED")
-                deduplicated += 1
-                continue
-            seen[raw_id] = candidate.identity
-            unique.append(candidate)
+            if raw_id in identities and identities[raw_id] != candidate.identity:
+                raise AcquisitionStepFailure("PERSIST_FAILED")
+            identities[raw_id] = candidate.identity
+            groups.setdefault(raw_id, []).append(candidate)
 
-        future = [candidate for candidate in unique if candidate.is_future]
-        eligible = [candidate for candidate in unique if not candidate.is_future]
         inserted: list[_PreparedItem] = []
         reused_ids: list[str] = []
+        rejected_future = 0
+        deduplicated = 0
         try:
-            # Classification happens only after complete batch validation and before writes.
-            for candidate in eligible:
+            # Load and validate stored authority once per canonical identity before classifying any
+            # incoming duplicate.  Stable ID order also makes receipt ordering input-independent.
+            existing_by_id: dict[str, RawItem | None] = {}
+            for raw_id in sorted(groups):
                 row = self._db.query(
                     "SELECT raw_item_id, payload, source_id, content_hash, published_at, "
                     "retrieved_at, access_status FROM raw_items WHERE raw_item_id = ?",
-                    (candidate.item.raw_item_id,),
+                    (raw_id,),
                 )
                 if not row:
-                    inserted.append(candidate)
+                    existing_by_id[raw_id] = None
                     continue
                 existing = self._load_existing(row[0])
-                if _identity_components(existing) != candidate.identity:
+                if _identity_components(existing) != identities[raw_id]:
                     raise AcquisitionStepFailure("PERSIST_FAILED")
-                reused_ids.append(candidate.item.raw_item_id)
+                existing_by_id[raw_id] = existing
+
+            for raw_id in sorted(groups):
+                candidates = groups[raw_id]
+                existing = existing_by_id[raw_id]
+                stored_is_future = (
+                    existing is not None
+                    and parse_iso(existing.published_at) > authoritative_as_of
+                )
+                eligible = [
+                    candidate for candidate in candidates
+                    if not candidate.is_future and not stored_is_future
+                ]
+                rejected_future += len(candidates) - len(eligible)
+                if not eligible:
+                    continue
+                representative = self._choose_representative(eligible)
+                deduplicated += len(eligible) - 1
+                if existing is None:
+                    inserted.append(representative)
+                else:
+                    reused_ids.append(raw_id)
 
             route_payload = self._dump(prepared_route.model_dump())
             with self._db.transaction() as conn:
@@ -162,7 +195,7 @@ class AcquisitionRepository:
         return AcquisitionPersistenceResult(
             inserted_raw_item_ids=tuple(candidate.item.raw_item_id for candidate in inserted),
             reused_raw_item_ids=tuple(reused_ids),
-            rejected_future_item_count=len(future),
+            rejected_future_item_count=rejected_future,
             deduplicated_input_count=deduplicated,
         )
 
@@ -186,10 +219,13 @@ class AcquisitionRepository:
             or checked.missing_fields
         ):
             raise AcquisitionStepFailure("RAW_ITEM_SCHEMA_INVALID")
-        created_at = self._clock()
-        if type(created_at) is not str:
-            raise AcquisitionStepFailure("PERSIST_FAILED")
-        parse_iso(created_at)
+        try:
+            created_at = self._clock()
+            if type(created_at) is not str:
+                raise ValueError("clock must return an ISO string")
+            parse_iso(created_at)
+        except Exception as exc:
+            raise AcquisitionStepFailure("PERSIST_FAILED") from exc
         return checked.model_copy(deep=True), authoritative_as_of, created_at
 
     @staticmethod
@@ -227,6 +263,26 @@ class AcquisitionRepository:
                 item=checked, identity=identity, is_future=published > authoritative_as_of,
             ))
         return prepared
+
+    @classmethod
+    def _choose_representative(cls, candidates: Sequence[_PreparedItem]) -> _PreparedItem:
+        """Choose deterministically; conflicting eligible metadata fails closed."""
+        comparable_payloads = []
+        for candidate in candidates:
+            payload = candidate.item.model_dump()
+            payload.pop("raw_item_id", None)
+            payload.pop("retrieved_at", None)
+            comparable_payloads.append(cls._dump(payload))
+        if len(set(comparable_payloads)) != 1:
+            raise AcquisitionStepFailure("PERSIST_FAILED")
+        return min(
+            candidates,
+            key=lambda candidate: (
+                parse_iso(candidate.item.retrieved_at),
+                candidate.item.retrieved_at,
+                cls._dump(candidate.item.model_dump()),
+            ),
+        )
 
     @staticmethod
     def _load_existing(row: dict[str, Any]) -> RawItem:

@@ -54,8 +54,12 @@ def db(tmp_path):
 
 
 def _persist(repository: AcquisitionRepository, items):
+    return _persist_at(repository, items, AS_OF)
+
+
+def _persist_at(repository: AcquisitionRepository, items, as_of):
     return repository.persist_batch(
-        task_id="task-1", step_id="step-1", as_of=AS_OF,
+        task_id="task-1", step_id="step-1", as_of=as_of,
         route=_route(), items=tuple(items),
     )
 
@@ -70,6 +74,22 @@ def test_canonical_url_performs_only_frozen_normalization():
     )
     with pytest.raises(ValueError):
         canonicalize_http_url("ftp://example.com/file")
+
+
+@pytest.mark.parametrize("dirty", [
+    " https://example.com/x", "https://example.com/x ",
+    "\x00https://example.com/x", "https://example.com/\x1fx",
+    "https://example.com/a b", "https://example.com/a\tb",
+    "https://example.com/a\rb", "https://example.com/a\nb",
+    "https://example.com/x\x7f",
+])
+def test_urlsplit_silent_cleanup_inputs_are_rejected_not_canonicalized(dirty):
+    clean = "https://example.com/x"
+    assert canonicalize_http_url(clean) == clean
+    with pytest.raises(ValueError):
+        canonicalize_http_url(dirty)
+    with pytest.raises(ValueError):
+        stable_raw_item_id(_item(external_id=None, url=dirty))
 
 
 def test_stable_identity_uses_external_id_or_canonical_http_url():
@@ -109,7 +129,7 @@ def test_replay_reuses_first_payload_and_changed_content_is_new_version(db):
     assert db.count("data_routes") == 3
 
 
-def test_duplicate_normalized_items_are_first_wins_and_accounted(db):
+def test_duplicate_normalized_items_choose_earliest_retrieval_and_are_accounted(db):
     repository = AcquisitionRepository(db)
     result = _persist(repository, [
         _item(retrieved_at=RETRIEVED),
@@ -118,6 +138,15 @@ def test_duplicate_normalized_items_are_first_wins_and_accounted(db):
     assert len(result.inserted_raw_item_ids) == 1
     assert result.deduplicated_input_count == 1
     assert db.get("raw_items", result.inserted_raw_item_ids[0])["retrieved_at"] == RETRIEVED
+
+
+def test_eligible_same_identity_with_conflicting_metadata_fails_closed(db):
+    first = _item()
+    conflicting = _item().model_copy(update={"title": "different metadata"})
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(AcquisitionRepository(db), [first, conflicting])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert db.count("raw_items") == db.count("data_routes") == 0
 
 
 def test_intra_batch_uuid_collision_with_different_identity_fails_before_write(
@@ -148,6 +177,50 @@ def test_future_items_compare_instants_and_are_not_written(db):
     assert len(result.inserted_raw_item_ids) == 1
     assert db.count("raw_items") == 1
     assert db.count("data_routes") == 1
+
+
+def test_stored_publication_is_authoritative_for_cross_as_of_replay(db):
+    repository = AcquisitionRepository(db)
+    stored = _item(published_at="2026-08-16T10:00:00+08:00")
+    raw_id = _persist_at(
+        repository, [stored], "2026-08-16T11:00:00+08:00",
+    ).inserted_raw_item_ids[0]
+    incoming_claims_earlier = _item(published_at="2026-08-16T09:00:00+08:00")
+    result = _persist(repository, [incoming_claims_earlier])
+    assert result.rejected_future_item_count == 1
+    assert result.reused_raw_item_ids == result.inserted_raw_item_ids == ()
+    assert result.deduplicated_input_count == 0
+    assert db.get("raw_items", raw_id)["published_at"] == stored.published_at
+    assert db.count("raw_items") == 1
+    assert db.count("data_routes") == 2
+
+
+def test_mixed_offset_future_and_eligible_duplicates_are_order_independent(tmp_path):
+    future = _item(
+        published_at="2026-08-16T01:31:00Z",
+        retrieved_at="2026-08-16T12:00:00+08:00",
+    )
+    eligible = _item(
+        published_at="2026-08-16T09:00:00+08:00",
+        retrieved_at="2026-08-16T10:00:00+08:00",
+    )
+    observations = []
+    for index, ordered in enumerate(((future, eligible), (eligible, future))):
+        local_db = Database(tmp_path / f"order-{index}.db")
+        local_db.initialize()
+        result = _persist(AcquisitionRepository(local_db), ordered)
+        stored = local_db.get("raw_items", result.inserted_raw_item_ids[0])
+        observations.append((
+            result.inserted_raw_item_ids, result.reused_raw_item_ids,
+            result.rejected_future_item_count, result.deduplicated_input_count,
+            stored,
+        ))
+        assert (
+            len(result.inserted_raw_item_ids) + len(result.reused_raw_item_ids)
+            + result.rejected_future_item_count + result.deduplicated_input_count
+        ) == len(ordered)
+        local_db.close()
+    assert observations[0] == observations[1]
 
 
 @pytest.mark.parametrize("field,value", [
@@ -272,3 +345,42 @@ def test_repository_never_uses_generic_upsert(db, monkeypatch):
     monkeypatch.setattr(db, "upsert", lambda *args, **kwargs: pytest.fail("upsert called"))
     _persist(AcquisitionRepository(db), [_item()])
     assert db.count("raw_items") == db.count("data_routes") == 1
+
+
+@pytest.mark.parametrize("inject_insert_failure", [False, True])
+def test_caller_owned_transaction_is_rejected_without_query_write_or_cleanup(
+    db, monkeypatch, inject_insert_failure,
+):
+    repository = AcquisitionRepository(db)
+    called = []
+    if inject_insert_failure:
+        monkeypatch.setattr(
+            repository, "_insert_raw_item",
+            lambda *args: (called.append(True), (_ for _ in ()).throw(RuntimeError()))[1],
+        )
+    conn = db._conn
+    conn.execute("BEGIN")
+    conn.execute(
+        "INSERT INTO sources (source_id, name, payload, status, last_verified_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("caller-row", "caller", "{}", "disabled", None),
+    )
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(repository, [_item()])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert conn.in_transaction is True
+    assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM raw_items").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM data_routes").fetchone()[0] == 0
+    assert called == []
+    conn.execute("ROLLBACK")
+    assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("clock_value", [object(), "not-a-time", ""])
+def test_invalid_clock_output_is_always_persistence_failure(db, clock_value):
+    repository = AcquisitionRepository(db, clock=lambda: clock_value)
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(repository, [_item()])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert db.count("raw_items") == db.count("data_routes") == 0
