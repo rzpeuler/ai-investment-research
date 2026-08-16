@@ -31,6 +31,12 @@ from research_os.validators.schema_validator import validate_instance
 
 _EXECUTION_NAMESPACE = uuid.UUID("20509024-d8a9-5a6d-82f1-bb2266fd66b7")
 _FOUNDATION_ACTIONS = ("route_existing_sources",)
+_SCENARIOS = {
+    "morning_brief", "evening_brief", "daily_review",
+    "abnormal_move_analysis", "stock_research_report", "first_coverage",
+    "stock_review", "industry_research", "theme_discovery",
+    "earnings_expectation",
+}
 _KNOWN_ACTIONS = {
     "route_existing_sources", "derive_existing", "request_manual_input",
     "request_human_review", "governed_workflow", "unavailable",
@@ -69,6 +75,7 @@ class AcquisitionPersistenceResult:
     inserted_raw_item_ids: tuple[str, ...]
     reused_raw_item_ids: tuple[str, ...]
     rejected_future_item_count: int = 0
+    deduplicated_input_count: int = 0
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -87,6 +94,8 @@ class AcquisitionPersistenceResult:
             raise ValueError("inserted and reused RawItem IDs must be disjoint")
         if type(self.rejected_future_item_count) is not int or self.rejected_future_item_count < 0:
             raise ValueError("rejected_future_item_count must be a nonnegative integer")
+        if type(self.deduplicated_input_count) is not int or self.deduplicated_input_count < 0:
+            raise ValueError("deduplicated_input_count must be a nonnegative integer")
         object.__setattr__(self, "inserted_raw_item_ids", inserted)
         object.__setattr__(self, "reused_raw_item_ids", reused)
         object.__setattr__(self, "warnings", warnings)
@@ -173,12 +182,32 @@ class AcquisitionExecutionService:
         """Return a complete audit; ordinary acquisition failures never escape this boundary."""
         started_at = self._clock()
         payload = self._snapshot_payload(plan)
-        audit_as_of = self._audit_as_of(as_of, payload, started_at)
         plan_sha256 = self._plan_sha256(payload)
+        invocation_valid = self._invocation_context_is_valid(task_id, scenario, as_of)
+        if invocation_valid:
+            audit_task_id = task_id
+            audit_scenario = scenario
+            audit_as_of = as_of
+        else:
+            safe_plan = self._schema_valid_plan(payload)
+            if safe_plan is None:
+                raise ValueError(
+                    "invalid invocation and plan provide no schema-safe audit envelope"
+                )
+            audit_task_id = safe_plan.task_id
+            audit_scenario = safe_plan.scenario
+            audit_as_of = safe_plan.as_of
         execution_id = str(uuid.uuid5(
-            _EXECUTION_NAMESPACE, f"{task_id}:{plan_sha256}",
+            _EXECUTION_NAMESPACE, f"{audit_task_id}:{plan_sha256}",
         ))
         audit_steps = self._parse_auditable_steps(payload)
+
+        if not invocation_valid:
+            return self._global_rejection(
+                audit_steps, "CONTROL_PLANE_CONFIGURATION_ERROR", execution_id,
+                audit_task_id, audit_scenario, audit_as_of, plan_sha256, started_at,
+                error_component="invocation_context",
+            )
 
         # Fixed global gate order.  None of these paths can reach Router or repository.
         if type(dry_run) is not bool:
@@ -357,6 +386,7 @@ class AcquisitionExecutionService:
                 len(persisted.inserted_raw_item_ids)
                 + len(persisted.reused_raw_item_ids)
                 + persisted.rejected_future_item_count
+                + persisted.deduplicated_input_count
             )
             if accounted != len(batch.items):
                 raise ValueError("persistence result does not account for the routed batch")
@@ -539,17 +569,27 @@ class AcquisitionExecutionService:
             return False
 
     @staticmethod
-    def _audit_as_of(
-        invocation_as_of: Any, payload: Mapping[str, Any], started_at: str,
-    ) -> str:
-        for candidate in (invocation_as_of, payload.get("as_of"), started_at):
-            if isinstance(candidate, str):
-                try:
-                    parse_iso(candidate)
-                    return candidate
-                except ValueError:
-                    pass
-        return "1970-01-01T00:00:00+08:00"
+    def _invocation_context_is_valid(task_id: Any, scenario: Any, as_of: Any) -> bool:
+        if type(task_id) is not str or not task_id:
+            return False
+        if type(scenario) is not str or scenario not in _SCENARIOS:
+            return False
+        if type(as_of) is not str:
+            return False
+        try:
+            parse_iso(as_of)
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _schema_valid_plan(payload: Mapping[str, Any]) -> AcquisitionPlan | None:
+        try:
+            if validate_instance(payload, "acquisition_plan"):
+                return None
+            return AcquisitionPlan.model_validate(payload)
+        except Exception:  # noqa: BLE001 -- untrusted plan cannot escape validation
+            return None
 
     def _requirement_ids(self, scenario: str) -> tuple[list[str], bool]:
         try:

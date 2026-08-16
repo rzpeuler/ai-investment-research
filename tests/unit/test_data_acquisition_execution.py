@@ -302,9 +302,39 @@ def test_malformed_authoritative_as_of_fails_closed_with_valid_audit():
         _service(router=router, repository=repository), as_of="not-a-time",
     )
     assert result.status == "not_executable"
-    assert result.steps[0].reason_codes == ["PLAN_CONTEXT_MISMATCH"]
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
     assert result.as_of == AS_OF
     assert router.calls == repository.calls == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("task_id", ""), ("task_id", None),
+        ("scenario", "unknown_scenario"), ("scenario", None),
+    ],
+)
+def test_invalid_invocation_identity_uses_valid_plan_only_as_safe_audit_envelope(
+    field, value,
+):
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(router=router, repository=repository), **{field: value},
+    )
+    assert result.status == "not_executable"
+    assert result.task_id == "task-1"
+    assert result.scenario == "morning_brief"
+    assert result.as_of == AS_OF
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
+    assert router.calls == repository.calls == []
+
+
+def test_fully_malformed_invocation_and_plan_without_safe_envelope_raises():
+    with pytest.raises(ValueError, match="schema-safe audit envelope"):
+        _execute(
+            _service(), plan={"not": "a plan"}, task_id=None,
+            scenario=None, as_of=None,
+        )
 
 
 def test_plan_is_not_mutated_and_identity_is_canonical_and_stable():
@@ -466,6 +496,28 @@ def test_persistence_result_defensively_copies_mutable_sequences():
     assert value.inserted_raw_item_ids == ("inserted",)
     assert value.reused_raw_item_ids == ("reused",)
     assert value.warnings == ("warning",)
+
+
+@pytest.mark.parametrize("reused", [False, True])
+def test_intra_batch_duplicates_are_accounted_without_false_failure(reused):
+    persistence = AcquisitionPersistenceResult(
+        inserted_raw_item_ids=() if reused else ("raw-1",),
+        reused_raw_item_ids=("raw-1",) if reused else (),
+        deduplicated_input_count=1,
+    )
+    result = _execute(_service(
+        router=_Router(_batch(items=("same", "same"))),
+        repository=_Repository(persistence),
+    ))
+    assert result.status == "completed"
+    assert result.steps[0].inserted_count == (0 if reused else 1)
+    assert result.steps[0].reused_count == (1 if reused else 0)
+
+
+@pytest.mark.parametrize("deduplicated", [-1, True, 1.5])
+def test_persistence_result_rejects_invalid_deduplicated_count(deduplicated):
+    with pytest.raises(ValueError):
+        AcquisitionPersistenceResult((), (), deduplicated_input_count=deduplicated)
 
 
 @pytest.mark.parametrize(
