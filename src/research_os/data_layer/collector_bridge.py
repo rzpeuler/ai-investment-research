@@ -19,8 +19,8 @@ class CollectorBridgeError(RuntimeError):
 
 
 _SECRET_KEY = (
-    r"(?:authorization|cookie|set[-_]cookie|"
-    r"(?:[a-z0-9]+[-_])*api[-_]?key|[a-z0-9_-]*token|password|secret)"
+    r"(?:(?:[a-z0-9]+[-_])*api[-_]?key|"
+    r"[a-z0-9_-]*(?:authorization|cookie|secret|password|token))"
 )
 _OPTIONAL_ESCAPED_QUOTE = r"(?:\\[\"']|[\"'])?"
 _SENSITIVE_ASSIGNMENT = re.compile(

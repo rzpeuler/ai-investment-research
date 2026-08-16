@@ -234,6 +234,20 @@ def test_routed_batch_defensively_isolates_fetcher_mutables(requirements):
     assert "batch route mutation" not in fresh.route.warnings
 
 
+def test_legacy_resolve_does_not_copy_discarded_fetch_items(requirements):
+    class UncopyableItem:
+        def __deepcopy__(self, memo):
+            raise RuntimeError("item snapshot prohibited")
+
+    def fetcher(query, time_window):
+        return [UncopyableItem()], {"title", "published_at", "url"}
+
+    router = Router(requirements, {"primary": fetcher})
+    assert router.resolve("document").status == "success"
+    with pytest.raises(RuntimeError, match="item snapshot prohibited"):
+        router.resolve_with_items("document")
+
+
 def _raw(source_id: str, suffix: str) -> RawItem:
     return RawItem(
         raw_item_id=f"00000000-0000-0000-0000-{int(suffix):012d}",
@@ -379,6 +393,12 @@ def test_bridge_invalid_raw_item_fails_closed():
         ("headers={'X-Auth-Token': 'x-auth-token-secret'}", "x-auth-token-secret"),
         ('headers={"X-CSRF-Token": "csrf-token-secret"}', "csrf-token-secret"),
         ("headers={'session_token': 'session-token-secret'}", "session-token-secret"),
+        ("client_secret=client-secret-value", "client-secret-value"),
+        ("db-password='database-password-value'", "database-password-value"),
+        ('{"Proxy-Authorization": "Basic proxy-secret"}', "proxy-secret"),
+        ("headers={'session_cookie': 'session-cookie-value'}", "session-cookie-value"),
+        ("client-secret=hyphenated-client-secret", "hyphenated-client-secret"),
+        ("db_password=underscore-password-value", "underscore-password-value"),
         ("id_token=plain-id-token-secret", "plain-id-token-secret"),
         ("token=plain-token-secret", "plain-token-secret"),
         (r'{\"Authorization\": \"Basic escaped-secret\"}', "escaped-secret"),

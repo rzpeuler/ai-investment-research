@@ -46,7 +46,9 @@ class Router:
     def resolve(self, data_type: str, query: Optional[Dict[str, Any]] = None,
                 time_window: Optional[Dict[str, Optional[str]]] = None) -> DataRoute:
         """兼容接口：返回既有 DataRoute，语义保持不变。"""
-        return self._resolve(data_type, query, time_window).route
+        return self._resolve(
+            data_type, query, time_window, snapshot_items=False
+        ).route
 
     def resolve_with_items(
         self,
@@ -55,13 +57,15 @@ class Router:
         time_window: Optional[Dict[str, Optional[str]]] = None,
     ) -> RoutedDataBatch:
         """返回路由审计及被选中来源的规范化数据。"""
-        return self._resolve(data_type, query, time_window)
+        return self._resolve(data_type, query, time_window, snapshot_items=True)
 
     def _resolve(
         self,
         data_type: str,
         query: Optional[Dict[str, Any]],
         time_window: Optional[Dict[str, Optional[str]]],
+        *,
+        snapshot_items: bool,
     ) -> RoutedDataBatch:
         """唯一主备/兜底路由算法，供两个公开接口共同使用。"""
         req = self.requirements.get(data_type)
@@ -146,11 +150,12 @@ class Router:
         errs = validate_instance(route.model_dump(), "data_route")
         if errs:
             raise ValueError(f"DataRoute 未通过 Schema 校验: {errs}")
+        include_selected_data = selected is not None and snapshot_items
         return RoutedDataBatch(
             route=route.model_copy(deep=True),
-            items=tuple(deepcopy(items)) if selected is not None else (),
+            items=tuple(deepcopy(items)) if include_selected_data else (),
             fields_present=(
                 frozenset(deepcopy(fields_present))
-                if selected is not None else frozenset()
+                if include_selected_data else frozenset()
             ),
         )
