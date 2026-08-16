@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from research_os.models import DataRoute
@@ -20,6 +21,15 @@ from research_os.validators.schema_validator import validate_instance
 # fetcher: (query, time_window) -> (items: list, fields_present: set[str])
 FetchCallable = Callable[[Dict[str, Any], Dict[str, Optional[str]]],
                          Tuple[List[Any], set[str]]]
+
+
+@dataclass(frozen=True)
+class RoutedDataBatch:
+    """一次既有路由决策及其选中来源数据（非持久化权威对象）。"""
+
+    route: DataRoute
+    items: List[Any]
+    fields_present: set[str]
 
 
 class Router:
@@ -34,6 +44,25 @@ class Router:
 
     def resolve(self, data_type: str, query: Optional[Dict[str, Any]] = None,
                 time_window: Optional[Dict[str, Optional[str]]] = None) -> DataRoute:
+        """兼容接口：返回既有 DataRoute，语义保持不变。"""
+        return self._resolve(data_type, query, time_window).route
+
+    def resolve_with_items(
+        self,
+        data_type: str,
+        query: Optional[Dict[str, Any]] = None,
+        time_window: Optional[Dict[str, Optional[str]]] = None,
+    ) -> RoutedDataBatch:
+        """返回路由审计及被选中来源的规范化数据。"""
+        return self._resolve(data_type, query, time_window)
+
+    def _resolve(
+        self,
+        data_type: str,
+        query: Optional[Dict[str, Any]],
+        time_window: Optional[Dict[str, Optional[str]]],
+    ) -> RoutedDataBatch:
+        """唯一主备/兜底路由算法，供两个公开接口共同使用。"""
         req = self.requirements.get(data_type)
         if req is None:
             raise KeyError(f"未登记数据类型: {data_type}")
@@ -116,4 +145,8 @@ class Router:
         errs = validate_instance(route.model_dump(), "data_route")
         if errs:
             raise ValueError(f"DataRoute 未通过 Schema 校验: {errs}")
-        return route
+        return RoutedDataBatch(
+            route=route,
+            items=items if selected is not None else [],
+            fields_present=set(fields_present) if selected is not None else set(),
+        )
