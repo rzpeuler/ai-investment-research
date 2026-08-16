@@ -286,6 +286,9 @@ def test_bridge_invalid_raw_item_fails_closed():
         ("api_key='api-key-secret'", "api-key-secret"),
         ('headers={"access_token": "access-token-secret"}', "access-token-secret"),
         ("headers={'X-Auth-Token': 'x-auth-token-secret'}", "x-auth-token-secret"),
+        ('headers={"X-CSRF-Token": "csrf-token-secret"}', "csrf-token-secret"),
+        ("headers={'session_token': 'session-token-secret'}", "session-token-secret"),
+        ("id_token=plain-id-token-secret", "plain-id-token-secret"),
         ("token=plain-token-secret", "plain-token-secret"),
     ],
 )

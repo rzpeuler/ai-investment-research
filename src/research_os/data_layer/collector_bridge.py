@@ -19,9 +19,8 @@ class CollectorBridgeError(RuntimeError):
 
 
 _SECRET_KEY = (
-    r"(?:authorization|cookie|set-cookie|x-api-key|api[_-]?key|"
-    r"x-(?:auth|access)-token|auth[_-]?token|access[_-]?token|"
-    r"refresh[_-]?token|token|password|secret)"
+    r"(?:authorization|cookie|set[-_]cookie|"
+    r"(?:[a-z0-9]+[-_])*api[-_]?key|[a-z0-9_-]*token|password|secret)"
 )
 _QUOTED_SECRET_ASSIGNMENT = re.compile(
     rf"(?i)(?P<prefix>(?:[\"']{_SECRET_KEY}[\"']|{_SECRET_KEY})"
