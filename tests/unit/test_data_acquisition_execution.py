@@ -127,6 +127,9 @@ def _execute(service, plan=None, **overrides):
     args = dict(
         plan=plan or _plan(), task_id="task-1", scenario="morning_brief",
         as_of=AS_OF, dry_run=False, live_authorized=True,
+        route_inputs={"req-1": RouteExecutionInput(
+            query={}, time_window={"start": None, "end": AS_OF},
+        )},
     )
     args.update(overrides)
     return service.execute(**args)
@@ -201,6 +204,39 @@ def test_step_gates_are_zero_io(requirements, capabilities, data_type, reason):
     assert repository.calls == []
 
 
+def test_all_route_step_gates_are_preflighted_before_any_io():
+    class Requirements:
+        def get(self, requirement_id):
+            return _Requirement() if requirement_id == "req-1" else None
+
+        def for_scenario(self, scenario):
+            return [_Requirement()]
+
+    plan = _plan()
+    plan.steps.append(AcquisitionStep(
+        step_id="step-2", requirement_id="missing", data_type="fake_data",
+        action="route_existing_sources", dependencies=[], status="pending", warnings=[],
+    ))
+    plan.steps.append(AcquisitionStep(
+        step_id="step-3", requirement_id="manual", data_type="manual",
+        action="request_manual_input", dependencies=[], status="pending", warnings=[],
+    ))
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(requirements=Requirements(), router=router, repository=repository),
+        plan=plan,
+    )
+    assert router.calls == repository.calls == []
+    assert [step.status for step in result.steps] == [
+        "not_executable", "not_executable", "skipped",
+    ]
+    assert [step.reason_codes for step in result.steps] == [
+        ["CONTROL_PLANE_CONFIGURATION_ERROR"],
+        ["REQUIREMENT_NOT_FOUND"],
+        ["ACTION_SKIPPED"],
+    ]
+
+
 def test_invalid_in_memory_policy_fails_closed_before_io():
     router, repository = _Router(), _Repository()
     service = _service(
@@ -264,6 +300,39 @@ def test_route_input_and_persistence_result_are_reported_exactly():
     assert repository.calls[0]["task_id"] == "task-1"
 
 
+@pytest.mark.parametrize(
+    "route_inputs",
+    [
+        {},
+        {"req-1": RouteExecutionInput(query={}, time_window={})},
+        {"req-1": RouteExecutionInput(query={}, time_window={"end": "not-a-time"})},
+        {"req-1": RouteExecutionInput(
+            query={}, time_window={"end": "2026-08-16T09:31:00+08:00"},
+        )},
+    ],
+)
+def test_missing_or_invalid_route_context_fails_before_io(route_inputs):
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(router=router, repository=repository), route_inputs=route_inputs,
+    )
+    assert result.status == "not_executable"
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
+    assert router.calls == repository.calls == []
+
+
+def test_route_window_end_accepts_equivalent_timezone_instant():
+    router = _Router()
+    result = _execute(
+        _service(router=router),
+        route_inputs={"req-1": RouteExecutionInput(
+            query={}, time_window={"end": "2026-08-16T01:30:00Z"},
+        )},
+    )
+    assert result.status == "completed"
+    assert len(router.calls) == 1
+
+
 def test_empty_result_persists_route_audit_and_is_partial_success():
     router = _Router(_batch(items=()))
     repository = _Repository(AcquisitionPersistenceResult((), ()))
@@ -284,15 +353,121 @@ def test_route_unavailable_is_failed_and_never_persists():
     assert repository.calls == []
 
 
-def test_status_aggregation_is_exact_for_mixed_steps():
+@pytest.mark.parametrize(
+    "route",
+    [
+        DataRoute(
+            data_type="other", requested_sources=["fake-source"],
+            attempted_sources=["fake-source"], selected_source="fake-source",
+            fallback_used=False, status="success", missing_fields=[], warnings=[],
+        ),
+        DataRoute(
+            data_type="fake_data", requested_sources=["fake-source"],
+            attempted_sources=["fake-source"], selected_source="fake-source",
+            fallback_used=False, status="failed", missing_fields=[], warnings=[],
+        ),
+        DataRoute(
+            data_type="fake_data", requested_sources=["fake-source"],
+            attempted_sources=["fake-source"], selected_source="fake-source",
+            fallback_used=False, status="insufficient_data", missing_fields=[], warnings=[],
+        ),
+        DataRoute(
+            data_type="fake_data", requested_sources=["fake-source"],
+            attempted_sources=["fake-source"], selected_source="",
+            fallback_used=False, status="success", missing_fields=[], warnings=[],
+        ),
+        DataRoute(
+            data_type="fake_data", requested_sources=["fake-source"],
+            attempted_sources=["fake-source"], selected_source="fake-source",
+            fallback_used=False, status="degraded", missing_fields=["published_at"], warnings=[],
+        ),
+        DataRoute.model_construct(
+            data_type="fake_data", requested_sources=["fake-source"],
+            attempted_sources=["fake-source"], selected_source="fake-source",
+            fallback_used="not-boolean", status="success", missing_fields=[], warnings=[],
+        ),
+    ],
+)
+def test_ineligible_or_schema_invalid_route_never_reaches_repository(route):
+    router = _Router(RoutedDataBatch(
+        route=route, items=(object(),), fields_present=frozenset(),
+    ))
+    repository = _Repository()
+    result = _execute(_service(router=router, repository=repository))
+    assert result.status == "failed"
+    assert result.steps[0].reason_codes == ["ROUTE_UNAVAILABLE"]
+    assert repository.calls == []
+
+
+def test_route_and_persistence_warnings_are_sanitized_without_losing_safe_warnings():
+    route = _route()
+    route.warnings = [
+        "fallback source used",
+        "token expired",
+        "primary failed Authorization: Bearer super-secret",
+        "fallback failed Bearer loose-secret",
+        "headers: {'Cookie': 'session=super-secret'}",
+        "payload: complete upstream response",
+    ]
+    repository = _Repository(AcquisitionPersistenceResult(
+        ("raw-1",), (), warnings=(
+            "reused canonical identity",
+            "api_key=super-secret",
+            "<html>complete private page</html>",
+        ),
+    ))
+    result = _execute(_service(
+        router=_Router(RoutedDataBatch(route, (object(),), frozenset())),
+        repository=repository,
+    ))
+    dumped = str(result.model_dump())
+    assert "super-secret" not in dumped
+    assert "loose-secret" not in dumped
+    assert "complete private page" not in dumped
+    assert "complete upstream response" not in dumped
+    assert "fallback source used" in result.steps[0].route.warnings
+    assert "token expired" in result.steps[0].route.warnings
+    assert "reused canonical identity" in result.steps[0].warnings
+    assert repository.calls[0]["route"].warnings.count("[REDACTED]") == 4
+
+
+def test_route_gate_failure_prevents_an_earlier_valid_route_step_from_running():
     plan = _plan()
     plan.steps.append(AcquisitionStep(
         step_id="step-2", requirement_id="req-2", data_type="other",
         action="route_existing_sources", dependencies=[], status="pending", warnings=[],
     ))
     result = _execute(_service(), plan=plan)
-    assert [s.status for s in result.steps] == ["completed", "not_executable"]
-    assert result.status == "partial_success"
+    assert [s.status for s in result.steps] == ["not_executable", "not_executable"]
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
+    assert result.steps[1].reason_codes == ["REQUIREMENT_NOT_FOUND"]
+    assert result.status == "not_executable"
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected"),
+    [
+        ([], "completed"),
+        (["skipped"], "completed"),
+        (["not_executable"], "not_executable"),
+        (["not_executable", "skipped"], "not_executable"),
+        (["failed"], "failed"),
+        (["failed", "skipped"], "failed"),
+        (["failed", "not_executable"], "failed"),
+        (["completed", "failed"], "partial_success"),
+        (["completed", "not_executable"], "partial_success"),
+        (["partial_success", "failed"], "partial_success"),
+        (["partial_success", "not_executable"], "partial_success"),
+    ],
+)
+def test_exact_overall_status_matrix(statuses, expected):
+    steps = [
+        AcquisitionExecutionService._step(
+            _plan("request_manual_input").steps[0], status, (),
+        )
+        for status in statuses
+    ]
+    assert AcquisitionExecutionService._aggregate(steps) == expected
 
 
 @pytest.mark.parametrize(

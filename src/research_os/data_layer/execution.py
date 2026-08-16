@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
@@ -25,7 +26,7 @@ from research_os.models import (
     DataRoute,
 )
 from research_os.routing.router import RoutedDataBatch
-from research_os.utils.time import now_iso
+from research_os.utils.time import now_iso, parse_iso
 from research_os.validators.schema_validator import validate_instance
 
 
@@ -43,6 +44,16 @@ _REASON_CODES = {
     "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
     "CONTROL_PLANE_CONFIGURATION_ERROR",
 }
+_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)(?<![a-z0-9_-])(?:\\[\"']|[\"'])?"
+    r"(?:(?:[a-z0-9]+[-_])*api[-_]?key|"
+    r"[a-z0-9_-]*(?:authorization|cookie|secret|password|token))"
+    r"(?:\\[\"']|[\"'])?\s*[:=]"
+)
+_UNTRUSTED_BODY_MARKER = re.compile(
+    r"(?i)(?:<html\b|\b(?:response[_ -]?body|payload|headers?)\s*[:=])"
+)
+_AUTH_SCHEME_VALUE = re.compile(r"(?i)\b(?:bearer|basic)\s+\S+")
 
 
 @dataclass(frozen=True)
@@ -202,7 +213,44 @@ class AcquisitionExecutionService:
                 error_component="requirement_registry",
             )
 
-        inputs = dict(route_inputs or {})
+        try:
+            inputs = dict(route_inputs or {})
+        except (TypeError, ValueError):
+            inputs = {}
+        preflight: list[AcquisitionExecutionReason | None] = []
+        has_rejected_route_step = False
+        for step in checked_plan.steps:
+            if step.action != "route_existing_sources":
+                preflight.append(None)
+                continue
+            rejection = self._route_step_rejection(
+                step, scenario=scenario, as_of=as_of,
+                route_input=inputs.get(step.requirement_id),
+            )
+            preflight.append(rejection)
+            has_rejected_route_step = has_rejected_route_step or rejection is not None
+
+        # A plan is a single pre-network control-plane unit.  One rejected route step prevents
+        # earlier valid route steps from performing I/O before the rejection is discovered.
+        if has_rejected_route_step:
+            rejected_results = []
+            for step, rejection in zip(checked_plan.steps, preflight):
+                if step.action != "route_existing_sources":
+                    rejected_results.append(self._step(
+                        step, "skipped", ("ACTION_SKIPPED",),
+                    ))
+                else:
+                    rejected_results.append(self._step(
+                        step, "not_executable",
+                        (rejection or "CONTROL_PLANE_CONFIGURATION_ERROR",),
+                    ))
+            return self._result(
+                execution_id=execution_id, task_id=task_id, scenario=scenario,
+                as_of=as_of, plan_sha256=plan_sha256, started_at=started_at,
+                status=self._aggregate(rejected_results), steps=rejected_results,
+                readiness_ids=requirement_ids,
+            )
+
         step_results = [
             self._execute_step(step, task_id=task_id, scenario=scenario, as_of=as_of,
                                route_input=inputs.get(step.requirement_id))
@@ -226,31 +274,9 @@ class AcquisitionExecutionService:
     ) -> AcquisitionExecutionStepResult:
         if step.action != "route_existing_sources":
             return self._step(step, "skipped", ("ACTION_SKIPPED",))
-
-        try:
-            requirement = self._requirements.get(step.requirement_id)
-        except Exception:  # noqa: BLE001
-            requirement = None
-        if requirement is None or getattr(requirement, "scenario", None) != scenario:
-            return self._step(step, "not_executable", ("REQUIREMENT_NOT_FOUND",))
-        if getattr(requirement, "data_type", None) != step.data_type:
-            return self._step(step, "not_executable", ("DATA_TYPE_MISMATCH",))
-        try:
-            capability = self._capabilities.get(step.data_type)
-        except Exception:  # noqa: BLE001
-            capability = None
-        if (
-            capability is None
-            or getattr(capability, "automatic_acquisition_lifecycle", None)
-            != "BUSINESS_SUFFICIENT"
-        ):
-            return self._step(
-                step, "not_executable", ("CAPABILITY_NOT_BUSINESS_SUFFICIENT",),
-            )
-
-        router_input = route_input or RouteExecutionInput(
-            query={}, time_window={"start": None, "end": as_of},
-        )
+        # All route steps were validated as one unit before this method was entered.
+        assert route_input is not None
+        router_input = route_input
         try:
             batch = self._router.resolve_with_items(
                 step.data_type,
@@ -265,11 +291,25 @@ class AcquisitionExecutionService:
                 errors=(self._error("ROUTE_UNAVAILABLE", "route resolution failed", "router"),),
             )
 
-        route = batch.route.model_copy(deep=True)
-        if route.selected_source is None:
-            return self._step(
-                step, "failed", ("ROUTE_UNAVAILABLE",), route=route,
+        try:
+            route_payload = batch.route.model_dump()
+            selected_source = batch.route.selected_source
+            route_eligible = (
+                not validate_instance(route_payload, "data_route")
+                and batch.route.data_type == step.data_type
+                and isinstance(selected_source, str)
+                and bool(selected_source.strip())
+                and batch.route.status in {"success", "degraded"}
+                and not batch.route.missing_fields
             )
+        except Exception:  # noqa: BLE001 -- malformed collaborator object fails closed
+            route_eligible = False
+        if not route_eligible:
+            return self._step(
+                step, "failed", ("ROUTE_UNAVAILABLE",),
+            )
+        route = batch.route.model_copy(deep=True)
+        route.warnings = [_sanitize_warning(item) for item in route.warnings]
 
         try:
             persisted = self._repository.persist_batch(
@@ -332,6 +372,42 @@ class AcquisitionExecutionService:
             readiness_ids=requirement_ids, errors=errors,
         )
 
+    def _route_step_rejection(
+        self,
+        step: AcquisitionStep,
+        *,
+        scenario: str,
+        as_of: str,
+        route_input: RouteExecutionInput | None,
+    ) -> AcquisitionExecutionReason | None:
+        try:
+            requirement = self._requirements.get(step.requirement_id)
+        except Exception:  # noqa: BLE001
+            requirement = None
+        if requirement is None or getattr(requirement, "scenario", None) != scenario:
+            return "REQUIREMENT_NOT_FOUND"
+        if getattr(requirement, "data_type", None) != step.data_type:
+            return "DATA_TYPE_MISMATCH"
+        try:
+            capability = self._capabilities.get(step.data_type)
+        except Exception:  # noqa: BLE001
+            capability = None
+        if (
+            capability is None
+            or getattr(capability, "automatic_acquisition_lifecycle", None)
+            != "BUSINESS_SUFFICIENT"
+        ):
+            return "CAPABILITY_NOT_BUSINESS_SUFFICIENT"
+        if not isinstance(route_input, RouteExecutionInput):
+            return "CONTROL_PLANE_CONFIGURATION_ERROR"
+        end = route_input.time_window.get("end")
+        try:
+            if not isinstance(end, str) or parse_iso(end) != parse_iso(as_of):
+                return "CONTROL_PLANE_CONFIGURATION_ERROR"
+        except (TypeError, ValueError):
+            return "CONTROL_PLANE_CONFIGURATION_ERROR"
+        return None
+
     def _result(
         self,
         *,
@@ -375,7 +451,11 @@ class AcquisitionExecutionService:
             inserted_count=len(persisted.inserted_raw_item_ids),
             reused_count=len(persisted.reused_raw_item_ids),
             rejected_future_item_count=persisted.rejected_future_item_count,
-            warnings=list(step.warnings) + list(persisted.warnings), errors=list(errors),
+            warnings=(
+                [_sanitize_warning(item) for item in step.warnings]
+                + [_sanitize_warning(item) for item in persisted.warnings]
+            ),
+            errors=list(errors),
         )
 
     @staticmethod
@@ -438,19 +518,32 @@ class AcquisitionExecutionService:
         if not steps:
             return "completed"
         statuses = [step.status for step in steps]
-        if any(status == "partial_success" for status in statuses):
+        if "partial_success" in statuses:
             return "partial_success"
-        if any(status == "completed" for status in statuses):
-            return "partial_success" if any(
-                status in {"failed", "not_executable"} for status in statuses
-            ) else "completed"
-        if any(status == "failed" for status in statuses):
-            return "partial_success" if any(
-                status in {"skipped", "not_executable"} for status in statuses
-            ) else "failed"
-        if any(status == "not_executable" for status in statuses):
+        if "completed" in statuses:
+            return (
+                "partial_success"
+                if any(status in {"failed", "not_executable"} for status in statuses)
+                else "completed"
+            )
+        if "failed" in statuses:
+            return "failed"
+        if "not_executable" in statuses:
             return "not_executable"
         return "completed"
+
+
+def _sanitize_warning(value: str) -> str:
+    """Preserve ordinary audit context while discarding secrets and response bodies wholesale."""
+    if (
+        not isinstance(value, str)
+        or len(value) > 512
+        or _SENSITIVE_ASSIGNMENT.search(value)
+        or _UNTRUSTED_BODY_MARKER.search(value)
+        or _AUTH_SCHEME_VALUE.search(value)
+    ):
+        return "[REDACTED]"
+    return value
 
 
 __all__ = [
