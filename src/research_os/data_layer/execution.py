@@ -72,14 +72,40 @@ class AcquisitionPersistenceResult:
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if any(not isinstance(item, str) or not item for item in (
-            *self.inserted_raw_item_ids, *self.reused_raw_item_ids,
-        )):
+        inserted = self._normalize_sequence(
+            self.inserted_raw_item_ids, "inserted_raw_item_ids",
+        )
+        reused = self._normalize_sequence(
+            self.reused_raw_item_ids, "reused_raw_item_ids",
+        )
+        warnings = self._normalize_sequence(self.warnings, "warnings", allow_empty_items=True)
+        if any(not item for item in (*inserted, *reused)):
             raise ValueError("persisted RawItem IDs must be nonempty strings")
+        if len(inserted) != len(set(inserted)) or len(reused) != len(set(reused)):
+            raise ValueError("persisted RawItem IDs must be unique within each result set")
+        if set(inserted) & set(reused):
+            raise ValueError("inserted and reused RawItem IDs must be disjoint")
         if type(self.rejected_future_item_count) is not int or self.rejected_future_item_count < 0:
             raise ValueError("rejected_future_item_count must be a nonnegative integer")
-        if any(not isinstance(item, str) for item in self.warnings):
-            raise ValueError("persistence warnings must be strings")
+        object.__setattr__(self, "inserted_raw_item_ids", inserted)
+        object.__setattr__(self, "reused_raw_item_ids", reused)
+        object.__setattr__(self, "warnings", warnings)
+
+    @staticmethod
+    def _normalize_sequence(
+        value: Any, field: str, *, allow_empty_items: bool = False,
+    ) -> tuple[str, ...]:
+        if isinstance(value, (str, bytes, bytearray)):
+            raise TypeError(f"{field} must be a sequence, not a string")
+        try:
+            normalized = tuple(value)
+        except TypeError as exc:
+            raise TypeError(f"{field} must be a sequence") from exc
+        if any(not isinstance(item, str) for item in normalized):
+            raise ValueError(f"{field} must contain only strings")
+        if not allow_empty_items and any(not item for item in normalized):
+            raise ValueError(f"{field} must contain nonempty strings")
+        return normalized
 
 
 class AcquisitionStepFailure(RuntimeError):
@@ -147,6 +173,7 @@ class AcquisitionExecutionService:
         """Return a complete audit; ordinary acquisition failures never escape this boundary."""
         started_at = self._clock()
         payload = self._snapshot_payload(plan)
+        audit_as_of = self._audit_as_of(as_of, payload, started_at)
         plan_sha256 = self._plan_sha256(payload)
         execution_id = str(uuid.uuid5(
             _EXECUTION_NAMESPACE, f"{task_id}:{plan_sha256}",
@@ -154,26 +181,38 @@ class AcquisitionExecutionService:
         audit_steps = self._parse_auditable_steps(payload)
 
         # Fixed global gate order.  None of these paths can reach Router or repository.
+        if type(dry_run) is not bool:
+            return self._global_rejection(
+                audit_steps, "CONTROL_PLANE_CONFIGURATION_ERROR", execution_id,
+                task_id, scenario, audit_as_of, plan_sha256, started_at,
+                error_component="execution_gate",
+            )
         if dry_run:
             return self._global_rejection(
                 audit_steps, "DRY_RUN_PROHIBITS_EXECUTION", execution_id, task_id,
-                scenario, as_of, plan_sha256, started_at,
+                scenario, audit_as_of, plan_sha256, started_at,
             )
         if not self._policy_is_valid():
             return self._global_rejection(
                 audit_steps, "CONTROL_PLANE_CONFIGURATION_ERROR", execution_id,
-                task_id, scenario, as_of, plan_sha256, started_at,
+                task_id, scenario, audit_as_of, plan_sha256, started_at,
                 error_component="execution_policy",
             )
         if not self._policy.enabled:
             return self._global_rejection(
                 audit_steps, "EXECUTION_DISABLED", execution_id, task_id,
-                scenario, as_of, plan_sha256, started_at,
+                scenario, audit_as_of, plan_sha256, started_at,
+            )
+        if type(live_authorized) is not bool:
+            return self._global_rejection(
+                audit_steps, "CONTROL_PLANE_CONFIGURATION_ERROR", execution_id,
+                task_id, scenario, audit_as_of, plan_sha256, started_at,
+                error_component="execution_gate",
             )
         if not live_authorized:
             return self._global_rejection(
                 audit_steps, "LIVE_GATE_DISABLED", execution_id, task_id,
-                scenario, as_of, plan_sha256, started_at,
+                scenario, audit_as_of, plan_sha256, started_at,
             )
 
         schema_errors = validate_instance(payload, "acquisition_plan")
@@ -184,24 +223,24 @@ class AcquisitionExecutionService:
         if checked_plan is None:
             return self._global_rejection(
                 audit_steps, "CONTROL_PLANE_CONFIGURATION_ERROR", execution_id,
-                task_id, scenario, as_of, plan_sha256, started_at,
+                task_id, scenario, audit_as_of, plan_sha256, started_at,
                 error_component="acquisition_plan",
             )
         if (
             checked_plan.task_id != task_id
             or checked_plan.scenario != scenario
-            or checked_plan.as_of != as_of
+            or not self._same_instant(checked_plan.as_of, as_of)
         ):
             return self._global_rejection(
                 list(checked_plan.steps), "PLAN_CONTEXT_MISMATCH", execution_id,
-                task_id, scenario, as_of, plan_sha256, started_at,
+                task_id, scenario, audit_as_of, plan_sha256, started_at,
             )
 
         requirement_ids, registry_error = self._requirement_ids(scenario)
         if registry_error:
             return self._global_rejection(
                 list(checked_plan.steps), "CONTROL_PLANE_CONFIGURATION_ERROR",
-                execution_id, task_id, scenario, as_of, plan_sha256, started_at,
+                execution_id, task_id, scenario, audit_as_of, plan_sha256, started_at,
                 error_component="requirement_registry",
             )
 
@@ -238,7 +277,7 @@ class AcquisitionExecutionService:
                     ))
             return self._result(
                 execution_id=execution_id, task_id=task_id, scenario=scenario,
-                as_of=as_of, plan_sha256=plan_sha256, started_at=started_at,
+                as_of=audit_as_of, plan_sha256=plan_sha256, started_at=started_at,
                 status=self._aggregate(rejected_results), steps=rejected_results,
                 readiness_ids=requirement_ids,
             )
@@ -249,7 +288,8 @@ class AcquisitionExecutionService:
             for step in checked_plan.steps
         ]
         return self._result(
-            execution_id=execution_id, task_id=task_id, scenario=scenario, as_of=as_of,
+            execution_id=execution_id, task_id=task_id, scenario=scenario,
+            as_of=audit_as_of,
             plan_sha256=plan_sha256, started_at=started_at,
             status=self._aggregate(step_results), steps=step_results,
             readiness_ids=requirement_ids,
@@ -313,6 +353,13 @@ class AcquisitionExecutionService:
             )
             if not isinstance(persisted, AcquisitionPersistenceResult):
                 raise TypeError("invalid persistence result")
+            accounted = (
+                len(persisted.inserted_raw_item_ids)
+                + len(persisted.reused_raw_item_ids)
+                + persisted.rejected_future_item_count
+            )
+            if accounted != len(batch.items):
+                raise ValueError("persistence result does not account for the routed batch")
         except AcquisitionStepFailure as exc:
             repository_reason = (
                 exc.reason_code
@@ -470,11 +517,39 @@ class AcquisitionExecutionService:
         return AcquisitionExecutionError(code=code, message=message, component=component)
 
     def _policy_is_valid(self) -> bool:
-        return (
-            type(self._policy.enabled) is bool
-            and tuple(self._policy.allowed_actions) == _FOUNDATION_ACTIONS
-            and tuple(self._policy.production_collector_ids) == ()
-        )
+        try:
+            enabled = self._policy.enabled
+            actions = self._policy.allowed_actions
+            collectors = self._policy.production_collector_ids
+            return (
+                type(enabled) is bool
+                and type(actions) is tuple
+                and actions == _FOUNDATION_ACTIONS
+                and type(collectors) is tuple
+                and collectors == ()
+            )
+        except Exception:  # noqa: BLE001 -- arbitrary injected config must be total
+            return False
+
+    @staticmethod
+    def _same_instant(left: str, right: str) -> bool:
+        try:
+            return parse_iso(left) == parse_iso(right)
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _audit_as_of(
+        invocation_as_of: Any, payload: Mapping[str, Any], started_at: str,
+    ) -> str:
+        for candidate in (invocation_as_of, payload.get("as_of"), started_at):
+            if isinstance(candidate, str):
+                try:
+                    parse_iso(candidate)
+                    return candidate
+                except ValueError:
+                    pass
+        return "1970-01-01T00:00:00+08:00"
 
     def _requirement_ids(self, scenario: str) -> tuple[list[str], bool]:
         try:

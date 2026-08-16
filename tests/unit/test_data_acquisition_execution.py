@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -159,6 +160,21 @@ def test_global_gates_are_complete_zero_io_audits(service_kwargs, execute_kwargs
     assert validate_instance(result.model_dump(), "acquisition_execution_result") == []
 
 
+@pytest.mark.parametrize(("field", "value"), [
+    ("dry_run", "false"), ("dry_run", 0), ("dry_run", None),
+    ("live_authorized", "true"), ("live_authorized", 1),
+    ("live_authorized", None),
+])
+def test_gate_flags_require_exact_booleans(field, value):
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(router=router, repository=repository), **{field: value},
+    )
+    assert result.status == "not_executable"
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
+    assert router.calls == repository.calls == []
+
+
 def test_invalid_plan_and_schema_invalid_action_fail_before_io():
     router, repository = _Router(), _Repository()
     service = _service(router=router, repository=repository)
@@ -249,6 +265,48 @@ def test_invalid_in_memory_policy_fails_closed_before_io():
     assert router.calls == repository.calls == []
 
 
+@pytest.mark.parametrize("policy", [
+    None,
+    object(),
+    SimpleNamespace(enabled=True, allowed_actions=None, production_collector_ids=()),
+    SimpleNamespace(enabled=True, allowed_actions=["route_existing_sources"],
+                    production_collector_ids=()),
+    SimpleNamespace(enabled=1, allowed_actions=("route_existing_sources",),
+                    production_collector_ids=()),
+    SimpleNamespace(enabled=True, allowed_actions=("route_existing_sources",),
+                    production_collector_ids=None),
+    SimpleNamespace(enabled=True, allowed_actions=("route_existing_sources",),
+                    production_collector_ids=[]),
+])
+def test_malformed_injected_policy_is_total_and_zero_io(policy):
+    router, repository = _Router(), _Repository()
+    service = AcquisitionExecutionService(
+        policy=policy, requirement_registry=_Requirements(_Requirement()),
+        capability_registry=_Capabilities(_Capability()), router=router,
+        repository=repository, clock=lambda: NOW,
+    )
+    result = _execute(service)
+    assert result.status == "not_executable"
+    assert result.steps[0].reason_codes == ["CONTROL_PLANE_CONFIGURATION_ERROR"]
+    assert router.calls == repository.calls == []
+
+
+def test_plan_and_authoritative_as_of_compare_by_instant_not_text():
+    result = _execute(_service(), as_of="2026-08-16T01:30:00Z")
+    assert result.status == "completed"
+
+
+def test_malformed_authoritative_as_of_fails_closed_with_valid_audit():
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(router=router, repository=repository), as_of="not-a-time",
+    )
+    assert result.status == "not_executable"
+    assert result.steps[0].reason_codes == ["PLAN_CONTEXT_MISMATCH"]
+    assert result.as_of == AS_OF
+    assert router.calls == repository.calls == []
+
+
 def test_plan_is_not_mutated_and_identity_is_canonical_and_stable():
     plan = _plan()
     before = deepcopy(plan.model_dump())
@@ -279,7 +337,7 @@ def test_valid_non_route_actions_are_explicitly_skipped(action):
 
 
 def test_route_input_and_persistence_result_are_reported_exactly():
-    router = _Router(_batch(items=("normalized",)))
+    router = _Router(_batch(items=("normalized-new", "normalized-reused")))
     repository = _Repository(AcquisitionPersistenceResult(
         inserted_raw_item_ids=("raw-new",), reused_raw_item_ids=("raw-old",),
     ))
@@ -371,6 +429,60 @@ def test_empty_result_persists_route_audit_and_is_partial_success():
     assert result.status == "partial_success"
     assert result.steps[0].status == "partial_success"
     assert result.steps[0].reason_codes == ["EMPTY_RESULT"]
+
+
+@pytest.mark.parametrize(
+    ("items", "persistence"),
+    [
+        ((), AcquisitionPersistenceResult(("unexpected",), ())),
+        ((), AcquisitionPersistenceResult((), (), rejected_future_item_count=1)),
+        ((object(),), AcquisitionPersistenceResult((), ())),
+        ((object(),), AcquisitionPersistenceResult(
+            (), (), rejected_future_item_count=2,
+        )),
+        ((object(), object()), AcquisitionPersistenceResult(("one",), ())),
+    ],
+)
+def test_inconsistent_persistence_accounting_fails_instead_of_claiming_success(
+    items, persistence,
+):
+    result = _execute(_service(
+        router=_Router(_batch(items=items)), repository=_Repository(persistence),
+    ))
+    assert result.status == "failed"
+    assert result.steps[0].reason_codes == ["PERSIST_FAILED"]
+    assert result.steps[0].inserted_count == 0
+    assert result.steps[0].reused_count == 0
+
+
+def test_persistence_result_defensively_copies_mutable_sequences():
+    inserted = ["inserted"]
+    reused = ["reused"]
+    warnings = ["warning"]
+    value = AcquisitionPersistenceResult(inserted, reused, warnings=warnings)
+    inserted.append("changed")
+    reused.clear()
+    warnings[0] = "changed"
+    assert value.inserted_raw_item_ids == ("inserted",)
+    assert value.reused_raw_item_ids == ("reused",)
+    assert value.warnings == ("warning",)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"inserted_raw_item_ids": "raw-id", "reused_raw_item_ids": ()},
+        {"inserted_raw_item_ids": (), "reused_raw_item_ids": "raw-id"},
+        {"inserted_raw_item_ids": ("same", "same"), "reused_raw_item_ids": ()},
+        {"inserted_raw_item_ids": (), "reused_raw_item_ids": ("same", "same")},
+        {"inserted_raw_item_ids": ("same",), "reused_raw_item_ids": ("same",)},
+        {"inserted_raw_item_ids": (), "reused_raw_item_ids": (),
+         "warnings": "warning"},
+    ],
+)
+def test_persistence_result_rejects_ambiguous_sequences_and_id_sets(kwargs):
+    with pytest.raises((TypeError, ValueError)):
+        AcquisitionPersistenceResult(**kwargs)
 
 
 def test_route_unavailable_is_failed_and_never_persists():
