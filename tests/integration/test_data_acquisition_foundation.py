@@ -1142,29 +1142,105 @@ def test_coordinator_freezes_nested_normalized_request_before_recheck_collaborat
     orchestrator.close()
 
 
-def test_coordinator_rejects_normalized_request_deepcopy_failure_before_recheck(tmp_path):
-    project, events, runner, db, orchestrator = _wired(tmp_path)
-    first = orchestrator.execute("morning_brief", {
-        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
-    })
-    assert first.exit_code == 0
-    before = runner.context["data_acquisition"].readiness_before
-
-    class _Uncopyable:
+def _hostile_normalized_request(case):
+    class _HostileList(list):
         def __deepcopy__(self, memo):
-            raise RuntimeError("secret request payload")
+            return self
 
-    events.clear()
+    class _HostileDict(dict):
+        def __deepcopy__(self, memo):
+            return self
+
+    class _CustomScalar:
+        pass
+
+    class _IntSubclass(int):
+        pass
+
+    class _StrSubclass(str):
+        pass
+
+    if case == "list_subclass":
+        return {"entities": _HostileList(["company:original"])}
+    if case == "dict_subclass":
+        return {"nested": _HostileDict({"value": "original"})}
+    if case == "root_dict_subclass":
+        return _HostileDict({"entities": ["company:original"]})
+    if case == "nan":
+        return {"value": float("nan")}
+    if case == "infinity":
+        return {"value": float("inf")}
+    if case == "custom_scalar":
+        return {"value": _CustomScalar()}
+    if case == "scalar_subclass":
+        return {"value": _IntSubclass(1)}
+    if case == "key_subclass":
+        return {_StrSubclass("entities"): ["company:original"]}
+    if case == "tuple":
+        return {"entities": ("company:original",)}
+    if case == "cycle":
+        value = {"entities": ["company:original"]}
+        value["cycle"] = value
+        return value
+    raise AssertionError(case)  # pragma: no cover
+
+
+@pytest.mark.parametrize("case", [
+    "list_subclass", "dict_subclass", "root_dict_subclass", "nan", "infinity",
+    "custom_scalar", "scalar_subclass", "key_subclass", "tuple", "cycle",
+])
+def test_coordinator_strict_json_snapshot_rejects_hostile_values_before_recheck(
+    tmp_path, case,
+):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    before = orchestrator.preflight.run(
+        scenario="morning_brief", task_id=TASK_FOUNDATION, task_as_of=AS_OF,
+        normalized_request={"report_date": "2026-08-16", "as_of": AS_OF},
+        project_root=project, db=db, runs_root=project / "reports" / "runs",
+        dry_run=False,
+    )
+
+    def forbidden_recheck(**kwargs):
+        raise AssertionError("recheck must not run")
+
+    orchestrator.preflight.recheck = forbidden_recheck
     with pytest.raises(
-        ValueError, match="CONTROL_PLANE_CONFIGURATION_ERROR: normalized request snapshot failed",
-    ):
+        ValueError,
+        match="CONTROL_PLANE_CONFIGURATION_ERROR: normalized request canonicalization failed",
+    ) as raised:
         orchestrator.acquisition_coordinator.coordinate(
             before=before, scenario="morning_brief", task_id=TASK_FOUNDATION,
-            task_as_of=AS_OF,
-            normalized_request={"entities": [_Uncopyable()]}, project_root=project,
-            db=db, runs_root=project / "reports" / "runs", dry_run=False,
+            task_as_of=AS_OF, normalized_request=_hostile_normalized_request(case),
+            project_root=project, db=db, runs_root=project / "reports" / "runs",
+            dry_run=False,
         )
-    assert "recheck" not in events
+    assert "recheck must not run" not in str(raised.value)
+    orchestrator.close()
+
+
+def test_coordinator_preserves_ordinary_nested_json_request_semantics(tmp_path):
+    project = tmp_path / "project"
+    (project / "reports").mkdir(parents=True)
+    orchestrator = Orchestrator(project)
+    request = {
+        "as_of": AS_OF, "date": "2026-08-16", "entity": "company:subject",
+        "peers": ["company:peer"],
+        "documents": [{"path": "original", "nested": {"refs": ["doc-a"]}}],
+        "flags": {"enabled": True, "count": 2, "ratio": 0.5, "optional": None},
+    }
+    original = deepcopy(request)
+    before = orchestrator.preflight.run(
+        scenario="stock_research_report", task_id=TASK_CLOSED, task_as_of=AS_OF,
+        normalized_request=deepcopy(request), project_root=project,
+        runs_root=project / "reports" / "runs", dry_run=True,
+    )
+    coordination = orchestrator.acquisition_coordinator.coordinate(
+        before=before, scenario="stock_research_report", task_id=TASK_CLOSED,
+        task_as_of=AS_OF, normalized_request=request, project_root=project,
+        db=None, runs_root=project / "reports" / "runs", dry_run=False,
+    )
+    assert coordination.readiness_after is not None
+    assert request == original
     orchestrator.close()
 
 

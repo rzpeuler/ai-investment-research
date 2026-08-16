@@ -6,6 +6,8 @@ the *same* ``DataPreflightService`` instance to re-evaluate readiness after pers
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 from copy import deepcopy
 from dataclasses import dataclass
@@ -22,6 +24,50 @@ from research_os.data_layer.preflight import DataPreflightBundle, DataPreflightS
 from research_os.models import AcquisitionExecutionError, AcquisitionExecutionResult
 from research_os.utils.time import parse_iso
 from research_os.validators.schema_validator import validate_instance
+
+
+def _canonical_request_bytes(value: Any) -> bytes:
+    """Copy exact JSON builtins into one canonical, cycle-free authority encoding."""
+    active_containers: set[int] = set()
+
+    def snapshot(item: Any) -> Any:
+        item_type = type(item)
+        if item_type is dict:
+            identity = id(item)
+            if identity in active_containers:
+                raise ValueError("cyclic request container")
+            active_containers.add(identity)
+            try:
+                result: dict[str, Any] = {}
+                for key, child in item.items():
+                    if type(key) is not str:
+                        raise TypeError("request keys must be exact strings")
+                    result[key] = snapshot(child)
+                return result
+            finally:
+                active_containers.remove(identity)
+        if item_type is list:
+            identity = id(item)
+            if identity in active_containers:
+                raise ValueError("cyclic request container")
+            active_containers.add(identity)
+            try:
+                return [snapshot(child) for child in item]
+            finally:
+                active_containers.remove(identity)
+        if item is None or item_type in {str, bool, int}:
+            return item
+        if item_type is float and math.isfinite(item):
+            return item
+        raise TypeError("request contains a non-canonical JSON value")
+
+    if type(value) is not dict:
+        raise TypeError("normalized request must be an exact dict")
+    canonical = snapshot(value)
+    return json.dumps(
+        canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 @dataclass(frozen=True)
@@ -65,12 +111,11 @@ class AcquisitionCoordinator:
         graph_repo: Optional[Any] = None,
     ) -> AcquisitionCoordinationResult:
         try:
-            authoritative_request = deepcopy(dict(normalized_request))
-            recheck_request = deepcopy(authoritative_request)
-            validation_request = deepcopy(authoritative_request)
+            authoritative_request = _canonical_request_bytes(normalized_request)
+            recheck_request = json.loads(authoritative_request)
         except Exception:  # noqa: BLE001 -- request contents are untrusted
             raise ValueError(
-                "CONTROL_PLANE_CONFIGURATION_ERROR: normalized request snapshot failed"
+                "CONTROL_PLANE_CONFIGURATION_ERROR: normalized request canonicalization failed"
             ) from None
         if before.acquisition_plan is None:
             raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: preflight plan missing")
@@ -118,14 +163,14 @@ class AcquisitionCoordinator:
                 graph_repo=graph_repo,
                 dry_run=dry_run,
             )
-            if recheck_request != authoritative_request:
+            if _canonical_request_bytes(recheck_request) != authoritative_request:
                 raise ValueError("normalized request collaborator mutation")
             self._preflight.assert_recheck_bundle_authority(
                 after,
                 task_id=task_id,
                 scenario=scenario,
                 task_as_of=task_as_of,
-                normalized_request=validation_request,
+                normalized_request=json.loads(authoritative_request),
             )
         except Exception as exc:  # noqa: BLE001 -- never retain arbitrary exception detail
             if not persistence_committed:
