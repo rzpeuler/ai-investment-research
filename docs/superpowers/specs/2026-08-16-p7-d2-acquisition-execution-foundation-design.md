@@ -114,20 +114,24 @@ The service validates and executes the plan. It accepts only `route_existing_sou
 action is recorded as `skipped` with an explicit reason. It never mutates the original plan or its
 step status.
 
-Gate order is fixed:
+Global gate order is fixed:
 
 1. `dry_run == false`;
 2. `config/data_acquisition_execution.yaml` has `enabled: true`;
 3. the system-controlled `live_authorized` invocation argument is true;
 4. plan Schema valid;
 5. task/scenario/as_of match the authoritative invocation context;
-6. action belongs to the exact allowlist;
-7. requirement exists in the same Scenario Requirement Registry;
+6. for each step, a valid action other than `route_existing_sources` is recorded as `skipped`;
+7. for a `route_existing_sources` step, requirement exists in the same Scenario Requirement
+   Registry;
 8. data type matches that requirement;
 9. capability exists and equals `BUSINESS_SUFFICIENT`;
 10. existing Router may be called.
 
-Failure at any gate produces `NOT_EXECUTABLE` before network or DB mutation.
+Failure at a global gate produces `NOT_EXECUTABLE` for every step before network or DB mutation.
+Failure at a route-step requirement/data-type/capability gate produces `NOT_EXECUTABLE` for that
+step. A valid non-route action is `skipped`, not treated as an execution failure. Unknown actions
+are rejected by AcquisitionPlan Schema validation.
 
 The checked-in `config/data_acquisition_execution.yaml` is strict and starts as:
 
@@ -284,7 +288,7 @@ EXECUTION_DISABLED
 LIVE_GATE_DISABLED
 DRY_RUN_PROHIBITS_EXECUTION
 PLAN_CONTEXT_MISMATCH
-ACTION_NOT_ALLOWED
+ACTION_SKIPPED
 REQUIREMENT_NOT_FOUND
 DATA_TYPE_MISMATCH
 CAPABILITY_NOT_BUSINESS_SUFFICIENT
