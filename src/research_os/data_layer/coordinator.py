@@ -68,9 +68,16 @@ class AcquisitionCoordinator:
             raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: preflight plan missing")
         # Freeze both preflight authorities before entering the injected execution boundary.
         authoritative_plan = deepcopy(before.acquisition_plan.model_dump())
-        authoritative_readiness_ids = tuple(
-            item.requirement_id for item in before.readiness
+        authoritative_requirements = tuple(
+            (item.requirement_id, item.data_type) for item in before.requirements
         )
+        if tuple(
+            (item.requirement_id, item.data_type) for item in before.readiness
+        ) != authoritative_requirements:
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: preflight authority mismatch"
+            )
+        authoritative_readiness_ids = tuple(item[0] for item in authoritative_requirements)
         route_inputs = self._route_inputs(before)
         execution = self._validated_execution(self._execution.execute(
             plan=before.acquisition_plan.model_copy(deep=True),
@@ -103,6 +110,13 @@ class AcquisitionCoordinator:
                 graph_repo=graph_repo,
                 dry_run=dry_run,
             )
+            self._assert_recheck_authority(
+                after,
+                authoritative_requirements=authoritative_requirements,
+                task_id=task_id,
+                scenario=scenario,
+                task_as_of=task_as_of,
+            )
         except Exception as exc:  # noqa: BLE001 -- never retain arbitrary exception detail
             if not persistence_committed:
                 raise ValueError(
@@ -131,6 +145,67 @@ class AcquisitionCoordinator:
         return AcquisitionCoordinationResult(
             before, execution, after, persistence_committed,
         )
+
+    @staticmethod
+    def _assert_recheck_authority(
+        after: DataPreflightBundle,
+        *,
+        authoritative_requirements: tuple[tuple[str, str], ...],
+        task_id: str,
+        scenario: str,
+        task_as_of: str,
+    ) -> None:
+        """Reject a structurally valid recheck that substitutes frozen authorities."""
+        try:
+            if not isinstance(after, DataPreflightBundle):
+                raise TypeError("invalid recheck bundle")
+            requirement_projection = tuple(
+                (item.requirement_id, item.data_type) for item in after.requirements
+            )
+            readiness_projection = tuple(
+                (item.requirement_id, item.data_type) for item in after.readiness
+            )
+            context_projection = tuple(
+                (item.requirement.requirement_id, item.requirement.data_type)
+                for item in after.contexts
+            )
+            gap_projection = tuple(
+                (item.requirement_id, item.data_type) for item in after.gaps
+            )
+            plan = after.acquisition_plan
+            if plan is None:
+                raise ValueError("recheck plan missing")
+            expected_step_projection = tuple(
+                (gap.requirement_id, gap.data_type)
+                for gap in after.gaps if gap.classification != "AVAILABLE"
+            )
+            step_projection = tuple(
+                (step.requirement_id, step.data_type) for step in plan.steps
+            )
+            authority_matches = (
+                requirement_projection == authoritative_requirements
+                and readiness_projection == authoritative_requirements
+                and context_projection == authoritative_requirements
+                and gap_projection == authoritative_requirements
+                and all(
+                    item.scenario == scenario
+                    and item.task_id == task_id
+                    and parse_iso(item.as_of) == parse_iso(task_as_of)
+                    for item in after.contexts
+                )
+                and all(
+                    parse_iso(item.as_of) == parse_iso(task_as_of)
+                    for item in after.readiness
+                )
+                and plan.task_id == task_id
+                and plan.scenario == scenario
+                and parse_iso(plan.as_of) == parse_iso(task_as_of)
+                and step_projection == expected_step_projection
+            )
+        except Exception:  # noqa: BLE001 -- recheck output is an untrusted boundary
+            authority_matches = False
+        if not authority_matches:
+            raise ValueError("recheck authority mismatch")
 
     @staticmethod
     def _route_inputs(bundle: DataPreflightBundle) -> dict[str, RouteExecutionInput]:

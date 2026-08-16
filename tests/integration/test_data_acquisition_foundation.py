@@ -853,3 +853,111 @@ def test_execution_collaborator_cannot_rewrite_immutable_plan_authority(tmp_path
     assert "recheck" not in events
     assert not (Path(result.run_dir) / "acquisition_execution.json").exists()
     orchestrator.close()
+
+
+def _mutate_after_readiness(bundle, attack):
+    if attack == "forged_id":
+        bundle.readiness[0] = bundle.readiness[0].model_copy(update={
+            "requirement_id": "forged.requirement",
+        })
+    elif attack == "reordered_ids":
+        bundle.readiness = list(reversed(bundle.readiness))
+    elif attack == "data_type":
+        bundle.readiness[0] = bundle.readiness[0].model_copy(update={
+            "data_type": "document",
+        })
+    elif attack == "as_of":
+        bundle.readiness[0] = bundle.readiness[0].model_copy(update={
+            "as_of": "2026-08-16T09:00:00+08:00",
+        })
+    elif attack == "context_id":
+        bundle.contexts[0].requirement = bundle.contexts[0].requirement.model_copy(
+            update={"requirement_id": "forged.context.requirement"},
+        )
+    else:  # pragma: no cover - test helper misuse
+        raise AssertionError(attack)
+    return bundle
+
+
+@pytest.mark.parametrize("attack", ["forged_id", "data_type", "as_of", "context_id"])
+def test_committed_forged_recheck_is_sanitized_partial_without_forged_artifact(
+    tmp_path, attack,
+):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    authoritative_recheck = orchestrator.preflight.recheck
+
+    def forged_recheck(**kwargs):
+        return _mutate_after_readiness(authoritative_recheck(**kwargs), attack)
+
+    orchestrator.preflight.recheck = forged_recheck
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 0
+    execution = runner.context["acquisition_execution"]
+    assert execution.status == "partial_success"
+    assert execution.readiness_after_requirement_ids == []
+    assert [error.code for error in execution.errors] == ["RECHECK_FAILED"]
+    assert runner.context["data_acquisition"].readiness_after is None
+    run_dir = Path(result.run_dir)
+    persisted = json.loads((run_dir / "acquisition_execution.json").read_text("utf-8"))
+    assert persisted["readiness_after_requirement_ids"] == []
+    assert "forged.requirement" not in json.dumps(persisted)
+    assert not (run_dir / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+@pytest.mark.parametrize(
+    "attack", ["forged_id", "reordered_ids", "data_type", "as_of"],
+)
+def test_uncommitted_forged_recheck_gates_runner_and_never_persists_after(
+    tmp_path, attack,
+):
+    project = tmp_path / "project"
+    (project / "reports").mkdir(parents=True)
+    events = []
+    runner = _Runner(events)
+    registry = ScenarioRegistry()
+    registry.register(runner)
+    orchestrator = Orchestrator(project, registry=registry)
+    authoritative_recheck = orchestrator.preflight.recheck
+
+    def forged_recheck(**kwargs):
+        return _mutate_after_readiness(authoritative_recheck(**kwargs), attack)
+
+    orchestrator.preflight.recheck = forged_recheck
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_CLOSED, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert result.message == (
+        "CONTROL_PLANE_CONFIGURATION_ERROR: readiness recheck failed"
+    )
+    assert "runner" not in events
+    run_dir = Path(result.run_dir)
+    assert not (run_dir / "acquisition_execution.json").exists()
+    assert not (run_dir / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+def test_recheck_accepts_offset_equivalent_readiness_as_of(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    authoritative_recheck = orchestrator.preflight.recheck
+
+    def equivalent_recheck(**kwargs):
+        bundle = authoritative_recheck(**kwargs)
+        bundle.readiness = [
+            item.model_copy(update={"as_of": "2026-08-16T00:00:00Z"})
+            for item in bundle.readiness
+        ]
+        return bundle
+
+    orchestrator.preflight.recheck = equivalent_recheck
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 0
+    assert runner.context["data_acquisition"].readiness_after is not None
+    assert runner.context["acquisition_execution"].status == "completed"
+    assert (Path(result.run_dir) / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
