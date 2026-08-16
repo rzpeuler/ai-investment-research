@@ -69,17 +69,19 @@ Phase 5: CLOSED / PASS
 - **Phase 6 research capability**: PASS
 - **Phase 6 central enablement**: PASS
 - **USER_TRIAL_READY**: YES
-- **CURRENT ENGINEERING MILESTONE**: P7-D1 Data Readiness + Gap + Acquisition Planning（CLOSED / PASS / INDEPENDENTLY ACCEPTED）
+- **CURRENT ENGINEERING MILESTONE**: P7-D2 Acquisition Execution Foundation（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
 - **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
-- **Phase 7**: D0 CLOSED / PASS；UX1 CLOSED / PASS；数据采集 NOT_STARTED
+- **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation awaiting independent acceptance
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
 - **P7-D0**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9；accepted head d06d8d7）
 - **P7-D1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11；accepted head `bc27781`；CI `31899546501`）
-- **P7 DATA ACQUISITION**: NOT_STARTED / ARCHITECTURE_DESIGN_AUTHORIZED
-- **Current Schema registry**: 85（Phase 6 terminal historical snapshot was 69）
+- **P7-D2 FOUNDATION**: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+- **REAL DATA ACQUISITION COVERAGE**: NONE
+- **Current Schema registry**: 86（Phase 6 terminal historical snapshot was 69）
 - **DB / migrations**: v6 / NONE
-- **NEXT AUTHORIZED WORK**: P7-D2 — taskbook drafting + architecture design only
-- **P7-D2 IMPLEMENTATION**: NOT AUTHORIZED
+- **IMPLEMENTATION CODE/TEST HEAD**: `dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9`
+- **NEXT WORK**: independent acceptance of the P7-D2 fake-proven Foundation
+- **REAL-SOURCE AUTHORIZATION**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately
 authorized by its approved taskbook and Decision #46, but that authorization is limited to the
@@ -94,20 +96,21 @@ P7-D1 已通过独立复验（Decision #48.10/#48.11），状态为 `CLOSED / PA
 INDEPENDENTLY ACCEPTED`。accepted implementation head 为 `bc27781`，PR #25
 已获 merge authorization，但当前仍 OPEN / NOT MERGED。
 
-P7-UX1 / P7-D0 / P7-D1 之后的下一步仅授权 P7-D2 新任务书与架构设计：
+P7-D2 Foundation 已按独立授权完成实现，下一步只做独立验收：
 
 ```text
 P7-UX1: CLOSED / PASS
 P7-D0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P7-D1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
-→ P7-D2 TASKBOOK DRAFTING + ARCHITECTURE DESIGN: AUTHORIZED
-→ P7-D2 IMPLEMENTATION / ACQUISITION EXECUTION: NOT AUTHORIZED
-→ P7-D2 仍不自动授权具体新外部数据源
-→ P7 DATA ACQUISITION 或 Phase 6.1 的任何工作
-   必须 new taskbook → architecture approval → explicit authorization
+P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+REAL DATA ACQUISITION COVERAGE: NONE
+→ independent acceptance only
+→ real source execution / production collector IDs / capability promotion: NOT AUTHORIZED
+→ Phase 6.1: NOT AUTHORIZED
 ```
 
-P7-D2 实施仍须 `new taskbook → architecture approval → explicit implementation authorization`。
+Foundation 的独立验收不得自动授权真实来源。任何 real-source execution 仍须新的来源治理、
+验证、taskbook、架构批准与显式 implementation authorization。
 
 ## Phase 4 独立验收记录
 

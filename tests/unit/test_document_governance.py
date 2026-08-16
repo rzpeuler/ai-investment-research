@@ -215,7 +215,7 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-D1 Data Readiness + Gap + Acquisition Planning" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D2 Acquisition Execution Foundation" in next_phase6
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
     assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
@@ -250,7 +250,7 @@ def test_phase6_terminal_governance_closeout():
     assert "P6-S0 Serial Governance Reset" not in readme_phase6
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
     assert schema_count == 86
-    assert "当前 **85 个 Schema**" in readme  # living state intentionally waits for closeout
+    assert "当前 **86 个 Schema**" in readme
     assert "Schemas: 69" in current_phase6  # historical Phase 6 snapshot
     assert "DB: v6" in current_phase6
 
@@ -300,17 +300,17 @@ def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
         assert "PASS / INDEPENDENTLY ACCEPTED" in surface
         assert "Phase 6.1" in surface or "PHASE6.1" in surface
     assert "P7 DATA ACQUISITION: NOT_STARTED" in current
-    assert "P7 DATA ACQUISITION**: NOT_STARTED" in next_phase
+    assert "P7-D2 FOUNDATION**: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
     assert "P7 DATA ACQUISITION = NOT_STARTED" in limitations
     assert "P7 DATA ACQUISITION: NOT_STARTED" in guide
-    assert "仍为 `NOT_STARTED`" in readme
+    assert "REAL DATA ACQUISITION COVERAGE: NONE" in readme
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
     assert schema_count == 86
     assert f"Current registry after P7-UX1 implementation: Schemas: 80" in current
     assert "Current registry after P7-D0 contracts: Schemas: 85" in current
-    assert "Current Schema registry**: 85" in next_phase
-    assert "当前 Schema registry 为 **85**" in readme
+    assert "Current Schema registry**: 86" in next_phase
+    assert "当前 **86 个 Schema**" in readme
     assert "DB: v6" in current and "migrations: NONE" in current
     assert "SCHEMAS: 85" in current
 
@@ -374,9 +374,9 @@ def test_p7_d0_governance_is_consistent():
     assert "SCHEMAS: 85" in current
     # accepted implementation head 必须明确
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
-    # P7-D1 已 PASS；D2 仅设计授权，implementation 仍 NOT AUTHORIZED
+    # P7-D1 已 PASS；D2 Foundation 已实现并等待独立验收
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "NEXT AUTHORIZED WORK" in next_phase
+    assert "NEXT WORK**: independent acceptance of the P7-D2 fake-proven Foundation" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
     # governance closeout taskbook 存在
@@ -472,7 +472,7 @@ def test_p7_d1_governance_is_consistent():
     assert "P7-D1：数据就绪控制面（PASS / INDEPENDENTLY ACCEPTED）" in readme
     assert "版本：V1.7" in guide
     assert "P7-D1" in guide and "Data Readiness" in guide
-    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D2 FOUNDATION" in next_phase and "AWAITING INDEPENDENT ACCEPTANCE" in next_phase
     assert "P7-D2 TASKBOOK DRAFTING: AUTHORIZED" in decision_48
     assert "P7-D2 ARCHITECTURE DESIGN: AUTHORIZED" in decision_48
     assert "PR_25: MERGE AUTHORIZED / NOT MERGED" in decision_48
@@ -639,7 +639,7 @@ def test_p7_d1_r1_governance_is_consistent():
     for surface in (current, next_phase, limitations, readme):
         assert "PASS / INDEPENDLY ACCEPTED" not in surface
         assert "PASS / INDEPENDENTLY ACCEPTED" in surface
-    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D2 FOUNDATION" in next_phase and "AWAITING INDEPENDENT ACCEPTANCE" in next_phase
 
 
 def test_p7_d1_r2_governance_is_consistent():
@@ -667,8 +667,8 @@ def test_p7_d1_r2_governance_is_consistent():
     assert "48.7 R2 Independent Re-Acceptance Findings & Contract Corrections" in decisions
     assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
 
-    # CURRENT_STATE guide version 修复为 V1.6（§85）
-    assert "权威规范：`docs/engineering-guide.md` V1.6" in current
+    # CURRENT_STATE follows the current V1.7 authority.
+    assert "权威规范：`docs/engineering-guide.md` V1.7" in current
     assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
 
     # engineering-guide V1.6 + R2 semantics
@@ -681,7 +681,7 @@ def test_p7_d1_r2_governance_is_consistent():
 
     # P7-D1 已 PASS；P7-D2 implementation 仍 NOT AUTHORIZED
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D2 FOUNDATION" in next_phase and "AWAITING INDEPENDENT ACCEPTANCE" in next_phase
 
 
 def test_p7_d1_r3_governance_is_consistent():
@@ -721,7 +721,7 @@ def test_p7_d1_r3_governance_is_consistent():
     assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
     assert "R1/R2/R3 repair chain" in current or "R1/R2/R3" in current
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "P7-D2 FOUNDATION" in next_phase and "AWAITING INDEPENDENT ACCEPTANCE" in next_phase
 
 
 def test_p7_d2_foundation_authorization_and_frozen_boundaries():
@@ -734,7 +734,7 @@ def test_p7_d2_foundation_authorization_and_frozen_boundaries():
     policy = yaml.safe_load(_read("config/data_acquisition_execution.yaml"))
 
     header = "\n".join(taskbook.splitlines()[:20])
-    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED — P7-D2 FOUNDATION ONLY" in header
+    assert "TASKBOOK_STATUS: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE — P7-D2 FOUNDATION ONLY" in header
     assert "REAL_SOURCE_EXECUTION: NOT AUTHORIZED" in header
     assert "SPECIFIC_SOURCE_AUTHORIZATION: NONE" in header
     assert "CAPABILITY_PROMOTION: NONE" in header
@@ -780,3 +780,46 @@ def test_p7_d2_foundation_authorization_and_frozen_boundaries():
         "production_collector_ids": [],
     }
     assert len(list((ROOT / "schemas").glob("*.schema.json"))) == 86
+
+
+def test_p7_d2_foundation_handoff_is_truthful_and_awaits_acceptance():
+    """Living governance records the implemented fake-only foundation without promotion."""
+    import yaml
+
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    readme = _read("README.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d2.md")
+    policy = yaml.safe_load(_read("config/data_acquisition_execution.yaml"))
+    living = "\n".join((current, next_phase, limitations, readme, taskbook))
+
+    assert "P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in living
+    assert "REAL DATA ACQUISITION COVERAGE: NONE" in living
+    assert "dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9" in living
+    for boundary in (
+        "Production collector IDs: []",
+        "Capability BUSINESS_SUFFICIENT promotions: 0",
+        "LLM/provider calls: 0",
+        "Graph writes: 0",
+        "DB: v6",
+        "Migrations: 6 / NONE added",
+        "Schemas: 86",
+    ):
+        assert boundary in living
+
+    assert policy == {
+        "enabled": False,
+        "allowed_actions": ["route_existing_sources"],
+        "production_collector_ids": [],
+    }
+    assert len(list((ROOT / "schemas").glob("*.schema.json"))) == 86
+    assert len(list((ROOT / "src/research_os/storage/migrations").glob("*.sql"))) == 6
+    assert "pytest full: 3517 passed / 6 skipped / 0 failed / 1 warning / 943.94s" in taskbook
+    assert "schema validation: 86/86 PASS" in taskbook
+    assert "Offline CI: NOT RUN (local validation only)" in taskbook
+
+    # The handoff is deliberately pre-acceptance and grants no real-source authority.
+    p7_d2 = current[current.index("## P7-D2"):]
+    assert "PASS / INDEPENDENTLY ACCEPTED" not in p7_d2
+    assert "P7-D2 FOUNDATION: PASS" not in living

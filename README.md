@@ -66,7 +66,7 @@ Schema 30→51，迁移 user_version=5。
 - USER_TRIAL_READY：YES
 - Graph→Research：accepted Phase 6A read-only path 已启用；KnowledgeContext != Evidence
 - Phase 6 Research→GraphChange Candidate integration：DEFERRED
-- Phase 6 terminal historical snapshot：Schema 69；当前 registry：85（P7-D0 后）
+- Phase 6 terminal historical snapshot：Schema 69；当前 registry：86（P7-D2 Foundation）
 - 数据库：v6；迁移：NONE
 - Accepted code master：`3e0166de11ae9969792a4726913cb68a17c8f2a5`
 
@@ -135,12 +135,27 @@ P7-D1 实现 Data Readiness + Gap Classification + Acquisition Planning 控制�
   readiness/gaps/plan artifacts。
 - 不执行 Acquisition（执行属于 P7-D2）；Router / Collectors / Source Registry 不变。
 
-当前 Schema registry 为 **85**，数据库为 **v6**，没有新增 migration。P7 data acquisition
-仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1、P7-D0 与 P7-D1 均已通过独立验收
+P7-D1 收口时 Schema registry 为 **85**，数据库为 **v6**，没有新增 migration；Phase 6.1
+仍未授权。P7-UX1、P7-D0 与 P7-D1 均已通过独立验收
 （`PASS / INDEPENDENTLY ACCEPTED`）；P7-D1 accepted implementation head 为
 `bc27781`，CI `31899546501` 通过。均未改变任何数据源、Collector、Source Registry、
-Graph 或数据库行为。P7-D2 仅 taskbook 与架构设计获授权；P7-D2 implementation / Acquisition
-execution 仍未授权；P7-D0/P7-D1 只包含契约与控制面，不含数据采集执行能力。
+Graph 或数据库行为。该段记录 P7-D1 terminal boundary；后续 P7-D2 Foundation 已经单独授权
+并实现，状态见下一节。
+
+## P7-D2：Acquisition Execution Foundation（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+
+`P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`；
+`REAL DATA ACQUISITION COVERAGE: NONE`。实现代码/测试 head 为
+`dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9`。
+
+该 Foundation 使用 Fake 证明 acquisition gates、existing Router bridge、原子 RawItem/DataRoute
+持久化、readiness recheck、Orchestrator 接入与十个 Runner 的关闭路径。生产策略仍关闭：
+Production collector IDs: []；Capability BUSINESS_SUFFICIENT promotions: 0；New collectors: 0；
+Source expansion: 0；LLM/provider calls: 0；Graph writes: 0。DB: v6；
+Migrations: 6 / NONE added；Schemas: 86。
+
+该状态不是 PASS / CLOSED / operational / real-source ready，不授权任何具体真实来源或
+Phase 6.1；下一步仅为独立验收。
 
 ## 快速开始
 
@@ -235,7 +250,7 @@ ai-investment-research/
 ├── AGENTS.md               # 不可违反的研究与工程规则
 ├── docs/engineering-guide.md
 ├── config/                 # app / model_routing / schedules / source_policy / report_policy / knowledge_policy
-├── schemas/                # 85 个 JSON Schema（当前权威数据契约）
+├── schemas/                # 86 个 JSON Schema（当前权威数据契约）
 ├── registry/               # 来源注册表（sources / source_groups / changelog）
 ├── src/research_os/
 │   ├── cli/                # research 命令
@@ -263,7 +278,7 @@ ModuleResult / GraphChange）定义于 `schemas/*.schema.json`，Python 实现�
 `src/research_os/models/`。所有对象必须通过对应 Schema 校验：
 确定性逻辑（Schema 校验）使用代码实现，不交给 LLM。
 
-当前 **85 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
+当前 **86 个 Schema**；注册表实际数量由校验器动态读取，不在代码中硬编码总数。
 Schema 校验：`research validate`。
 数据库版本：**v6**。
 

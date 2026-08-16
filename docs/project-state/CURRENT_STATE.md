@@ -5,7 +5,8 @@
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
-> 权威规范：`docs/engineering-guide.md` V1.6
+> P7-D2 FOUNDATION：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+> 权威规范：`docs/engineering-guide.md` V1.7
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -53,6 +54,7 @@
 | Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
 | P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
+| P7-D2 Acquisition Execution Foundation | IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE | Fake-proven execution foundation 已实现；生产默认关闭、真实采集覆盖为 NONE；尚未独立验收。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -240,6 +242,26 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   “舆论监测体系”整体语义）：`A = NEW EVENT DISCOVERY`、`C = CURRENT-WINDOW
   ATTENTION MONITORING`；`FAST_NEWS ∈ A`、`FAST_NEWS ∉ C`；C 为一次性窗口扫描，
   无持续监控 / 热度历史 / 排名变化 / 速度 / 加速度 / 持久化。
-- P7-D2 的 taskbook drafting 与 architecture design 已授权；P7-D2 implementation、
-  Acquisition execution、具体外部数据源、new collectors、source expansion 仍
-  `NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
+- P7-D1 收口时只授权 P7-D2 taskbook drafting 与 architecture design；后续 P7-D2
+  Acquisition execution foundation 已获单独授权并完成实现；具体外部数据源、
+  real-source execution、new collectors、source expansion 仍 `NOT AUTHORIZED`；
+  `GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
+
+## P7-D2 当前状态（Foundation implemented / awaiting independent acceptance）
+
+- `P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`。
+- `REAL DATA ACQUISITION COVERAGE: NONE`；实现代码/测试 head：
+  `dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9`。本治理提交只做交接，不把该 head
+  自行提升为 accepted head。
+- Foundation 已实现 deterministic execution gates、existing Router bridge、atomic RawItem /
+  DataRoute persistence、post-acquisition readiness recheck、orchestrator integration、artifacts
+  与十个 Runner 的关闭路径回归；证明仅使用 Fake。
+- Production execution policy：`enabled: false`；Production collector IDs: []；Real source
+  execution: 0；Capability BUSINESS_SUFFICIENT promotions: 0；New collectors: 0；Source
+  expansion: 0；LLM/provider calls: 0；Graph writes: 0。
+- DB: v6；Migrations: 6 / NONE added；Schemas: 86。
+- 本地完整验证：`python -m pytest --collect-only -q` 收集 3523；`python -m pytest`
+  为 3517 passed / 6 skipped / 0 failed / 1 pytest warning，943.94s；Schema 86/86 PASS；
+  compileall PASS；diff-check PASS。未运行远端 Offline CI。
+- 独立验收前不得声明 PASS / CLOSED / operational / real-source ready，不授权任何具体来源、
+  Collector、capability promotion、Graph write 或 Phase 6.1。

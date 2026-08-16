@@ -12,7 +12,9 @@
 > P7-D0 = PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9，
 > governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
 > P7-D1 = PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11，accepted
-> implementation head `bc27781`；数据就绪控制面）。
+> implementation head `bc27781`；数据就绪控制面）；
+> P7-D2 FOUNDATION = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（implementation
+> code/test head `dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9`；真实采集覆盖 NONE）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -194,10 +196,24 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   不得发明百分比。
 - dry-run 零副作用（不创建 DB / 不写 artifacts）；Preflight 只读、零 LLM、
   零网络。
-- P7-D2 taskbook drafting + architecture design 已授权；P7-D2 implementation、
-  Acquisition execution、任何具体外部数据源与 Collector 仍未授权；Phase6.1 未授权。
+- P7-D1 收口时只授权 P7-D2 taskbook drafting + architecture design；后续 Foundation
+  implementation 已获单独授权并实现，但任何具体外部数据源、real-source execution 与
+  Collector 仍未授权；Phase6.1 未授权。
 - R3.1（Final Runtime Closure）进一步收口但仍有边界：industry/global
   entity_mapping 与 open-world requirement 的 coverage 恒为 null（无完整权威
   denominator）；run_artifacts coverage 仅对 requested run set 计算；market
   bar 的 tier 依赖 accepted manifest（无 manifest → SOURCE_TIER_UNPROVEN）；
   无自动历史日线/财务源；projection 仅支持已登记的 9 个策略（新增需先登记）。
+
+## 18. P7-D2 Acquisition Execution Foundation 限制（awaiting independent acceptance）
+
+- `P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`；
+  `REAL DATA ACQUISITION COVERAGE: NONE`。这不是 PASS、CLOSED、operational 或 real-source ready。
+- 当前实现只由 Fake 证明。Production policy 仍 `enabled: false`；Production collector IDs: []；
+  Real source execution: 0；Capability BUSINESS_SUFFICIENT promotions: 0；New collectors: 0；
+  Source expansion: 0。
+- 未调用生产 LLM/provider：LLM/provider calls: 0；无 Graph 写入：Graph writes: 0。
+- DB: v6；Migrations: 6 / NONE added；Schemas: 86。未新增迁移。
+- 没有任何真实 capability 达到 BUSINESS_SUFFICIENT，因此 production acquisition 继续 fail closed；
+  不得把 Fake 成功、已有 Collector 代码或 foundation wiring 解释为真实数据覆盖。
+- 独立验收前不得提升状态；之后任何具体来源仍须独立 source governance、真实验证和显式授权。
