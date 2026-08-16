@@ -55,14 +55,14 @@ def canonicalize_http_url(value: str) -> str:
     return urlunsplit((scheme, netloc, parts.path, query, ""))
 
 
-def _identity_components(item: RawItem) -> tuple[str, str, str, str]:
+def _identity_components(item: RawItem) -> tuple[str, str, str]:
     if item.external_id is not None:
         if type(item.external_id) is not str or not item.external_id:
             raise ValueError("external_id must be null or a nonempty string")
-        key_kind, key = "external_id", item.external_id
+        key = item.external_id
     else:
-        key_kind, key = "canonical_url", canonicalize_http_url(item.url)
-    return item.source_id, key_kind, key, item.content_hash
+        key = canonicalize_http_url(item.url)
+    return item.source_id, key, item.content_hash
 
 
 def stable_raw_item_id(item: RawItem) -> str:
@@ -75,7 +75,7 @@ def stable_raw_item_id(item: RawItem) -> str:
 @dataclass(frozen=True)
 class _PreparedItem:
     item: RawItem
-    identity: tuple[str, str, str, str]
+    identity: tuple[str, str, str]
     is_future: bool
 
 
@@ -109,14 +109,16 @@ class AcquisitionRepository:
             raise AcquisitionStepFailure("RAW_ITEM_SCHEMA_INVALID") from exc
 
         unique: list[_PreparedItem] = []
-        seen: set[str] = set()
+        seen: dict[str, tuple[str, str, str]] = {}
         deduplicated = 0
         for candidate in prepared:
             raw_id = candidate.item.raw_item_id
             if raw_id in seen:
+                if seen[raw_id] != candidate.identity:
+                    raise AcquisitionStepFailure("PERSIST_FAILED")
                 deduplicated += 1
                 continue
-            seen.add(raw_id)
+            seen[raw_id] = candidate.identity
             unique.append(candidate)
 
         future = [candidate for candidate in unique if candidate.is_future]
@@ -127,13 +129,14 @@ class AcquisitionRepository:
             # Classification happens only after complete batch validation and before writes.
             for candidate in eligible:
                 row = self._db.query(
-                    "SELECT payload FROM raw_items WHERE raw_item_id = ?",
+                    "SELECT raw_item_id, payload, source_id, content_hash, published_at, "
+                    "retrieved_at, access_status FROM raw_items WHERE raw_item_id = ?",
                     (candidate.item.raw_item_id,),
                 )
                 if not row:
                     inserted.append(candidate)
                     continue
-                existing = self._load_existing(row[0]["payload"])
+                existing = self._load_existing(row[0])
                 if _identity_components(existing) != candidate.identity:
                     raise AcquisitionStepFailure("PERSIST_FAILED")
                 reused_ids.append(candidate.item.raw_item_id)
@@ -226,12 +229,25 @@ class AcquisitionRepository:
         return prepared
 
     @staticmethod
-    def _load_existing(payload: str) -> RawItem:
+    def _load_existing(row: dict[str, Any]) -> RawItem:
         try:
-            decoded = json.loads(payload)
+            decoded = json.loads(row["payload"])
             if validate_instance(decoded, "raw_item"):
                 raise ValueError("stored RawItem is schema-invalid")
-            return RawItem.model_validate(decoded)
+            item = RawItem.model_validate(decoded)
+            duplicated_columns = {
+                "raw_item_id": item.raw_item_id,
+                "source_id": item.source_id,
+                "content_hash": item.content_hash,
+                "published_at": item.published_at,
+                "retrieved_at": item.retrieved_at,
+                "access_status": item.access_status,
+            }
+            if any(row[key] != value for key, value in duplicated_columns.items()):
+                raise ValueError("stored RawItem index columns differ from payload")
+            if stable_raw_item_id(item) != item.raw_item_id:
+                raise ValueError("stored RawItem ID is not canonical")
+            return item
         except Exception as exc:
             raise AcquisitionStepFailure("PERSIST_FAILED") from exc
 

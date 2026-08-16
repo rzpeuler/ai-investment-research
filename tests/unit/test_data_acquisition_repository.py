@@ -75,6 +75,7 @@ def test_canonical_url_performs_only_frozen_normalization():
 def test_stable_identity_uses_external_id_or_canonical_http_url():
     external = _item()
     same_external_other_url = _item(url="https://different.example/item")
+    assert stable_raw_item_id(external) == "f9027389-0a84-51c0-a0c7-2aa693b81fd2"
     assert stable_raw_item_id(external) == stable_raw_item_id(same_external_other_url)
     assert uuid.UUID(stable_raw_item_id(external)).version == 5
 
@@ -83,6 +84,7 @@ def test_stable_identity_uses_external_id_or_canonical_http_url():
         external_id=None,
         url="https://example.com/news?id=1&keep=x&id=2#other",
     )
+    assert stable_raw_item_id(by_url) == "6349f25e-bf67-5a15-aec7-972ff10a76b9"
     assert stable_raw_item_id(by_url) == stable_raw_item_id(equivalent)
     assert stable_raw_item_id(by_url) != stable_raw_item_id(
         _item(external_id=None, content_hash=HASH_B),
@@ -116,6 +118,24 @@ def test_duplicate_normalized_items_are_first_wins_and_accounted(db):
     assert len(result.inserted_raw_item_ids) == 1
     assert result.deduplicated_input_count == 1
     assert db.get("raw_items", result.inserted_raw_item_ids[0])["retrieved_at"] == RETRIEVED
+
+
+def test_intra_batch_uuid_collision_with_different_identity_fails_before_write(
+    db, monkeypatch,
+):
+    repository = AcquisitionRepository(db)
+    forced_id = "11111111-1111-5111-8111-111111111111"
+    monkeypatch.setattr(
+        "research_os.data_layer.acquisition_repository.stable_raw_item_id",
+        lambda item: forced_id,
+    )
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(repository, [
+            _item(external_id="one"),
+            _item(external_id="two", content_hash=HASH_B),
+        ])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert db.count("raw_items") == db.count("data_routes") == 0
 
 
 def test_future_items_compare_instants_and_are_not_written(db):
@@ -173,6 +193,49 @@ def test_uuid_collision_with_incompatible_identity_fails_closed(db, monkeypatch)
     assert exc.value.reason_code == "PERSIST_FAILED"
     assert db.count("raw_items") == 1
     assert db.count("data_routes") == 1
+
+
+@pytest.mark.parametrize(
+    ("column", "corrupt_value"),
+    [
+        ("source_id", "corrupt-source"),
+        ("content_hash", HASH_B),
+        ("published_at", "2026-08-16T01:00:00Z"),
+        ("retrieved_at", "2026-08-16T02:00:00Z"),
+        ("access_status", "partial"),
+    ],
+)
+def test_replay_rejects_corrupt_raw_item_index_columns_without_route_append(
+    db, column, corrupt_value,
+):
+    repository = AcquisitionRepository(db)
+    raw_id = _persist(repository, [_item()]).inserted_raw_item_ids[0]
+    with db.transaction() as conn:
+        conn.execute(
+            f"UPDATE raw_items SET {column} = ? WHERE raw_item_id = ?",
+            (corrupt_value, raw_id),
+        )
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(repository, [_item()])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert db.count("raw_items") == 1
+    assert db.count("data_routes") == 1
+
+
+def test_replay_rejects_noncanonical_stored_payload_id_without_route_append(db):
+    repository = AcquisitionRepository(db)
+    raw_id = _persist(repository, [_item()]).inserted_raw_item_ids[0]
+    payload = db.get("raw_items", raw_id)
+    payload["raw_item_id"] = "22222222-2222-5222-8222-222222222222"
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE raw_items SET payload = ? WHERE raw_item_id = ?",
+            (json.dumps(payload), raw_id),
+        )
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(repository, [_item()])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert db.count("raw_items") == db.count("data_routes") == 1
 
 
 def test_second_item_failure_rolls_back_route_and_all_items(db, monkeypatch):
