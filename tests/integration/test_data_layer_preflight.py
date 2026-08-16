@@ -22,6 +22,18 @@ from research_os.orchestrator.runners import DEFAULT_SCENARIOS
 from research_os.routing.scenario_requirements import ScenarioDataRequirementRegistry
 
 ROOT = Path(__file__).resolve().parents[2]
+FROZEN_SCENARIO_IDS = (
+    "morning_brief",
+    "abnormal_move_analysis",
+    "stock_research_report",
+    "evening_brief",
+    "daily_review",
+    "stock_review",
+    "industry_research",
+    "theme_discovery",
+    "earnings_expectation",
+    "first_coverage",
+)
 
 
 class _StubRunner:
@@ -45,6 +57,33 @@ class _StubRunner:
         self.record["preflight_readiness"] = len(context.get("data_preflight", object()).readiness)
         return ScenarioExecutionResult(
             status="success", exit_code=0, task_id=context["task"].task_id,
+        )
+
+
+class _PassThroughRunner:
+    version = "attack-matrix"
+
+    def __init__(self, scenario, expected_status, expected_exit, expected_missing):
+        self.scenario = scenario
+        self.expected_status = expected_status
+        self.expected_exit = expected_exit
+        self.expected_missing = expected_missing
+        self.context = None
+
+    def validate_request(self, request):
+        return {"as_of": "2026-08-16T08:00:00+08:00"}
+
+    def build_plan(self, request, context):
+        return {"steps": ["sentinel-business-step"]}
+
+    def execute(self, request, context):
+        self.context = context
+        return ScenarioExecutionResult(
+            status=self.expected_status,
+            exit_code=self.expected_exit,
+            task_id=context["task"].task_id,
+            missing_data=list(self.expected_missing),
+            message=self.expected_missing[0],
         )
 
 
@@ -281,28 +320,63 @@ def test_production_capability_registry_has_no_business_sufficient_entry():
     assert promoted == []
 
 
-@pytest.mark.parametrize("scenario", DEFAULT_SCENARIOS)
-def test_all_ten_registered_runner_results_pass_through_closed_foundation(
+def test_frozen_ten_scenario_set_matches_production_registry_exactly():
+    assert len(FROZEN_SCENARIO_IDS) == 10
+    assert len(set(FROZEN_SCENARIO_IDS)) == 10
+    assert len(DEFAULT_SCENARIOS) == 10
+    assert set(DEFAULT_SCENARIOS) == set(FROZEN_SCENARIO_IDS)
+
+
+@pytest.mark.parametrize("scenario", FROZEN_SCENARIO_IDS)
+def test_all_ten_normal_non_dry_runner_results_pass_through_closed_foundation(
     project, monkeypatch, scenario,
 ):
-    """Exercise every production Runner registration while isolating its business body."""
-    orchestrator = Orchestrator(project)
-    runner = orchestrator.registry.get(scenario)
+    """Normal production-default acquisition remains closed before each stub Runner."""
+    from research_os.collectors.government.nbs import NbsCollector
+    from research_os.collectors.market.sina_quote import SinaQuoteCollector
+    from research_os.collectors.news.cls import ClsMetadataCollector
+    from research_os.collectors.official.cninfo import CninfoCollector
+    from research_os.collectors.stub.stub import StubCollector
+    from research_os.data_layer.acquisition_repository import AcquisitionRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.llm.client import LlmClient
+    from research_os.llm.provider import FakeLlmProvider
+    from research_os.llm.providers.deepseek import DeepSeekChatCompletionsProvider
+    from research_os.routing.router import Router
+
+    def boom(*args, **kwargs):
+        raise AssertionError(
+            f"{scenario} normal production path crossed a forbidden boundary"
+        )
+
+    for method in ("resolve", "resolve_with_items"):
+        monkeypatch.setattr(Router, method, boom)
+    monkeypatch.setattr(AcquisitionRepository, "persist_batch", boom)
+    for collector_type in (
+        ClsMetadataCollector, CninfoCollector, SinaQuoteCollector, NbsCollector,
+        StubCollector,
+    ):
+        for method in ("healthcheck", "discover", "fetch", "normalize"):
+            monkeypatch.setattr(collector_type, method, boom)
+    monkeypatch.setattr(LlmClient, "generate_json", boom)
+    monkeypatch.setattr(FakeLlmProvider, "complete_json", boom)
+    monkeypatch.setattr(DeepSeekChatCompletionsProvider, "complete_json", boom)
+    monkeypatch.setattr("research_os.llm.provider_factory.create_provider", boom)
+    for method in (
+        "append_node", "append_edge", "append_review", "append_application",
+        "seed_ontology",
+    ):
+        monkeypatch.setattr(GraphRepository, method, boom)
+
     marker = f"runner-owned:{scenario}"
     expected_status = f"sentinel:{scenario}"
-    expected_exit = DEFAULT_SCENARIOS.index(scenario) + 10
-
-    runner.validate_request = lambda request: {
-        "dry_run": True, "as_of": "2026-08-16T08:00:00+08:00",
-    }
-    runner.build_plan = lambda request, context: {"steps": ["sentinel"]}
-    runner.execute = lambda request, context: ScenarioExecutionResult(
-        status=expected_status,
-        exit_code=expected_exit,
-        task_id=context["task"].task_id,
-        missing_data=[marker],
-        message=marker,
+    expected_exit = FROZEN_SCENARIO_IDS.index(scenario) + 10
+    runner = _PassThroughRunner(
+        scenario, expected_status, expected_exit, [marker],
     )
+    registry = ScenarioRegistry()
+    registry.register(runner)
+    orchestrator = Orchestrator(project, registry=registry)
     monkeypatch.setattr(
         orchestrator,
         "_request_context",
@@ -316,5 +390,31 @@ def test_all_ten_registered_runner_results_pass_through_closed_foundation(
     assert result.exit_code == expected_exit
     assert result.missing_data == [marker]
     assert result.message == marker
-    assert not (project / "reports" / "runs").exists()
+    assert runner.context is not None
+    assert runner.context["db"] is orchestrator.db
+
+    run_dir = Path(result.run_dir)
+    execution = json.loads(
+        (run_dir / "acquisition_execution.json").read_text(encoding="utf-8"),
+    )
+    assert execution["status"] == "not_executable"
+    assert execution["steps"]
+    assert {
+        reason
+        for step in execution["steps"]
+        for reason in step["reason_codes"]
+    } == {"EXECUTION_DISABLED"}
+    assert {step["status"] for step in execution["steps"]} == {"not_executable"}
+    assert runner.context["acquisition_execution"].status == "not_executable"
+
+    for table in (
+        "raw_items", "data_routes", "events", "opinions", "claims", "evidence",
+        "module_results", "llm_call_records",
+    ):
+        assert orchestrator.db.count(table) == 0
+    for table in (
+        "graph_nodes", "graph_edges", "graph_reviews", "graph_applications",
+        "graph_changes",
+    ):
+        assert orchestrator.db.count(table) == 0
     orchestrator.close()
