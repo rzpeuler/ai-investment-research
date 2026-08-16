@@ -15,7 +15,8 @@
 **DB: v6**  
 **MIGRATIONS: NONE**  
 **EXPECTED_SCHEMA_COUNT: 86**
-**IMPLEMENTATION_CODE_TEST_HEAD: `dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9`**
+**IMPLEMENTATION_CODE_HEAD: `b8c8de8cf3c1e81bb5c34be22298462ae33c0227`**
+**VALIDATION_TEST_HEAD: `831afe4bc518ca2e5ffb23087d43ede4eadadd03`**
 
 > 用户已于 2026-08-16 显式批准 P7-D2 Foundation implementation。本授权仅覆盖
 > 本任务书冻结的 Foundation，不授权真实来源执行或任何具体来源。
@@ -375,7 +376,8 @@ REAL DATA ACQUISITION COVERAGE: NONE
 ```text
 P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 REAL DATA ACQUISITION COVERAGE: NONE
-Implementation code/test head: dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9
+Implementation code head: b8c8de8cf3c1e81bb5c34be22298462ae33c0227
+Validation/test head: 831afe4bc518ca2e5ffb23087d43ede4eadadd03
 Production policy enabled: false
 Real source execution: 0
 Production collector IDs: []
@@ -387,17 +389,18 @@ Graph writes: 0
 DB: v6
 Migrations: 6 / NONE added
 Schemas: 86
-pytest collect-only: 3523 collected
-pytest full: 3517 passed / 6 skipped / 0 failed / 1 warning / 943.94s
+Offline CI run: 31944228373
+Offline CI URL: https://github.com/rzpeuler/ai-investment-research/actions/runs/31944228373
+Environment: Ubuntu / Python 3.12.13
+pytest full: 3563 passed / 6 skipped / 0 failed / 1 warning / 363.27s
 schema validation: 86/86 PASS
 compileall: PASS
-diff-check: PASS (Windows LF-to-CRLF notices only)
-Offline CI: NOT RUN (local validation only)
+Offline CI: SUCCESS
 ```
 
 本节只交接已实现的 Fake-proven Foundation，等待独立验收；不声明 PASS / CLOSED /
 operational / real-source ready，不授权任何具体真实来源或 Phase 6.1。
 
-已知非阻塞告警：pytest 汇总中的 1 条 warning 来自攻击测试故意构造错误类型时的 Pydantic
-serializer warning；进程启动另报告 `requests` 的 urllib3/chardet/charset_normalizer 依赖版本
-兼容性 warning。二者均未被静默或误报为测试通过条件。
+首次 Ubuntu run `31943822195` 仅因 fresh-process source-path portability 失败；
+validation/test head `831afe4bc518ca2e5ffb23087d43ede4eadadd03` 修复该问题后，继任 run
+`31944228373` 成功。该成功仍只是 Offline/Fake 证明，不构成独立验收或真实来源授权。

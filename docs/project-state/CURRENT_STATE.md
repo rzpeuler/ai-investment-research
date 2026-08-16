@@ -250,8 +250,9 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 ## P7-D2 当前状态（Foundation implemented / awaiting independent acceptance）
 
 - `P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`。
-- `REAL DATA ACQUISITION COVERAGE: NONE`；实现代码/测试 head：
-  `dba4c0cf70e0a7fe0537d2b90c4feba2f30a7bc9`。本治理提交只做交接，不把该 head
+- `REAL DATA ACQUISITION COVERAGE: NONE`；最终 implementation code head：
+  `b8c8de8cf3c1e81bb5c34be22298462ae33c0227`；validation/test head：
+  `831afe4bc518ca2e5ffb23087d43ede4eadadd03`。本治理提交只做交接，不把这些 head
   自行提升为 accepted head。
 - Foundation 已实现 deterministic execution gates、existing Router bridge、atomic RawItem /
   DataRoute persistence、post-acquisition readiness recheck、orchestrator integration、artifacts
@@ -260,8 +261,9 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   execution: 0；Capability BUSINESS_SUFFICIENT promotions: 0；New collectors: 0；Source
   expansion: 0；LLM/provider calls: 0；Graph writes: 0。
 - DB: v6；Migrations: 6 / NONE added；Schemas: 86。
-- 本地完整验证：`python -m pytest --collect-only -q` 收集 3523；`python -m pytest`
-  为 3517 passed / 6 skipped / 0 failed / 1 pytest warning，943.94s；Schema 86/86 PASS；
-  compileall PASS；diff-check PASS。未运行远端 Offline CI。
+- Offline CI run `31944228373` 在 Ubuntu / Python 3.12.13 成功：3563 passed /
+  6 skipped / 0 failed / 1 warning，363.27s；Schema 86/86 PASS；compile success。
+  前一 run `31943822195` 仅因 fresh-process source-path portability 失败；该问题由
+  validation/test head `831afe4bc518ca2e5ffb23087d43ede4eadadd03` 修复，继任 run 随后成功。
 - 独立验收前不得声明 PASS / CLOSED / operational / real-source ready，不授权任何具体来源、
   Collector、capability promotion、Graph write 或 Phase 6.1。
