@@ -7,6 +7,7 @@ dry-run 零副作用、Router/网络/LLM 禁止。
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -283,6 +284,9 @@ class TestNetworkAndLLMProhibition:
                 return original_import(name, globals, locals, fromlist, level)
             builtins.__import__ = guarded_import
 
+            import research_os
+            source_root = pathlib.Path({str((ROOT / "src").resolve())!r})
+            assert pathlib.Path(research_os.__file__).resolve().is_relative_to(source_root)
             from research_os.orchestrator import Orchestrator
             with tempfile.TemporaryDirectory() as directory:
                 root = pathlib.Path(directory)
@@ -295,9 +299,17 @@ class TestNetworkAndLLMProhibition:
                 orchestrator.close()
             """
         )
+        env = os.environ.copy()
+        source_root = str((ROOT / "src").resolve())
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            source_root
+            if not existing_pythonpath
+            else source_root + os.pathsep + existing_pythonpath
+        )
         completed = subprocess.run(
             [sys.executable, "-c", script], cwd=ROOT, text=True,
-            capture_output=True, timeout=60, check=False,
+            capture_output=True, timeout=60, check=False, env=env,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
 
