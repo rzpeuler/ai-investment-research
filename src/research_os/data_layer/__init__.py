@@ -15,9 +15,15 @@ from research_os.data_layer.execution import (
     AcquisitionStepFailure,
     RouteExecutionInput,
 )
+from research_os.data_layer.coordinator import (
+    AcquisitionCoordinationResult,
+    AcquisitionCoordinator,
+)
 
 __all__ = [
     "AcquisitionExecutionService",
+    "AcquisitionCoordinationResult",
+    "AcquisitionCoordinator",
     "AcquisitionPersistenceResult",
     "AcquisitionRepository",
     "AcquisitionStepFailure",

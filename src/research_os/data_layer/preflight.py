@@ -79,6 +79,16 @@ class DataPreflightService:
         RuntimeStrategyGate().assert_runtime_supported(self._bindings.all())
         self._projector = ReadinessFieldProjector()
 
+    @property
+    def requirement_registry(self) -> ScenarioDataRequirementRegistry:
+        """The single registry authority used by this service."""
+        return self._requirements
+
+    @property
+    def capability_registry(self) -> AcquisitionCapabilityRegistry:
+        """The single capability authority used by this service."""
+        return self._capabilities
+
     # ---------- 只读访问视图 ----------
 
     def _build_view(
@@ -189,6 +199,15 @@ class DataPreflightService:
             if owned_conn is not None:
                 owned_conn.close()
 
+    def recheck(self, **kwargs: Any) -> DataPreflightBundle:
+        """Re-evaluate readiness through this exact authority after committed acquisition writes.
+
+        This deliberately delegates to :meth:`run` instead of maintaining a second, simplified
+        readiness path.  Callers must provide the same task/scenario/request/as-of inputs used by
+        the initial preflight.
+        """
+        return self.run(**kwargs)
+
     # ---------- artifact 持久化（非 dry-run） ----------
 
     @staticmethod
@@ -223,6 +242,20 @@ class DataPreflightService:
         if errs:
             raise ValueError(f"AcquisitionPlan 未通过 Schema 校验: {errs}")
         _atomic_write(plan_path, json_dumps(plan_payload))
+
+    @staticmethod
+    def persist_readiness_after(run_dir: Path, bundle: DataPreflightBundle) -> None:
+        """Atomically persist the authoritative post-acquisition readiness records."""
+        from research_os.validators.schema_validator import validate_instance
+
+        lines: List[str] = []
+        for readiness in bundle.readiness:
+            payload = readiness.model_dump()
+            errors = validate_instance(payload, "data_readiness")
+            if errors:
+                raise ValueError(f"DataReadiness 未通过 Schema 校验: {errors}")
+            lines.append(json_dumps(payload))
+        _atomic_write(run_dir / "data_readiness_after.jsonl", "\n".join(lines) + "\n")
 
 
 def _atomic_write(path: Path, text: str) -> None:
