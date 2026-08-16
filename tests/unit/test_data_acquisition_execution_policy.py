@@ -104,3 +104,36 @@ def test_registry_only_reads_policy_file_and_returns_immutable_values(
 def test_yaml_shape_is_strict(tmp_path: Path, text: str) -> None:
     with pytest.raises(ValueError):
         ExecutionPolicyRegistry(_write_policy(tmp_path, text)).load()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        (
+            "enabled: true\nenabled: false\n"
+            "allowed_actions: [route_existing_sources]\nproduction_collector_ids: []\n"
+        ),
+        (
+            "enabled: false\nallowed_actions: [route_existing_sources]\n"
+            "allowed_actions: [route_existing_sources]\nproduction_collector_ids: []\n"
+        ),
+        (
+            "enabled: false\nallowed_actions: [route_existing_sources]\n"
+            "production_collector_ids: []\nmetadata:\n  key: one\n  key: two\n"
+        ),
+    ],
+)
+def test_duplicate_yaml_mapping_keys_are_rejected_at_any_depth(
+    tmp_path: Path, text: str,
+) -> None:
+    with pytest.raises(ValueError, match="duplicate YAML mapping key"):
+        ExecutionPolicyRegistry(_write_policy(tmp_path, text)).load()
+
+
+def test_non_string_yaml_mapping_key_is_normalized_to_value_error(tmp_path: Path) -> None:
+    path = _write_policy(tmp_path, (
+        "enabled: false\nallowed_actions: [route_existing_sources]\n"
+        "production_collector_ids: []\n1: unexpected\nfoo: unexpected\n"
+    ))
+    with pytest.raises(ValueError, match="mapping keys must be strings"):
+        ExecutionPolicyRegistry(path).load()

@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from research_os.models import (
+    AcquisitionPlan,
     AcquisitionExecutionError,
     AcquisitionExecutionResult,
     AcquisitionExecutionStepResult,
@@ -216,3 +217,83 @@ def test_schema_registry_count_is_exactly_86() -> None:
     assert len(SCHEMA_NAMES) == 86
     assert len(set(SCHEMA_NAMES)) == 86
     assert "acquisition_execution_result" in SCHEMA_NAMES
+
+
+@pytest.mark.parametrize("count", [True, "1"])
+@pytest.mark.parametrize(
+    "field", ["inserted_count", "reused_count", "rejected_future_item_count"],
+)
+def test_count_fields_reject_pydantic_coercion_and_match_schema(
+    field: str, count: object,
+) -> None:
+    payload = _payload(steps=[_step(**{field: count})])
+    assert validate_instance(payload, "acquisition_execution_result")
+    with pytest.raises(ValidationError):
+        AcquisitionExecutionResult(**payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "inserted_raw_item_ids",
+        "reused_raw_item_ids",
+        "readiness_before_requirement_ids",
+        "readiness_after_requirement_ids",
+    ],
+)
+def test_identifier_lists_reject_empty_items_with_model_schema_parity(field: str) -> None:
+    if field in {"inserted_raw_item_ids", "reused_raw_item_ids"}:
+        payload = _payload(steps=[_step(**{field: [""]})])
+    else:
+        payload = _payload(**{field: [""]})
+    assert validate_instance(payload, "acquisition_execution_result")
+    with pytest.raises(ValidationError):
+        AcquisitionExecutionResult(**payload)
+
+
+@pytest.mark.parametrize(
+    "route_update",
+    [
+        {"fallback_used": "false"},
+        {"requested_sources": [1]},
+    ],
+)
+def test_nested_route_rejects_coercive_primitives(route_update: dict) -> None:
+    route = _route()
+    route.update(route_update)
+    payload = _payload(steps=[_step(route=route)])
+    assert validate_instance(payload, "acquisition_execution_result")
+    with pytest.raises(ValidationError):
+        AcquisitionExecutionResult(**payload)
+
+
+def test_nested_route_requires_all_data_route_fields() -> None:
+    route = _route()
+    del route["warnings"]
+    payload = _payload(steps=[_step(route=route)])
+    assert validate_instance(payload, "acquisition_execution_result")
+    with pytest.raises(ValidationError):
+        AcquisitionExecutionResult(**payload)
+
+
+@pytest.mark.parametrize("leaked_field", ["source_id", "selected_source", "provider_id"])
+def test_acquisition_plan_rejects_source_leakage_in_model_and_schema(leaked_field: str) -> None:
+    payload = {
+        "task_id": "task-1",
+        "scenario": "morning_brief",
+        "as_of": "2026-08-16T08:00:00+08:00",
+        "steps": [{
+            "step_id": "step-1",
+            "requirement_id": "morning.fast_news",
+            "data_type": "fast_news",
+            "action": "route_existing_sources",
+            "dependencies": [],
+            "status": "pending",
+            "warnings": [],
+            leaked_field: "forbidden-source",
+        }],
+        "warnings": [],
+    }
+    assert validate_instance(payload, "acquisition_plan")
+    with pytest.raises(ValidationError):
+        AcquisitionPlan(**payload)

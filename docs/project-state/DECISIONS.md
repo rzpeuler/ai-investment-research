@@ -2756,7 +2756,8 @@ SCHEMAS: 86
   精确为 `not_executable / skipped / completed / partial_success / failed`；reason code 精确
   使用 P7-D2 taskbook 集合（包含 `ACTION_SKIPPED`）。
 - Execution ID 是确定性 UUID5 形状；时间必须合法且结束时间不得早于开始时间；step 可携带
-  nullable、既有 `DataRoute` 形状，并记录结构化、脱敏 error。
+  nullable、既有 `DataRoute` 形状，并记录结构化 error。M0 只冻结契约，不实现 error
+  sanitizer；实际脱敏行为属于后续 execution service。
 - 生产策略文件固定为 `enabled: false`、`allowed_actions: [route_existing_sources]`、
   `production_collector_ids: []`。策略加载只读、严格拒绝未知字段、重复 collector 与
   Foundation 非空 production collector。

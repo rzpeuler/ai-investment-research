@@ -6,10 +6,42 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
+from yaml.constructor import ConstructorError
+from yaml.nodes import MappingNode
+from yaml.resolver import BaseResolver
 
 
 _POLICY_FIELDS = {"enabled", "allowed_actions", "production_collector_ids"}
 _FOUNDATION_ACTIONS = ("route_existing_sources",)
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """SafeLoader variant that fails closed on duplicate or non-string mapping keys."""
+
+
+def _construct_strict_mapping(
+    loader: _UniqueKeySafeLoader, node: MappingNode, deep: bool = False,
+) -> dict[str, Any]:
+    loader.flatten_mapping(node)
+    mapping: dict[str, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, str):
+            raise ConstructorError(
+                None, None, "YAML mapping keys must be strings", key_node.start_mark,
+            )
+        if key in mapping:
+            raise ConstructorError(
+                None, None, f"duplicate YAML mapping key: {key!r}", key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(
+    BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_strict_mapping,
+)
 
 
 @dataclass(frozen=True)
@@ -29,11 +61,15 @@ class ExecutionPolicyRegistry:
 
     def load(self) -> ExecutionPolicy:
         try:
-            payload = yaml.safe_load(self.path.read_text(encoding="utf-8"))
+            payload = yaml.load(
+                self.path.read_text(encoding="utf-8"), Loader=_UniqueKeySafeLoader,
+            )
         except (OSError, yaml.YAMLError) as exc:
             raise ValueError(f"invalid execution policy: {exc}") from exc
         if not isinstance(payload, Mapping):
             raise ValueError("execution policy must be a YAML object")
+        if any(not isinstance(key, str) for key in payload):
+            raise ValueError("execution policy mapping keys must be strings")
         keys = set(payload)
         if keys != _POLICY_FIELDS:
             missing = sorted(_POLICY_FIELDS - keys)

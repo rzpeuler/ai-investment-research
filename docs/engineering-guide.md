@@ -278,7 +278,8 @@
 - 现有 Router 仍是唯一来源路由权威；Foundation 不增加第二 Router、生产网络调用、
   业务数据写入、LLM/provider 调用或 Graph 写入。Phase 6.1 仍 `NOT_AUTHORIZED`。
 - Execution result 的 overall/step status、reason code、UUID5、时间、嵌套 DataRoute、
-  结构化脱敏错误均由 JSON Schema 与确定性代码 fail closed；Plan 保持不可变且不泄露来源。
+  结构化错误记录均由 JSON Schema 与确定性代码 fail closed；M0 不实现 error sanitizer；
+  Plan 保持不可变且不泄露来源。
 - 本授权不构成任何真实来源可用性、采集覆盖率、独立验收通过或合并授权声明。
 
 # 第一部分：需求确认稿

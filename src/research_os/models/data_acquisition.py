@@ -6,10 +6,10 @@ Pydantic 只是构造器。model_dump() 后必须通过对应 Schema 校验。
 """
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 
 from research_os.models.core import StrictModel
 from research_os.models.sources import DataRoute
@@ -75,6 +75,10 @@ AcquisitionExecutionReason = Literal[
     "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
     "CONTROL_PLANE_CONFIGURATION_ERROR",
 ]
+
+StrictText = Annotated[str, StringConstraints(strict=True)]
+NonEmptyStrictText = Annotated[str, StringConstraints(strict=True, min_length=1)]
+Sha256Text = Annotated[str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{64}$")]
 
 CoverageStatus = Literal["covered", "partial", "manual_only", "not_covered", "source_failure"]
 
@@ -178,42 +182,55 @@ class AcquisitionPlan(StrictModel):
 # ---------- AcquisitionExecutionResult（P7-D2 Foundation） ----------
 
 class AcquisitionExecutionError(StrictModel):
-    code: str = Field(..., min_length=1)
-    message: str = Field(..., min_length=1)
-    component: str = Field(..., min_length=1)
+    code: NonEmptyStrictText
+    message: NonEmptyStrictText
+    component: NonEmptyStrictText
 
 
 class AcquisitionExecutionStepResult(StrictModel):
-    step_id: str = Field(..., min_length=1)
-    requirement_id: str = Field(..., min_length=1)
-    data_type: str = Field(..., min_length=1)
+    step_id: NonEmptyStrictText
+    requirement_id: NonEmptyStrictText
+    data_type: NonEmptyStrictText
     action: AcquisitionAction
     status: AcquisitionExecutionStepStatus
-    reason_codes: List[AcquisitionExecutionReason]
+    reason_codes: List[AcquisitionExecutionReason] = Field(..., strict=True)
     route: Optional[DataRoute]
-    inserted_raw_item_ids: List[str]
-    reused_raw_item_ids: List[str]
-    inserted_count: int = Field(..., ge=0)
-    reused_count: int = Field(..., ge=0)
-    rejected_future_item_count: int = Field(..., ge=0)
-    warnings: List[str]
-    errors: List[AcquisitionExecutionError]
+    inserted_raw_item_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    reused_raw_item_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    inserted_count: StrictInt = Field(..., ge=0)
+    reused_count: StrictInt = Field(..., ge=0)
+    rejected_future_item_count: StrictInt = Field(..., ge=0)
+    warnings: List[StrictText] = Field(..., strict=True)
+    errors: List[AcquisitionExecutionError] = Field(..., strict=True)
+
+    @field_validator("route", mode="before")
+    @classmethod
+    def _strict_data_route(cls, value: object) -> object:
+        if value is None:
+            return value
+        payload = value.model_dump() if isinstance(value, DataRoute) else value
+        from research_os.validators.schema_validator import validate_instance
+
+        errors = validate_instance(payload, "data_route")
+        if errors:
+            raise ValueError(f"route must match the authoritative DataRoute schema: {errors}")
+        return value
 
 
 class AcquisitionExecutionResult(StrictModel):
-    execution_id: str
-    task_id: str = Field(..., min_length=1)
+    execution_id: StrictText
+    task_id: NonEmptyStrictText
     scenario: ScenarioId
-    as_of: str
-    plan_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
-    started_at: str
-    finished_at: str
+    as_of: StrictText
+    plan_sha256: Sha256Text
+    started_at: StrictText
+    finished_at: StrictText
     status: AcquisitionExecutionStatus
-    steps: List[AcquisitionExecutionStepResult]
-    readiness_before_requirement_ids: List[str]
-    readiness_after_requirement_ids: List[str]
-    warnings: List[str]
-    errors: List[AcquisitionExecutionError]
+    steps: List[AcquisitionExecutionStepResult] = Field(..., strict=True)
+    readiness_before_requirement_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    readiness_after_requirement_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    warnings: List[StrictText] = Field(..., strict=True)
+    errors: List[AcquisitionExecutionError] = Field(..., strict=True)
 
     @field_validator("execution_id")
     @classmethod
