@@ -12,7 +12,7 @@ DataReadinessService + AcquisitionCapabilityRegistry + GapClassifier + Acquisiti
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -325,6 +325,52 @@ class DataPreflightService:
             )
         except Exception:  # noqa: BLE001 -- collaborator context is untrusted
             return False
+
+    def canonical_recheck_bundle_authority_payload(
+        self, bundle: DataPreflightBundle,
+    ) -> Dict[str, Any]:
+        """Project every validated recheck authority field into a comparable payload."""
+        from research_os.data_layer.projector import ReadinessFieldProjector
+        from research_os.utils.time import parse_iso
+
+        contexts = []
+        for context in bundle.contexts:
+            contexts.append({
+                "requirement": context.requirement.model_dump(),
+                "scenario": context.scenario,
+                "task_id": context.task_id,
+                "as_of_instant": parse_iso(context.as_of).isoformat(),
+                "entity_ids": list(context.entity_ids),
+                "peer_entity_ids": list(context.peer_entity_ids),
+                "industry_ids": list(context.industry_ids),
+                "window_start": context.window_start,
+                "window_end": context.window_end,
+                "watchlist_group": context.watchlist_group,
+                "request_material_refs": list(context.request_material_refs),
+                "unresolved": list(context.unresolved),
+                "previous_run_ids": list(context.previous_run_ids),
+                "binding": asdict(context.binding),
+                "projector": {
+                    "type": (
+                        f"{type(context.projector).__module__}."
+                        f"{type(context.projector).__qualname__}"
+                    ),
+                    "descriptor": list(ReadinessFieldProjector.authority_descriptor()),
+                },
+            })
+        readiness_payloads = []
+        for readiness in bundle.readiness:
+            payload = readiness.model_dump()
+            payload["as_of"] = parse_iso(readiness.as_of).isoformat()
+            readiness_payloads.append(payload)
+        return {
+            "checked_at": bundle.checked_at,
+            "requirements": [item.model_dump() for item in bundle.requirements],
+            "contexts": contexts,
+            "readiness": readiness_payloads,
+            "gaps": [item.model_dump() for item in bundle.gaps],
+            "acquisition_plan": bundle.acquisition_plan.model_dump(),
+        }
 
     # ---------- artifact 持久化（非 dry-run） ----------
 

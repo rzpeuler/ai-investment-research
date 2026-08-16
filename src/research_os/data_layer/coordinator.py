@@ -22,7 +22,7 @@ from research_os.data_layer.execution import (
 )
 from research_os.data_layer.preflight import DataPreflightBundle, DataPreflightService, _atomic_write, json_dumps
 from research_os.models import AcquisitionExecutionError, AcquisitionExecutionResult
-from research_os.utils.time import parse_iso
+from research_os.utils.time import parse_iso, validate_iso
 from research_os.validators.schema_validator import validate_instance
 
 
@@ -165,13 +165,50 @@ class AcquisitionCoordinator:
             )
             if _canonical_request_bytes(recheck_request) != authoritative_request:
                 raise ValueError("normalized request collaborator mutation")
-            self._preflight.assert_recheck_bundle_authority(
+            if type(after.checked_at) is not str or not validate_iso(after.checked_at):
+                raise ValueError("invalid candidate recheck checked_at")
+            DataPreflightService.assert_recheck_bundle_authority(
+                self._preflight,
                 after,
                 task_id=task_id,
                 scenario=scenario,
                 task_as_of=task_as_of,
                 normalized_request=json.loads(authoritative_request),
             )
+            authoritative_after = DataPreflightService.run(
+                self._preflight,
+                scenario=scenario,
+                task_id=task_id,
+                task_as_of=task_as_of,
+                normalized_request=json.loads(authoritative_request),
+                project_root=project_root,
+                db=db,
+                runs_root=runs_root,
+                graph_repo=graph_repo,
+                dry_run=dry_run,
+                checked_at=after.checked_at,
+            )
+            DataPreflightService.assert_recheck_bundle_authority(
+                self._preflight,
+                authoritative_after,
+                task_id=task_id,
+                scenario=scenario,
+                task_as_of=task_as_of,
+                normalized_request=json.loads(authoritative_request),
+            )
+            candidate_payload = (
+                DataPreflightService.canonical_recheck_bundle_authority_payload(
+                    self._preflight, after,
+                )
+            )
+            authoritative_payload = (
+                DataPreflightService.canonical_recheck_bundle_authority_payload(
+                    self._preflight, authoritative_after,
+                )
+            )
+            if candidate_payload != authoritative_payload:
+                raise ValueError("candidate recheck differs from independent authority")
+            after = authoritative_after
         except Exception as exc:  # noqa: BLE001 -- never retain arbitrary exception detail
             if not persistence_committed:
                 raise ValueError(

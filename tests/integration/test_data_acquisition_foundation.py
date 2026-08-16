@@ -1244,6 +1244,63 @@ def test_coordinator_preserves_ordinary_nested_json_request_semantics(tmp_path):
     orchestrator.close()
 
 
+@pytest.mark.parametrize("attack", ["ready", "counts", "fields", "warnings"])
+def test_independent_readiness_recompute_rejects_consistent_forged_candidate(
+    tmp_path, attack,
+):
+    project, events, runner, db, orchestrator = _wired(tmp_path, empty=True)
+    preflight = orchestrator.preflight
+    candidate_recheck = preflight.recheck
+
+    def forged_recheck(**kwargs):
+        bundle = candidate_recheck(**kwargs)
+        readiness = bundle.readiness[0]
+        updates = {
+            "ready": {
+                "status": "READY", "available_fields": ["title", "published_at", "url"],
+                "missing_fields": [], "coverage_ratio": 1.0,
+                "eligible_record_count": 1, "record_refs": ["forged-record"],
+            },
+            "counts": {"eligible_record_count": 7, "ineligible_record_count": 3},
+            "fields": {
+                "available_fields": ["forged_field"],
+                "missing_fields": ["forged_missing"],
+            },
+            "warnings": {"warnings": ["forged readiness warning"]},
+        }[attack]
+        bundle.readiness[0] = readiness.model_copy(update=updates)
+        bundle.gaps = [
+            preflight._gaps.classify(requirement, forged_readiness)
+            for requirement, forged_readiness
+            in zip(bundle.requirements, bundle.readiness)
+        ]
+        bundle.acquisition_plan = preflight._planner.plan(
+            task_id=TASK_EMPTY, scenario="morning_brief", as_of=AS_OF,
+            gaps=bundle.gaps,
+            requirement_order=[item.requirement_id for item in bundle.requirements],
+        )
+        return bundle
+
+    preflight.recheck = forged_recheck
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_EMPTY, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 0
+    execution = runner.context["acquisition_execution"]
+    assert execution.status == "partial_success"
+    assert execution.readiness_after_requirement_ids == []
+    assert [error.code for error in execution.errors] == ["RECHECK_FAILED"]
+    assert runner.context["data_acquisition"].readiness_after is None
+    assert runner.context["data_preflight"].readiness[0].status == "MISSING"
+    assert db.count("raw_items") == 0
+    run_dir = Path(result.run_dir)
+    assert not (run_dir / "data_readiness_after.jsonl").exists()
+    persisted = json.loads((run_dir / "acquisition_execution.json").read_text("utf-8"))
+    assert persisted["readiness_after_requirement_ids"] == []
+    assert "forged" not in json.dumps(persisted)
+    orchestrator.close()
+
+
 def test_projectors_are_per_context_stateless_and_exact_type_authoritative(tmp_path):
     project = tmp_path / "project"
     (project / "reports").mkdir(parents=True)
