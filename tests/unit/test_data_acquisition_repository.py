@@ -179,6 +179,31 @@ def test_future_items_compare_instants_and_are_not_written(db):
     assert db.count("data_routes") == 1
 
 
+def test_cross_offset_timestamp_is_compared_as_an_instant_not_lexically(db):
+    # Lexically "01:31Z" sorts before "09:30+08", but it is one minute later.
+    future = "2026-08-16T01:31:00Z"
+    assert future < AS_OF
+    result = _persist(AcquisitionRepository(db), [
+        _item(published_at=future, retrieved_at="2026-08-16T02:00:00Z"),
+    ])
+    assert result.rejected_future_item_count == 1
+    assert result.inserted_raw_item_ids == ()
+    assert db.count("raw_items") == 0
+    assert db.count("data_routes") == 1
+
+
+def test_retrieval_after_as_of_is_valid_and_never_substitutes_for_publication(db):
+    result = _persist(AcquisitionRepository(db), [
+        _item(
+            published_at="2026-08-16T01:29:00Z",
+            retrieved_at="2026-08-16T10:30:00+08:00",
+        ),
+    ])
+    assert len(result.inserted_raw_item_ids) == 1
+    stored = db.get("raw_items", result.inserted_raw_item_ids[0])
+    assert stored["retrieved_at"] == "2026-08-16T10:30:00+08:00"
+
+
 def test_stored_publication_is_authoritative_for_cross_as_of_replay(db):
     repository = AcquisitionRepository(db)
     stored = _item(published_at="2026-08-16T10:00:00+08:00")
@@ -327,6 +352,20 @@ def test_second_item_failure_rolls_back_route_and_all_items(db, monkeypatch):
         _persist(repository, [
             _item(external_id="one"), _item(external_id="two", content_hash=HASH_B),
         ])
+    assert exc.value.reason_code == "PERSIST_FAILED"
+    assert db.count("raw_items") == db.count("data_routes") == 0
+
+
+def test_failure_immediately_after_route_insert_rolls_back_route(db, monkeypatch):
+    repository = AcquisitionRepository(db)
+
+    def fail_first(conn, item):
+        assert conn.execute("SELECT COUNT(*) FROM data_routes").fetchone()[0] == 1
+        raise RuntimeError("injected failure after route audit insert")
+
+    monkeypatch.setattr(repository, "_insert_raw_item", fail_first)
+    with pytest.raises(AcquisitionStepFailure) as exc:
+        _persist(repository, [_item()])
     assert exc.value.reason_code == "PERSIST_FAILED"
     assert db.count("raw_items") == db.count("data_routes") == 0
 

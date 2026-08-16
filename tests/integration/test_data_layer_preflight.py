@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
+from types import SimpleNamespace
 
 import pytest
 
 from research_os.orchestrator import Orchestrator
 from research_os.orchestrator.scenario_registry import ScenarioRegistry
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
+from research_os.orchestrator.runners import DEFAULT_SCENARIOS
 from research_os.routing.scenario_requirements import ScenarioDataRequirementRegistry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -183,3 +188,133 @@ class TestNetworkAndLLMProhibition:
         monkeypatch.setattr("research_os.llm.client.LlmClient.generate_json", boom)
         result = orch.execute("morning_brief", {"dry_run": True, "report_date": "2026-08-11"})
         assert result.exit_code == 0
+
+    def test_default_foundation_calls_no_collector_llm_provider_or_graph_writer(
+        self, project, monkeypatch,
+    ):
+        from research_os.collectors.government.nbs import NbsCollector
+        from research_os.collectors.market.sina_quote import SinaQuoteCollector
+        from research_os.collectors.news.cls import ClsMetadataCollector
+        from research_os.collectors.official.cninfo import CninfoCollector
+        from research_os.knowledge.repository import GraphRepository
+        from research_os.llm.client import LlmClient
+        from research_os.llm.providers.deepseek import DeepSeekChatCompletionsProvider
+
+        def boom(*args, **kwargs):
+            raise AssertionError("P7-D2 default path crossed a forbidden boundary")
+
+        for collector_type in (
+            ClsMetadataCollector, CninfoCollector, SinaQuoteCollector, NbsCollector,
+        ):
+            for method in ("healthcheck", "discover", "fetch", "normalize"):
+                monkeypatch.setattr(collector_type, method, boom)
+        monkeypatch.setattr(LlmClient, "generate_json", boom)
+        monkeypatch.setattr(DeepSeekChatCompletionsProvider, "complete_json", boom)
+        for method in (
+            "append_node", "append_edge", "append_review", "append_application",
+            "seed_ontology",
+        ):
+            monkeypatch.setattr(GraphRepository, method, boom)
+
+        orch = Orchestrator(project)
+        result = orch.execute(
+            "morning_brief", {"dry_run": True, "report_date": "2026-08-11"},
+        )
+        assert result.exit_code == 0
+        orch.close()
+
+    def test_fresh_default_process_does_not_import_real_collector_modules(self, project):
+        script = textwrap.dedent(
+            f"""
+            import builtins
+            import pathlib
+            import tempfile
+
+            forbidden = (
+                "research_os.collectors.news",
+                "research_os.collectors.official",
+                "research_os.collectors.market",
+                "research_os.collectors.government",
+                "research_os.collectors.stub",
+            )
+            original_import = builtins.__import__
+            def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+                if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden):
+                    raise AssertionError("real Collector module imported: " + name)
+                return original_import(name, globals, locals, fromlist, level)
+            builtins.__import__ = guarded_import
+
+            from research_os.orchestrator import Orchestrator
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                orchestrator = Orchestrator(root)
+                result = orchestrator.execute(
+                    "morning_brief",
+                    {{"dry_run": True, "report_date": "2026-08-11"}},
+                )
+                assert result.exit_code == 0, result
+                orchestrator.close()
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script], cwd=ROOT, text=True,
+            capture_output=True, timeout=60, check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_production_capability_registry_has_no_business_sufficient_entry():
+    from research_os.data_layer.capabilities import AcquisitionCapabilityRegistry
+
+    requirements = ScenarioDataRequirementRegistry(
+        ROOT / "registry" / "scenario_data_requirements.yaml",
+    )
+    capabilities = AcquisitionCapabilityRegistry(
+        ROOT / "registry" / "data_acquisition_capabilities.yaml",
+        scenario_requirements=requirements,
+        repo_root=ROOT,
+    )
+    promoted = [
+        item.data_type for item in capabilities.all()
+        if item.automatic_acquisition_lifecycle == "BUSINESS_SUFFICIENT"
+    ]
+    assert promoted == []
+
+
+@pytest.mark.parametrize("scenario", DEFAULT_SCENARIOS)
+def test_all_ten_registered_runner_results_pass_through_closed_foundation(
+    project, monkeypatch, scenario,
+):
+    """Exercise every production Runner registration while isolating its business body."""
+    orchestrator = Orchestrator(project)
+    runner = orchestrator.registry.get(scenario)
+    marker = f"runner-owned:{scenario}"
+    expected_status = f"sentinel:{scenario}"
+    expected_exit = DEFAULT_SCENARIOS.index(scenario) + 10
+
+    runner.validate_request = lambda request: {
+        "dry_run": True, "as_of": "2026-08-16T08:00:00+08:00",
+    }
+    runner.build_plan = lambda request, context: {"steps": ["sentinel"]}
+    runner.execute = lambda request, context: ScenarioExecutionResult(
+        status=expected_status,
+        exit_code=expected_exit,
+        task_id=context["task"].task_id,
+        missing_data=[marker],
+        message=marker,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_request_context",
+        lambda: SimpleNamespace(
+            extract=lambda selected, request: SimpleNamespace(task_entities=[]),
+        ),
+    )
+
+    result = orchestrator.execute(scenario, {})
+    assert result.status == expected_status
+    assert result.exit_code == expected_exit
+    assert result.missing_data == [marker]
+    assert result.message == marker
+    assert not (project / "reports" / "runs").exists()
+    orchestrator.close()

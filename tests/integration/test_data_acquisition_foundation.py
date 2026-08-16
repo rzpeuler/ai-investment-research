@@ -69,11 +69,17 @@ class _FakeCollector(CollectorAdapter):
     source_id = "cls"
     version = "fake"
 
-    def __init__(self, events, *, empty=False, external_id="fake-1", published_at=None):
+    def __init__(
+        self, events, *, empty=False, external_id="fake-1", published_at=None,
+        duplicate_refs=False, adapter_source_id="cls", fetch_error=None,
+    ):
         self.events = events
         self.empty = empty
         self.external_id = external_id
         self.published_at = published_at or "2026-08-16T07:30:00+08:00"
+        self.duplicate_refs = duplicate_refs
+        self.source_id = adapter_source_id
+        self.fetch_error = fetch_error
 
     def healthcheck(self):
         return HealthStatus(source_id=self.source_id, ok=True)
@@ -82,14 +88,17 @@ class _FakeCollector(CollectorAdapter):
         self.events.append("discover")
         if self.empty:
             return []
-        return [ItemRef(
+        ref = ItemRef(
             source_id=self.source_id, external_id=self.external_id,
             url=f"https://example.test/{self.external_id}",
             published_at=self.published_at,
-        )]
+        )
+        return [ref, ref.model_copy(deep=True)] if self.duplicate_refs else [ref]
 
     def fetch(self, item_ref):
         self.events.append("fetch")
+        if self.fetch_error is not None:
+            raise RuntimeError(self.fetch_error)
         return RawPayload(
             source_id=self.source_id, external_id=item_ref.external_id,
             url=item_ref.url, title="fake headline", publisher="fixture",
@@ -163,7 +172,8 @@ class _FakeRefreshChecker(RawItemChecker):
 
 def _wired(
     tmp_path, *, empty=False, published_at=None, fallback_primary=False,
-    invalid_batch=False, fake_refresh_semantics=False,
+    invalid_batch=False, fake_refresh_semantics=False, duplicate_refs=False,
+    adapter_source_id="cls", fetch_error=None,
 ):
     project = tmp_path / "project"
     (project / "reports").mkdir(parents=True)
@@ -187,7 +197,11 @@ def _wired(
 
     preflight.run = run_spy
     preflight.recheck = recheck_spy
-    collector = _FakeCollector(events, empty=empty, published_at=published_at)
+    collector = _FakeCollector(
+        events, empty=empty, published_at=published_at,
+        duplicate_refs=duplicate_refs, adapter_source_id=adapter_source_id,
+        fetch_error=fetch_error,
+    )
     bridge = CollectorFetcherBridge({"cls": collector})
     fetchers = bridge.as_fetchers()
     if empty:
@@ -299,6 +313,57 @@ def test_replay_keeps_raw_item_count_and_reports_reuse(tmp_path):
     assert replay.execution.steps[0].inserted_count == 0
     assert replay.execution.steps[0].reused_count == 1
     assert db.count("data_routes") == 2
+    orchestrator.close()
+
+
+def test_duplicate_itemrefs_and_normalized_items_are_accounted_once(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path, duplicate_refs=True)
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    step = runner.context["acquisition_execution"].steps[0]
+    assert events.count("fetch") == events.count("normalize") == 2
+    assert step.status == "completed"
+    assert step.inserted_count == 1
+    assert step.reused_count == 0
+    assert db.count("raw_items") == db.count("data_routes") == 1
+    assert result.exit_code == 0
+    orchestrator.close()
+
+
+def test_adapter_source_identity_mismatch_fails_without_persistence(tmp_path):
+    project, events, runner, db, orchestrator = _wired(
+        tmp_path, adapter_source_id="forged-source",
+    )
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    step = runner.context["acquisition_execution"].steps[0]
+    assert step.status == "failed"
+    assert step.reason_codes == ["ROUTE_UNAVAILABLE"]
+    assert db.count("raw_items") == db.count("data_routes") == 0
+    assert result.exit_code == 0
+    orchestrator.close()
+
+
+@pytest.mark.parametrize("secret_error", [
+    "Authorization: Bearer top-secret-token",
+    "Cookie=session=top-secret-cookie",
+    "headers={'X-Auth-Token': 'top-secret-token'}",
+])
+def test_collector_credentials_never_escape_execution_audit(tmp_path, secret_error):
+    project, events, runner, db, orchestrator = _wired(
+        tmp_path, fetch_error=secret_error,
+    )
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    step = runner.context["acquisition_execution"].steps[0]
+    dumped = json.dumps(step.model_dump(), ensure_ascii=False)
+    assert "top-secret" not in dumped
+    assert step.reason_codes == ["ROUTE_UNAVAILABLE"]
+    assert db.count("raw_items") == db.count("data_routes") == 0
+    assert result.exit_code == 0
     orchestrator.close()
 
 

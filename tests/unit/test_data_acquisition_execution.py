@@ -195,6 +195,32 @@ def test_invalid_plan_and_schema_invalid_action_fail_before_io():
 
 
 @pytest.mark.parametrize(
+    ("location", "field"),
+    [
+        ("plan", "source_id"),
+        ("plan", "provider_id"),
+        ("step", "source_id"),
+        ("step", "selected_source"),
+        ("step", "provider_id"),
+    ],
+)
+def test_plan_rejects_source_and_provider_leakage_before_io(location, field):
+    """A Plan describes requirements/actions; routing authority never enters it."""
+    router, repository = _Router(), _Repository()
+    payload = _plan().model_dump()
+    target = payload if location == "plan" else payload["steps"][0]
+    target[field] = "forbidden-authority"
+
+    assert validate_instance(payload, "acquisition_plan")
+    result = _execute(
+        _service(router=router, repository=repository), plan=payload,
+    )
+    assert result.status == "not_executable"
+    assert router.calls == repository.calls == []
+    assert "forbidden-authority" not in str(result.model_dump())
+
+
+@pytest.mark.parametrize(
     ("requirements", "capabilities", "data_type", "reason"),
     [
         (_Requirements(None), _Capabilities(_Capability()), "fake_data", "REQUIREMENT_NOT_FOUND"),
