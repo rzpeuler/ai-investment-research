@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://research-os.local/schemas/acquisition_execution_result.schema.json",
+  "title": "AcquisitionExecutionResult",
+  "description": "P7-D2 Foundation acquisition execution audit result. This contract does not authorize real-source execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "execution_id", "task_id", "scenario", "as_of", "plan_sha256",
+    "started_at", "finished_at", "status", "steps",
+    "readiness_before_requirement_ids", "readiness_after_requirement_ids",
+    "warnings", "errors"
+  ],
+  "properties": {
+    "execution_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "task_id": { "type": "string", "minLength": 1 },
+    "scenario": {
+      "type": "string",
+      "enum": [
+        "morning_brief", "evening_brief", "daily_review",
+        "abnormal_move_analysis", "stock_research_report", "first_coverage",
+        "stock_review", "industry_research", "theme_discovery",
+        "earnings_expectation"
+      ]
+    },
+    "as_of": { "type": "string", "format": "date-time" },
+    "plan_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "status": {
+      "type": "string",
+      "enum": ["not_executable", "completed", "partial_success", "failed"]
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/step_result" }
+    },
+    "readiness_before_requirement_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "readiness_after_requirement_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/error_record" }
+    }
+  },
+  "definitions": {
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "EXECUTION_DISABLED", "LIVE_GATE_DISABLED", "DRY_RUN_PROHIBITS_EXECUTION",
+        "PLAN_CONTEXT_MISMATCH", "ACTION_SKIPPED", "REQUIREMENT_NOT_FOUND",
+        "DATA_TYPE_MISMATCH", "CAPABILITY_NOT_BUSINESS_SUFFICIENT", "ROUTE_UNAVAILABLE",
+        "FETCH_FAILED", "NORMALIZATION_FAILED", "RAW_ITEM_SCHEMA_INVALID",
+        "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
+        "CONTROL_PLANE_CONFIGURATION_ERROR"
+      ]
+    },
+    "error_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "component"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "component": { "type": "string", "minLength": 1 }
+      }
+    },
+    "step_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step_id", "requirement_id", "data_type", "action", "status",
+        "reason_codes", "route", "inserted_raw_item_ids", "reused_raw_item_ids",
+        "inserted_count", "reused_count", "rejected_future_item_count",
+        "warnings", "errors"
+      ],
+      "properties": {
+        "step_id": { "type": "string", "minLength": 1 },
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "data_type": { "type": "string", "minLength": 1 },
+        "action": {
+          "type": "string",
+          "enum": [
+            "route_existing_sources", "derive_existing", "request_manual_input",
+            "request_human_review", "governed_workflow", "unavailable"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["not_executable", "skipped", "completed", "partial_success", "failed"]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/reason_code" }
+        },
+        "route": {
+          "anyOf": [
+            { "$ref": "https://research-os.local/schemas/data_route.schema.json" },
+            { "type": "null" }
+          ]
+        },
+        "inserted_raw_item_ids": {
+          "type": "array", "items": { "type": "string", "minLength": 1 }
+        },
+        "reused_raw_item_ids": {
+          "type": "array", "items": { "type": "string", "minLength": 1 }
+        },
+        "inserted_count": { "type": "integer", "minimum": 0 },
+        "reused_count": { "type": "integer", "minimum": 0 },
+        "rejected_future_item_count": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/error_record" }
+        }
+      }
+    }
+  }
+}

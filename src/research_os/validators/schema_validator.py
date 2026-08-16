@@ -128,6 +128,8 @@ SCHEMA_NAMES = [
     "data_gap",
     "acquisition_plan",
     "brief_attention_snapshot",
+    # Phase 7 D2：Acquisition Execution Foundation audit contract
+    "acquisition_execution_result",
 ]
 
 # 自定义格式校验：统一使用项目的 Asia/Shanghai ISO 时间口径
@@ -276,6 +278,8 @@ def validate_model(model: Any) -> List[str]:
         "EarningsExpectationRun": "earnings_expectation_run",
         "FirstCoverageRequest": "first_coverage_request",
         "FirstCoverageRun": "first_coverage_run",
+        # Phase 7 D2
+        "AcquisitionExecutionResult": "acquisition_execution_result",
     }.get(name)
     if schema_name is None:
         raise ValueError(f"未知模型: {name}")

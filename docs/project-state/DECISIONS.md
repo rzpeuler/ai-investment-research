@@ -2724,3 +2724,44 @@ SCHEMAS: 85
 
 设计授权不等于实施授权。P7-D2 必须完成新 taskbook、独立架构批准与显式实施授权；
 任何具体外部数据源、Collector、联网执行、持久化变更或 migration 均不在本授权内。
+
+## 49. P7-D2 Acquisition Execution Foundation（2026-08-16，APPROVED）
+
+用户于 2026-08-16 显式批准 P7-D2 Foundation implementation。批准范围只建立生产
+默认关闭、真实来源为空的执行治理基础；不证明任何真实来源可用，也不授权具体来源。
+
+### 49.1 Frozen Foundation Boundary
+
+```text
+P7-D2_IMPLEMENTATION: AUTHORIZED — FOUNDATION ONLY
+REAL_SOURCE_EXECUTION: NOT_AUTHORIZED
+SPECIFIC_SOURCE_AUTHORIZATION: NONE
+PRODUCTION_COLLECTOR_IDS: []
+CAPABILITY_PROMOTIONS: 0
+NEW_COLLECTORS: 0
+SOURCE_EXPANSION: NO
+PRODUCTION_LLM_CALLS: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 86
+```
+
+### 49.2 Frozen Contracts and Policy
+
+- 只新增一个权威业务 Schema：`acquisition_execution_result.schema.json`；其模型必须
+  strict，所有对象字段 required、`additionalProperties: false`，并通过统一 validator。
+- Overall status 精确为 `not_executable / completed / partial_success / failed`；step status
+  精确为 `not_executable / skipped / completed / partial_success / failed`；reason code 精确
+  使用 P7-D2 taskbook 集合（包含 `ACTION_SKIPPED`）。
+- Execution ID 是确定性 UUID5 形状；时间必须合法且结束时间不得早于开始时间；step 可携带
+  nullable、既有 `DataRoute` 形状，并记录结构化、脱敏 error。
+- 生产策略文件固定为 `enabled: false`、`allowed_actions: [route_existing_sources]`、
+  `production_collector_ids: []`。策略加载只读、严格拒绝未知字段、重复 collector 与
+  Foundation 非空 production collector。
+- 现有 Router 仍是唯一来源路由权威。Milestone 0 不执行网络、Collector、业务 DB 写入、
+  LLM/provider 或 Graph write，不修改 capability/source registries，也不新增 migration。
+
+本决策不声明 P7-D2 PASS / CLOSED / REAL SOURCE READY / MERGE AUTHORIZED；完整 Foundation
+实现完成后仍须独立验收。

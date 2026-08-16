@@ -7,11 +7,13 @@ Pydantic 只是构造器。model_dump() 后必须通过对应 Schema 校验。
 from __future__ import annotations
 
 from typing import Any, List, Literal, Optional, Union
+from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from research_os.models.core import StrictModel
-from research_os.utils.time import validate_iso
+from research_os.models.sources import DataRoute
+from research_os.utils.time import parse_iso, validate_iso
 
 # ---------- 枚举字面量（与 JSON Schema 保持一致） ----------
 
@@ -56,6 +58,23 @@ AcquisitionAction = Literal[
 ]
 
 PlanStepStatus = Literal["pending", "in_progress", "completed", "blocked", "failed"]
+
+AcquisitionExecutionStatus = Literal[
+    "not_executable", "completed", "partial_success", "failed",
+]
+
+AcquisitionExecutionStepStatus = Literal[
+    "not_executable", "skipped", "completed", "partial_success", "failed",
+]
+
+AcquisitionExecutionReason = Literal[
+    "EXECUTION_DISABLED", "LIVE_GATE_DISABLED", "DRY_RUN_PROHIBITS_EXECUTION",
+    "PLAN_CONTEXT_MISMATCH", "ACTION_SKIPPED", "REQUIREMENT_NOT_FOUND",
+    "DATA_TYPE_MISMATCH", "CAPABILITY_NOT_BUSINESS_SUFFICIENT", "ROUTE_UNAVAILABLE",
+    "FETCH_FAILED", "NORMALIZATION_FAILED", "RAW_ITEM_SCHEMA_INVALID",
+    "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
+    "CONTROL_PLANE_CONFIGURATION_ERROR",
+]
 
 CoverageStatus = Literal["covered", "partial", "manual_only", "not_covered", "source_failure"]
 
@@ -154,6 +173,69 @@ class AcquisitionPlan(StrictModel):
     @classmethod
     def _iso(cls, value: str) -> str:
         return _iso_validator(value)
+
+
+# ---------- AcquisitionExecutionResult（P7-D2 Foundation） ----------
+
+class AcquisitionExecutionError(StrictModel):
+    code: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1)
+    component: str = Field(..., min_length=1)
+
+
+class AcquisitionExecutionStepResult(StrictModel):
+    step_id: str = Field(..., min_length=1)
+    requirement_id: str = Field(..., min_length=1)
+    data_type: str = Field(..., min_length=1)
+    action: AcquisitionAction
+    status: AcquisitionExecutionStepStatus
+    reason_codes: List[AcquisitionExecutionReason]
+    route: Optional[DataRoute]
+    inserted_raw_item_ids: List[str]
+    reused_raw_item_ids: List[str]
+    inserted_count: int = Field(..., ge=0)
+    reused_count: int = Field(..., ge=0)
+    rejected_future_item_count: int = Field(..., ge=0)
+    warnings: List[str]
+    errors: List[AcquisitionExecutionError]
+
+
+class AcquisitionExecutionResult(StrictModel):
+    execution_id: str
+    task_id: str = Field(..., min_length=1)
+    scenario: ScenarioId
+    as_of: str
+    plan_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    started_at: str
+    finished_at: str
+    status: AcquisitionExecutionStatus
+    steps: List[AcquisitionExecutionStepResult]
+    readiness_before_requirement_ids: List[str]
+    readiness_after_requirement_ids: List[str]
+    warnings: List[str]
+    errors: List[AcquisitionExecutionError]
+
+    @field_validator("execution_id")
+    @classmethod
+    def _uuid5(cls, value: str) -> str:
+        try:
+            parsed = UUID(value)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("execution_id must be a UUID5") from exc
+        if parsed.version != 5 or str(parsed) != value:
+            raise ValueError("execution_id must be a canonical lowercase UUID5")
+        return value
+
+    @field_validator("as_of", "started_at", "finished_at")
+    @classmethod
+    def _execution_iso(cls, value: str) -> str:
+        return _iso_validator(value)
+
+    @model_validator(mode="after")
+    def _time_order(self) -> "AcquisitionExecutionResult":
+        if parse_iso(self.finished_at) < parse_iso(self.started_at):
+            raise ValueError("finished_at must not precede started_at")
+        return self
 
 
 # ---------- BriefAttentionSnapshot（§20-23） ----------

@@ -1,6 +1,6 @@
 # P7-D2：Acquisition Execution Foundation
 
-**TASKBOOK_STATUS: DESIGN APPROVED / IMPLEMENTATION NOT AUTHORIZED**  
+**TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED — P7-D2 FOUNDATION ONLY**
 **MILESTONE: P7-D2**  
 **DESIGN_COMMIT: `5976428`**  
 **PARENT_ACCEPTED_IMPLEMENTATION_HEAD: `bc277817ee419410803f5541d74be75a330e9713`**  
@@ -16,9 +16,8 @@
 **MIGRATIONS: NONE**  
 **EXPECTED_SCHEMA_COUNT: 86**
 
-> 本任务书把已批准的 P7-D2 架构转换为可实施边界，但当前不构成实施授权。
-> 只有用户显式批准 P7-D2 implementation 后，方可把状态改为
-> `IMPLEMENTATION AUTHORIZED — P7-D2 FOUNDATION ONLY` 并开始代码修改。
+> 用户已于 2026-08-16 显式批准 P7-D2 Foundation implementation。本授权仅覆盖
+> 本任务书冻结的 Foundation，不授权真实来源执行或任何具体来源。
 
 设计权威：
 `docs/superpowers/specs/2026-08-16-p7-d2-acquisition-execution-foundation-design.md`。
@@ -367,4 +366,5 @@ REAL DATA ACQUISITION COVERAGE: NONE
 5. 在 Decision #49 与 engineering-guide V1.7 写入批准边界；
 6. 工作树干净，基线测试通过。
 
-当前第 3–5 项未满足，因此禁止实施。
+2026-08-16 授权记录：用户显式批准 P7-D2 Foundation implementation；第 1–5 项已满足。
+第 6 项由实施 Agent 在开始与交付前机械复核，不扩大上述授权边界。

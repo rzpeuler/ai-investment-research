@@ -1,0 +1,4 @@
+enabled: false
+allowed_actions:
+  - route_existing_sources
+production_collector_ids: []

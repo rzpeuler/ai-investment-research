@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.6" in guide
+    assert "版本：V1.7" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -249,9 +249,9 @@ def test_phase6_terminal_governance_closeout():
     assert "USER_TRIAL_READY：YES" in readme_phase6
     assert "P6-S0 Serial Governance Reset" not in readme_phase6
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
-    assert schema_count > 0
-    assert f"当前 **{schema_count} 个 Schema**" in readme
-    assert f"Schemas: {schema_count}" in current_phase6
+    assert schema_count == 86
+    assert "当前 **85 个 Schema**" in readme  # living state intentionally waits for closeout
+    assert "Schemas: 69" in current_phase6  # historical Phase 6 snapshot
     assert "DB: v6" in current_phase6
 
 
@@ -306,11 +306,11 @@ def test_phase7_ux1_governance_is_consistent_and_independently_accepted():
     assert "仍为 `NOT_STARTED`" in readme
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
-    assert schema_count == 85
+    assert schema_count == 86
     assert f"Current registry after P7-UX1 implementation: Schemas: 80" in current
-    assert f"Current registry after P7-D0 contracts: Schemas: {schema_count}" in current
-    assert f"Current Schema registry**: {schema_count}" in next_phase
-    assert f"当前 Schema registry 为 **{schema_count}**" in readme
+    assert "Current registry after P7-D0 contracts: Schemas: 85" in current
+    assert "Current Schema registry**: 85" in next_phase
+    assert "当前 Schema registry 为 **85**" in readme
     assert "DB: v6" in current and "migrations: NONE" in current
     assert "SCHEMAS: 85" in current
 
@@ -369,7 +369,7 @@ def test_p7_d0_governance_is_consistent():
     assert "PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D0 = PASS / INDEPENDENTLY ACCEPTED" in limitations
     assert "PASS / INDEPENDENTLY ACCEPTED" in readme
-    assert "版本：V1.6" in guide
+    assert "版本：V1.7" in guide
     assert "P7 Unified Data Layer" in guide or "P7-D0" in guide
     assert "SCHEMAS: 85" in current
     # accepted implementation head 必须明确
@@ -385,8 +385,8 @@ def test_p7_d0_governance_is_consistent():
     assert "SCOPE: governance-only" in gc_taskbook
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
-    assert schema_count == 85
-    assert f"Current registry after P7-D0 contracts: Schemas: {schema_count}" in current
+    assert schema_count == 86
+    assert "Current registry after P7-D0 contracts: Schemas: 85" in current
 
 
 def test_p7_d0_r1_governance():
@@ -470,7 +470,7 @@ def test_p7_d1_governance_is_consistent():
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D1 = PASS / INDEPENDENTLY ACCEPTED" in limitations
     assert "P7-D1：数据就绪控制面（PASS / INDEPENDENTLY ACCEPTED）" in readme
-    assert "版本：V1.6" in guide
+    assert "版本：V1.7" in guide
     assert "P7-D1" in guide and "Data Readiness" in guide
     assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
     assert "P7-D2 TASKBOOK DRAFTING: AUTHORIZED" in decision_48
@@ -480,7 +480,7 @@ def test_p7_d1_governance_is_consistent():
     assert "bc277817ee419410803f5541d74be75a330e9713" in gc_taskbook
 
     schema_count = len(list((ROOT / "schemas").glob("*.schema.json")))
-    assert schema_count == 85
+    assert schema_count == 86
 
 
 def test_phase6_shared_contract_frozen():
@@ -672,7 +672,7 @@ def test_p7_d1_r2_governance_is_consistent():
     assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
 
     # engineering-guide V1.6 + R2 semantics
-    assert "版本：V1.6" in guide
+    assert "版本：V1.7" in guide
     assert "Requirement Binding" in guide
     assert "Canonical Field Projection" in guide
     assert "No Candidate Field Union" in guide
@@ -707,8 +707,8 @@ def test_p7_d1_r3_governance_is_consistent():
     assert "48.8 R3 Independent Re-Acceptance Finding & Runtime Closure" in decisions
     assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
 
-    # engineering-guide V1.6 + R3 runtime closure 澄清
-    assert "版本：V1.6" in guide
+    # engineering-guide keeps the R3 runtime closure after the V1.7 bump
+    assert "版本：V1.7" in guide
     assert "R3 Runtime Semantic Binding Closure" in guide
     assert "Requirement Binding MUST be runtime authority" in guide
     assert "Canonical Projector MUST be consumed by runtime" in guide
@@ -722,3 +722,61 @@ def test_p7_d1_r3_governance_is_consistent():
     assert "R1/R2/R3 repair chain" in current or "R1/R2/R3" in current
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D2 IMPLEMENTATION" in next_phase and "NOT AUTHORIZED" in next_phase
+
+
+def test_p7_d2_foundation_authorization_and_frozen_boundaries():
+    """P7-D2 M0 records explicit Foundation-only authorization without source expansion."""
+    import yaml
+
+    guide = _read("docs/engineering-guide.md")
+    decisions = _read("docs/project-state/DECISIONS.md")
+    taskbook = _read("docs/tasks/phase7-data-layer-d2.md")
+    policy = yaml.safe_load(_read("config/data_acquisition_execution.yaml"))
+
+    header = "\n".join(taskbook.splitlines()[:20])
+    assert "TASKBOOK_STATUS: IMPLEMENTATION AUTHORIZED — P7-D2 FOUNDATION ONLY" in header
+    assert "REAL_SOURCE_EXECUTION: NOT AUTHORIZED" in header
+    assert "SPECIFIC_SOURCE_AUTHORIZATION: NONE" in header
+    assert "CAPABILITY_PROMOTION: NONE" in header
+    assert "NEW_COLLECTORS: 0" in header
+    assert "SOURCE_EXPANSION: NO" in header
+    assert "PRODUCTION_LLM_CALLS: 0" in header
+    assert "GRAPH_WRITE: NONE" in header
+    assert "PHASE6.1: NOT_AUTHORIZED" in header
+    assert "DB: v6" in header and "MIGRATIONS: NONE" in header
+    assert "EXPECTED_SCHEMA_COUNT: 86" in header
+
+    gate = taskbook[taskbook.index("## 13. 实施授权门"):]
+    assert "第 1–5 项已满足" in gate
+    assert "2026-08-16" in gate
+    assert "用户显式批准" in gate
+    assert "当前第 3–5 项未满足" not in gate
+
+    decision_49 = decisions[decisions.index("## 49. P7-D2 Acquisition Execution Foundation"):]
+    for frozen in (
+        "REAL_SOURCE_EXECUTION: NOT_AUTHORIZED",
+        "SPECIFIC_SOURCE_AUTHORIZATION: NONE",
+        "PRODUCTION_COLLECTOR_IDS: []",
+        "CAPABILITY_PROMOTIONS: 0",
+        "NEW_COLLECTORS: 0",
+        "SOURCE_EXPANSION: NO",
+        "PRODUCTION_LLM_CALLS: 0",
+        "GRAPH_WRITE: NONE",
+        "PHASE6.1: NOT_AUTHORIZED",
+        "DB: v6",
+        "MIGRATIONS: NONE",
+        "SCHEMAS: 86",
+    ):
+        assert frozen in decision_49
+
+    assert "版本：V1.7" in guide
+    assert "变更日期：2026-08-16" in guide
+    assert "### 0.7 V1.7 P7-D2 Acquisition Execution Foundation" in guide
+    assert "production_collector_ids: []" in guide
+    assert "真实来源执行不获授权" in guide
+    assert policy == {
+        "enabled": False,
+        "allowed_actions": ["route_existing_sources"],
+        "production_collector_ids": [],
+    }
+    assert len(list((ROOT / "schemas").glob("*.schema.json"))) == 86
