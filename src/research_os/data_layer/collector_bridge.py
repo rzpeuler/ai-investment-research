@@ -4,7 +4,6 @@
 """
 from __future__ import annotations
 
-import re
 from types import MappingProxyType
 from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
@@ -15,25 +14,7 @@ from research_os.validators.schema_validator import validate_instance
 
 
 class CollectorBridgeError(RuntimeError):
-    """单一来源 bridge attempt 失败；消息已做最小凭证脱敏。"""
-
-
-_SECRET_KEY = (
-    r"(?:(?:[a-z0-9]+[-_])*api[-_]?key|"
-    r"[a-z0-9_-]*(?:authorization|cookie|secret|password|token))"
-)
-_OPTIONAL_ESCAPED_QUOTE = r"(?:\\[\"']|[\"'])?"
-_SENSITIVE_ASSIGNMENT = re.compile(
-    rf"(?i)(?<![a-z0-9_-]){_OPTIONAL_ESCAPED_QUOTE}{_SECRET_KEY}"
-    rf"{_OPTIONAL_ESCAPED_QUOTE}\s*[:=]"
-)
-
-
-def _sanitize_message(message: str) -> str:
-    """敏感赋值命中即丢弃整段不可信详情；完整错误治理属于后续服务。"""
-    if _SENSITIVE_ASSIGNMENT.search(message):
-        return "[REDACTED]"
-    return message
+    """单一来源 bridge attempt 失败；不保留 adapter 异常详情。"""
 
 
 class CollectorFetcherBridge:
@@ -65,10 +46,9 @@ class CollectorFetcherBridge:
                 return CollectorFetcherBridge._run_attempt(
                     source_id, adapter, query, time_window
                 )
-            except Exception as exc:  # noqa: BLE001 -- Router 必须接收显式来源失败
-                detail = _sanitize_message(str(exc))
+            except Exception:  # noqa: BLE001 -- Router 必须接收显式来源失败
                 raise CollectorBridgeError(
-                    f"collector {source_id} attempt failed: {detail}"
+                    f"collector {source_id} attempt failed"
                 ) from None
 
         return fetcher

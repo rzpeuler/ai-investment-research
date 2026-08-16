@@ -21,7 +21,12 @@ from research_os.data_layer.capabilities import AcquisitionCapability
 from research_os.data_layer.checkers import RawItemChecker, ReadinessCheckerRegistry
 from research_os.data_layer.execution_policy import ExecutionPolicy
 from research_os.data_layer.preflight import DataPreflightService
-from research_os.models import DataRoute, RawItem
+from research_os.models import (
+    AcquisitionExecutionResult,
+    AcquisitionStep,
+    DataRoute,
+    RawItem,
+)
 from research_os.orchestrator import Orchestrator
 from research_os.orchestrator.scenario_registry import ScenarioRegistry
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
@@ -268,6 +273,9 @@ def test_fake_collector_missing_persist_ready_and_exact_order(tmp_path):
     assert coordination.readiness_before.readiness[0].status == "MISSING"
     assert coordination.execution.steps[0].inserted_count == 1
     assert coordination.readiness_after.readiness[0].status == "READY"
+    assert coordination.execution.readiness_after_requirement_ids == [
+        item.requirement_id for item in coordination.readiness_after.readiness
+    ]
     assert events == [
         "validate", "preflight_before", "discover", "fetch", "normalize", "recheck", "runner",
     ]
@@ -348,8 +356,12 @@ def test_adapter_source_identity_mismatch_fails_without_persistence(tmp_path):
 
 @pytest.mark.parametrize("secret_error", [
     "Authorization: Bearer top-secret-token",
+    "Authorization Bearer delimiter-free-secret",
     "Cookie=session=top-secret-cookie",
+    "Cookie sessionid delimiter-free-cookie",
+    "token top-secret",
     "headers={'X-Auth-Token': 'top-secret-token'}",
+    "<html><body>full private upstream payload</body></html>",
 ])
 def test_collector_credentials_never_escape_execution_audit(tmp_path, secret_error):
     project, events, runner, db, orchestrator = _wired(
@@ -360,7 +372,10 @@ def test_collector_credentials_never_escape_execution_audit(tmp_path, secret_err
     })
     step = runner.context["acquisition_execution"].steps[0]
     dumped = json.dumps(step.model_dump(), ensure_ascii=False)
+    assert secret_error not in dumped
     assert "top-secret" not in dumped
+    assert "delimiter-free" not in dumped
+    assert "private upstream payload" not in dumped
     assert step.reason_codes == ["ROUTE_UNAVAILABLE"]
     assert db.count("raw_items") == db.count("data_routes") == 0
     assert result.exit_code == 0
@@ -700,4 +715,141 @@ def test_unchecked_execution_collaborator_payload_is_rejected_before_recheck(tmp
     assert "invalid acquisition execution result" in result.message
     assert "recheck" not in events
     assert db.get("tasks", TASK_FOUNDATION)["status"] == "failed"
+    orchestrator.close()
+
+
+def _schema_valid_execution_substitution(payload, substitution):
+    if substitution == "task_id":
+        payload["task_id"] = TASK_EMPTY
+    elif substitution == "scenario":
+        payload["scenario"] = "daily_review"
+    elif substitution == "as_of":
+        payload["as_of"] = "2026-08-16T09:00:00+08:00"
+    elif substitution == "plan_sha256":
+        payload["plan_sha256"] = "b" * 64
+    elif substitution == "execution_id":
+        payload["execution_id"] = str(uuid.uuid5(uuid.NAMESPACE_DNS, "substitution"))
+    elif substitution == "step_field":
+        payload["steps"][0]["data_type"] = "document"
+    elif substitution == "readiness_before_ids":
+        payload["readiness_before_requirement_ids"] = ["other.requirement"]
+    elif substitution == "readiness_after_ids":
+        payload["readiness_after_requirement_ids"] = ["other.requirement"]
+    else:  # pragma: no cover - test helper misuse
+        raise AssertionError(substitution)
+    return AcquisitionExecutionResult.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "substitution",
+    [
+        "task_id", "scenario", "as_of", "plan_sha256", "execution_id",
+        "step_field", "readiness_before_ids", "readiness_after_ids",
+    ],
+)
+def test_schema_valid_execution_substitution_is_rejected_before_recheck_and_artifact(
+    tmp_path, substitution,
+):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    delegate = orchestrator.acquisition_coordinator._execution
+
+    class _SubstitutingExecution:
+        def execute(self, **kwargs):
+            valid = delegate.execute(**kwargs)
+            return _schema_valid_execution_substitution(
+                valid.model_dump(), substitution,
+            )
+
+    orchestrator.acquisition_coordinator._execution = _SubstitutingExecution()
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert result.message == (
+        "CONTROL_PLANE_CONFIGURATION_ERROR: execution audit authority mismatch"
+    )
+    assert "recheck" not in events
+    run_dir = Path(result.run_dir)
+    assert not (run_dir / "acquisition_execution.json").exists()
+    assert not (run_dir / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+def test_execution_audit_accepts_offset_equivalent_as_of_semantics(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    delegate = orchestrator.acquisition_coordinator._execution
+
+    class _EquivalentAsOfExecution:
+        def execute(self, **kwargs):
+            payload = delegate.execute(**kwargs).model_dump()
+            payload["as_of"] = "2026-08-16T00:00:00Z"
+            return AcquisitionExecutionResult.model_validate(payload)
+
+    orchestrator.acquisition_coordinator._execution = _EquivalentAsOfExecution()
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 0
+    assert "recheck" in events
+    assert (Path(result.run_dir) / "acquisition_execution.json").exists()
+    orchestrator.close()
+
+
+def test_execution_audit_step_order_is_bound_to_immutable_plan_before_recheck(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    first = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert first.exit_code == 0
+    before = runner.context["data_acquisition"].readiness_before
+    before.acquisition_plan = before.acquisition_plan.model_copy(update={
+        "steps": [
+            *before.acquisition_plan.steps,
+            AcquisitionStep(
+                step_id="manual-step", requirement_id="manual.requirement",
+                data_type="document", action="request_manual_input",
+            ),
+        ],
+    })
+    delegate = orchestrator.acquisition_coordinator._execution
+
+    class _ReorderedExecution:
+        def execute(self, **kwargs):
+            payload = delegate.execute(**kwargs).model_dump()
+            payload["steps"] = list(reversed(payload["steps"]))
+            return AcquisitionExecutionResult.model_validate(payload)
+
+    orchestrator.acquisition_coordinator._execution = _ReorderedExecution()
+    events.clear()
+    with pytest.raises(ValueError, match="execution audit authority mismatch"):
+        orchestrator.acquisition_coordinator.coordinate(
+            before=before, scenario="morning_brief", task_id=TASK_FOUNDATION,
+            task_as_of=AS_OF,
+            normalized_request={"report_date": "2026-08-16", "as_of": AS_OF},
+            project_root=project, db=db, runs_root=project / "reports" / "runs",
+            dry_run=False,
+        )
+    assert "recheck" not in events
+    orchestrator.close()
+
+
+def test_execution_collaborator_cannot_rewrite_immutable_plan_authority(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    delegate = orchestrator.acquisition_coordinator._execution
+
+    class _InputMutatingExecution:
+        def execute(self, **kwargs):
+            kwargs["plan"].steps[0].data_type = "document"
+            return delegate.execute(**kwargs)
+
+    orchestrator.acquisition_coordinator._execution = _InputMutatingExecution()
+    result = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert result.exit_code == 2
+    assert result.message == (
+        "CONTROL_PLANE_CONFIGURATION_ERROR: execution audit authority mismatch"
+    )
+    assert "recheck" not in events
+    assert not (Path(result.run_dir) / "acquisition_execution.json").exists()
     orchestrator.close()

@@ -7,13 +7,20 @@ the *same* ``DataPreflightService`` instance to re-evaluate readiness after pers
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from research_os.data_layer.execution import AcquisitionExecutionService, RouteExecutionInput
+from research_os.data_layer.execution import (
+    AcquisitionExecutionService,
+    RouteExecutionInput,
+    canonical_plan_sha256,
+    deterministic_execution_id,
+)
 from research_os.data_layer.preflight import DataPreflightBundle, DataPreflightService, _atomic_write, json_dumps
 from research_os.models import AcquisitionExecutionError, AcquisitionExecutionResult
+from research_os.utils.time import parse_iso
 from research_os.validators.schema_validator import validate_instance
 
 
@@ -59,9 +66,14 @@ class AcquisitionCoordinator:
     ) -> AcquisitionCoordinationResult:
         if before.acquisition_plan is None:
             raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: preflight plan missing")
+        # Freeze both preflight authorities before entering the injected execution boundary.
+        authoritative_plan = deepcopy(before.acquisition_plan.model_dump())
+        authoritative_readiness_ids = tuple(
+            item.requirement_id for item in before.readiness
+        )
         route_inputs = self._route_inputs(before)
         execution = self._validated_execution(self._execution.execute(
-            plan=before.acquisition_plan,
+            plan=before.acquisition_plan.model_copy(deep=True),
             task_id=task_id,
             scenario=scenario,
             as_of=task_as_of,
@@ -69,6 +81,14 @@ class AcquisitionCoordinator:
             live_authorized=self._live_authorized,
             route_inputs=route_inputs,
         ))
+        self._assert_execution_authority(
+            execution,
+            plan_payload=authoritative_plan,
+            readiness_before_ids=authoritative_readiness_ids,
+            task_id=task_id,
+            scenario=scenario,
+            task_as_of=task_as_of,
+        )
         persistence_committed = self._has_committed_attempt(execution)
 
         try:
@@ -161,6 +181,53 @@ class AcquisitionCoordinator:
             raise ValueError(
                 "CONTROL_PLANE_CONFIGURATION_ERROR: invalid acquisition execution result"
             ) from exc
+
+    @staticmethod
+    def _assert_execution_authority(
+        execution: AcquisitionExecutionResult,
+        *,
+        plan_payload: Mapping[str, Any],
+        readiness_before_ids: tuple[str, ...],
+        task_id: str,
+        scenario: str,
+        task_as_of: str,
+    ) -> None:
+        """Bind a schema-valid collaborator audit to its exact invocation authorities."""
+        try:
+            plan_steps = tuple(
+                (
+                    step["step_id"], step["requirement_id"],
+                    step["data_type"], step["action"],
+                )
+                for step in plan_payload["steps"]
+            )
+            audit_steps = tuple(
+                (step.step_id, step.requirement_id, step.data_type, step.action)
+                for step in execution.steps
+            )
+            plan_hash = canonical_plan_sha256(plan_payload)
+            authority_matches = (
+                plan_payload["task_id"] == task_id == execution.task_id
+                and plan_payload["scenario"] == scenario == execution.scenario
+                and parse_iso(str(plan_payload["as_of"])) == parse_iso(task_as_of)
+                and parse_iso(execution.as_of) == parse_iso(task_as_of)
+                and execution.plan_sha256 == plan_hash
+                and execution.execution_id
+                == deterministic_execution_id(task_id, plan_hash)
+                and audit_steps == plan_steps
+                and tuple(execution.readiness_before_requirement_ids)
+                == readiness_before_ids
+                # M2 initializes both sides from the same preflight authority; the
+                # coordinator replaces the after-side only after authoritative recheck.
+                and tuple(execution.readiness_after_requirement_ids)
+                == readiness_before_ids
+            )
+        except Exception:  # noqa: BLE001 -- all boundary detail is untrusted
+            authority_matches = False
+        if not authority_matches:
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: execution audit authority mismatch"
+            )
 
     @classmethod
     def _updated_execution(

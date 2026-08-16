@@ -365,67 +365,57 @@ def test_bridge_rejects_source_mismatch_at_every_boundary(boundary):
         fake.payload_source = "other"
     else:
         fake.item_source = "other"
-    with pytest.raises(RuntimeError, match="source_id mismatch"):
+    with pytest.raises(RuntimeError, match="collector fake attempt failed"):
         CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
 
 
 def test_bridge_invalid_raw_item_fails_closed():
     fake = FakeCollector()
     fake.invalid_item = True
-    with pytest.raises(RuntimeError, match="RawItem Schema validation failed"):
+    with pytest.raises(RuntimeError, match="collector fake attempt failed"):
         CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
 
 
 @pytest.mark.parametrize(
-    ("error_message", "secret"),
+    "error_message",
     [
-        ("Authorization: Bearer top-secret-token", "top-secret-token"),
-        ("Authorization: Basic basic-secret-payload", "basic-secret-payload"),
-        ("Authorization=Token alternate-secret-payload", "alternate-secret-payload"),
-        ('{"Authorization": "Bearer json-secret-token"}', "json-secret-token"),
-        ("headers={'Authorization': 'Bearer dict-secret-token'}", "dict-secret-token"),
-        ("headers={'Cookie': 'sessionid=top-secret-cookie'}", "top-secret-cookie"),
-        ('Cookie: "session id=cookie secret; theme=dark"', "cookie secret"),
-        ('{"Cookie": "sessionid=cookie-secret-with\'quote"}', "cookie-secret-with'quote"),
-        ('headers={"X-API-Key": "x-api-key-secret"}', "x-api-key-secret"),
-        ("api_key='api-key-secret'", "api-key-secret"),
-        ('headers={"access_token": "access-token-secret"}', "access-token-secret"),
-        ("headers={'X-Auth-Token': 'x-auth-token-secret'}", "x-auth-token-secret"),
-        ('headers={"X-CSRF-Token": "csrf-token-secret"}', "csrf-token-secret"),
-        ("headers={'session_token': 'session-token-secret'}", "session-token-secret"),
-        ("client_secret=client-secret-value", "client-secret-value"),
-        ("db-password='database-password-value'", "database-password-value"),
-        ('{"Proxy-Authorization": "Basic proxy-secret"}', "proxy-secret"),
-        ("headers={'session_cookie': 'session-cookie-value'}", "session-cookie-value"),
-        ("client-secret=hyphenated-client-secret", "hyphenated-client-secret"),
-        ("db_password=underscore-password-value", "underscore-password-value"),
-        ("id_token=plain-id-token-secret", "plain-id-token-secret"),
-        ("token=plain-token-secret", "plain-token-secret"),
-        (r'{\"Authorization\": \"Basic escaped-secret\"}', "escaped-secret"),
+        "Authorization Bearer delimiter-free-secret",
+        "Cookie sessionid delimiter-free-cookie",
+        "token top-secret",
+        "<html><body>private upstream page and full payload</body></html>",
+        "token refresh failed before a credential was returned",
+        "ordinary adapter failure prose",
     ],
 )
-def test_bridge_any_ref_failure_rejects_entire_source_and_sanitizes_secret(
-    error_message, secret
-):
+def test_bridge_discards_all_untrusted_adapter_exception_detail(error_message):
     fake = FakeCollector()
     fake.fail_fetch_for = "2"
     fake.fetch_error = error_message
     with pytest.raises(RuntimeError) as raised:
         CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
-    message = str(raised.value)
-    assert secret not in message
-    assert "[REDACTED]" in message
-    assert error_message not in message
+    assert str(raised.value) == "collector fake attempt failed"
+    assert error_message not in str(raised.value)
 
 
-def test_bridge_sanitizer_does_not_over_redact_ordinary_error_text():
+@pytest.mark.parametrize("legacy", [False, True])
+def test_bridge_failure_is_constant_through_router_primary_fallback_warning(
+    requirements, legacy,
+):
     fake = FakeCollector()
     fake.fail_fetch_for = "2"
-    fake.fetch_error = "token refresh failed before a credential was returned"
-    with pytest.raises(RuntimeError) as raised:
-        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
-    assert "token refresh failed" in str(raised.value)
-    assert "[REDACTED]" not in str(raised.value)
+    fake.fetch_error = "Authorization Bearer delimiter-free-secret full upstream payload"
+    bridge = CollectorFetcherBridge({"fake": fake})
+    router = Router(
+        requirements,
+        {"primary": bridge.fetchers["fake"]},
+        {"manual": _fetch([{"id": "fallback"}], {"title", "published_at", "url"})},
+    )
+    result = router.resolve("document") if legacy else router.resolve_with_items("document").route
+    warnings = " ".join(result.warnings)
+    assert result.selected_source == "manual"
+    assert "collector fake attempt failed" in warnings
+    assert "delimiter-free-secret" not in warnings
+    assert "upstream payload" not in warnings
 
 
 def test_bridge_empty_discover_proves_no_fields_and_does_no_more_work():

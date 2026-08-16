@@ -54,6 +54,23 @@ _REPOSITORY_OWNED_REASONS = {
 }
 
 
+def canonical_plan_sha256(plan: AcquisitionPlan | Mapping[str, Any]) -> str:
+    """Return the one authoritative canonical hash used by execution boundaries."""
+    payload = plan.model_dump() if isinstance(plan, AcquisitionPlan) else dict(plan)
+    try:
+        canonical = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        canonical = "invalid-plan"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def deterministic_execution_id(task_id: str, plan_sha256: str) -> str:
+    """Derive the canonical UUID5 identity for a task-bound acquisition plan."""
+    return str(uuid.uuid5(_EXECUTION_NAMESPACE, f"{task_id}:{plan_sha256}"))
+
+
 @dataclass(frozen=True)
 class RouteExecutionInput:
     """Deterministic Router inputs projected by the coordinator from requirement context."""
@@ -182,7 +199,7 @@ class AcquisitionExecutionService:
         """Return a complete audit; ordinary acquisition failures never escape this boundary."""
         started_at = self._clock()
         payload = self._snapshot_payload(plan)
-        plan_sha256 = self._plan_sha256(payload)
+        plan_sha256 = canonical_plan_sha256(payload)
         invocation_valid = self._invocation_context_is_valid(task_id, scenario, as_of)
         if invocation_valid:
             audit_task_id = task_id
@@ -197,9 +214,7 @@ class AcquisitionExecutionService:
             audit_task_id = safe_plan.task_id
             audit_scenario = safe_plan.scenario
             audit_as_of = safe_plan.as_of
-        execution_id = str(uuid.uuid5(
-            _EXECUTION_NAMESPACE, f"{audit_task_id}:{plan_sha256}",
-        ))
+        execution_id = deterministic_execution_id(audit_task_id, plan_sha256)
         audit_steps = self._parse_auditable_steps(payload)
 
         if not invocation_valid:
@@ -610,16 +625,6 @@ class AcquisitionExecutionService:
         return {"invalid_plan_type": type(plan).__name__}
 
     @staticmethod
-    def _plan_sha256(payload: Mapping[str, Any]) -> str:
-        try:
-            canonical = json.dumps(
-                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-            )
-        except (TypeError, ValueError):
-            canonical = "invalid-plan"
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-    @staticmethod
     def _parse_auditable_steps(payload: Mapping[str, Any]) -> list[AcquisitionStep]:
         raw_steps = payload.get("steps", [])
         if not isinstance(raw_steps, list):
@@ -664,4 +669,6 @@ __all__ = [
     "AcquisitionPersistenceResult",
     "AcquisitionStepFailure",
     "RouteExecutionInput",
+    "canonical_plan_sha256",
+    "deterministic_execution_id",
 ]
