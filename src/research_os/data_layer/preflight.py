@@ -78,7 +78,6 @@ class DataPreflightService:
         # R3-10：binding strategy ∈ runtime supported strategies（§75）
         from research_os.data_layer.bindings import RuntimeStrategyGate
         RuntimeStrategyGate().assert_runtime_supported(self._bindings.all())
-        self._projector = ReadinessFieldProjector()
 
     @property
     def requirement_registry(self) -> ScenarioDataRequirementRegistry:
@@ -178,10 +177,11 @@ class DataPreflightService:
                     requirement, scenario, task_id, canonical, task_as_of,
                 )
                 ctx.binding = binding
-                ctx.projector = self._projector
+                projector = ReadinessFieldProjector()
+                ctx.projector = projector
                 readiness = self._readiness.evaluate(
                     requirement, ctx, view, checked_at_value,
-                    binding=binding, projector=self._projector,
+                    binding=binding, projector=projector,
                 )
                 gap = self._gaps.classify(requirement, readiness)
                 bundle.requirements.append(requirement)
@@ -242,7 +242,7 @@ class DataPreflightService:
                     requirement, scenario, task_id, canonical, task_as_of,
                 )
                 context.binding = self._bindings.get(requirement.requirement_id)
-                context.projector = self._projector
+                context.projector = ReadinessFieldProjector()
                 expected_contexts.append(context)
             if len(bundle.contexts) != len(expected_contexts):
                 raise ValueError("context count differs from registry")
@@ -318,7 +318,10 @@ class DataPreflightService:
                 and actual.unresolved == expected.unresolved
                 and actual.previous_run_ids == expected.previous_run_ids
                 and actual.binding == expected.binding
-                and actual.projector is self._projector
+                and type(actual.projector) is ReadinessFieldProjector
+                and not hasattr(actual.projector, "__dict__")
+                and actual.projector.authority_descriptor()
+                == ReadinessFieldProjector.authority_descriptor()
             )
         except Exception:  # noqa: BLE001 -- collaborator context is untrusted
             return False

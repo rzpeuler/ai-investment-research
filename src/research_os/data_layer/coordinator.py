@@ -64,6 +64,14 @@ class AcquisitionCoordinator:
         dry_run: bool,
         graph_repo: Optional[Any] = None,
     ) -> AcquisitionCoordinationResult:
+        try:
+            authoritative_request = deepcopy(dict(normalized_request))
+            recheck_request = deepcopy(authoritative_request)
+            validation_request = deepcopy(authoritative_request)
+        except Exception:  # noqa: BLE001 -- request contents are untrusted
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: normalized request snapshot failed"
+            ) from None
         if before.acquisition_plan is None:
             raise ValueError("CONTROL_PLANE_CONFIGURATION_ERROR: preflight plan missing")
         # Freeze both preflight authorities before entering the injected execution boundary.
@@ -103,19 +111,21 @@ class AcquisitionCoordinator:
                 scenario=scenario,
                 task_id=task_id,
                 task_as_of=task_as_of,
-                normalized_request=dict(normalized_request),
+                normalized_request=recheck_request,
                 project_root=project_root,
                 db=db,
                 runs_root=runs_root,
                 graph_repo=graph_repo,
                 dry_run=dry_run,
             )
+            if recheck_request != authoritative_request:
+                raise ValueError("normalized request collaborator mutation")
             self._preflight.assert_recheck_bundle_authority(
                 after,
                 task_id=task_id,
                 scenario=scenario,
                 task_as_of=task_as_of,
-                normalized_request=dict(normalized_request),
+                normalized_request=validation_request,
             )
         except Exception as exc:  # noqa: BLE001 -- never retain arbitrary exception detail
             if not persistence_committed:

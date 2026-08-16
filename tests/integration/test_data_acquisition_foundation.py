@@ -22,6 +22,7 @@ from research_os.data_layer.capabilities import AcquisitionCapability
 from research_os.data_layer.checkers import RawItemChecker, ReadinessCheckerRegistry
 from research_os.data_layer.execution_policy import ExecutionPolicy
 from research_os.data_layer.preflight import DataPreflightService
+from research_os.data_layer.projector import ReadinessFieldProjector
 from research_os.models import (
     AcquisitionExecutionResult,
     AcquisitionStep,
@@ -1088,4 +1089,120 @@ def test_same_preflight_authority_rejects_full_plan_substitution(tmp_path, attac
     assert [error.code for error in execution.errors] == ["RECHECK_FAILED"]
     assert runner.context["data_acquisition"].readiness_after is None
     assert not (Path(result.run_dir) / "data_readiness_after.jsonl").exists()
+    orchestrator.close()
+
+
+@pytest.mark.parametrize("attack", ["documents", "entities", "peers"])
+def test_coordinator_freezes_nested_normalized_request_before_recheck_collaborator(
+    tmp_path, attack,
+):
+    project = tmp_path / "project"
+    (project / "reports").mkdir(parents=True)
+    orchestrator = Orchestrator(project)
+    if attack == "entities":
+        scenario = "daily_review"
+        request = {
+            "as_of": AS_OF, "review_business_date": "2026-08-16",
+            "entities": ["company:original"],
+            "documents": [{"path": "original", "nested": {"refs": ["doc-a"]}}],
+        }
+    else:
+        scenario = "stock_research_report"
+        request = {
+            "as_of": AS_OF, "date": "2026-08-16", "entity": "company:subject",
+            "peers": ["company:peer-original"],
+            "documents": [{"path": "original", "nested": {"refs": ["doc-a"]}}],
+        }
+    original_request = deepcopy(request)
+    before = orchestrator.preflight.run(
+        scenario=scenario, task_id=TASK_CLOSED, task_as_of=AS_OF,
+        normalized_request=deepcopy(request), project_root=project,
+        runs_root=project / "reports" / "runs", dry_run=True,
+    )
+    authoritative_recheck = orchestrator.preflight.recheck
+
+    def mutating_recheck(**kwargs):
+        visible = kwargs["normalized_request"]
+        if attack == "documents":
+            visible["documents"][0]["nested"]["refs"].append("forged-doc")
+        elif attack == "entities":
+            visible["entities"].append("company:forged")
+        else:
+            visible["peers"].append("company:forged-peer")
+        return authoritative_recheck(**kwargs)
+
+    orchestrator.preflight.recheck = mutating_recheck
+    with pytest.raises(ValueError, match="readiness recheck failed"):
+        orchestrator.acquisition_coordinator.coordinate(
+            before=before, scenario=scenario, task_id=TASK_CLOSED,
+            task_as_of=AS_OF, normalized_request=request, project_root=project,
+            db=None, runs_root=project / "reports" / "runs", dry_run=False,
+        )
+    assert request == original_request
+    orchestrator.close()
+
+
+def test_coordinator_rejects_normalized_request_deepcopy_failure_before_recheck(tmp_path):
+    project, events, runner, db, orchestrator = _wired(tmp_path)
+    first = orchestrator.execute("morning_brief", {
+        "task_id": TASK_FOUNDATION, "report_date": "2026-08-16", "as_of": AS_OF,
+    })
+    assert first.exit_code == 0
+    before = runner.context["data_acquisition"].readiness_before
+
+    class _Uncopyable:
+        def __deepcopy__(self, memo):
+            raise RuntimeError("secret request payload")
+
+    events.clear()
+    with pytest.raises(
+        ValueError, match="CONTROL_PLANE_CONFIGURATION_ERROR: normalized request snapshot failed",
+    ):
+        orchestrator.acquisition_coordinator.coordinate(
+            before=before, scenario="morning_brief", task_id=TASK_FOUNDATION,
+            task_as_of=AS_OF,
+            normalized_request={"entities": [_Uncopyable()]}, project_root=project,
+            db=db, runs_root=project / "reports" / "runs", dry_run=False,
+        )
+    assert "recheck" not in events
+    orchestrator.close()
+
+
+def test_projectors_are_per_context_stateless_and_exact_type_authoritative(tmp_path):
+    project = tmp_path / "project"
+    (project / "reports").mkdir(parents=True)
+    orchestrator = Orchestrator(project)
+    request = {"as_of": AS_OF, "report_date": "2026-08-16"}
+    bundle = orchestrator.preflight.run(
+        scenario="morning_brief", task_id=TASK_CLOSED, task_as_of=AS_OF,
+        normalized_request=deepcopy(request), project_root=project,
+        runs_root=project / "reports" / "runs", dry_run=True,
+    )
+    projectors = [context.projector for context in bundle.contexts]
+    assert len({id(projector) for projector in projectors}) == len(projectors)
+    assert all(type(projector) is ReadinessFieldProjector for projector in projectors)
+    assert all(not hasattr(projector, "__dict__") for projector in projectors)
+    with pytest.raises(AttributeError):
+        projectors[0].has_field = lambda *args: True
+
+    class _ForgedProjector(ReadinessFieldProjector):
+        __slots__ = ()
+
+        def has_field(self, *args):
+            return True
+
+    bundle.contexts[0].projector = _ForgedProjector()
+    with pytest.raises(ValueError, match="recheck authority mismatch"):
+        orchestrator.preflight.assert_recheck_bundle_authority(
+            bundle, scenario="morning_brief", task_id=TASK_CLOSED,
+            task_as_of=AS_OF, normalized_request=deepcopy(request),
+        )
+
+    future = orchestrator.preflight.recheck(
+        scenario="morning_brief", task_id=TASK_CLOSED, task_as_of=AS_OF,
+        normalized_request=deepcopy(request), project_root=project,
+        runs_root=project / "reports" / "runs", dry_run=True,
+    )
+    assert all(type(context.projector) is ReadinessFieldProjector for context in future.contexts)
+    assert not ({id(item) for item in projectors} & {id(c.projector) for c in future.contexts})
     orchestrator.close()
