@@ -215,7 +215,7 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP（IMPLEMENTED / ACCEPTED 2026-08-19" in next_phase6
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
     assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
@@ -374,9 +374,9 @@ def test_p7_d0_governance_is_consistent():
     assert "SCHEMAS: 85" in current
     # accepted implementation head 必须明确
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
-    # P7-D1 已 PASS；D2 Foundation 已实现并等待独立验收
+    # P7-D1 已 PASS；D2 Foundation 已实现并等待独立验收；D4 已 ACCEPTED，下一里程碑 P8-A0
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "NEXT WORK**: 独立在线验收 P7-D4（600519.SH / 300750.SZ" in next_phase
+    assert "NEXT WORK**: P8-A0 DeepSeek Harness Integration Spike taskbook" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
     # governance closeout taskbook 存在

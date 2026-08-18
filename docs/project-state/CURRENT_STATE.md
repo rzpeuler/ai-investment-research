@@ -7,7 +7,7 @@
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
 > P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
-> P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1；implementation head `7c2791b`；online acceptance NOT_RUN）
+> P7-D4：IMPLEMENTED / ACCEPTED（2026-08-19 独立验收通过并 no-squash 合并进 master，accepted baseline `8b153b3`）
 > 权威规范：`docs/engineering-guide.md` V1.8
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -58,7 +58,7 @@
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 | P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
 | P7-D3 Free-Source Production MVP | PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`）| nbs/cninfo 真实在线验收；allowlist [nbs, cninfo]；默认网络关闭；capability WORKFLOW_WIRED；独立验收 Decision #52，已合并进 master。 |
-| P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1；implementation head `7c2791b`）| 2026-08-18 实施完成；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6；因 GOV-ARUX1 治理冻结暂停；online acceptance NOT_RUN。 |
+| P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTED / ACCEPTED | 2026-08-18 实施完成（implementation head `7c2791b`）；2026-08-19 独立验收通过并 no-squash 合并进 master（accepted baseline `8b153b3`）；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -298,9 +298,10 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 - 验收 artifact（本地，reports/ gitignored）：`reports/acceptance/nbs_online_acceptance.md`、
   `reports/acceptance/cninfo_online_acceptance.md`。
 
-## P7-D4 当前状态（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE，2026-08-18）
+## P7-D4 当前状态（IMPLEMENTED / ACCEPTED，2026-08-19）
 
-- `P7-D4: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`（taskbook
+- `P7-D4: IMPLEMENTED / ACCEPTED`（2026-08-19 独立验收通过并授权合并；no-squash
+  合并进 master，accepted baseline `8b153b3`；taskbook
   `docs/tasks/phase7-data-layer-d4.md`）。CNINFO 官方年报 → 核心 FinancialFact 生产链路已实现：
   - `TransientDisclosureMaterializer`（方案 B）：CNINFO 年报 transient PDF 下载（严格校验：
     magic header/Content-Type/HTML 拒绝/zero-byte/checksum）→ DocumentRecord/Block/Evidence
@@ -314,10 +315,12 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
     7 个 D4 reason codes；SCHEMA_COUNT 保持 86；DB v6 / migration NONE。
   - capability：company_document / financial_statement_data → WORKFLOW_WIRED
     （deterministic_derivation 保守 false；独立在线验收后 closeout 才允许 true）。
-- 离线验证：extractor/materializer/prerequisite/derive/pipeline 测试全绿；完整 pytest
-  待最终记录。在线验收（600519/300750 + 人工数字抽查）待独立验收者以 --live-data 执行。
-- 独立验收通过前不声明 PASS / CLOSED / operational / real-source ready；
-  BUSINESS_SUFFICIENT / deterministic_derivation=true 仅在独立在线验收后由治理 closeout 批准。
+- 离线验证：extractor/materializer/prerequisite/derive/pipeline 测试全绿；合并后 master
+  全量 pytest `3685 passed / 6 skipped / 0 failed`（2026-08-19）。在线验收
+  （600519/300750 + 人工数字抽查）由独立验收者以 --live-data 执行并已通过
+  （GOV-MERGE-P7D4-01，2026-08-19）。
+- BUSINESS_SUFFICIENT（company_document）与 deterministic_derivation=true
+  （financial_statement_data）的晋级由后续治理 closeout 单独批准（不随本 merge 自动发生）。
 
 ## GOV-ARUX1 顶层架构与产品治理冻结（2026-08-18，DESIGN FROZEN / NOT IMPLEMENTED）
 
@@ -327,10 +330,9 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   `docs/architecture/frontend-product-architecture.md`；工程指南升级 **V1.8**。
 - 治理分支：`governance/agent-runtime-frontend-design-freeze`；GOV_BASE_SHA =
   `7c2791b2b854b88279c4c3126f7b1b2f8e861460`（D4 暂停 HEAD，与用户报告一致）。
-- **P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1）**；
-  implementation head = `7c2791b2b854b88279c4c3126f7b1b2f8e861460`；online acceptance =
-  NOT_RUN。未写 P7-D4 PASS / 未独立验收 / M6/M7 未 PASS（独立验收未发生）。D4 恢复后
-  继续严格按当前 D4 taskbook 完成，本冻结不改 D4 范围。
+- **P7-D4：IMPLEMENTED / ACCEPTED（2026-08-19 独立验收通过并合并进 master）**；
+  implementation head = `7c2791b2b854b88279c4c3126f7b1b2f8e861460`。治理冻结期间
+  D4 范围未改；D4 已按原 D4 taskbook 完成独立验收（GOV-MERGE-P7D4-01）。
 
 ```text
 AGENT_RUNTIME_ARCHITECTURE: DESIGN_FROZEN
