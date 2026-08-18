@@ -206,8 +206,15 @@ def main(argv: list[str] | None = None) -> int:
                     "end": getattr(ctx, "window_end", None),
                 }
                 break
-        if authority_window is None:
+        if authority_window is None or (
+            authority_window.get("start") is None and authority_window.get("end") is None
+        ):
+            # D1 无窗口（如 as_of_snapshot）时，允许验收者显式指定验收窗口
+            #（任务书 §47 A：可证明非空的 acceptance window）。
             authority_window = {"start": args.window_start, "end": args.window_end}
+            evidence_window_source = "acceptance_override"
+        else:
+            evidence_window_source = "d1_authority"
         evidence = _evidence(router, data_type=args.data_type,
                              entity_ids=args.entity_ids, window=authority_window)
 
