@@ -1,7 +1,7 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.6**
-**变更日期：2026-08-11**
+**版本：V1.7**
+**变更日期：2026-08-16**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
@@ -266,6 +266,21 @@
       preflight 强制 binding+projector，无 generic fallback。
 
 ---
+
+### 0.7 V1.7 P7-D2 Acquisition Execution Foundation（2026-08-16）
+
+- P7-D2 仅获批 Foundation：新增严格 `AcquisitionExecutionResult` 审计契约与只读
+  `config/data_acquisition_execution.yaml` 策略加载；Schema 总数 86，DB 保持 v6，
+  migrations NONE。
+- 生产策略固定 `enabled: false`、`allowed_actions: [route_existing_sources]`、
+  `production_collector_ids: []`；真实来源执行不获授权，具体来源授权 NONE，
+  capability promotion 0、新 Collector 0、source expansion NO。
+- 现有 Router 仍是唯一来源路由权威；Foundation 不增加第二 Router、生产网络调用、
+  业务数据写入、LLM/provider 调用或 Graph 写入。Phase 6.1 仍 `NOT_AUTHORIZED`。
+- Execution result 的 overall/step status、reason code、UUID5、时间、嵌套 DataRoute、
+  结构化错误记录均由 JSON Schema 与确定性代码 fail closed；M0 不实现 error sanitizer；
+  Plan 保持不可变且不泄露来源。
+- 本授权不构成任何真实来源可用性、采集覆盖率、独立验收通过或合并授权声明。
 
 # 第一部分：需求确认稿
 

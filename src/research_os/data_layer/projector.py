@@ -71,6 +71,14 @@ PROJECTION_HANDLERS: Dict[str, str] = {
 class ReadinessFieldProjector:
     """确定性 canonical field projection（只读，不回写）。"""
 
+    __slots__ = ()
+    AUTHORITY_DESCRIPTOR = ("readiness-field-projector", 1)
+
+    @classmethod
+    def authority_descriptor(cls) -> tuple[str, int]:
+        """Stable descriptor for exact stateless projector authority validation."""
+        return cls.AUTHORITY_DESCRIPTOR
+
     def has_field(self, payload: Dict[str, Any], field: str, source: str,
                   context: Dict[str, Any]) -> bool:
         """判断 payload 是否满足某 minimum_field。

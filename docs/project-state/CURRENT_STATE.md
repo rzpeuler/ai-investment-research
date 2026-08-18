@@ -5,7 +5,8 @@
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
-> 权威规范：`docs/engineering-guide.md` V1.6
+> P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
+> 权威规范：`docs/engineering-guide.md` V1.7
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -53,6 +54,7 @@
 | Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
 | P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
+| P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -240,6 +242,33 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   “舆论监测体系”整体语义）：`A = NEW EVENT DISCOVERY`、`C = CURRENT-WINDOW
   ATTENTION MONITORING`；`FAST_NEWS ∈ A`、`FAST_NEWS ∉ C`；C 为一次性窗口扫描，
   无持续监控 / 热度历史 / 排名变化 / 速度 / 加速度 / 持久化。
-- P7-D2 的 taskbook drafting 与 architecture design 已授权；P7-D2 implementation、
-  Acquisition execution、具体外部数据源、new collectors、source expansion 仍
-  `NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
+- P7-D1 收口时只授权 P7-D2 taskbook drafting 与 architecture design；后续 P7-D2
+  Acquisition execution foundation 已获单独授权并完成实现；具体外部数据源、
+  real-source execution、new collectors、source expansion 仍 `NOT AUTHORIZED`；
+  `GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
+
+## P7-D2 当前状态（PASS / INDEPENDENTLY ACCEPTED）
+
+- `P7-D2: PASS / INDEPENDENTLY ACCEPTED`（2026-08-18，Decision #50）。独立验收
+  accepted head：`55c4ba55847aec91ae425d86bf3415fcf867e7f4`（基于交接 head
+  `84f70b5` + 1 项返修：清除 D2 文档 19 处尾随空格以满足 diff-check gate）。
+- `REAL DATA ACQUISITION COVERAGE: NONE`；最终 implementation / validation head：
+  `84f70b5dec1a65c9842628c974e1693738ab9cca`。本治理记录只做验收收口，不把该 head
+  自行提升为真实来源可用。
+- Foundation 已实现 deterministic execution gates、existing Router bridge、atomic RawItem /
+  DataRoute persistence、post-acquisition readiness recheck、orchestrator integration、artifacts
+  与十个 Runner 的关闭路径回归；证明仅使用 Fake。
+- Production execution policy：`enabled: false`；Production collector IDs: []；Real source
+  execution: 0；Capability BUSINESS_SUFFICIENT promotions: 0；New collectors: 0；Source
+  expansion: 0；LLM/provider calls: 0；Graph writes: 0。
+- DB: v6；Migrations: 6 / NONE added；Schemas: 86。
+- Offline CI run `31945487755` 在 Ubuntu / Python 3.12.13 成功：3567 passed /
+  6 skipped / 0 failed / 1 warning，417.14s；Schema 86/86 PASS；compile success。
+  前一 run `31943822195` 仅因 fresh-process source-path portability 失败；该问题由
+  validation/test head `831afe4bc518ca2e5ffb23087d43ede4eadadd03` 修复，继任 run 随后成功。
+- 独立验收复现（2026-08-18，Windows 本地）：full pytest `3567 passed / 6 skipped /
+  0 failed / 1 warning`；schema validation `86/86 PASS`（`PYTHONPATH=src`）；compileall
+  PASS；diff-check PASS。验收矩阵逐项对照 taskbook §12 完成定义全部满足。
+- 独立验收 PASS 只证明 Fake-proven Foundation 正确；不授权任何具体来源、Collector、
+  capability promotion、Graph write 或 Phase 6.1。任何 real-source execution 仍须新的
+  来源治理、taskbook、架构批准与显式 implementation authorization（P7-D3）。

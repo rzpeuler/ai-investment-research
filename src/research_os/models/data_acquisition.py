@@ -6,12 +6,14 @@ Pydantic 只是构造器。model_dump() 后必须通过对应 Schema 校验。
 """
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional, Union
+from typing import Annotated, Any, List, Literal, Optional, Union
+from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 
 from research_os.models.core import StrictModel
-from research_os.utils.time import validate_iso
+from research_os.models.sources import DataRoute
+from research_os.utils.time import parse_iso, validate_iso
 
 # ---------- 枚举字面量（与 JSON Schema 保持一致） ----------
 
@@ -56,6 +58,27 @@ AcquisitionAction = Literal[
 ]
 
 PlanStepStatus = Literal["pending", "in_progress", "completed", "blocked", "failed"]
+
+AcquisitionExecutionStatus = Literal[
+    "not_executable", "completed", "partial_success", "failed",
+]
+
+AcquisitionExecutionStepStatus = Literal[
+    "not_executable", "skipped", "completed", "partial_success", "failed",
+]
+
+AcquisitionExecutionReason = Literal[
+    "EXECUTION_DISABLED", "LIVE_GATE_DISABLED", "DRY_RUN_PROHIBITS_EXECUTION",
+    "PLAN_CONTEXT_MISMATCH", "ACTION_SKIPPED", "REQUIREMENT_NOT_FOUND",
+    "DATA_TYPE_MISMATCH", "CAPABILITY_NOT_BUSINESS_SUFFICIENT", "ROUTE_UNAVAILABLE",
+    "FETCH_FAILED", "NORMALIZATION_FAILED", "RAW_ITEM_SCHEMA_INVALID",
+    "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
+    "CONTROL_PLANE_CONFIGURATION_ERROR",
+]
+
+StrictText = Annotated[str, StringConstraints(strict=True)]
+NonEmptyStrictText = Annotated[str, StringConstraints(strict=True, min_length=1)]
+Sha256Text = Annotated[str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{64}$")]
 
 CoverageStatus = Literal["covered", "partial", "manual_only", "not_covered", "source_failure"]
 
@@ -154,6 +177,82 @@ class AcquisitionPlan(StrictModel):
     @classmethod
     def _iso(cls, value: str) -> str:
         return _iso_validator(value)
+
+
+# ---------- AcquisitionExecutionResult（P7-D2 Foundation） ----------
+
+class AcquisitionExecutionError(StrictModel):
+    code: NonEmptyStrictText
+    message: NonEmptyStrictText
+    component: NonEmptyStrictText
+
+
+class AcquisitionExecutionStepResult(StrictModel):
+    step_id: NonEmptyStrictText
+    requirement_id: NonEmptyStrictText
+    data_type: NonEmptyStrictText
+    action: AcquisitionAction
+    status: AcquisitionExecutionStepStatus
+    reason_codes: List[AcquisitionExecutionReason] = Field(..., strict=True)
+    route: Optional[DataRoute]
+    inserted_raw_item_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    reused_raw_item_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    inserted_count: StrictInt = Field(..., ge=0)
+    reused_count: StrictInt = Field(..., ge=0)
+    rejected_future_item_count: StrictInt = Field(..., ge=0)
+    warnings: List[StrictText] = Field(..., strict=True)
+    errors: List[AcquisitionExecutionError] = Field(..., strict=True)
+
+    @field_validator("route", mode="before")
+    @classmethod
+    def _strict_data_route(cls, value: object) -> object:
+        if value is None:
+            return value
+        payload = value.model_dump() if isinstance(value, DataRoute) else value
+        from research_os.validators.schema_validator import validate_instance
+
+        errors = validate_instance(payload, "data_route")
+        if errors:
+            raise ValueError(f"route must match the authoritative DataRoute schema: {errors}")
+        return value
+
+
+class AcquisitionExecutionResult(StrictModel):
+    execution_id: StrictText
+    task_id: NonEmptyStrictText
+    scenario: ScenarioId
+    as_of: StrictText
+    plan_sha256: Sha256Text
+    started_at: StrictText
+    finished_at: StrictText
+    status: AcquisitionExecutionStatus
+    steps: List[AcquisitionExecutionStepResult] = Field(..., strict=True)
+    readiness_before_requirement_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    readiness_after_requirement_ids: List[NonEmptyStrictText] = Field(..., strict=True)
+    warnings: List[StrictText] = Field(..., strict=True)
+    errors: List[AcquisitionExecutionError] = Field(..., strict=True)
+
+    @field_validator("execution_id")
+    @classmethod
+    def _uuid5(cls, value: str) -> str:
+        try:
+            parsed = UUID(value)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("execution_id must be a UUID5") from exc
+        if parsed.version != 5 or str(parsed) != value:
+            raise ValueError("execution_id must be a canonical lowercase UUID5")
+        return value
+
+    @field_validator("as_of", "started_at", "finished_at")
+    @classmethod
+    def _execution_iso(cls, value: str) -> str:
+        return _iso_validator(value)
+
+    @model_validator(mode="after")
+    def _time_order(self) -> "AcquisitionExecutionResult":
+        if parse_iso(self.finished_at) < parse_iso(self.started_at):
+            raise ValueError("finished_at must not precede started_at")
+        return self
 
 
 # ---------- BriefAttentionSnapshot（§20-23） ----------

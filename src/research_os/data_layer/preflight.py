@@ -11,7 +11,8 @@ DataReadinessService + AcquisitionCapabilityRegistry + GapClassifier + Acquisiti
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -77,7 +78,16 @@ class DataPreflightService:
         # R3-10：binding strategy ∈ runtime supported strategies（§75）
         from research_os.data_layer.bindings import RuntimeStrategyGate
         RuntimeStrategyGate().assert_runtime_supported(self._bindings.all())
-        self._projector = ReadinessFieldProjector()
+
+    @property
+    def requirement_registry(self) -> ScenarioDataRequirementRegistry:
+        """The single registry authority used by this service."""
+        return self._requirements
+
+    @property
+    def capability_registry(self) -> AcquisitionCapabilityRegistry:
+        """The single capability authority used by this service."""
+        return self._capabilities
 
     # ---------- 只读访问视图 ----------
 
@@ -158,17 +168,20 @@ class DataPreflightService:
             canonical = self._request_adapter.extract(scenario, normalized_request)
             gap_by_req: Dict[str, DataGap] = {}
             requirement_order: List[str] = []
-            for requirement in requirements:
+            for registered_requirement in requirements:
+                # Returned bundles must not alias mutable registry/binding authorities.
+                requirement = registered_requirement.model_copy(deep=True)
                 # R3-01：每个 requirement 取得自己的 runtime binding（§7）
-                binding = self._bindings.get(requirement.requirement_id)
+                binding = deepcopy(self._bindings.get(requirement.requirement_id))
                 ctx = self._resolver.resolve(
                     requirement, scenario, task_id, canonical, task_as_of,
                 )
                 ctx.binding = binding
-                ctx.projector = self._projector
+                projector = ReadinessFieldProjector()
+                ctx.projector = projector
                 readiness = self._readiness.evaluate(
                     requirement, ctx, view, checked_at_value,
-                    binding=binding, projector=self._projector,
+                    binding=binding, projector=projector,
                 )
                 gap = self._gaps.classify(requirement, readiness)
                 bundle.requirements.append(requirement)
@@ -188,6 +201,176 @@ class DataPreflightService:
         finally:
             if owned_conn is not None:
                 owned_conn.close()
+
+    def recheck(self, **kwargs: Any) -> DataPreflightBundle:
+        """Re-evaluate readiness through this exact authority after committed acquisition writes.
+
+        This deliberately delegates to :meth:`run` instead of maintaining a second, simplified
+        readiness path.  Callers must provide the same task/scenario/request/as-of inputs used by
+        the initial preflight.
+        """
+        return self.run(**kwargs)
+
+    def assert_recheck_bundle_authority(
+        self,
+        bundle: DataPreflightBundle,
+        *,
+        scenario: str,
+        task_id: str,
+        task_as_of: str,
+        normalized_request: Dict[str, Any],
+    ) -> None:
+        """Reconstruct and validate a recheck using this service's exact authorities."""
+        from research_os.validators.schema_validator import validate_instance
+        from research_os.utils.time import parse_iso
+
+        try:
+            if not isinstance(bundle, DataPreflightBundle):
+                raise TypeError("invalid recheck bundle")
+            requirements = self._requirements.for_scenario(scenario)
+            if [item.model_dump() for item in bundle.requirements] != [
+                item.model_dump() for item in requirements
+            ]:
+                raise ValueError("requirements differ from registry")
+
+            canonical = self._request_adapter.extract(
+                scenario, dict(normalized_request),
+            )
+            expected_contexts = []
+            for requirement in requirements:
+                context = self._resolver.resolve(
+                    requirement, scenario, task_id, canonical, task_as_of,
+                )
+                context.binding = self._bindings.get(requirement.requirement_id)
+                context.projector = ReadinessFieldProjector()
+                expected_contexts.append(context)
+            if len(bundle.contexts) != len(expected_contexts):
+                raise ValueError("context count differs from registry")
+            for actual, expected in zip(bundle.contexts, expected_contexts):
+                if not self._same_context_authority(
+                    actual, expected, task_as_of=task_as_of,
+                ):
+                    raise ValueError("context authority mismatch")
+
+            if len(bundle.readiness) != len(requirements):
+                raise ValueError("readiness count differs from registry")
+            for readiness, requirement in zip(bundle.readiness, requirements):
+                payload = readiness.model_dump()
+                if validate_instance(payload, "data_readiness"):
+                    raise ValueError("readiness schema mismatch")
+                if (
+                    readiness.requirement_id != requirement.requirement_id
+                    or readiness.data_type != requirement.data_type
+                    or parse_iso(readiness.as_of) != parse_iso(task_as_of)
+                    or readiness.checked_at != bundle.checked_at
+                ):
+                    raise ValueError("readiness authority mismatch")
+
+            expected_gaps = [
+                self._gaps.classify(requirement, readiness)
+                for requirement, readiness in zip(requirements, bundle.readiness)
+            ]
+            if [item.model_dump() for item in bundle.gaps] != [
+                item.model_dump() for item in expected_gaps
+            ]:
+                raise ValueError("gap authority mismatch")
+
+            expected_plan = self._planner.plan(
+                task_id=task_id,
+                scenario=scenario,
+                as_of=task_as_of,
+                gaps=expected_gaps,
+                requirement_order=[item.requirement_id for item in requirements],
+            )
+            if (
+                bundle.acquisition_plan is None
+                or bundle.acquisition_plan.model_dump() != expected_plan.model_dump()
+            ):
+                raise ValueError("plan authority mismatch")
+        except Exception:  # noqa: BLE001 -- collaborator bundle is wholly untrusted
+            raise ValueError(
+                "CONTROL_PLANE_CONFIGURATION_ERROR: recheck authority mismatch"
+            ) from None
+
+    def _same_context_authority(
+        self,
+        actual: Any,
+        expected: Any,
+        *,
+        task_as_of: str,
+    ) -> bool:
+        """Compare every field that binds readiness evaluation and downstream Runner scope."""
+        from research_os.utils.time import parse_iso
+
+        try:
+            return (
+                actual.requirement.model_dump() == expected.requirement.model_dump()
+                and actual.scenario == expected.scenario
+                and actual.task_id == expected.task_id
+                and parse_iso(actual.as_of) == parse_iso(task_as_of)
+                and actual.entity_ids == expected.entity_ids
+                and actual.peer_entity_ids == expected.peer_entity_ids
+                and actual.industry_ids == expected.industry_ids
+                and actual.window_start == expected.window_start
+                and actual.window_end == expected.window_end
+                and actual.watchlist_group == expected.watchlist_group
+                and actual.request_material_refs == expected.request_material_refs
+                and actual.unresolved == expected.unresolved
+                and actual.previous_run_ids == expected.previous_run_ids
+                and actual.binding == expected.binding
+                and type(actual.projector) is ReadinessFieldProjector
+                and not hasattr(actual.projector, "__dict__")
+                and actual.projector.authority_descriptor()
+                == ReadinessFieldProjector.authority_descriptor()
+            )
+        except Exception:  # noqa: BLE001 -- collaborator context is untrusted
+            return False
+
+    def canonical_recheck_bundle_authority_payload(
+        self, bundle: DataPreflightBundle,
+    ) -> Dict[str, Any]:
+        """Project every validated recheck authority field into a comparable payload."""
+        from research_os.data_layer.projector import ReadinessFieldProjector
+        from research_os.utils.time import parse_iso
+
+        contexts = []
+        for context in bundle.contexts:
+            contexts.append({
+                "requirement": context.requirement.model_dump(),
+                "scenario": context.scenario,
+                "task_id": context.task_id,
+                "as_of_instant": parse_iso(context.as_of).isoformat(),
+                "entity_ids": list(context.entity_ids),
+                "peer_entity_ids": list(context.peer_entity_ids),
+                "industry_ids": list(context.industry_ids),
+                "window_start": context.window_start,
+                "window_end": context.window_end,
+                "watchlist_group": context.watchlist_group,
+                "request_material_refs": list(context.request_material_refs),
+                "unresolved": list(context.unresolved),
+                "previous_run_ids": list(context.previous_run_ids),
+                "binding": asdict(context.binding),
+                "projector": {
+                    "type": (
+                        f"{type(context.projector).__module__}."
+                        f"{type(context.projector).__qualname__}"
+                    ),
+                    "descriptor": list(ReadinessFieldProjector.authority_descriptor()),
+                },
+            })
+        readiness_payloads = []
+        for readiness in bundle.readiness:
+            payload = readiness.model_dump()
+            payload["as_of"] = parse_iso(readiness.as_of).isoformat()
+            readiness_payloads.append(payload)
+        return {
+            "checked_at": bundle.checked_at,
+            "requirements": [item.model_dump() for item in bundle.requirements],
+            "contexts": contexts,
+            "readiness": readiness_payloads,
+            "gaps": [item.model_dump() for item in bundle.gaps],
+            "acquisition_plan": bundle.acquisition_plan.model_dump(),
+        }
 
     # ---------- artifact 持久化（非 dry-run） ----------
 
@@ -223,6 +406,20 @@ class DataPreflightService:
         if errs:
             raise ValueError(f"AcquisitionPlan 未通过 Schema 校验: {errs}")
         _atomic_write(plan_path, json_dumps(plan_payload))
+
+    @staticmethod
+    def persist_readiness_after(run_dir: Path, bundle: DataPreflightBundle) -> None:
+        """Atomically persist the authoritative post-acquisition readiness records."""
+        from research_os.validators.schema_validator import validate_instance
+
+        lines: List[str] = []
+        for readiness in bundle.readiness:
+            payload = readiness.model_dump()
+            errors = validate_instance(payload, "data_readiness")
+            if errors:
+                raise ValueError(f"DataReadiness 未通过 Schema 校验: {errors}")
+            lines.append(json_dumps(payload))
+        _atomic_write(run_dir / "data_readiness_after.jsonl", "\n".join(lines) + "\n")
 
 
 def _atomic_write(path: Path, text: str) -> None:

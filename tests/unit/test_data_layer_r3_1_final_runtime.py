@@ -925,10 +925,10 @@ class TestBindingRuntimeAuthority:
         db.close()
 
     def test_production_preflight_binding_required(self, requirement_registry, capability_registry):
-        """§62：production preflight 初始化即构造 binding+projector，无 fallback。"""
+        """§62：production preflight 初始化 binding；projector 按 context 隔离构造。"""
         svc = DataPreflightService(requirement_registry, capability_registry)
         assert svc._bindings is not None
-        assert svc._projector is not None
+        assert not hasattr(svc, "_projector")
         assert len(svc._bindings.all()) == 43
 
 

@@ -7,16 +7,34 @@ dry-run 零副作用、Router/网络/LLM 禁止。
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
+from types import SimpleNamespace
 
 import pytest
 
 from research_os.orchestrator import Orchestrator
 from research_os.orchestrator.scenario_registry import ScenarioRegistry
 from research_os.orchestrator.scenario_runner import ScenarioExecutionResult
+from research_os.orchestrator.runners import DEFAULT_SCENARIOS
 from research_os.routing.scenario_requirements import ScenarioDataRequirementRegistry
 
 ROOT = Path(__file__).resolve().parents[2]
+FROZEN_SCENARIO_IDS = (
+    "morning_brief",
+    "abnormal_move_analysis",
+    "stock_research_report",
+    "evening_brief",
+    "daily_review",
+    "stock_review",
+    "industry_research",
+    "theme_discovery",
+    "earnings_expectation",
+    "first_coverage",
+)
 
 
 class _StubRunner:
@@ -40,6 +58,33 @@ class _StubRunner:
         self.record["preflight_readiness"] = len(context.get("data_preflight", object()).readiness)
         return ScenarioExecutionResult(
             status="success", exit_code=0, task_id=context["task"].task_id,
+        )
+
+
+class _PassThroughRunner:
+    version = "attack-matrix"
+
+    def __init__(self, scenario, expected_status, expected_exit, expected_missing):
+        self.scenario = scenario
+        self.expected_status = expected_status
+        self.expected_exit = expected_exit
+        self.expected_missing = expected_missing
+        self.context = None
+
+    def validate_request(self, request):
+        return {"as_of": "2026-08-16T08:00:00+08:00"}
+
+    def build_plan(self, request, context):
+        return {"steps": ["sentinel-business-step"]}
+
+    def execute(self, request, context):
+        self.context = context
+        return ScenarioExecutionResult(
+            status=self.expected_status,
+            exit_code=self.expected_exit,
+            task_id=context["task"].task_id,
+            missing_data=list(self.expected_missing),
+            message=self.expected_missing[0],
         )
 
 
@@ -183,3 +228,205 @@ class TestNetworkAndLLMProhibition:
         monkeypatch.setattr("research_os.llm.client.LlmClient.generate_json", boom)
         result = orch.execute("morning_brief", {"dry_run": True, "report_date": "2026-08-11"})
         assert result.exit_code == 0
+
+    def test_default_foundation_calls_no_collector_llm_provider_or_graph_writer(
+        self, project, monkeypatch,
+    ):
+        from research_os.collectors.government.nbs import NbsCollector
+        from research_os.collectors.market.sina_quote import SinaQuoteCollector
+        from research_os.collectors.news.cls import ClsMetadataCollector
+        from research_os.collectors.official.cninfo import CninfoCollector
+        from research_os.knowledge.repository import GraphRepository
+        from research_os.llm.client import LlmClient
+        from research_os.llm.providers.deepseek import DeepSeekChatCompletionsProvider
+
+        def boom(*args, **kwargs):
+            raise AssertionError("P7-D2 default path crossed a forbidden boundary")
+
+        for collector_type in (
+            ClsMetadataCollector, CninfoCollector, SinaQuoteCollector, NbsCollector,
+        ):
+            for method in ("healthcheck", "discover", "fetch", "normalize"):
+                monkeypatch.setattr(collector_type, method, boom)
+        monkeypatch.setattr(LlmClient, "generate_json", boom)
+        monkeypatch.setattr(DeepSeekChatCompletionsProvider, "complete_json", boom)
+        for method in (
+            "append_node", "append_edge", "append_review", "append_application",
+            "seed_ontology",
+        ):
+            monkeypatch.setattr(GraphRepository, method, boom)
+
+        orch = Orchestrator(project)
+        result = orch.execute(
+            "morning_brief", {"dry_run": True, "report_date": "2026-08-11"},
+        )
+        assert result.exit_code == 0
+        orch.close()
+
+    def test_fresh_default_process_does_not_import_real_collector_modules(self, project):
+        script = textwrap.dedent(
+            f"""
+            import builtins
+            import pathlib
+            import tempfile
+
+            forbidden = (
+                "research_os.collectors.news",
+                "research_os.collectors.official",
+                "research_os.collectors.market",
+                "research_os.collectors.government",
+                "research_os.collectors.stub",
+            )
+            original_import = builtins.__import__
+            def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+                if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden):
+                    raise AssertionError("real Collector module imported: " + name)
+                return original_import(name, globals, locals, fromlist, level)
+            builtins.__import__ = guarded_import
+
+            import research_os
+            source_root = pathlib.Path({str((ROOT / "src").resolve())!r})
+            assert pathlib.Path(research_os.__file__).resolve().is_relative_to(source_root)
+            from research_os.orchestrator import Orchestrator
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                orchestrator = Orchestrator(root)
+                result = orchestrator.execute(
+                    "morning_brief",
+                    {{"dry_run": True, "report_date": "2026-08-11"}},
+                )
+                assert result.exit_code == 0, result
+                orchestrator.close()
+            """
+        )
+        env = os.environ.copy()
+        source_root = str((ROOT / "src").resolve())
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            source_root
+            if not existing_pythonpath
+            else source_root + os.pathsep + existing_pythonpath
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script], cwd=ROOT, text=True,
+            capture_output=True, timeout=60, check=False, env=env,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_production_capability_registry_has_no_business_sufficient_entry():
+    from research_os.data_layer.capabilities import AcquisitionCapabilityRegistry
+
+    requirements = ScenarioDataRequirementRegistry(
+        ROOT / "registry" / "scenario_data_requirements.yaml",
+    )
+    capabilities = AcquisitionCapabilityRegistry(
+        ROOT / "registry" / "data_acquisition_capabilities.yaml",
+        scenario_requirements=requirements,
+        repo_root=ROOT,
+    )
+    promoted = [
+        item.data_type for item in capabilities.all()
+        if item.automatic_acquisition_lifecycle == "BUSINESS_SUFFICIENT"
+    ]
+    assert promoted == []
+
+
+def test_frozen_ten_scenario_set_matches_production_registry_exactly():
+    assert len(FROZEN_SCENARIO_IDS) == 10
+    assert len(set(FROZEN_SCENARIO_IDS)) == 10
+    assert len(DEFAULT_SCENARIOS) == 10
+    assert set(DEFAULT_SCENARIOS) == set(FROZEN_SCENARIO_IDS)
+
+
+@pytest.mark.parametrize("scenario", FROZEN_SCENARIO_IDS)
+def test_all_ten_normal_non_dry_runner_results_pass_through_closed_foundation(
+    project, monkeypatch, scenario,
+):
+    """Normal production-default acquisition remains closed before each stub Runner."""
+    from research_os.collectors.government.nbs import NbsCollector
+    from research_os.collectors.market.sina_quote import SinaQuoteCollector
+    from research_os.collectors.news.cls import ClsMetadataCollector
+    from research_os.collectors.official.cninfo import CninfoCollector
+    from research_os.collectors.stub.stub import StubCollector
+    from research_os.data_layer.acquisition_repository import AcquisitionRepository
+    from research_os.knowledge.repository import GraphRepository
+    from research_os.llm.client import LlmClient
+    from research_os.llm.provider import FakeLlmProvider
+    from research_os.llm.providers.deepseek import DeepSeekChatCompletionsProvider
+    from research_os.routing.router import Router
+
+    def boom(*args, **kwargs):
+        raise AssertionError(
+            f"{scenario} normal production path crossed a forbidden boundary"
+        )
+
+    for method in ("resolve", "resolve_with_items"):
+        monkeypatch.setattr(Router, method, boom)
+    monkeypatch.setattr(AcquisitionRepository, "persist_batch", boom)
+    for collector_type in (
+        ClsMetadataCollector, CninfoCollector, SinaQuoteCollector, NbsCollector,
+        StubCollector,
+    ):
+        for method in ("healthcheck", "discover", "fetch", "normalize"):
+            monkeypatch.setattr(collector_type, method, boom)
+    monkeypatch.setattr(LlmClient, "generate_json", boom)
+    monkeypatch.setattr(FakeLlmProvider, "complete_json", boom)
+    monkeypatch.setattr(DeepSeekChatCompletionsProvider, "complete_json", boom)
+    monkeypatch.setattr("research_os.llm.provider_factory.create_provider", boom)
+    for method in (
+        "append_node", "append_edge", "append_review", "append_application",
+        "seed_ontology",
+    ):
+        monkeypatch.setattr(GraphRepository, method, boom)
+
+    marker = f"runner-owned:{scenario}"
+    expected_status = f"sentinel:{scenario}"
+    expected_exit = FROZEN_SCENARIO_IDS.index(scenario) + 10
+    runner = _PassThroughRunner(
+        scenario, expected_status, expected_exit, [marker],
+    )
+    registry = ScenarioRegistry()
+    registry.register(runner)
+    orchestrator = Orchestrator(project, registry=registry)
+    monkeypatch.setattr(
+        orchestrator,
+        "_request_context",
+        lambda: SimpleNamespace(
+            extract=lambda selected, request: SimpleNamespace(task_entities=[]),
+        ),
+    )
+
+    result = orchestrator.execute(scenario, {})
+    assert result.status == expected_status
+    assert result.exit_code == expected_exit
+    assert result.missing_data == [marker]
+    assert result.message == marker
+    assert runner.context is not None
+    assert runner.context["db"] is orchestrator.db
+
+    run_dir = Path(result.run_dir)
+    execution = json.loads(
+        (run_dir / "acquisition_execution.json").read_text(encoding="utf-8"),
+    )
+    assert execution["status"] == "not_executable"
+    assert execution["steps"]
+    assert {
+        reason
+        for step in execution["steps"]
+        for reason in step["reason_codes"]
+    } == {"EXECUTION_DISABLED"}
+    assert {step["status"] for step in execution["steps"]} == {"not_executable"}
+    assert runner.context["acquisition_execution"].status == "not_executable"
+
+    for table in (
+        "raw_items", "data_routes", "events", "opinions", "claims", "evidence",
+        "module_results", "llm_call_records",
+    ):
+        assert orchestrator.db.count(table) == 0
+    for table in (
+        "graph_nodes", "graph_edges", "graph_reviews", "graph_applications",
+        "graph_changes",
+    ):
+        assert orchestrator.db.count(table) == 0
+    orchestrator.close()

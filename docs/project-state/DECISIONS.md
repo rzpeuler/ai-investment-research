@@ -2724,3 +2724,89 @@ SCHEMAS: 85
 
 设计授权不等于实施授权。P7-D2 必须完成新 taskbook、独立架构批准与显式实施授权；
 任何具体外部数据源、Collector、联网执行、持久化变更或 migration 均不在本授权内。
+
+## 49. P7-D2 Acquisition Execution Foundation（2026-08-16，APPROVED）
+
+用户于 2026-08-16 显式批准 P7-D2 Foundation implementation。批准范围只建立生产
+默认关闭、真实来源为空的执行治理基础；不证明任何真实来源可用，也不授权具体来源。
+
+### 49.1 Frozen Foundation Boundary
+
+```text
+P7-D2_IMPLEMENTATION: AUTHORIZED — FOUNDATION ONLY
+REAL_SOURCE_EXECUTION: NOT_AUTHORIZED
+SPECIFIC_SOURCE_AUTHORIZATION: NONE
+PRODUCTION_COLLECTOR_IDS: []
+CAPABILITY_PROMOTIONS: 0
+NEW_COLLECTORS: 0
+SOURCE_EXPANSION: NO
+PRODUCTION_LLM_CALLS: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 86
+```
+
+### 49.2 Frozen Contracts and Policy
+
+- 只新增一个权威业务 Schema：`acquisition_execution_result.schema.json`；其模型必须
+  strict，所有对象字段 required、`additionalProperties: false`，并通过统一 validator。
+- Overall status 精确为 `not_executable / completed / partial_success / failed`；step status
+  精确为 `not_executable / skipped / completed / partial_success / failed`；reason code 精确
+  使用 P7-D2 taskbook 集合（包含 `ACTION_SKIPPED`）。
+- Execution ID 是确定性 UUID5 形状；时间必须合法且结束时间不得早于开始时间；step 可携带
+  nullable、既有 `DataRoute` 形状，并记录结构化 error。M0 只冻结契约，不实现 error
+  sanitizer；实际脱敏行为属于后续 execution service。
+- 生产策略文件固定为 `enabled: false`、`allowed_actions: [route_existing_sources]`、
+  `production_collector_ids: []`。策略加载只读、严格拒绝未知字段、重复 collector 与
+  Foundation 非空 production collector。
+- 现有 Router 仍是唯一来源路由权威。Milestone 0 不执行网络、Collector、业务 DB 写入、
+  LLM/provider 或 Graph write，不修改 capability/source registries，也不新增 migration。
+
+本决策不声明 P7-D2 PASS / CLOSED / REAL SOURCE READY / MERGE AUTHORIZED；完整 Foundation
+实现完成后仍须独立验收。
+
+## 50. P7-D2 Acquisition Execution Foundation 独立验收（2026-08-18）
+
+P7-D2 Foundation 于 2026-08-18 完成独立验收，结论 **PASS / INDEPENDENTLY ACCEPTED**。
+
+### 50.1 Independent Acceptance
+
+- 独立验收 accepted head：`55c4ba55847aec91ae425d86bf3415fcf867e7f4`（基于交接 head
+  `84f70b5` + 1 项返修：清除 D2 文档 19 处尾随空格以满足 diff-check gate；无业务代码改动）。
+- 验收复现（Windows / Python 3.11.15）：full pytest `3567 passed / 6 skipped /
+  0 failed / 1 warning`；schema validation `86/86 PASS`（`PYTHONPATH=src`）；
+  compileall PASS；diff-check PASS。Offline CI run `31945487755`（Ubuntu /
+  Python 3.12.13）记录一致。
+- 逐项对照 taskbook §12 完成定义：Foundation-only scope、production policy
+  `enabled: false` / `allowed_actions: [route_existing_sources]` /
+  `production_collector_ids: []`、capability promotions 0、new collectors 0、
+  source expansion 0、LLM/provider calls 0、Graph writes 0、DB v6 /
+  migrations NONE added / schemas 86 全部满足。
+- 执行门顺序（taskbook §3 十步）、§11 强制测试（6 个文件 / 131 测试）、Runner
+  兼容（10/10 status / exit_code / missing_data 不变）与 dry-run 零副作用测试全部通过。
+
+### 50.2 Terminal Boundary（P7-D2 独立验收后）
+
+```text
+P7-D2_INDEPENDENT_ACCEPTANCE: PASS（2026-08-18）
+REAL_SOURCE_EXECUTION: NOT_AUTHORIZED
+SPECIFIC_SOURCE_AUTHORIZATION: NONE
+PRODUCTION_COLLECTOR_IDS: []
+CAPABILITY_PROMOTIONS: 0
+NEW_COLLECTORS: 0
+SOURCE_EXPANSION: NO
+PRODUCTION_LLM_CALLS: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 86
+```
+
+- D2 独立验收 PASS 只证明 Fake-proven Foundation 正确；不授权任何真实来源、
+  real-source execution、capability promotion、新 Collector 或 Phase 6.1。
+- D1（PR #25 已获 merge authorization）与 D2 合并进 master 后，从新 master 建立
+  P7-D3 工程基线；任何 real-source execution 仍须新的来源治理、验证、taskbook、
+  架构批准与显式 implementation authorization。
