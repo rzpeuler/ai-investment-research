@@ -78,6 +78,23 @@ class RunOutcome:
             self.errors = []
 
 
+class _LazyDatabase:
+    """惰性 Database 代理：首次访问才构造真实 SQLite（Database() 构造即落盘）。
+
+    供 --live-data 未显式传 db 的路径使用：构造 Orchestrator / dry-run 全程不落盘，
+    只有真正查询/写入（非 dry-run execute）才初始化。
+    """
+
+    def __init__(self, factory):
+        self._factory = factory
+        self._db = None
+
+    def __getattr__(self, name):
+        if self._db is None:
+            self._db = self._factory()
+        return getattr(self._db, name)
+
+
 class Orchestrator:
     """统一控制面；具体业务由注册的 ScenarioRunner 执行。"""
 
@@ -100,9 +117,11 @@ class Orchestrator:
         self.preflight = preflight or self._default_preflight()
         self._live_data = live_data
         if self._live_data and self._db is None:
-            # 显式 live-data 授权需要真实 Repository：惰性初始化项目 DB
-            # （普通运行/无 --live-data 不产生任何 DB 副作用）
-            self._db = self.db
+            # 显式 live-data 授权但未提供 db：惰性代理，构造阶段不落盘。
+            # 真实初始化延迟到首次访问（execute 非 dry-run 分支的 self.db）——
+            # dry-run 时即使 --live-data 也 NO PERSISTENCE（不创建/初始化 SQLite）。
+            self._db = _LazyDatabase(lambda: Database(
+                self.project_root / "data" / "sqlite" / "research.db"))
         if acquisition_coordinator is None:
             self._assert_acquisition_preflight_protocol(self.preflight)
             acquisition_coordinator = self._default_acquisition_coordinator(
@@ -222,10 +241,10 @@ class Orchestrator:
 
     @property
     def db(self) -> Database:
-        """仅真实执行时初始化数据库，保证 dry-run 不因控制面产生副作用。"""
+        """仅真实执行时初始化数据库（幂等）；dry-run 不触发控制面副作用。"""
         if self._db is None:
             self._db = Database(self.project_root / "data" / "sqlite" / "research.db")
-            self._db.initialize()
+        self._db.initialize()
         return self._db
 
     # ---------- 失败状态持久化 ----------

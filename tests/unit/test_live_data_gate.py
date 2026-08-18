@@ -128,7 +128,9 @@ class TestLiveDataWiring:
             "as_of": "2026-08-16T00:00:00+08:00",
             "dry_run": True,
         })
-        assert result.status in ("ok", "dry_run", "success") or result.exit_code == 0
+        assert result.status == "planned"  # dry-run 返回 planned / exit_code=0
+        assert result.exit_code == 0
+        assert result.validation_status == "not_run"
         assert calls == []
         orch.close()
 
@@ -182,3 +184,37 @@ class TestCliLiveDataFlag:
         result = runner.invoke(cli, ["execute", "--help"])
         assert "--live-data" in result.output
         assert "真实数据采集" in result.output
+
+
+class TestDryRunNoPersistence:
+    """D3 独立验收修复：dry-run + --live-data 不得创建/初始化 SQLite（NO PERSISTENCE）。"""
+
+    def test_orchestrator_lazy_db_not_created_on_dry_run(self, project, monkeypatch):
+        # live_data=True 但不显式传 db：惰性路径。dry-run 执行后不得落盘。
+        import research_os.collectors.government.nbs as nbs_mod
+        calls = []
+        monkeypatch.setattr(nbs_mod.subprocess, "run", lambda *a, **k: calls.append(1))
+        orch = Orchestrator(project, live_data=True)
+        # 惰性赋值阶段：db 对象存在但未初始化（不得落盘）
+        assert orch._db is not None
+        db_path = project / "data" / "sqlite" / "research.db"
+        assert not db_path.exists(), "构造 Orchestrator 不得初始化 SQLite（dry-run 语义）"
+        result = orch.execute("morning_brief", {
+            "task_id": "44444444-4444-4444-8444-444444444444",
+            "report_date": "2026-08-16",
+            "as_of": "2026-08-16T00:00:00+08:00",
+            "dry_run": True,
+        })
+        assert result.status == "planned"
+        assert result.exit_code == 0
+        assert calls == []
+        assert not db_path.exists(), "dry-run 结束不得创建 SQLite 文件"
+        orch.close()
+
+    def test_non_dry_run_initializes_db_when_needed(self, project):
+        # 非 dry-run + live_data：execute 需要 DB 时才初始化（幂等）
+        orch = Orchestrator(project, live_data=True)
+        db = orch.db  # execute 路径的同一 ensure 逻辑
+        assert (project / "data" / "sqlite" / "research.db").exists()
+        assert db is orch._db
+        orch.close()

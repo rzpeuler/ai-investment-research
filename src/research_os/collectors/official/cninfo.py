@@ -36,6 +36,31 @@ TOPSEARCH_URL = "http://www.cninfo.com.cn/new/information/topSearch/query"
 BASE_URL = "http://static.cninfo.com.cn/"
 
 
+def _in_window(value: str, start: Optional[str], end: Optional[str]) -> bool:
+    """[start, end) 窗口语义（与 NBS / data_layer checkers._in_window 一致；parse_iso 比较）。"""
+    if not start and not end:
+        return True
+    from research_os.utils.time import parse_iso
+
+    try:
+        value_dt = parse_iso(value)
+    except ValueError:
+        return False  # 无法解析 → fail closed
+    if start:
+        try:
+            if value_dt < parse_iso(start):
+                return False
+        except ValueError:
+            return False
+    if end:
+        try:
+            if value_dt >= parse_iso(end):
+                return False
+        except ValueError:
+            return False
+    return True
+
+
 def _curl_executable() -> Optional[str]:
     """返回当前平台可用的 curl；缺失时由调用方显式降级。"""
     return shutil.which("curl.exe") or shutil.which("curl")
@@ -185,10 +210,18 @@ class CninfoCollector(CollectorAdapter):
             if published is None:
                 # 无法归因公告时间：跳过（不得伪造时间；PIT 必须有效）
                 continue
+            if not _in_window(published, start, end):
+                # 窗口后置过滤（与 NBS 对称）：接口 seDate 为粗粒度，
+                # 防止窗口外公告进入 RawItem；窗口未给定时不过滤。
+                continue
+            external_id = str(ann.get("announcementId") or "")
+            if not external_id:
+                # 缺官方公告 ID：无法稳定去重/溯源 → 跳过（fail closed）
+                continue
             url = BASE_URL + (ann.get("adjunctUrl") or "")
             refs.append(ItemRef(
                 source_id=self.source_id,
-                external_id=str(ann.get("announcementId") or ""),
+                external_id=external_id,
                 url=normalize_url(url),
                 title=title,
                 published_at=published,

@@ -162,7 +162,9 @@ def run(ctx, task_id, scenario, entities, depth, as_of, force) -> None:
     "--live-data",
     is_flag=True,
     default=False,
-    help="允许本次任务执行治理批准的真实数据采集（nbs/cninfo）。"
+    help="显式授权本次任务注入治理批准的真实数据采集 wiring（nbs/cninfo）。"
+         "正常执行仍受 execution policy 约束（capability 未达 BUSINESS_SUFFICIENT 前"
+         "fail closed，不联网）；真实验收走独立 acceptance harness。"
          "与 --live（真实 LLM Provider）完全分离；缺省真实数据采集保持关闭。",
 )
 def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str],
@@ -198,8 +200,9 @@ def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str],
 
     root = _project_root()
     db = None
-    if live_data:
-        # --live-data 需要真实 Repository：显式构造项目 DB（仅显式授权时）
+    if live_data and not bool(payload.get("dry_run")):
+        # --live-data 需要真实 Repository：显式构造项目 DB。
+        # dry-run 时即使 --live-data 也 NO PERSISTENCE：不创建/初始化 SQLite。
         from research_os.storage.db import Database
 
         db = Database(root / "data" / "sqlite" / "research.db")

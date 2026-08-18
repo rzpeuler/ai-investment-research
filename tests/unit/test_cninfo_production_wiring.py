@@ -160,3 +160,54 @@ class TestCninfoProductionWiring:
         assert batch.items == ()
         joined = " ".join(batch.route.warnings)
         assert "无公告" not in joined and "无重大事件" not in joined
+
+
+class TestCninfoDiscoverWindowAndIdentity:
+    """D3 独立验收修复：discover 窗口后置过滤 + 缺 announcementId 跳过。"""
+
+    @staticmethod
+    def _collector_with(response):
+        c = CninfoCollector()
+        c._post_query = lambda params, timeout=25.0: response
+        return c
+
+    def test_discover_filters_outside_window(self):
+        from datetime import datetime
+
+        ts_in = 1785600000000  # 本地 2026-08-02T00:00:00（基准时刻）
+        day_ms = 86400 * 1000
+        # 窗口基于同一本地时间基准构造：窗口内公告落在 [start, end)
+        start = datetime.fromtimestamp((ts_in - day_ms) / 1000).isoformat()
+        end = datetime.fromtimestamp((ts_in + day_ms) / 1000).isoformat()
+        c = self._collector_with({"announcements": [
+            {"announcementId": "in1", "secCode": "600519", "secName": "贵州茅台",
+             "announcementTitle": "窗口内公告", "announcementTime": ts_in,
+             "adjunctUrl": "finalpage/x.PDF", "adjunctType": "PDF"},
+            {"announcementId": "out1", "secCode": "600519", "secName": "贵州茅台",
+             "announcementTitle": "窗口外公告（2 天后）", "announcementTime": ts_in + 2 * day_ms,
+             "adjunctUrl": "finalpage/y.PDF", "adjunctType": "PDF"},
+        ]})
+        refs = c.discover({}, {"start": start, "end": end})
+        assert [r.title for r in refs] == ["窗口内公告"]
+        assert [r.external_id for r in refs] == ["in1"]
+
+    def test_discover_skips_missing_announcement_id(self):
+        c = self._collector_with({"announcements": [
+            {"announcementId": "id1", "secCode": "600519", "secName": "贵州茅台",
+             "announcementTitle": "有 ID 公告", "announcementTime": 1785600000000,
+             "adjunctUrl": "finalpage/x.PDF", "adjunctType": "PDF"},
+            {"secCode": "600519", "secName": "贵州茅台",  # 缺 announcementId
+             "announcementTitle": "无 ID 公告", "announcementTime": 1785600000000,
+             "adjunctUrl": "finalpage/y.PDF", "adjunctType": "PDF"},
+        ]})
+        refs = c.discover({}, {"start": None, "end": None})
+        assert [r.external_id for r in refs] == ["id1"]
+
+    def test_discover_no_window_keeps_all(self):
+        c = self._collector_with({"announcements": [
+            {"announcementId": "a1", "secCode": "600519", "secName": "贵州茅台",
+             "announcementTitle": "任意时间公告", "announcementTime": 1785600000000,
+             "adjunctUrl": "finalpage/x.PDF", "adjunctType": "PDF"},
+        ]})
+        refs = c.discover({}, {})
+        assert len(refs) == 1
