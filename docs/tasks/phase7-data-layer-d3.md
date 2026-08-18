@@ -18,7 +18,7 @@
 **DB_VERSION: v6**
 **MIGRATIONS: NONE**
 **SCHEMA_COUNT: 86**
-**OFFLINE_CI: PASS（见 §10）**
+**OFFLINE_CI: PASS（pytest 3637 passed / 6 skipped / 0 failed；schema 86/86；compileall PASS；diff-check PASS；Windows / Python 3.11.15，2026-08-18）**
 **ONLINE_ACCEPTANCE_STATUS: NBS PASS / CNINFO PASS（见 §8，待独立验收复核）**
 
 > 本 taskbook 只记录 D3 实施与交接状态；独立验收通过前不声明 PASS / CLOSED /
@@ -245,7 +245,7 @@ PHASE6.1: NOT_AUTHORIZED
 DB: v6
 MIGRATIONS: NONE
 SCHEMA_COUNT: 86
-OFFLINE_CI: 待最终记录
+OFFLINE_CI: PASS（pytest 3637 passed / 6 skipped / 0 failed；schema 86/86；compileall PASS；diff-check PASS）
 ONLINE_ACCEPTANCE_ARTIFACT: reports/acceptance/nbs_online_acceptance.md、cninfo_online_acceptance.md
 KNOWN_LIMITATIONS: 见 §6
 ```
