@@ -1,8 +1,8 @@
 # P7-D2 Acquisition Execution Foundation — Implementation Plan
 
-> Taskbook: `docs/tasks/phase7-data-layer-d2.md`  
-> Design: `docs/superpowers/specs/2026-08-16-p7-d2-acquisition-execution-foundation-design.md`  
-> Current status: planning complete / implementation not authorized  
+> Taskbook: `docs/tasks/phase7-data-layer-d2.md`
+> Design: `docs/superpowers/specs/2026-08-16-p7-d2-acquisition-execution-foundation-design.md`
+> Current status: planning complete / implementation not authorized
 > Method: one milestone at a time, test-first, one Git commit per milestone
 
 ## Precondition

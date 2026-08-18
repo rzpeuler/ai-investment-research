@@ -1,8 +1,8 @@
 # P7-D2 Acquisition Execution Foundation — Design
 
-**Date:** 2026-08-16  
-**Status:** APPROVED DESIGN / IMPLEMENTATION NOT AUTHORIZED  
-**Parent baseline:** P7-D1 accepted implementation head `bc277817ee419410803f5541d74be75a330e9713`  
+**Date:** 2026-08-16
+**Status:** APPROVED DESIGN / IMPLEMENTATION NOT AUTHORIZED
+**Parent baseline:** P7-D1 accepted implementation head `bc277817ee419410803f5541d74be75a330e9713`
 **Scope:** execution foundation with injected fakes; every real source remains disabled
 
 ## 1. Context and authority
