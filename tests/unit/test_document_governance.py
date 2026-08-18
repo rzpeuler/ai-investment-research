@@ -777,7 +777,7 @@ def test_p7_d2_foundation_authorization_and_frozen_boundaries():
     assert policy == {
         "enabled": False,
         "allowed_actions": ["route_existing_sources"],
-        "production_collector_ids": [],
+        "production_collector_ids": ["nbs", "cninfo"],
     }
     assert len(list((ROOT / "schemas").glob("*.schema.json"))) == 86
 
@@ -813,7 +813,7 @@ def test_p7_d2_foundation_accepted_and_still_no_real_source_authority():
     assert policy == {
         "enabled": False,
         "allowed_actions": ["route_existing_sources"],
-        "production_collector_ids": [],
+        "production_collector_ids": ["nbs", "cninfo"],
     }
     assert len(list((ROOT / "schemas").glob("*.schema.json"))) == 86
     assert len(list((ROOT / "src/research_os/storage/migrations").glob("*.sql"))) == 6

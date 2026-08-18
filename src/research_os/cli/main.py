@@ -158,7 +158,15 @@ def run(ctx, task_id, scenario, entities, depth, as_of, force) -> None:
     callback=_validate_uuid,
     help="可选任务 UUID；不得与请求文件中的 task_id 冲突。",
 )
-def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str]) -> None:
+@click.option(
+    "--live-data",
+    is_flag=True,
+    default=False,
+    help="允许本次任务执行治理批准的真实数据采集（nbs/cninfo）。"
+         "与 --live（真实 LLM Provider）完全分离；缺省真实数据采集保持关闭。",
+)
+def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str],
+                     live_data: bool) -> None:
     """通过默认 Orchestrator 执行公共研究场景。"""
     if not request_file.is_file():
         _param_error(f"request-file 不是普通文件: {request_file}")
@@ -189,7 +197,7 @@ def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str]) 
             )
 
     root = _project_root()
-    orchestrator = Orchestrator(root)
+    orchestrator = Orchestrator(root, live_data=live_data)
     try:
         result = orchestrator.execute(scenario, payload)
     finally:

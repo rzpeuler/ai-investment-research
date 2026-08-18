@@ -14,7 +14,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 
-from research_os.data_layer.execution_policy import ExecutionPolicy
+from research_os.data_layer.execution_policy import (
+    ExecutionPolicy,
+    _APPROVED_PRODUCTION_COLLECTORS,
+)
 from research_os.models import (
     AcquisitionExecutionError,
     AcquisitionExecutionReason,
@@ -571,7 +574,7 @@ class AcquisitionExecutionService:
                 and type(actions) is tuple
                 and actions == _FOUNDATION_ACTIONS
                 and type(collectors) is tuple
-                and collectors == ()
+                and collectors == _APPROVED_PRODUCTION_COLLECTORS
             )
         except Exception:  # noqa: BLE001 -- arbitrary injected config must be total
             return False

@@ -1,0 +1,147 @@
+"""P7-D3 M4b：--live-data 信任边界与 gate 分离测试。
+
+覆盖任务书 §14-15、§42-43：
+- 默认（无 --live-data）不联网：disabled path，Router/Repository 永不触达；
+- --live-data 只注入真实 wiring，不打开 LLM provider；
+- --live-data + dry_run → 仍 NO NETWORK / NO PERSISTENCE（DRY_RUN_PROHIBITS_EXECUTION）；
+- 环境变量不得成为隐式 live-data 授权（代码中不存在 DATA_LIVE 等读取）；
+- 真实 wiring 下 enabled=false + capability 未 BUSINESS_SUFFICIENT → 正常执行 fail closed。
+全部离线。
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from research_os.data_layer.coordinator import AcquisitionCoordinator
+from research_os.data_layer.execution import AcquisitionExecutionService
+from research_os.orchestrator.orchestrator import Orchestrator
+from research_os.storage.db import Database
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def project(tmp_path) -> Path:
+    project = tmp_path / "project"
+    (project / "reports").mkdir(parents=True)
+    return project
+
+
+class TestDefaultGateOff:
+    def test_default_orchestrator_uses_disabled_path(self, project):
+        orch = Orchestrator(project)
+        coordinator = orch.acquisition_coordinator
+        assert isinstance(coordinator, AcquisitionCoordinator)
+        # disabled path：live gate 永久关闭
+        assert coordinator._live_authorized is False
+        orch.close()
+
+    def test_default_execution_never_reaches_router(self, project):
+        orch = Orchestrator(project)
+        coordinator = orch.acquisition_coordinator
+        execution: AcquisitionExecutionService = coordinator._execution
+        # disabled path 的 Router 是哨兵：任何触达都会 AssertionError
+        with pytest.raises(AssertionError, match="disabled production acquisition"):
+            execution._router.resolve_with_items("macro_data", {}, {})
+        orch.close()
+
+    def test_normal_scenario_run_no_network_no_persistence(self, project, monkeypatch):
+        # 普通执行（无 --live-data）：acquisition 保持 disabled，不产生网络/DB 副作用
+        import research_os.orchestrator.orchestrator as mod
+        created = []
+        monkeypatch.setattr(
+            mod, "Database", lambda *a, **k: _RecordingDatabase(created))
+        orch = Orchestrator(project)
+        orch.close()
+        # disabled path 不构造真实 Repository（不写 acquisition DB）
+        assert created == []
+
+
+class _RecordingDatabase(Database):
+    def __init__(self, created, *args, **kwargs):
+        created.append(True)
+        super().__init__(*args, **kwargs)
+
+
+class TestLiveDataWiring:
+    def test_live_data_injects_real_router_not_sentinel(self, project):
+        db = Database(project / "data" / "sqlite" / "research.db")
+        orch = Orchestrator(project, db=db, live_data=True)
+        coordinator = orch.acquisition_coordinator
+        assert coordinator._live_authorized is True
+        execution: AcquisitionExecutionService = coordinator._execution
+        from research_os.routing.router import Router
+        assert isinstance(execution._router, Router)
+        orch.close()
+
+    def test_live_data_still_fails_closed_on_capability_gate(self, project, tmp_path):
+        # 即使 --live-data：enabled=false 且 capability 未 BUSINESS_SUFFICIENT，
+        # 正常 execution 仍 fail closed，不联网（真实验收走独立 acceptance harness）。
+        db = Database(project / "data" / "sqlite" / "research.db")
+        orch = Orchestrator(project, db=db, live_data=True)
+        coordinator = orch.acquisition_coordinator
+        execution: AcquisitionExecutionService = coordinator._execution
+        from research_os.data_layer.execution import RouteExecutionInput
+
+        plan = {
+            "task_id": "11111111-1111-4111-8111-111111111111",
+            "scenario": "morning_brief",
+            "as_of": "2026-08-16T00:00:00+08:00",
+            "steps": [
+                {
+                    "step_id": "22222222-2222-4222-8222-222222222222",
+                    "requirement_id": "macro_data",
+                    "data_type": "macro_data",
+                    "action": "route_existing_sources",
+                    "dependencies": [],
+                    "status": "pending",
+                    "warnings": [],
+                }
+            ],
+            "warnings": [],
+        }
+        result = execution.execute(
+            plan=plan, task_id="11111111-1111-4111-8111-111111111111",
+            scenario="morning_brief",
+            as_of="2026-08-16T00:00:00+08:00", dry_run=False, live_authorized=True,
+            route_inputs={"macro_data": RouteExecutionInput(
+                query={}, time_window={"start": None, "end": "2026-08-16T00:00:00+08:00"})},
+        )
+        assert result.status == "not_executable"
+        assert result.steps[0].reason_codes[0] in (
+            "EXECUTION_DISABLED", "CAPABILITY_NOT_BUSINESS_SUFFICIENT",
+        )
+        orch.close()
+
+    def test_dry_run_with_live_data_no_network(self, project, monkeypatch):
+        import research_os.collectors.government.nbs as nbs_mod
+        calls = []
+        monkeypatch.setattr(nbs_mod.subprocess, "run", lambda *a, **k: calls.append(1))
+        db = Database(project / "data" / "sqlite" / "research.db")
+        orch = Orchestrator(project, db=db, live_data=True)
+        # dry_run 时 coordinate 返回 DRY_RUN_PROHIBITS_EXECUTION，不触达任何 collector
+        result = orch.execute("morning_brief", {
+            "task_id": "33333333-3333-4333-8333-333333333333",
+            "report_date": "2026-08-16",
+            "as_of": "2026-08-16T00:00:00+08:00",
+            "dry_run": True,
+        })
+        assert result.status in ("ok", "dry_run", "success") or result.exit_code == 0
+        assert calls == []
+        orch.close()
+
+
+class TestNoEnvVarAutoAuthorization:
+    def test_no_env_var_gate_in_orchestrator(self):
+        # 环境变量不得成为隐式 live-data 授权：orchestrator 源码不应读取 DATA_LIVE 等
+        src = (ROOT / "src" / "research_os" / "orchestrator" / "orchestrator.py").read_text(
+            encoding="utf-8")
+        for forbidden in ("DATA_LIVE", "AUTO_DATA", "CI_LIVE", "os.environ"):
+            assert forbidden not in src, f"orchestrator 不得读取环境变量 {forbidden}"
+
+    def test_no_env_var_gate_in_cli(self):
+        src = (ROOT / "src" / "research_os" / "cli" / "main.py").read_text(encoding="utf-8")
+        for forbidden in ("DATA_LIVE", "AUTO_DATA", "CI_LIVE"):
+            assert forbidden not in src, f"CLI 不得读取环境变量 {forbidden}"

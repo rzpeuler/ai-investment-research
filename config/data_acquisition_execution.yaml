@@ -1,4 +1,10 @@
+# P7-D3 生产执行策略（治理批准）。
+# - enabled 必须保持 false：默认真实采集关闭；只有显式 --live-data 授权才允许真实 Collector。
+# - production_collector_ids 是治理批准的 allowlist（P7-D3 恰好为 nbs、cninfo）。
+#   未知/未批准 source_id 由 ExecutionPolicyRegistry 校验拒绝（fail closed）。
 enabled: false
 allowed_actions:
   - route_existing_sources
-production_collector_ids: []
+production_collector_ids:
+  - nbs
+  - cninfo

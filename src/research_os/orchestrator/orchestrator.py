@@ -84,7 +84,8 @@ class Orchestrator:
     def __init__(self, project_root: str | Path, db: Optional[Database] = None,
                  registry: Optional[ScenarioRegistry] = None,
                  preflight: Optional[Any] = None,
-                 acquisition_coordinator: Optional[Any] = None):
+                 acquisition_coordinator: Optional[Any] = None,
+                 live_data: bool = False):
         self.project_root = Path(project_root)
         self.runs_root = self.project_root / "reports" / "runs"
         self._db = db
@@ -97,9 +98,12 @@ class Orchestrator:
             for runner_type in DEFAULT_RUNNER_TYPES:
                 self.registry.register(runner_type())
         self.preflight = preflight or self._default_preflight()
+        self._live_data = live_data
         if acquisition_coordinator is None:
             self._assert_acquisition_preflight_protocol(self.preflight)
-            acquisition_coordinator = self._default_acquisition_coordinator(self.preflight)
+            acquisition_coordinator = self._default_acquisition_coordinator(
+                self.preflight, db=self._db, live_data=self._live_data,
+            )
         self.acquisition_coordinator = acquisition_coordinator
 
     @staticmethod
@@ -119,8 +123,19 @@ class Orchestrator:
         return DataPreflightService(req_registry, cap_registry)
 
     @staticmethod
-    def _default_acquisition_coordinator(preflight: Any) -> Any:
-        """Build the production P7-D2 Foundation path with its live gate permanently closed."""
+    def _default_acquisition_coordinator(preflight: Any, *, db: Optional[Database] = None,
+                                         live_data: bool = False) -> Any:
+        """生产 acquisition wiring。
+
+        live_data=False（默认）：disabled path —— Router/Repository 永不触达，
+        live gate 永久关闭；normal 运行不联网、不写 acquisition 数据。
+
+        live_data=True（仅显式 --live-data）：真实治理批准采集路径 —— 注入
+        nbs/cninfo Collector、SourceQueryProjector、FieldProjector、existing Router
+        与真实 Repository。enabled/capability 门仍按 policy 与 capability registry
+        生效：capability 未达 BUSINESS_SUFFICIENT 前正常执行继续 fail closed
+        （真实联网验收走独立 Source Acceptance Harness，见 scripts/acceptance/）。
+        """
         from research_os.data_layer.coordinator import AcquisitionCoordinator
         from research_os.data_layer.execution import AcquisitionExecutionService
         from research_os.data_layer.execution_policy import ExecutionPolicyRegistry
@@ -136,16 +151,56 @@ class Orchestrator:
         policy = ExecutionPolicyRegistry(
             _REPO_ROOT / "config" / "data_acquisition_execution.yaml"
         ).load()
+
+        if not live_data:
+            execution = AcquisitionExecutionService(
+                policy=policy,
+                requirement_registry=preflight.requirement_registry,
+                capability_registry=preflight.capability_registry,
+                router=_DisabledRouter(),
+                repository=_DisabledRepository(),
+            )
+            # There is intentionally no CLI switch that flips this production value:
+            # 只有显式 --live-data 才走下方真实路径。
+            return AcquisitionCoordinator(
+                preflight=preflight, execution=execution, live_authorized=False,
+            )
+
+        # ---- P7-D3：显式 --live-data 真实采集路径 ----
+        from research_os.collectors.government.nbs import NbsCollector
+        from research_os.collectors.official.cninfo import CninfoCollector
+        from research_os.data_layer.acquisition_repository import AcquisitionRepository
+        from research_os.data_layer.collector_bridge import CollectorFetcherBridge
+        from research_os.data_layer.field_projector import FieldProjector
+        from research_os.data_layer.source_query_projector import (
+            SourceQueryProjector,
+            _default_security_resolver,
+        )
+        from research_os.routing.requirements import DataRequirementRegistry
+        from research_os.routing.router import Router
+        from research_os.utils.time import now_iso
+
+        if db is None:
+            raise AssertionError("--live-data acquisition requires a database")
+        bridge = CollectorFetcherBridge(
+            {"nbs": NbsCollector(), "cninfo": CninfoCollector()},
+            projector=SourceQueryProjector(
+                security_resolver=_default_security_resolver(db)),
+            field_projector=FieldProjector(),
+        )
+        router = Router(
+            DataRequirementRegistry(_REPO_ROOT / "registry" / "data_requirements.yaml"),
+            bridge.as_fetchers(),
+        )
         execution = AcquisitionExecutionService(
             policy=policy,
             requirement_registry=preflight.requirement_registry,
             capability_registry=preflight.capability_registry,
-            router=_DisabledRouter(),
-            repository=_DisabledRepository(),
+            router=router,
+            repository=AcquisitionRepository(db, clock=now_iso),
         )
-        # There is intentionally no constructor/CLI request switch for this production value.
         return AcquisitionCoordinator(
-            preflight=preflight, execution=execution, live_authorized=False,
+            preflight=preflight, execution=execution, live_authorized=True,
         )
 
     @staticmethod

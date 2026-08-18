@@ -22,7 +22,8 @@ def test_checked_in_foundation_policy_is_exact_and_disabled() -> None:
     policy = ExecutionPolicyRegistry(POLICY_PATH).load()
     assert policy.enabled is False
     assert policy.allowed_actions == ("route_existing_sources",)
-    assert policy.production_collector_ids == ()
+    # P7-D3：allowlist 恰好为治理批准的 [nbs, cninfo]（enabled 仍 false）
+    assert policy.production_collector_ids == ("nbs", "cninfo")
 
 
 @pytest.mark.parametrize(
@@ -76,12 +77,23 @@ def test_duplicate_collector_ids_are_rejected(tmp_path: Path) -> None:
         ExecutionPolicyRegistry(path).load()
 
 
-def test_nonempty_production_collectors_are_rejected_for_foundation(tmp_path: Path) -> None:
+def test_unapproved_production_collector_is_rejected(tmp_path: Path) -> None:
+    # 未治理批准的 source_id 不得进入 allowlist（fail closed）
     path = _write_policy(tmp_path, (
         "enabled: false\nallowed_actions: [route_existing_sources]\n"
         "production_collector_ids: [collector_a]\n"
     ))
-    with pytest.raises(ValueError, match="Foundation"):
+    with pytest.raises(ValueError, match="allowlist"):
+        ExecutionPolicyRegistry(path).load()
+
+
+def test_partial_allowlist_is_rejected(tmp_path: Path) -> None:
+    # 只批准部分来源也拒绝：本阶段 allowlist 必须恰好为治理批准的完整集合
+    path = _write_policy(tmp_path, (
+        "enabled: false\nallowed_actions: [route_existing_sources]\n"
+        "production_collector_ids: [nbs]\n"
+    ))
+    with pytest.raises(ValueError, match="allowlist"):
         ExecutionPolicyRegistry(path).load()
 
 

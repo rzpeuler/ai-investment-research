@@ -245,7 +245,7 @@ def _wired(
     db = Database(project / "data" / "sqlite" / "research.db")
     db.initialize()
     execution = AcquisitionExecutionService(
-        policy=ExecutionPolicy(True, ("route_existing_sources",), ()),
+        policy=ExecutionPolicy(True, ("route_existing_sources",), ("nbs", "cninfo")),
         requirement_registry=requirements,
         capability_registry=capabilities,
         router=router,
