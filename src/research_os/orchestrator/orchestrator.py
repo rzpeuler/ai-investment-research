@@ -230,7 +230,7 @@ class Orchestrator:
             capability_registry=preflight.capability_registry,
             router=router,
             repository=AcquisitionRepository(db, clock=now_iso),
-            derivation=self._default_derivation_executor(db),
+            derivation=Orchestrator._default_derivation_executor(db),
         )
         return AcquisitionCoordinator(
             preflight=preflight, execution=execution, live_authorized=True,
