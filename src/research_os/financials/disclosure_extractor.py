@@ -184,11 +184,15 @@ class FinancialStatementExtractor:
         # 1) 定位三表 section 边界（页序线性扫描，文本 authority）
         sections: List[Tuple[str, int, int]] = []  # (title, start_idx, end_idx)
         lines = [block.content_excerpt or "" for block in blocks]
+        markers: List[Tuple[str, int]] = []
         for i, line in enumerate(lines):
             for marker in _SECTION_CONSOLIDATED:
                 if _compact(marker) in _compact(line):
-                    sections.append((marker, i, len(lines)))
+                    markers.append((marker, i))
                     break
+        for idx, (marker, start) in enumerate(markers):
+            end = markers[idx + 1][1] if idx + 1 < len(markers) else len(lines)
+            sections.append((marker, start, end))
         if not sections:
             result.warnings.append("未找到合并三表 section 标题 → 无 accepted facts")
             return result
