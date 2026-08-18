@@ -197,7 +197,13 @@ def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str],
             )
 
     root = _project_root()
-    orchestrator = Orchestrator(root, live_data=live_data)
+    db = None
+    if live_data:
+        # --live-data 需要真实 Repository：显式构造项目 DB（仅显式授权时）
+        from research_os.storage.db import Database
+
+        db = Database(root / "data" / "sqlite" / "research.db")
+    orchestrator = Orchestrator(root, db=db, live_data=live_data)
     try:
         result = orchestrator.execute(scenario, payload)
     finally:

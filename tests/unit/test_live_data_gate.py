@@ -145,3 +145,40 @@ class TestNoEnvVarAutoAuthorization:
         src = (ROOT / "src" / "research_os" / "cli" / "main.py").read_text(encoding="utf-8")
         for forbidden in ("DATA_LIVE", "AUTO_DATA", "CI_LIVE"):
             assert forbidden not in src, f"CLI 不得读取环境变量 {forbidden}"
+
+
+class TestCliLiveDataFlag:
+    """CLI --live-data 端到端：不崩溃、dry-run 零副作用、与 --live 分离。"""
+
+    def test_cli_execute_live_data_dry_run_no_network(self, tmp_path):
+        import json
+
+        from click.testing import CliRunner
+
+        from research_os.cli.main import cli
+        from research_os.utils.time import now_iso
+
+        req = tmp_path / "req.json"
+        req.write_text(json.dumps({
+            "task_id": "55555555-5555-4555-8555-555555555555",
+            "report_date": "2026-08-18",
+            "as_of": "2026-08-18T00:00:00+08:00",
+            "dry_run": True,
+        }, ensure_ascii=False), encoding="utf-8")
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "execute", "--scenario", "morning_brief",
+            "--request-file", str(req), "--live-data",
+        ])
+        assert result.exit_code == 0, result.output
+        assert "dry-run" in result.output or "dry_run" in result.output
+
+    def test_cli_help_separates_live_data_from_live(self):
+        from click.testing import CliRunner
+
+        from research_os.cli.main import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["execute", "--help"])
+        assert "--live-data" in result.output
+        assert "真实数据采集" in result.output

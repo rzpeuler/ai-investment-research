@@ -170,7 +170,9 @@ class CninfoCollector(CollectorAdapter):
         refs: List[ItemRef] = []
         for ann in result.get("announcements") or []:
             title = ann.get("announcementTitle") or ""
-            if not title:
+            sec_name = ann.get("secName") or ""
+            if not title or not sec_name:
+                # 标题或公司主体缺失：跳过（禁止把平台名/空值当作公司主体）
                 continue
             ts_ms = ann.get("announcementTime")
             published = None
@@ -180,6 +182,9 @@ class CninfoCollector(CollectorAdapter):
                 from research_os.utils.time import to_iso
 
                 published = to_iso(_dt.fromtimestamp(ts_ms / 1000))
+            if published is None:
+                # 无法归因公告时间：跳过（不得伪造时间；PIT 必须有效）
+                continue
             url = BASE_URL + (ann.get("adjunctUrl") or "")
             refs.append(ItemRef(
                 source_id=self.source_id,
@@ -189,7 +194,7 @@ class CninfoCollector(CollectorAdapter):
                 published_at=published,
                 extra={
                     "secCode": ann.get("secCode"),
-                    "secName": ann.get("secName"),
+                    "secName": sec_name,
                     "adjunctType": ann.get("adjunctType"),
                     "announcementType": ann.get("announcementType"),
                 },
@@ -216,7 +221,7 @@ class CninfoCollector(CollectorAdapter):
             external_id=item_ref.external_id,
             url=item_ref.url,
             title=item_ref.title,
-            publisher=item_ref.extra.get("secName") or "巨潮资讯",
+            publisher=item_ref.extra.get("secName"),  # discover 已保证非空
             author=None,
             published_at=item_ref.published_at,
             content="",  # 不下载全文
@@ -236,7 +241,7 @@ class CninfoCollector(CollectorAdapter):
             title=raw_payload.title,
             publisher=raw_payload.publisher,
             author=raw_payload.author,
-            published_at=raw_payload.published_at or now_iso(),
+            published_at=raw_payload.published_at,  # discover 已保证非空；None → schema 校验 fail closed
             retrieved_at=raw_payload.retrieved_at or now_iso(),
             content_hash=content_sha256(f"{raw_payload.url}|{raw_payload.title}"),
             content_excerpt=excerpt,

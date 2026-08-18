@@ -99,6 +99,10 @@ class Orchestrator:
                 self.registry.register(runner_type())
         self.preflight = preflight or self._default_preflight()
         self._live_data = live_data
+        if self._live_data and self._db is None:
+            # 显式 live-data 授权需要真实 Repository：惰性初始化项目 DB
+            # （普通运行/无 --live-data 不产生任何 DB 副作用）
+            self._db = self.db
         if acquisition_coordinator is None:
             self._assert_acquisition_preflight_protocol(self.preflight)
             acquisition_coordinator = self._default_acquisition_coordinator(
