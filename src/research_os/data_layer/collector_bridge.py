@@ -23,12 +23,18 @@ class CollectorFetcherBridge:
     ``projector``（可选）为 SourceQueryProjector：fetcher 收到 canonical query 后，
     按 (source_id, data_type) 精确投影为 source-specific query 再交给 adapter。
     未注入 projector 时保持既有行为（canonical query 原样传递）。
+
+    ``field_projector``（可选）为 FieldProjector：normalize 后按
+    (source_id, data_type, raw_category) 精确投影 RawItem canonical 字段为
+    DataRequirement minimum-field evidence，并并入 fields_present。
     """
 
     def __init__(self, adapters: Mapping[str, CollectorAdapter],
-                 projector: Optional[Any] = None):
+                 projector: Optional[Any] = None,
+                 field_projector: Optional[Any] = None):
         self._adapters = MappingProxyType(dict(adapters))
         self._projector = projector
+        self._field_projector = field_projector
         self._fetchers = MappingProxyType({
             source_id: self._make_fetcher(source_id, adapter)
             for source_id, adapter in self._adapters.items()
@@ -60,7 +66,8 @@ class CollectorFetcherBridge:
                         time_window=time_window,
                     )
                 return CollectorFetcherBridge._run_attempt(
-                    source_id, adapter, projected, time_window
+                    source_id, adapter, data_type, projected, time_window,
+                    self._field_projector,
                 )
             except Exception:  # noqa: BLE001 -- Router 必须接收显式来源失败
                 raise CollectorBridgeError(
@@ -73,8 +80,10 @@ class CollectorFetcherBridge:
     def _run_attempt(
         source_id: str,
         adapter: CollectorAdapter,
+        data_type: str,
         query: Dict[str, Any],
         time_window: Dict[str, Optional[str]],
+        field_projector: Optional[Any] = None,
     ) -> Tuple[List[RawItem], FrozenSet[str]]:
         adapter_source_id = getattr(adapter, "source_id", None)
         if adapter_source_id != source_id:
@@ -105,14 +114,25 @@ class CollectorFetcherBridge:
         if not normalized_items:
             return [], frozenset()
 
-        # Foundation 只证明权威 RawItem 契约字段：不读取 ItemRef.extra，不做 data_type
-        # alias/source-specific projection。一个字段必须在每条返回记录中都有非空值。
+        # P7-D3：exact canonical field projection —— 把 RawItem canonical 字段投影为
+        # DataRequirement minimum-field evidence（如 published_at → publish_date、
+        # publisher → company），并入 fields_present 供 Router minimum-field 判定。
+        # 投影基于精确 (source_id, data_type, raw_category) 注册表，未知组合 fail closed。
         per_item_fields = []
         for item in normalized_items:
+            dump = item.model_dump()
             present = {
-                key for key, value in item.model_dump().items()
+                key for key, value in dump.items()
                 if CollectorFetcherBridge._has_authoritative_value(value)
             }
+            if field_projector is not None:
+                projection = field_projector.project(
+                    source_id=source_id,
+                    data_type=data_type,
+                    raw_category=item.raw_category,
+                    fields=dump,
+                )
+                present.update(projection.evidence)
             per_item_fields.append(present)
         fields_present = set.intersection(*per_item_fields)
         return normalized_items, frozenset(fields_present)

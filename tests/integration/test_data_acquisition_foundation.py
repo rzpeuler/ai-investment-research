@@ -214,7 +214,7 @@ def _wired(
     if empty:
         # An authoritative empty result can only be represented when the source adapter's
         # contract independently proves the response field shape.
-        fetchers = {"cls": lambda query, window: (
+        fetchers = {"cls": lambda data_type, query, window: (
             [], frozenset({"title", "published_at", "url"}),
         )}
     requirement_path = ROOT / "registry" / "data_requirements.yaml"
