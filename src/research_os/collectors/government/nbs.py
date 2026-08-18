@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -38,8 +39,20 @@ class NbsCollector(CollectorAdapter):
     source_id = "nbs"
     version = "1.0.0"
 
+    def _curl_executable(self) -> Optional[str]:
+        """跨平台解析 curl：优先 curl.exe（Windows），其次 curl（Unix）。
+
+        与 CninfoCollector 保持一致；找不到时返回 None（调用方 fail closed），
+        不抛异常、不猜测路径。
+        """
+        return shutil.which("curl.exe") or shutil.which("curl")
+
     def _get_page(self, url: str, timeout: float = 25.0) -> Optional[str]:
-        cmd = ["curl.exe", "-sS", "-L", "--max-time", str(int(timeout)),
+        exe = self._curl_executable()
+        if exe is None:
+            # curl 不可用：显式 fail closed，不产生任何 HTTP 请求
+            return None
+        cmd = [exe, "-sS", "-L", "--max-time", str(int(timeout)),
                "-A", "Mozilla/5.0", url]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
