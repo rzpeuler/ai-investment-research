@@ -2890,3 +2890,36 @@ ONLINE_ACCEPTANCE_REVIEW: NBS（inserted=7/reuse=7/PIT=0/recheck）与
 - 验收只授权合并与后续 D4 实施；不授权新增来源、Collector、付费接口、
   OCR、LLM 财务提取、Graph write、Phase 6.1、DB migration、新 Schema。
 - P7-D4 实施前须复核其 taskbook 前置门（P7-D3 = PASS / INDEPENDENTLY_ACCEPTED / MERGED）。
+
+## 53. P7-D4 CNINFO Official Filing → Core Financial Facts MVP 实施（2026-08-18）
+
+P7-D4 在 P7-D3 验收合并后的新 master（`921fe95`）上实施，分支
+`phase7/d4-cninfo-financial-extraction-mvp`；状态 **IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE**。
+
+### 53.1 实施范围与边界
+
+```text
+P7-D4_IMPLEMENTATION: DONE（待独立验收）
+SOURCE_SCOPE: cninfo only
+DATA_TYPES: company_document / financial_statement_data
+DOCUMENT_SCOPE: annual_report（consolidated / audited / CORE 9 码）
+NEW_SOURCE / NEW_COLLECTORS / PAID: 0
+OCR: NOT_AUTHORIZED；LLM_FINANCIAL_EXTRACTION: 0
+DOCUMENT_MATERIALIZATION: TransientDisclosureMaterializer（方案 B；PDF 不永久保存）
+DERIVE_EXISTING: 首次正式实现（financial_statement_data ← company_document）
+FINANCIAL_EXTRACTION: FinancialStatementExtractor（deterministic，exact taxonomy，
+  current-period 列标题 + 恒等式校验；fuzzy 不自动接受）
+SCHEMA: 86（acquisition_execution_result 增 produced/reused refs + 7 reason codes，backward-compatible）
+DB: v6；MIGRATIONS: NONE
+CAPABILITY: company_document / financial_statement_data = WORKFLOW_WIRED
+  （deterministic_derivation 保守 false）
+GRAPH_WRITE: NONE；PHASE6.1: NOT_AUTHORIZED
+```
+
+### 53.2 边界与授权
+
+- D4 实施不自动等于独立验收 PASS；不得声明 PASS / CLOSED / operational / real-source ready。
+- BUSINESS_SUFFICIENT（company_document）与 deterministic_derivation=true
+  （financial_statement_data）只在独立在线验收通过后由治理 closeout 单独批准。
+- 在线验收（600519/300750 + 人工 5 科目 100% 一致）由独立验收者以 --live-data 执行；
+  任一自动财务数字与官方原件不一致 → FINANCIAL AUTO EXTRACTION FAIL，不得晋级。

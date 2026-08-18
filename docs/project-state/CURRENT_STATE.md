@@ -7,6 +7,7 @@
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
 > P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
+> P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（2026-08-18；company_document → derive_existing → 核心 FinancialFact；在线验收待执行）
 > 权威规范：`docs/engineering-guide.md` V1.7
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -57,6 +58,7 @@
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 | P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
 | P7-D3 Free-Source Production MVP | PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`）| nbs/cninfo 真实在线验收；allowlist [nbs, cninfo]；默认网络关闭；capability WORKFLOW_WIRED；独立验收 Decision #52，已合并进 master。 |
+| P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE | 2026-08-18 实施完成；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6；在线验收待执行。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -295,3 +297,24 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   治理 closeout 单独晋级（NBS/CNINFO 分开）。
 - 验收 artifact（本地，reports/ gitignored）：`reports/acceptance/nbs_online_acceptance.md`、
   `reports/acceptance/cninfo_online_acceptance.md`。
+
+## P7-D4 当前状态（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE，2026-08-18）
+
+- `P7-D4: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`（taskbook
+  `docs/tasks/phase7-data-layer-d4.md`）。CNINFO 官方年报 → 核心 FinancialFact 生产链路已实现：
+  - `TransientDisclosureMaterializer`（方案 B）：CNINFO 年报 transient PDF 下载（严格校验：
+    magic header/Content-Type/HTML 拒绝/zero-byte/checksum）→ DocumentRecord/Block/Evidence
+    幂等持久化（UUID5）；不永久保存完整 PDF；pypdf 转正式依赖。
+  - `derive_existing` 首次正式实现：`DerivationPrerequisiteResolver`（§19 的 11 项证明，
+    ZERO NETWORK）+ `FinancialDerivationService` + `FinancialDerivationExecutor`；
+    plan dependencies 生成与 execution 强制（前置未 completed → DERIVATION_PREREQUISITE_MISSING）。
+  - `FinancialStatementExtractor`：确定性三表提取（CORE 9 码/consolidated/exact taxonomy/
+    current-period 列标题 authority + 恒等式校验/Decimal）；fuzzy 不自动接受；不确定即 reject。
+  - Schema 契约演化（backward-compatible）：produced_record_refs / reused_record_refs +
+    7 个 D4 reason codes；SCHEMA_COUNT 保持 86；DB v6 / migration NONE。
+  - capability：company_document / financial_statement_data → WORKFLOW_WIRED
+    （deterministic_derivation 保守 false；独立在线验收后 closeout 才允许 true）。
+- 离线验证：extractor/materializer/prerequisite/derive/pipeline 测试全绿；完整 pytest
+  待最终记录。在线验收（600519/300750 + 人工数字抽查）待独立验收者以 --live-data 执行。
+- 独立验收通过前不声明 PASS / CLOSED / operational / real-source ready；
+  BUSINESS_SUFFICIENT / deterministic_derivation=true 仅在独立在线验收后由治理 closeout 批准。
