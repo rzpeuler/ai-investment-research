@@ -223,3 +223,21 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   6 skipped / 0 failed / 1 warning，417.14s；86/86 schemas；compile success），但离线
   Fake 证明不能替代真实来源验证。前一 run `31943822195` 仅暴露 fresh-process
   source-path portability，已由 `831afe4` 修复。
+
+## 19. P7-D3 Free-Source Production MVP 限制（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE 2026-08-18）
+
+- `P7-D3: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`（head `23686f2`）。nbs/cninfo
+  真实在线验收已执行（NBS inserted=7/幂等 reuse=7；CNINFO 沪市 inserted=6/幂等 reuse=6、
+  深市验收窗口 6 条真实公告），但独立验收通过前不声明 PASS / operational / real-source ready。
+- 默认真实采集关闭（enabled: false）；production allowlist 恰好 [nbs, cninfo]（未批准 ID
+  fail closed）；只有显式 `--live-data` 才注入真实采集，与 `--live`/LLM 分离。
+- capability：macro_data / company_announcement = WORKFLOW_WIRED；BUSINESS_SUFFICIENT
+  仅在独立在线验收通过后由治理 closeout 单独晋级（NBS 与 CNINFO 分开，不得打包）。
+- CNINFO subject scope（earnings_expectation）readiness 关联需要 RawItem 携带 subject
+  entity，当前 RawItem 未携带（不修改 RawItem Schema），readiness 保持 MISSING/PARTIAL
+  为合法状态；subject 关联属后续阶段。
+- CNINFO 深市近 5 日窗口真实无公告时 execution 链 EMPTY（合法，禁止解释为“无公告”）；
+  真实数据证明使用验收窗口。
+- 仍不具备：自动完整财务报表、自动历史日线、分钟/完整实时行情、行业成分完整覆盖、
+  同行财务自动覆盖、机构研报自动采集、深度新闻/社区数据、通用 PDF 表格解析、OCR、
+  付费数据接入治理、Graph write、Phase 6.1。
