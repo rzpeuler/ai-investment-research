@@ -148,7 +148,11 @@ class Orchestrator:
             scenario_requirements=req_registry,
             repo_root=_REPO_ROOT,
         )
-        return DataPreflightService(req_registry, cap_registry)
+        return DataPreflightService(
+            req_registry, cap_registry,
+            # P7-D4 §22：financial_statement_data 依赖 company_document
+            derivation_prerequisites={"financial_statement_data": "company_document"},
+        )
 
     @staticmethod
     def _default_acquisition_coordinator(preflight: Any, *, db: Optional[Database] = None,
@@ -226,9 +230,25 @@ class Orchestrator:
             capability_registry=preflight.capability_registry,
             router=router,
             repository=AcquisitionRepository(db, clock=now_iso),
+            derivation=self._default_derivation_executor(db),
         )
         return AcquisitionCoordinator(
             preflight=preflight, execution=execution, live_authorized=True,
+        )
+
+    @staticmethod
+    def _default_derivation_executor(db: Any) -> Any:
+        """P7-D4：derive_existing（financial_statement_data ← company_document）执行器。"""
+        from research_os.data_layer.derivation import (
+            DerivationPrerequisiteResolver,
+            FinancialDerivationExecutor,
+            FinancialDerivationService,
+        )
+
+        return FinancialDerivationExecutor(
+            db,
+            resolver=DerivationPrerequisiteResolver(db),
+            service=FinancialDerivationService(db),
         )
 
     @staticmethod

@@ -14,7 +14,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from research_os.data_layer.bindings import RequirementReadinessBindingResolver
 from research_os.data_layer.capabilities import AcquisitionCapabilityRegistry
@@ -62,6 +62,7 @@ class DataPreflightService:
         requirement_registry: ScenarioDataRequirementRegistry,
         capability_registry: AcquisitionCapabilityRegistry,
         checker_registry: Optional[ReadinessCheckerRegistry] = None,
+        derivation_prerequisites: Optional[Mapping[str, str]] = None,
     ):
         self._requirements = requirement_registry
         self._capabilities = capability_registry
@@ -69,7 +70,9 @@ class DataPreflightService:
         self._resolver = RequirementContextResolver()
         self._readiness = DataReadinessService(self._checkers)
         self._gaps = GapClassifier(capability_registry)
-        self._planner = AcquisitionPlanner()
+        # P7-D4 §22：derive 步骤依赖（financial_statement_data ← company_document）
+        self._planner = AcquisitionPlanner(
+            derivation_prerequisites=dict(derivation_prerequisites or {}))
         self._request_adapter = NormalizedRequestContextAdapter()
         # R3-01：Binding Resolver 基于同一个 RequirementRegistry 构造（不得加载第二份 authority）
         self._bindings = RequirementReadinessBindingResolver(requirement_registry)

@@ -73,6 +73,9 @@ AcquisitionExecutionReason = Literal[
     "DATA_TYPE_MISMATCH", "CAPABILITY_NOT_BUSINESS_SUFFICIENT", "ROUTE_UNAVAILABLE",
     "FETCH_FAILED", "NORMALIZATION_FAILED", "RAW_ITEM_SCHEMA_INVALID",
     "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
+    "DOCUMENT_DOWNLOAD_FAILED", "DOCUMENT_TYPE_INVALID", "DOCUMENT_PARSE_FAILED",
+    "DOCUMENT_NATIVE_TEXT_UNAVAILABLE", "DERIVATION_PREREQUISITE_MISSING",
+    "DERIVATION_FAILED", "DERIVED_RECORD_SCHEMA_INVALID",
     "CONTROL_PLANE_CONFIGURATION_ERROR",
 ]
 
@@ -200,6 +203,9 @@ class AcquisitionExecutionStepResult(StrictModel):
     inserted_count: StrictInt = Field(..., ge=0)
     reused_count: StrictInt = Field(..., ge=0)
     rejected_future_item_count: StrictInt = Field(..., ge=0)
+    # P7-D4 §25：derive_existing 审计字段（backward-compatible optional）
+    produced_record_refs: List[NonEmptyStrictText] = Field(default_factory=list)
+    reused_record_refs: List[NonEmptyStrictText] = Field(default_factory=list)
     warnings: List[StrictText] = Field(..., strict=True)
     errors: List[AcquisitionExecutionError] = Field(..., strict=True)
 

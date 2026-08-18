@@ -9,7 +9,7 @@ Planner 输出后即停止——不执行 AcquisitionPlan（执行属于 P7-D2�
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import List, Mapping, Optional
 
 from research_os.data_layer.gaps import _RECOMMENDED_ACTION
 from research_os.models import AcquisitionPlan, AcquisitionStep, DataGap
@@ -36,7 +36,15 @@ def _deterministic_step_id(task_id: str, requirement_id: str, action: str) -> st
 
 
 class AcquisitionPlanner:
-    """确定性 Acquisition 计划器。"""
+    """确定性 Acquisition 计划器。
+
+    derivation_prerequisites：data_type → prerequisite data_type（如
+    {financial_statement_data: company_document}）；当两个 requirement 都有 step 时，
+    derive step 的 dependencies 指向 prereq step_id（taskbook P7-D4 §22）。
+    """
+
+    def __init__(self, derivation_prerequisites: Mapping[str, str] | None = None):
+        self._derivation_prerequisites = dict(derivation_prerequisites or {})
 
     def plan(
         self,
@@ -50,6 +58,7 @@ class AcquisitionPlanner:
         gap_by_req = {g.requirement_id: g for g in gaps}
         steps: List[AcquisitionStep] = []
         warnings: List[str] = []
+        step_by_req: dict[str, AcquisitionStep] = {}
         for requirement_id in requirement_order:
             gap = gap_by_req.get(requirement_id)
             if gap is None:
@@ -57,15 +66,26 @@ class AcquisitionPlanner:
             action = _STEP_ACTION[gap.classification]
             if action is None:
                 continue  # AVAILABLE → no step
-            steps.append(AcquisitionStep(
+            dependencies: List[str] = []
+            if action == "derive_existing":
+                prereq_data_type = self._derivation_prerequisites.get(gap.data_type)
+                if prereq_data_type is not None:
+                    prereq_step = step_by_req.get(
+                        self._requirement_id_for(requirement_order, gap_by_req,
+                                                 prereq_data_type))
+                    if prereq_step is not None:
+                        dependencies = [prereq_step.step_id]
+            step = AcquisitionStep(
                 step_id=_deterministic_step_id(task_id, requirement_id, action),
                 requirement_id=requirement_id,
                 data_type=gap.data_type,
                 action=action,
-                dependencies=[],
+                dependencies=dependencies,
                 status="pending",
                 warnings=list(gap.warnings),
-            ))
+            )
+            steps.append(step)
+            step_by_req[requirement_id] = step
             if action == "unavailable":
                 warnings.append(f"{requirement_id}: UNAVAILABLE")
         return AcquisitionPlan(
@@ -75,3 +95,13 @@ class AcquisitionPlanner:
             steps=steps,
             warnings=warnings,
         )
+
+    @staticmethod
+    def _requirement_id_for(
+        requirement_order: List[str], gap_by_req: dict, data_type: str
+    ) -> Optional[str]:
+        for rid in requirement_order:
+            gap = gap_by_req.get(rid)
+            if gap is not None and gap.data_type == data_type:
+                return rid
+        return None
