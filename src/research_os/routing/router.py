@@ -19,8 +19,8 @@ from research_os.models import DataRoute
 from research_os.routing.requirements import DataRequirementRegistry
 from research_os.validators.schema_validator import validate_instance
 
-# fetcher: (query, time_window) -> (items: list, fields_present: set[str])
-FetchCallable = Callable[[Dict[str, Any], Dict[str, Optional[str]]],
+# fetcher: (data_type, query, time_window) -> (items: list, fields_present: set[str])
+FetchCallable = Callable[[str, Dict[str, Any], Dict[str, Optional[str]]],
                          Tuple[List[Any], AbstractSet[str]]]
 
 
@@ -91,7 +91,7 @@ class Router:
                 warnings.append(f"{source_id} 无可用获取器")
                 continue
             try:
-                items, fields_present = fetcher(query, time_window)
+                items, fields_present = fetcher(data_type, query, time_window)
             except Exception as exc:  # noqa: BLE001 —— 失败显式记录并尝试下一个
                 last_error = str(exc)
                 warnings.append(f"{source_id} 获取失败: {exc}")
@@ -112,7 +112,7 @@ class Router:
                     warnings.append(f"{fb_id} 无可用兜底获取器")
                     continue
                 try:
-                    items, fields_present = fetcher(query, time_window)
+                    items, fields_present = fetcher(data_type, query, time_window)
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"{fb_id} 兜底失败: {exc}")
                     continue

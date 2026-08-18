@@ -31,7 +31,7 @@ def requirements(tmp_path):
 
 
 def _fetcher(items, fields, exc=None):
-    def f(query, time_window):
+    def f(data_type, query, time_window):
         if exc:
             raise exc
         return items, set(fields)

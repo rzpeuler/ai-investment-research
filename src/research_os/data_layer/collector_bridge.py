@@ -18,10 +18,17 @@ class CollectorBridgeError(RuntimeError):
 
 
 class CollectorFetcherBridge:
-    """把显式注入的 ``source_id -> CollectorAdapter`` 变为 fetcher map。"""
+    """把显式注入的 ``source_id -> CollectorAdapter`` 变为 fetcher map。
 
-    def __init__(self, adapters: Mapping[str, CollectorAdapter]):
+    ``projector``（可选）为 SourceQueryProjector：fetcher 收到 canonical query 后，
+    按 (source_id, data_type) 精确投影为 source-specific query 再交给 adapter。
+    未注入 projector 时保持既有行为（canonical query 原样传递）。
+    """
+
+    def __init__(self, adapters: Mapping[str, CollectorAdapter],
+                 projector: Optional[Any] = None):
         self._adapters = MappingProxyType(dict(adapters))
+        self._projector = projector
         self._fetchers = MappingProxyType({
             source_id: self._make_fetcher(source_id, adapter)
             for source_id, adapter in self._adapters.items()
@@ -36,15 +43,24 @@ class CollectorFetcherBridge:
         """返回普通 dict，便于需要可变字典类型的旧调用方注入。"""
         return dict(self._fetchers)
 
-    @staticmethod
-    def _make_fetcher(source_id: str, adapter: CollectorAdapter) -> FetchCallable:
+    def _make_fetcher(self, source_id: str,
+                      adapter: CollectorAdapter) -> FetchCallable:
         def fetcher(
+            data_type: str,
             query: Dict[str, Any],
             time_window: Dict[str, Optional[str]],
         ) -> Tuple[List[RawItem], FrozenSet[str]]:
             try:
+                projected = query
+                if self._projector is not None:
+                    projected = self._projector.project(
+                        source_id=source_id,
+                        data_type=data_type,
+                        canonical_query=query,
+                        time_window=time_window,
+                    )
                 return CollectorFetcherBridge._run_attempt(
-                    source_id, adapter, query, time_window
+                    source_id, adapter, projected, time_window
                 )
             except Exception:  # noqa: BLE001 -- Router 必须接收显式来源失败
                 raise CollectorBridgeError(

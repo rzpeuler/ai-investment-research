@@ -21,14 +21,14 @@ def _ok_fetcher(items=None, fields=None):
     items = items if items is not None else [{"id": 1}]
     fields = fields if fields is not None else {"title", "published_at", "url"}
 
-    def fetcher(query, time_window):
+    def fetcher(data_type, query, time_window):
         return items, fields
 
     return fetcher
 
 
 def _fail_fetcher():
-    def fetcher(query, time_window):
+    def fetcher(data_type, query, time_window):
         raise RuntimeError("boom")
 
     return fetcher

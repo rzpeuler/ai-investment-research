@@ -86,7 +86,7 @@ def test_router_never_selects_sina_for_daily(requirements):
     # 即使强行注册 sina fetcher，Router 也不得调用它
     called = []
 
-    def sina_fetcher(query, tw):
+    def sina_fetcher(data_type, query, tw):
         called.append(1)
         return [], set()
 
@@ -108,7 +108,7 @@ def test_daily_no_auto_source_insufficient(requirements):
 def test_daily_manual_import_fallback(requirements):
     """Manual Import 提供合法日线时可作 fallback（degraded）。"""
     router = Router(requirements, {}, fallback_fetchers={
-        "manual_import": lambda q, tw: (
+        "manual_import": lambda data_type, q, tw: (
             [{"bar_id": UUID, "symbol": "sh600519", "trade_date": "2026-08-05",
               "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}],
             {"trade_date", "open", "high", "low", "close", "volume"},
@@ -123,7 +123,7 @@ def test_daily_manual_import_fallback(requirements):
 def test_realtime_route_uses_sina(requirements):
     """实时快照路由使用 sina_quote。"""
     router = Router(requirements, {
-        "sina_quote": lambda q, tw: ([{}], {"symbol", "observed_at", "open", "high",
+        "sina_quote": lambda data_type, q, tw: ([{}], {"symbol", "observed_at", "open", "high",
                                             "low", "last_price", "volume"}),
     })
     route = router.resolve("market_realtime_snapshot")
