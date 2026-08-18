@@ -160,9 +160,9 @@ Migrations: 6 / NONE added；Schemas: 86。
 该状态不是 PASS / CLOSED / operational / real-source ready，不授权任何具体真实来源或
 Phase 6.1；下一步仅为独立验收。
 
-## P7-D3：Free-Source Production MVP（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE 2026-08-18）
+## P7-D3：Free-Source Production MVP（PASS / INDEPENDENTLY ACCEPTED 2026-08-18，Decision #52）
 
-`P7-D3: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`（implementation head `23686f2`）。
+`P7-D3: PASS / INDEPENDENTLY ACCEPTED`（accepted head `e8a4a9f`；已合并进 master）。
 第一批真实免费来源生产闭环（nbs → macro_data、cninfo → company_announcement）：
 
 - `SourceQueryProjector`：canonical 查询 → 来源查询精确投影（未知组合 fail closed）。

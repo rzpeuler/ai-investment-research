@@ -224,11 +224,11 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   Fake 证明不能替代真实来源验证。前一 run `31943822195` 仅暴露 fresh-process
   source-path portability，已由 `831afe4` 修复。
 
-## 19. P7-D3 Free-Source Production MVP 限制（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE 2026-08-18）
+## 19. P7-D3 Free-Source Production MVP 限制（PASS / INDEPENDENTLY ACCEPTED 2026-08-18，Decision #52）
 
-- `P7-D3: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`（head `23686f2`）。nbs/cninfo
-  真实在线验收已执行（NBS inserted=7/幂等 reuse=7；CNINFO 沪市 inserted=6/幂等 reuse=6、
-  深市验收窗口 6 条真实公告），但独立验收通过前不声明 PASS / operational / real-source ready。
+- `P7-D3: PASS / INDEPENDENTLY ACCEPTED`（accepted head `e8a4a9f`，已合并进 master）。
+  nbs/cninfo 真实在线验收通过（NBS inserted=7/幂等 reuse=7；CNINFO 沪市 inserted=6/幂等
+  reuse=6、深市验收窗口 6 条真实公告）；验收 PASS 不自动授权 capability 晋级或来源扩展。
 - 默认真实采集关闭（enabled: false）；production allowlist 恰好 [nbs, cninfo]（未批准 ID
   fail closed）；只有显式 `--live-data` 才注入真实采集，与 `--live`/LLM 分离。
 - capability：macro_data / company_announcement = WORKFLOW_WIRED；BUSINESS_SUFFICIENT
