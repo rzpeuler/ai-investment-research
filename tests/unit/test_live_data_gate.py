@@ -208,13 +208,17 @@ class TestDryRunNoPersistence:
         assert result.status == "planned"
         assert result.exit_code == 0
         assert calls == []
-        assert not db_path.exists(), "dry-run 结束不得创建 SQLite 文件"
+        assert not db_path.exists(), "dry-run 执行结束不得创建 SQLite 文件"
         orch.close()
+        # close()（CLI finally 路径）也不得触发惰性落盘
+        assert not db_path.exists(), "dry-run close() 后不得创建 SQLite 文件"
 
     def test_non_dry_run_initializes_db_when_needed(self, project):
         # 非 dry-run + live_data：execute 需要 DB 时才初始化（幂等）
         orch = Orchestrator(project, live_data=True)
-        db = orch.db  # execute 路径的同一 ensure 逻辑
+        orch.db  # execute 路径的同一 ensure 逻辑
         assert (project / "data" / "sqlite" / "research.db").exists()
-        assert db is orch._db
+        assert orch._db._db is not None  # 惰性代理已构造真实 Database（而非恒真身份断言）
+        from research_os.storage.db import Database
+        assert isinstance(orch._db._db, Database)
         orch.close()

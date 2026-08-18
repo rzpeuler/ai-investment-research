@@ -90,6 +90,11 @@ class _LazyDatabase:
         self._db = None
 
     def __getattr__(self, name):
+        if name == "close":
+            # 未初始化时 close() 不得触发 factory（否则 dry-run 收尾仍会落盘）。
+            # 真实 Database 的 close 由 __getattr__ 委托（_db 已构造时）。
+            if self._db is None:
+                return lambda: None
         if self._db is None:
             self._db = self._factory()
         return getattr(self._db, name)
@@ -244,7 +249,12 @@ class Orchestrator:
         """仅真实执行时初始化数据库（幂等）；dry-run 不触发控制面副作用。"""
         if self._db is None:
             self._db = Database(self.project_root / "data" / "sqlite" / "research.db")
-        self._db.initialize()
+        if isinstance(self._db, _LazyDatabase):
+            if self._db._db is None:
+                # 首次访问惰性代理：构造 + 初始化（此后委托真 db，不再重复初始化）
+                self._db.initialize()
+        else:
+            self._db.initialize()
         return self._db
 
     # ---------- 失败状态持久化 ----------
