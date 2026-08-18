@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 
-from research_os.data_layer.execution_policy import (
-    ExecutionPolicy,
+from research_os.data_layer.execution_policy import (    ExecutionPolicy,
     _APPROVED_PRODUCTION_COLLECTORS,
 )
 from research_os.models import (
@@ -34,6 +33,19 @@ from research_os.validators.schema_validator import validate_instance
 
 _EXECUTION_NAMESPACE = uuid.UUID("20509024-d8a9-5a6d-82f1-bb2266fd66b7")
 _FOUNDATION_ACTIONS = ("route_existing_sources",)
+
+
+@dataclass
+class DerivationStepOutcome:
+    """derive_existing 步骤的可审计结果（execution 内部协议）。"""
+
+    status: str
+    reason_codes: Sequence[str]
+    produced_record_refs: Sequence[str] = ()
+    reused_record_refs: Sequence[str] = ()
+    warnings: Sequence[str] = ()
+    errors: Sequence[Any] = ()
+
 _SCENARIOS = {
     "morning_brief", "evening_brief", "daily_review",
     "abnormal_move_analysis", "stock_research_report", "first_coverage",
@@ -50,6 +62,9 @@ _REASON_CODES = {
     "DATA_TYPE_MISMATCH", "CAPABILITY_NOT_BUSINESS_SUFFICIENT", "ROUTE_UNAVAILABLE",
     "FETCH_FAILED", "NORMALIZATION_FAILED", "RAW_ITEM_SCHEMA_INVALID",
     "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
+    "DOCUMENT_DOWNLOAD_FAILED", "DOCUMENT_TYPE_INVALID", "DOCUMENT_PARSE_FAILED",
+    "DOCUMENT_NATIVE_TEXT_UNAVAILABLE", "DERIVATION_PREREQUISITE_MISSING",
+    "DERIVATION_FAILED", "DERIVED_RECORD_SCHEMA_INVALID",
     "CONTROL_PLANE_CONFIGURATION_ERROR",
 }
 _REPOSITORY_OWNED_REASONS = {
@@ -179,6 +194,7 @@ class AcquisitionExecutionService:
         capability_registry: _CapabilityRegistry,
         router: _Router,
         repository: _WriteRepository,
+        derivation: Any | None = None,
         clock: Callable[[], str] = now_iso,
     ) -> None:
         self._policy = policy
@@ -186,6 +202,8 @@ class AcquisitionExecutionService:
         self._capabilities = capability_registry
         self._router = router
         self._repository = repository
+        # P7-D4：derive_existing 执行器（None → derive 步骤 fail closed）
+        self._derivation = derivation
         self._clock = clock
 
     def execute(
@@ -314,9 +332,16 @@ class AcquisitionExecutionService:
             rejected_results = []
             for step, rejection in zip(checked_plan.steps, preflight):
                 if step.action != "route_existing_sources":
-                    rejected_results.append(self._step(
-                        step, "skipped", ("ACTION_SKIPPED",),
-                    ))
+                    if step.dependencies:
+                        # P7-D4 §23：依赖的 route 步骤被拒 → derive 不得执行
+                        rejected_results.append(self._step(
+                            step, "not_executable",
+                            ("DERIVATION_PREREQUISITE_MISSING",),
+                        ))
+                    else:
+                        rejected_results.append(self._step(
+                            step, "skipped", ("ACTION_SKIPPED",),
+                        ))
                 else:
                     rejected_results.append(self._step(
                         step, "not_executable",
@@ -329,11 +354,29 @@ class AcquisitionExecutionService:
                 readiness_ids=requirement_ids,
             )
 
-        step_results = [
-            self._execute_step(step, task_id=task_id, scenario=scenario, as_of=as_of,
-                               route_input=inputs.get(step.requirement_id))
-            for step in checked_plan.steps
-        ]
+        step_results = []
+        completed_step_ids: set[str] = set()
+        for step in checked_plan.steps:
+            # P7-D4 §23：dependencies 强制 —— 前置 step 未 completed → 本 step 不得执行
+            if step.dependencies and not all(
+                dep in completed_step_ids for dep in step.dependencies
+            ):
+                step_results.append(self._step(
+                    step, "not_executable",
+                    ("DERIVATION_PREREQUISITE_MISSING",),
+                    errors=(self._error(
+                        "DERIVATION_PREREQUISITE_MISSING",
+                        "dependency step not completed", "execution",
+                    ),),
+                ))
+                continue
+            step_result = self._execute_step(
+                step, task_id=task_id, scenario=scenario, as_of=as_of,
+                route_input=inputs.get(step.requirement_id),
+            )
+            step_results.append(step_result)
+            if step_result.status == "completed":
+                completed_step_ids.add(step.step_id)
         return self._result(
             execution_id=execution_id, task_id=task_id, scenario=scenario,
             as_of=audit_as_of,
@@ -351,6 +394,9 @@ class AcquisitionExecutionService:
         as_of: str,
         route_input: RouteExecutionInput | None,
     ) -> AcquisitionExecutionStepResult:
+        if step.action == "derive_existing":
+            return self._execute_derive_step(
+                step, task_id=task_id, as_of=as_of, route_input=route_input)
         if step.action != "route_existing_sources":
             return self._step(step, "skipped", ("ACTION_SKIPPED",))
         # All route steps were validated as one unit before this method was entered.
@@ -439,6 +485,46 @@ class AcquisitionExecutionService:
                 persisted=persisted,
             )
         return self._step(step, "completed", (), route=route, persisted=persisted)
+
+    def _execute_derive_step(
+        self,
+        step: AcquisitionStep,
+        *,
+        task_id: str,
+        as_of: str,
+        route_input: RouteExecutionInput | None,
+    ) -> AcquisitionExecutionStepResult:
+        """P7-D4 §18/§24：derive_existing 执行（ZERO NETWORK；注入 executor 或 fail closed）。"""
+        if self._derivation is None:
+            return self._step(
+                step, "not_executable", ("DERIVATION_FAILED",),
+                errors=(self._error(
+                    "DERIVATION_FAILED", "derive executor not wired", "execution",
+                ),),
+            )
+        try:
+            outcome = self._derivation.execute(
+                step=step, route_input=route_input, task_id=task_id, as_of=as_of,
+            )
+        except Exception:  # noqa: BLE001 -- never echo arbitrary exception content
+            return self._step(
+                step, "failed", ("DERIVATION_FAILED",),
+                errors=(self._error("DERIVATION_FAILED", "derivation failed", "derivation"),),
+            )
+        if not isinstance(outcome, DerivationStepOutcome):
+            return self._step(
+                step, "failed", ("DERIVATION_FAILED",),
+                errors=(self._error(
+                    "DERIVATION_FAILED", "invalid derivation outcome", "derivation",
+                ),),
+            )
+        return self._step(
+            step, outcome.status, tuple(outcome.reason_codes),
+            produced_refs=outcome.produced_record_refs,
+            reused_refs=outcome.reused_record_refs,
+            warnings=outcome.warnings,
+            errors=tuple(outcome.errors),
+        )
 
     def _global_rejection(
         self,
@@ -541,6 +627,9 @@ class AcquisitionExecutionService:
         route: DataRoute | None = None,
         persisted: AcquisitionPersistenceResult | None = None,
         errors: Sequence[AcquisitionExecutionError] = (),
+        produced_refs: Sequence[str] = (),
+        reused_refs: Sequence[str] = (),
+        warnings: Sequence[str] = (),
     ) -> AcquisitionExecutionStepResult:
         persisted = persisted or AcquisitionPersistenceResult((), ())
         return AcquisitionExecutionStepResult(
@@ -552,9 +641,16 @@ class AcquisitionExecutionService:
             inserted_count=len(persisted.inserted_raw_item_ids),
             reused_count=len(persisted.reused_raw_item_ids),
             rejected_future_item_count=persisted.rejected_future_item_count,
+            produced_record_refs=[
+                _sanitize_warning(item) for item in produced_refs
+            ],
+            reused_record_refs=[
+                _sanitize_warning(item) for item in reused_refs
+            ],
             warnings=(
                 [_sanitize_warning(item) for item in step.warnings]
                 + [_sanitize_warning(item) for item in persisted.warnings]
+                + [_sanitize_warning(item) for item in warnings]
             ),
             errors=list(errors),
         )

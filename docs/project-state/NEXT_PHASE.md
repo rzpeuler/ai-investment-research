@@ -1,5 +1,32 @@
 # 下一阶段准入（NEXT PHASE）
 
+## GOV-ARUX1 后续顺序冻结（2026-08-18）
+
+顶层架构与产品治理冻结（Decision #54 / #55）完成后，当前立即顺序冻结：
+
+```text
+1. GOV-ARUX1 governance acceptance（独立架构验收）
+2. D4 independent acceptance（implementation head 7c2791b；online acceptance NOT_RUN）
+3. findings-only fixes if required
+4. D4 closeout / merge
+5. P8-A0 DeepSeek Harness Integration Spike
+6. P8-A0 independent architecture acceptance
+7. 再决定 Harness production adoption
+8. D5 / 后续数据能力按新路线继续
+```
+
+明确：
+
+```text
+P8-A0 DESIGN INTENT: APPROVED
+P8-A0 IMPLEMENTATION: NOT_AUTHORIZED BY THIS TASK
+D5: 不得因为本次设计自动开始
+FRONTEND IMPLEMENTATION: NOT_AUTHORIZED（后续须独立 frontend taskbook）
+```
+
+可以记录：Frontend foundation 可在未来与部分数据阶段解耦实施，但 AI Research
+session integration 必须兼容最终 Harness boundary。
+
 ## 当前结论
 
 - **Phase 4 engineering foundation：PASS**
@@ -69,7 +96,7 @@ Phase 5: CLOSED / PASS
 - **Phase 6 research capability**: PASS
 - **Phase 6 central enablement**: PASS
 - **USER_TRIAL_READY**: YES
-- **CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP（taskbook P7-D4，IMPLEMENTATION_GATED）；P7-D3 已独立验收并合并
+- **CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE 2026-08-18）；下一步独立在线验收复核（600519/300750 + 人工数字抽查）
 - **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
 - **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation PASS / INDEPENDENTLY ACCEPTED；D3 MVP PASS / INDEPENDENTLY ACCEPTED（Decision #52，accepted head `e8a4a9f`）
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
@@ -82,7 +109,7 @@ Phase 5: CLOSED / PASS
 - **DB / migrations**: v6 / NONE
 - **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
 - **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
-- **NEXT WORK**: 从合并 D3 后的新 master 建立 `phase7/d4-cninfo-financial-extraction-mvp` 并实施 P7-D4（CNINFO 年报 → company_document → derive_existing → 核心 FinancialFact）
+- **NEXT WORK**: 独立在线验收 P7-D4（600519.SH / 300750.SZ 年报 → company_document → derive_existing → 核心 FinancialFact；人工抽查 5 科目 100% 一致）；通过后治理 closeout 单独晋级
 - **REAL-SOURCE AUTHORIZATION**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately

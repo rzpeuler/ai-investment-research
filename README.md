@@ -178,6 +178,22 @@ Phase 6.1；下一步仅为独立验收。
   `reports/acceptance/`（本地，reports/ gitignored）。
 - 本状态不是 PASS / CLOSED / operational / real-source ready；独立验收通过前不声明完成。
 
+## 顶层架构与产品设计（DESIGN FROZEN / NOT IMPLEMENTED）
+
+2026-08-18 GOV-ARUX1 治理冻结（`docs/tasks/governance-agent-runtime-frontend-design-freeze.md`，
+Decision #54 / #55）正式写入两项长期设计，**仅冻结设计，不授权实施**：
+
+- [Agent Runtime / Skill Architecture](docs/architecture/agent-runtime-skill-architecture.md)
+  —— DeepSeek Harness 为已批准的 Agent Runtime target（当前 NOT_IMPLEMENTED）；
+  Research OS 继续保有 Data / Evidence / PIT / Financial / Graph / Workflow Authority；
+  Skill / Tool / Workflow 三分；Memory 三分法；MCP 为 Harness → Research OS 首选边界。
+- [Frontend Product Architecture](docs/architecture/frontend-product-architecture.md)
+  —— 一级导航（今天 / 研究 / 系统能力）+ 能力指南 + 数据中心（数据采集层治理界面）；
+  前端实现 NOT_AUTHORIZED，须独立 frontend taskbook。
+
+状态：**DESIGN FROZEN / NOT IMPLEMENTED**。当前实际会话入口仍为 P7-UX1；
+P7-D4 因本治理冻结暂停（PAUSED_HEAD `7c2791b`），恢复后继续按 D4 taskbook 完成。
+
 ## 快速开始
 
 ### 环境要求

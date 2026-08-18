@@ -1,13 +1,14 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-16
+> 更新日期：2026-08-18
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
 > P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
-> 权威规范：`docs/engineering-guide.md` V1.7
+> P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1；implementation head `7c2791b`；online acceptance NOT_RUN）
+> 权威规范：`docs/engineering-guide.md` V1.8
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -57,6 +58,7 @@
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 | P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
 | P7-D3 Free-Source Production MVP | PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`）| nbs/cninfo 真实在线验收；allowlist [nbs, cninfo]；默认网络关闭；capability WORKFLOW_WIRED；独立验收 Decision #52，已合并进 master。 |
+| P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1；implementation head `7c2791b`）| 2026-08-18 实施完成；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6；因 GOV-ARUX1 治理冻结暂停；online acceptance NOT_RUN。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -295,3 +297,55 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   治理 closeout 单独晋级（NBS/CNINFO 分开）。
 - 验收 artifact（本地，reports/ gitignored）：`reports/acceptance/nbs_online_acceptance.md`、
   `reports/acceptance/cninfo_online_acceptance.md`。
+
+## P7-D4 当前状态（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE，2026-08-18）
+
+- `P7-D4: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`（taskbook
+  `docs/tasks/phase7-data-layer-d4.md`）。CNINFO 官方年报 → 核心 FinancialFact 生产链路已实现：
+  - `TransientDisclosureMaterializer`（方案 B）：CNINFO 年报 transient PDF 下载（严格校验：
+    magic header/Content-Type/HTML 拒绝/zero-byte/checksum）→ DocumentRecord/Block/Evidence
+    幂等持久化（UUID5）；不永久保存完整 PDF；pypdf 转正式依赖。
+  - `derive_existing` 首次正式实现：`DerivationPrerequisiteResolver`（§19 的 11 项证明，
+    ZERO NETWORK）+ `FinancialDerivationService` + `FinancialDerivationExecutor`；
+    plan dependencies 生成与 execution 强制（前置未 completed → DERIVATION_PREREQUISITE_MISSING）。
+  - `FinancialStatementExtractor`：确定性三表提取（CORE 9 码/consolidated/exact taxonomy/
+    current-period 列标题 authority + 恒等式校验/Decimal）；fuzzy 不自动接受；不确定即 reject。
+  - Schema 契约演化（backward-compatible）：produced_record_refs / reused_record_refs +
+    7 个 D4 reason codes；SCHEMA_COUNT 保持 86；DB v6 / migration NONE。
+  - capability：company_document / financial_statement_data → WORKFLOW_WIRED
+    （deterministic_derivation 保守 false；独立在线验收后 closeout 才允许 true）。
+- 离线验证：extractor/materializer/prerequisite/derive/pipeline 测试全绿；完整 pytest
+  待最终记录。在线验收（600519/300750 + 人工数字抽查）待独立验收者以 --live-data 执行。
+- 独立验收通过前不声明 PASS / CLOSED / operational / real-source ready；
+  BUSINESS_SUFFICIENT / deterministic_derivation=true 仅在独立在线验收后由治理 closeout 批准。
+
+## GOV-ARUX1 顶层架构与产品治理冻结（2026-08-18，DESIGN FROZEN / NOT IMPLEMENTED）
+
+- 任务书：`docs/tasks/governance-agent-runtime-frontend-design-freeze.md`；正式决策：
+  `DECISIONS.md` **#54（Agent Runtime / Skill / MCP）** 与 **#55（Frontend Product
+  Architecture）**；架构文档：`docs/architecture/agent-runtime-skill-architecture.md`、
+  `docs/architecture/frontend-product-architecture.md`；工程指南升级 **V1.8**。
+- 治理分支：`governance/agent-runtime-frontend-design-freeze`；GOV_BASE_SHA =
+  `7c2791b2b854b88279c4c3126f7b1b2f8e861460`（D4 暂停 HEAD，与用户报告一致）。
+- **P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1）**；
+  implementation head = `7c2791b2b854b88279c4c3126f7b1b2f8e861460`；online acceptance =
+  NOT_RUN。未写 P7-D4 PASS / 未独立验收 / M6/M7 未 PASS（独立验收未发生）。D4 恢复后
+  继续严格按当前 D4 taskbook 完成，本冻结不改 D4 范围。
+
+```text
+AGENT_RUNTIME_ARCHITECTURE: DESIGN_FROZEN
+DEEPSEEK_HARNESS: PRIMARY_INTEGRATION_CANDIDATE
+HARNESS_INTEGRATION: NOT_IMPLEMENTED
+HARNESS_PRODUCTION_ACCEPTANCE: NO
+CURRENT_CHAT_RUNTIME: P7-UX1 / IN_MEMORY_ONLY
+FRONTEND_PRODUCT_ARCHITECTURE: DESIGN_FROZEN
+CAPABILITY_GUIDE: DESIGNED / NOT_IMPLEMENTED
+DATA_SOURCE_MANAGEMENT_UI: DESIGNED / NOT_IMPLEMENTED
+FRONTEND_SOURCE_EDITING: NOT_IMPLEMENTED
+P8-A0 DESIGN INTENT: APPROVED / IMPLEMENTATION NOT_AUTHORIZED
+FRONTEND IMPLEMENTATION: NOT_AUTHORIZED
+```
+
+本治理冻结只改文档（AGENTS.md / README.md / engineering-guide / DECISIONS / 状态文档 /
+architecture 文档 / 任务书）；production code 0 changes、schema count 86 不变、DB v6
+不变、migrations NONE、source registry 不变。

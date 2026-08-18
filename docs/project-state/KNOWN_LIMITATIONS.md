@@ -241,3 +241,23 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - 仍不具备：自动完整财务报表、自动历史日线、分钟/完整实时行情、行业成分完整覆盖、
   同行财务自动覆盖、机构研报自动采集、深度新闻/社区数据、通用 PDF 表格解析、OCR、
   付费数据接入治理、Graph write、Phase 6.1。
+
+## 20. Agent Runtime / Frontend 顶层架构治理冻结限制（2026-08-18，DESIGN FROZEN / NOT IMPLEMENTED）
+
+GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，不得声称未来能力已实现：
+
+1. 当前会话仍是 P7-UX1 IN_MEMORY_ONLY（最多 20 轮 / 128 sessions，服务退出即消失）。
+2. DeepSeek Harness 尚未集成（NOT_INSTALLED / NOT_IMPLEMENTED）。
+3. Persistent Agent Conversation 尚不可用。
+4. Skill Registry 尚未进入本项目 production。
+5. Research OS MCP Server 尚未实现。
+6. Capability Guide 尚未实现。
+7. 数据中心目前没有完整前端 product surface。
+8. Source editing API 尚未实现。
+9. Source registration / capability lifecycle 不能由前端修改。
+10. Test connection 尚不构成 business sufficiency。
+11. Agent model profile / 套餐 UI 尚未实现。
+12. Harness 为 developer-preview upstream，正式采用前有 compatibility risk。
+13. D4 仍未独立验收（PAUSED_HEAD `7c2791b`，IMPLEMENTATION IN PROGRESS /
+    TEMPORARILY PAUSED FOR GOVERNANCE FREEZE）。
+14. Frontend 不得宣称 D4/D5/realtime 等尚未验收能力已自动可用。

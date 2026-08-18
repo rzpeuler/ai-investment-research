@@ -61,6 +61,9 @@
         "DATA_TYPE_MISMATCH", "CAPABILITY_NOT_BUSINESS_SUFFICIENT", "ROUTE_UNAVAILABLE",
         "FETCH_FAILED", "NORMALIZATION_FAILED", "RAW_ITEM_SCHEMA_INVALID",
         "FUTURE_ITEM_REJECTED", "EMPTY_RESULT", "PERSIST_FAILED", "RECHECK_FAILED",
+        "DOCUMENT_DOWNLOAD_FAILED", "DOCUMENT_TYPE_INVALID", "DOCUMENT_PARSE_FAILED",
+        "DOCUMENT_NATIVE_TEXT_UNAVAILABLE", "DERIVATION_PREREQUISITE_MISSING",
+        "DERIVATION_FAILED", "DERIVED_RECORD_SCHEMA_INVALID",
         "CONTROL_PLANE_CONFIGURATION_ERROR"
       ]
     },
@@ -117,6 +120,14 @@
         "inserted_count": { "type": "integer", "minimum": 0 },
         "reused_count": { "type": "integer", "minimum": 0 },
         "rejected_future_item_count": { "type": "integer", "minimum": 0 },
+        "produced_record_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reused_record_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "warnings": { "type": "array", "items": { "type": "string" } },
         "errors": {
           "type": "array",

@@ -29,14 +29,15 @@ capabilities:
     notes: P7-D3 完成 production wiring（SourceQueryProjector + FieldProjector + allowlist）；WORKFLOW_WIRED。真实在线验收通过并由治理 closeout 后才允许 BUSINESS_SUFFICIENT
 
   company_document:
-    automatic_acquisition_lifecycle: NONE
+    automatic_acquisition_lifecycle: WORKFLOW_WIRED
     deterministic_derivation: false
     manual_modes: [user_document, manual_inbox]
     requires_human_review: false
     requires_governed_workflow: false
     source_tier_applicable: true
-    implementation_refs: []
-    notes: 公告/定期报告文档仅人工入口（user_document / manual_inbox），无自动采集
+    implementation_refs:
+      - src/research_os/documents/disclosure_materializer.py
+    notes: P7-D4 完成 production wiring（CNINFO 年报 transient download → DocumentRecord/Block/Evidence）；WORKFLOW_WIRED。真实在线验收通过并由治理 closeout 后才允许 BUSINESS_SUFFICIENT
 
   company_profile:
     automatic_acquisition_lifecycle: NONE
@@ -79,7 +80,7 @@ capabilities:
     notes: 同行财务无自动源，仅 manual_financial_import
 
   financial_statement_data:
-    automatic_acquisition_lifecycle: NONE
+    automatic_acquisition_lifecycle: WORKFLOW_WIRED
     deterministic_derivation: false
     manual_modes: [manual_financial_import, disclosure_extraction]
     requires_human_review: false
@@ -87,7 +88,8 @@ capabilities:
     source_tier_applicable: true
     implementation_refs:
       - src/research_os/financials/import_service.py
-    notes: 人工财务导入链路存在（import_service）；无自动财务源；disclosure_extraction 未证明业务充分
+      - src/research_os/financials/disclosure_extractor.py
+    notes: 人工财务导入链路存在（import_service）；P7-D4 完成 company_document → derive_existing 确定性推导（FinancialStatementExtractor）。deterministic_derivation 保守保持 false，独立在线验收通过后由治理 closeout 才允许 true；非 direct source，不要求 BUSINESS_SUFFICIENT
 
   market_daily_ohlcv:
     automatic_acquisition_lifecycle: NONE

@@ -380,7 +380,7 @@ def test_plan_is_not_mutated_and_identity_is_canonical_and_stable():
 
 @pytest.mark.parametrize(
     "action",
-    ["derive_existing", "request_manual_input", "request_human_review",
+    ["request_manual_input", "request_human_review",
      "governed_workflow", "unavailable"],
 )
 def test_valid_non_route_actions_are_explicitly_skipped(action):
@@ -389,6 +389,16 @@ def test_valid_non_route_actions_are_explicitly_skipped(action):
     assert result.status == "completed"
     assert result.steps[0].status == "skipped"
     assert result.steps[0].reason_codes == ["ACTION_SKIPPED"]
+    assert router.calls == repository.calls == []
+
+
+def test_derive_existing_without_executor_fails_closed():
+    # P7-D4：derive_existing 未注入 executor → not_executable / DERIVATION_FAILED（不跳过）
+    router, repository = _Router(), _Repository()
+    result = _execute(
+        _service(router=router, repository=repository), plan=_plan("derive_existing"))
+    assert result.steps[0].status == "not_executable"
+    assert result.steps[0].reason_codes == ["DERIVATION_FAILED"]
     assert router.calls == repository.calls == []
 
 

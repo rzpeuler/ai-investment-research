@@ -15,7 +15,7 @@ def test_engineering_guide_is_current_and_task_cannot_override():
     guide = _read("docs/engineering-guide.md")
     agents = _read("AGENTS.md")
     task = _read("docs/tasks/phase4-equity-research.md")
-    assert "版本：V1.7" in guide
+    assert "版本：V1.8" in guide
     assert "当前唯一有效工程基线" in guide
     assert "engineering-guide.md` → `docs/project-state/DECISIONS.md" in agents
     assert "仅细化" in task
@@ -215,7 +215,7 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase6
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
     assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
@@ -369,14 +369,14 @@ def test_p7_d0_governance_is_consistent():
     assert "PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D0 = PASS / INDEPENDENTLY ACCEPTED" in limitations
     assert "PASS / INDEPENDENTLY ACCEPTED" in readme
-    assert "版本：V1.7" in guide
+    assert "版本：V1.8" in guide
     assert "P7 Unified Data Layer" in guide or "P7-D0" in guide
     assert "SCHEMAS: 85" in current
     # accepted implementation head 必须明确
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
     # P7-D1 已 PASS；D2 Foundation 已实现并等待独立验收
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "NEXT WORK**: 从合并 D3 后的新 master 建立" in next_phase
+    assert "NEXT WORK**: 独立在线验收 P7-D4（600519.SH / 300750.SZ" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
     # governance closeout taskbook 存在
@@ -470,7 +470,7 @@ def test_p7_d1_governance_is_consistent():
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D1 = PASS / INDEPENDENTLY ACCEPTED" in limitations
     assert "P7-D1：数据就绪控制面（PASS / INDEPENDENTLY ACCEPTED）" in readme
-    assert "版本：V1.7" in guide
+    assert "版本：V1.8" in guide
     assert "P7-D1" in guide and "Data Readiness" in guide
     assert "P7-D2 FOUNDATION" in next_phase and "PASS / INDEPENDENTLY ACCEPTED" in next_phase
     assert "P7-D2 TASKBOOK DRAFTING: AUTHORIZED" in decision_48
@@ -667,12 +667,12 @@ def test_p7_d1_r2_governance_is_consistent():
     assert "48.7 R2 Independent Re-Acceptance Findings & Contract Corrections" in decisions
     assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
 
-    # CURRENT_STATE follows the current V1.7 authority.
-    assert "权威规范：`docs/engineering-guide.md` V1.7" in current
+    # CURRENT_STATE follows the current V1.8 authority.
+    assert "权威规范：`docs/engineering-guide.md` V1.8" in current
     assert "P7-D1：PASS / INDEPENDENTLY ACCEPTED" in current
 
-    # engineering-guide V1.6 + R2 semantics
-    assert "版本：V1.7" in guide
+    # engineering-guide keeps the R2 semantics after the V1.8 bump
+    assert "版本：V1.8" in guide
     assert "Requirement Binding" in guide
     assert "Canonical Field Projection" in guide
     assert "No Candidate Field Union" in guide
@@ -707,8 +707,8 @@ def test_p7_d1_r3_governance_is_consistent():
     assert "48.8 R3 Independent Re-Acceptance Finding & Runtime Closure" in decisions
     assert "IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE" in decisions
 
-    # engineering-guide keeps the R3 runtime closure after the V1.7 bump
-    assert "版本：V1.7" in guide
+    # engineering-guide keeps the R3 runtime closure after the V1.8 bump
+    assert "版本：V1.8" in guide
     assert "R3 Runtime Semantic Binding Closure" in guide
     assert "Requirement Binding MUST be runtime authority" in guide
     assert "Canonical Projector MUST be consumed by runtime" in guide
@@ -769,8 +769,8 @@ def test_p7_d2_foundation_authorization_and_frozen_boundaries():
     ):
         assert frozen in decision_49
 
-    assert "版本：V1.7" in guide
-    assert "变更日期：2026-08-16" in guide
+    assert "版本：V1.8" in guide
+    assert "变更日期：2026-08-18" in guide
     assert "### 0.7 V1.7 P7-D2 Acquisition Execution Foundation" in guide
     assert "production_collector_ids: []" in guide
     assert "真实来源执行不获授权" in guide
