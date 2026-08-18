@@ -14,6 +14,11 @@ from yaml.resolver import BaseResolver
 _POLICY_FIELDS = {"enabled", "allowed_actions", "production_collector_ids"}
 _FOUNDATION_ACTIONS = ("route_existing_sources",)
 
+# P7-D3：治理批准的 production collector allowlist。
+# 只有经治理决策批准的 source_id 才能进入 allowlist；
+# allowlist 只是白名单，不代表默认联网（enabled 仍必须为 false）。
+_APPROVED_PRODUCTION_COLLECTORS = ("nbs", "cninfo")
+
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
     """SafeLoader variant that fails closed on duplicate or non-string mapping keys."""
@@ -82,15 +87,21 @@ class ExecutionPolicyRegistry:
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
         if enabled:
-            raise ValueError("enabled must remain false for P7-D2 Foundation")
+            raise ValueError(
+                "enabled must remain false: default live-data execution is OFF; "
+                "only explicit --live-data authorization may run real collectors"
+            )
         self._validate_string_list(actions, "allowed_actions")
         self._validate_string_list(collectors, "production_collector_ids")
         if tuple(actions) != _FOUNDATION_ACTIONS:
             raise ValueError(f"allowed_actions must equal {list(_FOUNDATION_ACTIONS)!r}")
         if len(collectors) != len(set(collectors)):
             raise ValueError("duplicate production collector IDs are forbidden")
-        if collectors:
-            raise ValueError("production_collector_ids must be empty for P7-D2 Foundation")
+        if tuple(collectors) != _APPROVED_PRODUCTION_COLLECTORS:
+            raise ValueError(
+                f"production_collector_ids must equal the governance-approved allowlist "
+                f"{list(_APPROVED_PRODUCTION_COLLECTORS)!r}"
+            )
         return ExecutionPolicy(
             enabled=enabled,
             allowed_actions=tuple(actions),

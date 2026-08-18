@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -28,8 +29,37 @@ from research_os.utils.time import now_iso
 from research_os.validators.schema_validator import validate_instance
 
 LIST_URL = "https://www.stats.gov.cn/sj/zxfb/"
-_ARTICLE_RE = re.compile(r'<a[^>]+href="([^"]+\.html)"[^>]*>([^<]{4,120})</a>')
+_ARTICLE_RE = re.compile(
+    r'<a[^>]+href="([^"]+\.html)"[^>]*title=[\'"]{1}([^\'"]+)[\'"]{1}[^>]*>'
+)
 _DATE_RE = re.compile(r"(\d{4})年(\d{1,2})月")
+# 列表页链接路径中的发布日期（如 /202608/t20260817_1965056.html → 2026-08-17）
+_URL_DATE_RE = re.compile(r"t(\d{4})(\d{2})(\d{2})")
+
+
+def _in_window(value: str, start: Optional[str], end: Optional[str]) -> bool:
+    """[start, end) 窗口语义（与 data_layer checkers._in_window 一致；parse_iso 比较）。"""
+    if not start and not end:
+        return True
+    from research_os.utils.time import parse_iso
+
+    try:
+        value_dt = parse_iso(value)
+    except ValueError:
+        return False  # 无法解析 → fail closed
+    if start:
+        try:
+            if value_dt < parse_iso(start):
+                return False
+        except ValueError:
+            return False
+    if end:
+        try:
+            if value_dt >= parse_iso(end):
+                return False
+        except ValueError:
+            return False
+    return True
 
 
 class NbsCollector(CollectorAdapter):
@@ -38,11 +68,28 @@ class NbsCollector(CollectorAdapter):
     source_id = "nbs"
     version = "1.0.0"
 
+    def _curl_executable(self) -> Optional[str]:
+        """跨平台解析 curl：优先 curl.exe（Windows），其次 curl（Unix）。
+
+        与 CninfoCollector 保持一致；找不到时返回 None（调用方 fail closed），
+        不抛异常、不猜测路径。
+        """
+        return shutil.which("curl.exe") or shutil.which("curl")
+
     def _get_page(self, url: str, timeout: float = 25.0) -> Optional[str]:
-        cmd = ["curl.exe", "-sS", "-L", "--max-time", str(int(timeout)),
+        exe = self._curl_executable()
+        if exe is None:
+            # curl 不可用：显式 fail closed，不产生任何 HTTP 请求
+            return None
+        cmd = [exe, "-sS", "-L", "--max-time", str(int(timeout)),
                "-A", "Mozilla/5.0", url]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
+            # stats.gov.cn 返回 UTF-8；Windows 默认 locale(GBK) 解码会崩，
+            # 显式 utf-8 + errors=replace 保证跨平台（Windows/Ubuntu）。
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=timeout + 10,
+            )
         except subprocess.TimeoutExpired:
             return None
         if proc.returncode != 0:
@@ -65,20 +112,41 @@ class NbsCollector(CollectorAdapter):
         page = self._get_page(LIST_URL)
         if page is None:
             raise RuntimeError("nbs 列表页获取失败")
+        matched = list(_ARTICLE_RE.findall(page))
+        if not matched:
+            # 页面可达但结构未匹配：显式标记 schema 变化，禁止伪造数据
+            raise RuntimeError("nbs 页面结构未匹配（schema_changed），未提取到条目")
         refs: List[ItemRef] = []
         seen: set[str] = set()
-        for href, title in _ARTICLE_RE.findall(page):
+        for href, title in matched:
             title = title.strip()
             if not title or not href:
                 continue
-            url = href if href.startswith("http") else "https://www.stats.gov.cn" + href
+            url = href if href.startswith("http") else \
+                "https://www.stats.gov.cn/" + (
+                    href.removeprefix("./") if href.startswith("./") else href.lstrip("/")
+                )
             if url in seen:
-                continue
+                continue  # 同一链接在响应式布局中重复出现多次
             seen.add(url)
             published = None
-            m = _DATE_RE.search(title)
-            if m:
-                published = f"{m.group(1)}-{int(m.group(2)):02d}-01T00:00:00"
+            # URL 路径中的日期是真实发布日期（如 t20260817 → 2026-08-17 发布），优先；
+            # 标题中的"2026年7月"是统计期间，不得当作发布日期（仅作 fallback）。
+            m2 = _URL_DATE_RE.search(href)
+            if m2:
+                y, mo, d = m2.group(1), int(m2.group(2)), int(m2.group(3))
+                published = f"{y}-{mo:02d}-{d:02d}T00:00:00"
+            if published is None:
+                m = _DATE_RE.search(title)
+                if m:
+                    published = f"{m.group(1)}-{int(m.group(2)):02d}-01T00:00:00"
+            if published is None:
+                # 无法归因发布日期：跳过该条目（不得伪造时间；PIT 必须有效）
+                continue
+            if not _in_window(published, time_window.get("start"),
+                              time_window.get("end")):
+                # canonical time_window 是唯一窗口权威（§46）：窗口外发布不采集
+                continue
             refs.append(ItemRef(
                 source_id=self.source_id,
                 external_id=content_sha256(url)[:32],
@@ -86,9 +154,7 @@ class NbsCollector(CollectorAdapter):
                 title=title,
                 published_at=published,
             ))
-        if not refs:
-            # 页面可达但结构未匹配：显式标记 schema 变化，禁止伪造数据
-            raise RuntimeError("nbs 页面结构未匹配（schema_changed），未提取到条目")
+        # matched 非空但窗口内无可归因条目：合法 EMPTY_RESULT（≠ 无发布）
         return refs
 
     def fetch(self, item_ref: ItemRef) -> RawPayload:
@@ -122,7 +188,7 @@ class NbsCollector(CollectorAdapter):
             title=raw_payload.title,
             publisher=raw_payload.publisher,
             author=raw_payload.author,
-            published_at=raw_payload.published_at or now_iso(),
+            published_at=raw_payload.published_at,
             retrieved_at=raw_payload.retrieved_at or now_iso(),
             content_hash=content_sha256(f"{raw_payload.url}|{raw_payload.title}"),
             content_excerpt=raw_payload.title[:200],

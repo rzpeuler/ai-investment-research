@@ -158,7 +158,17 @@ def run(ctx, task_id, scenario, entities, depth, as_of, force) -> None:
     callback=_validate_uuid,
     help="可选任务 UUID；不得与请求文件中的 task_id 冲突。",
 )
-def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str]) -> None:
+@click.option(
+    "--live-data",
+    is_flag=True,
+    default=False,
+    help="显式授权本次任务注入治理批准的真实数据采集 wiring（nbs/cninfo）。"
+         "正常执行仍受 execution policy 约束（capability 未达 BUSINESS_SUFFICIENT 前"
+         "fail closed，不联网）；真实验收走独立 acceptance harness。"
+         "与 --live（真实 LLM Provider）完全分离；缺省真实数据采集保持关闭。",
+)
+def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str],
+                     live_data: bool) -> None:
     """通过默认 Orchestrator 执行公共研究场景。"""
     if not request_file.is_file():
         _param_error(f"request-file 不是普通文件: {request_file}")
@@ -189,7 +199,14 @@ def execute_scenario(scenario: str, request_file: Path, task_id: Optional[str]) 
             )
 
     root = _project_root()
-    orchestrator = Orchestrator(root)
+    db = None
+    if live_data and not bool(payload.get("dry_run")):
+        # --live-data 需要真实 Repository：显式构造项目 DB。
+        # dry-run 时即使 --live-data 也 NO PERSISTENCE：不创建/初始化 SQLite。
+        from research_os.storage.db import Database
+
+        db = Database(root / "data" / "sqlite" / "research.db")
+    orchestrator = Orchestrator(root, db=db, live_data=live_data)
     try:
         result = orchestrator.execute(scenario, payload)
     finally:

@@ -107,14 +107,21 @@ def test_cninfo_contract_empty_result(monkeypatch):
 
 
 def test_cninfo_contract_missing_field_skipped(monkeypatch):
-    """字段缺失 fixture：缺 title 的条目跳过，不伪造。"""
+    """字段缺失 fixture：缺 title 或缺公司主体的条目跳过，不伪造。"""
     c = CninfoCollector()
     c._post_query = lambda params, timeout=25.0: {
-        "announcements": [{"announcementId": "1", "announcementTitle": ""},
-                          {"announcementId": "2", "announcementTitle": "有效公告"}]}
+        "announcements": [
+            {"announcementId": "1", "announcementTitle": "", "secName": "公司A",
+             "announcementTime": 1785600000000},
+            {"announcementId": "2", "announcementTitle": "无主体公告", "secName": "",
+             "announcementTime": 1785600000000},
+            {"announcementId": "3", "announcementTitle": "有效公告", "secName": "贵州茅台",
+             "announcementTime": 1785600000000},
+            {"announcementId": "4", "announcementTitle": "无时间公告", "secName": "公司B"},
+        ]}
     refs = c.discover({}, {})
     assert len(refs) == 1
-    assert refs[0].external_id == "2"
+    assert refs[0].external_id == "3"
 
 
 def test_cninfo_contract_structure_changed(monkeypatch):
@@ -179,6 +186,7 @@ def test_cninfo_fetch_uses_platform_curl_without_network(monkeypatch):
     raw = CninfoCollector().fetch(ItemRef(
         source_id="cninfo", external_id="ann-1", url="https://example.com/a.pdf",
         title="公告", published_at=T0,
+        extra={"secName": "贵州茅台"},
     ))
     assert captured["cmd"][0] == "/usr/bin/curl"
     assert raw.fetch_status == "ok"
@@ -191,6 +199,7 @@ def test_cninfo_fetch_without_curl_degrades_explicitly(monkeypatch):
     raw = CninfoCollector().fetch(ItemRef(
         source_id="cninfo", external_id="ann-1", url="https://example.com/a.pdf",
         title="公告", published_at=T0,
+        extra={"secName": "贵州茅台"},
     ))
     assert raw.fetch_status == "failed"
     assert raw.error_message == "附件 URL 不可达"

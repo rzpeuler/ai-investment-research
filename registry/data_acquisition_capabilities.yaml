@@ -18,7 +18,7 @@ capabilities:
     notes: cls 元数据适配器已实现但属实验性 B 级（brief/collect.py append_live_items 可选接入）；未证明业务充分，不得 AUTO_ACQUIRABLE
 
   company_announcement:
-    automatic_acquisition_lifecycle: ADAPTER_IMPLEMENTED
+    automatic_acquisition_lifecycle: WORKFLOW_WIRED
     deterministic_derivation: false
     manual_modes: [manual_inbox]
     requires_human_review: false
@@ -26,7 +26,7 @@ capabilities:
     source_tier_applicable: true
     implementation_refs:
       - src/research_os/collectors/official/cninfo.py
-    notes: cninfo 适配器已实现；生产 wiring 未证明业务充分，保守为 ADAPTER_IMPLEMENTED
+    notes: P7-D3 完成 production wiring（SourceQueryProjector + FieldProjector + allowlist）；WORKFLOW_WIRED。真实在线验收通过并由治理 closeout 后才允许 BUSINESS_SUFFICIENT
 
   company_document:
     automatic_acquisition_lifecycle: NONE
@@ -112,7 +112,7 @@ capabilities:
     notes: 市值可由价格×股本确定性推导；当前无自动价格源，仅人工输入
 
   macro_data:
-    automatic_acquisition_lifecycle: ADAPTER_IMPLEMENTED
+    automatic_acquisition_lifecycle: WORKFLOW_WIRED
     deterministic_derivation: false
     manual_modes: [manual_inbox]
     requires_human_review: false
@@ -120,7 +120,7 @@ capabilities:
     source_tier_applicable: true
     implementation_refs:
       - src/research_os/collectors/government/nbs.py
-    notes: nbs 适配器已实现；生产 wiring 未证明业务充分
+    notes: P7-D3 完成 production wiring（SourceQueryProjector + FieldProjector + allowlist）；WORKFLOW_WIRED。真实在线验收通过并由治理 closeout 后才允许 BUSINESS_SUFFICIENT
 
   brief_event_content:
     automatic_acquisition_lifecycle: NONE

@@ -32,7 +32,33 @@ from research_os.utils.url import normalize_url
 from research_os.validators.schema_validator import validate_instance
 
 QUERY_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
+TOPSEARCH_URL = "http://www.cninfo.com.cn/new/information/topSearch/query"
 BASE_URL = "http://static.cninfo.com.cn/"
+
+
+def _in_window(value: str, start: Optional[str], end: Optional[str]) -> bool:
+    """[start, end) 窗口语义（与 NBS / data_layer checkers._in_window 一致；parse_iso 比较）。"""
+    if not start and not end:
+        return True
+    from research_os.utils.time import parse_iso
+
+    try:
+        value_dt = parse_iso(value)
+    except ValueError:
+        return False  # 无法解析 → fail closed
+    if start:
+        try:
+            if value_dt < parse_iso(start):
+                return False
+        except ValueError:
+            return False
+    if end:
+        try:
+            if value_dt >= parse_iso(end):
+                return False
+        except ValueError:
+            return False
+    return True
 
 
 def _curl_executable() -> Optional[str]:
@@ -78,6 +104,43 @@ class CninfoCollector(CollectorAdapter):
         except Exception:  # noqa: BLE001
             return None
 
+    def _resolve_secid(self, stock: str, timeout: float = 20.0) -> Optional[str]:
+        """CNINFO 官方 topSearch 接口：股票代码 → orgId（确定性、官方映射，非猜测）。
+
+        公告查询接口的 secid 必须为 orgId（如 600519→gssh0600519、300750→GD165627）；
+        stock 参数本身不生效（真实接口行为，跨市场实测）。失败返回 None（调用方 fail closed）。
+        """
+        curl = _curl_executable()
+        if curl is None or not stock:
+            return None
+        data = urlencode({"keyWord": stock, "maxNum": 5})
+        cmd = [
+            curl, "-sS", "--max-time", str(int(timeout)),
+            "-X", "POST", TOPSEARCH_URL,
+            "-H", "Content-Type: application/x-www-form-urlencoded",
+            "--data", data,
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return None
+        try:
+            import json
+
+            items = json.loads(proc.stdout.decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(items, list):
+            return None
+        for it in items:
+            if str(it.get("code")) == stock:
+                org_id = it.get("orgId")
+                if isinstance(org_id, str) and org_id:
+                    return org_id
+        return None
+
     # ---------- 接口 ----------
 
     def healthcheck(self) -> HealthStatus:
@@ -104,12 +167,21 @@ class CninfoCollector(CollectorAdapter):
         se_date = _recent_se_date()
         if start and end:
             se_date = f"{start[:10]}~{end[:10]}"
+        # 真实接口行为（跨市场实测）：secid=orgId 是主过滤；column 固定 szse
+        # 才能命中（column=shmb 时 secid 过滤恒空）。stock 参数不生效。
+        stock = str(query.get("stock") or "")
+        secid = query.get("secid") or (self._resolve_secid(stock) if stock else "")
+        if stock and not secid:
+            raise RuntimeError(
+                f"cninfo 无法解析 orgId（{stock}）→ fail closed，禁止猜测"
+            )
         params: Dict[str, Any] = {
             "pageNum": 1, "pageSize": 50,
             "column": "szse", "tabName": "fulltext",
-            "plate": "", "stock": query.get("stock", ""),
+            "plate": "", "stock": "",
             "searchkey": query.get("searchkey", ""),
-            "secid": "", "category": "", "trade": "",
+            "secid": secid,
+            "category": "", "trade": "",
             "seDate": se_date,
             "sortName": "", "sortType": "",
             "isHLtitle": "false",
@@ -123,7 +195,9 @@ class CninfoCollector(CollectorAdapter):
         refs: List[ItemRef] = []
         for ann in result.get("announcements") or []:
             title = ann.get("announcementTitle") or ""
-            if not title:
+            sec_name = ann.get("secName") or ""
+            if not title or not sec_name:
+                # 标题或公司主体缺失：跳过（禁止把平台名/空值当作公司主体）
                 continue
             ts_ms = ann.get("announcementTime")
             published = None
@@ -133,16 +207,27 @@ class CninfoCollector(CollectorAdapter):
                 from research_os.utils.time import to_iso
 
                 published = to_iso(_dt.fromtimestamp(ts_ms / 1000))
+            if published is None:
+                # 无法归因公告时间：跳过（不得伪造时间；PIT 必须有效）
+                continue
+            if not _in_window(published, start, end):
+                # 窗口后置过滤（与 NBS 对称）：接口 seDate 为粗粒度，
+                # 防止窗口外公告进入 RawItem；窗口未给定时不过滤。
+                continue
+            external_id = str(ann.get("announcementId") or "")
+            if not external_id:
+                # 缺官方公告 ID：无法稳定去重/溯源 → 跳过（fail closed）
+                continue
             url = BASE_URL + (ann.get("adjunctUrl") or "")
             refs.append(ItemRef(
                 source_id=self.source_id,
-                external_id=str(ann.get("announcementId") or ""),
+                external_id=external_id,
                 url=normalize_url(url),
                 title=title,
                 published_at=published,
                 extra={
                     "secCode": ann.get("secCode"),
-                    "secName": ann.get("secName"),
+                    "secName": sec_name,
                     "adjunctType": ann.get("adjunctType"),
                     "announcementType": ann.get("announcementType"),
                 },
@@ -169,7 +254,7 @@ class CninfoCollector(CollectorAdapter):
             external_id=item_ref.external_id,
             url=item_ref.url,
             title=item_ref.title,
-            publisher=item_ref.extra.get("secName") or "巨潮资讯",
+            publisher=item_ref.extra.get("secName"),  # discover 已保证非空
             author=None,
             published_at=item_ref.published_at,
             content="",  # 不下载全文
@@ -189,7 +274,7 @@ class CninfoCollector(CollectorAdapter):
             title=raw_payload.title,
             publisher=raw_payload.publisher,
             author=raw_payload.author,
-            published_at=raw_payload.published_at or now_iso(),
+            published_at=raw_payload.published_at,  # discover 已保证非空；None → schema 校验 fail closed
             retrieved_at=raw_payload.retrieved_at or now_iso(),
             content_hash=content_sha256(f"{raw_payload.url}|{raw_payload.title}"),
             content_excerpt=excerpt,

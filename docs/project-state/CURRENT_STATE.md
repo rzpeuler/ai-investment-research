@@ -6,6 +6,7 @@
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
+> P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
 > 权威规范：`docs/engineering-guide.md` V1.7
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -55,6 +56,7 @@
 | P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 | P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
+| P7-D3 Free-Source Production MVP | PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`）| nbs/cninfo 真实在线验收；allowlist [nbs, cninfo]；默认网络关闭；capability WORKFLOW_WIRED；独立验收 Decision #52，已合并进 master。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -272,3 +274,24 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 - 独立验收 PASS 只证明 Fake-proven Foundation 正确；不授权任何具体来源、Collector、
   capability promotion、Graph write 或 Phase 6.1。任何 real-source execution 仍须新的
   来源治理、taskbook、架构批准与显式 implementation authorization（P7-D3）。
+
+## P7-D3 当前状态（PASS / INDEPENDENTLY ACCEPTED，2026-08-18）
+
+- `P7-D3: PASS / INDEPENDENTLY ACCEPTED`（Decision #52，accepted head `e8a4a9f`，
+  已合并进 master）。真实免费来源生产闭环已实现并通过独立验收：
+  - `nbs → macro_data`：真实 stats.gov.cn 采集 → RawItem → 持久化 → readiness recheck；
+    幂等验证 reuse=7；PIT 有效。
+  - `cninfo → company_announcement`：沪市 600519（inserted=6 / reused=6 幂等）与
+    深市 300750（验收窗口 6 条真实公告）真实采集；secid/orgId 官方映射。
+  - `SourceQueryProjector`（canonical → source query）与 `FieldProjector`
+    （RawItem → minimum-field evidence）精确注册表；未知组合 fail closed。
+  - `--live-data` 显式门（与 `--live`/LLM 分离）；默认网络关闭；环境变量不能打开；
+    allowlist 恰好 [nbs, cninfo]；capability 晋级 WORKFLOW_WIRED（非 BUSINESS_SUFFICIENT）。
+- 独立验收复现（2026-08-18）：full pytest `3642 passed / 6 skipped / 0 failed`；
+  schema `86/86 PASS`（`PYTHONPATH=src`）；compileall PASS；diff-check PASS；
+  独立审查无 blocker（dry-run 零落盘、cninfo 窗口过滤、external_id 缺失跳过已修复）。
+- 验收 PASS 不自动授权 capability BUSINESS_SUFFICIENT 或新增来源/Collector/付费接口/OCR/
+  LLM 财务提取/Graph write/Phase 6.1/DB migration/新 Schema；BUSINESS_SUFFICIENT 由后续
+  治理 closeout 单独晋级（NBS/CNINFO 分开）。
+- 验收 artifact（本地，reports/ gitignored）：`reports/acceptance/nbs_online_acceptance.md`、
+  `reports/acceptance/cninfo_online_acceptance.md`。

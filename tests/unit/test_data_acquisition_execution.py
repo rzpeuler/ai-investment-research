@@ -115,7 +115,7 @@ def _service(*, policy=None, requirements=None, capabilities=None, router=None,
     return AcquisitionExecutionService(
         policy=policy or ExecutionPolicy(
             enabled=True, allowed_actions=("route_existing_sources",),
-            production_collector_ids=(),
+            production_collector_ids=("nbs", "cninfo"),
         ),
         requirement_registry=requirements or _Requirements(_Requirement()),
         capability_registry=capabilities or _Capabilities(_Capability()),
@@ -140,7 +140,7 @@ def _execute(service, plan=None, **overrides):
     ("service_kwargs", "execute_kwargs", "reason"),
     [
         ({}, {"dry_run": True}, "DRY_RUN_PROHIBITS_EXECUTION"),
-        ({"policy": ExecutionPolicy(False, ("route_existing_sources",), ())}, {},
+        ({"policy": ExecutionPolicy(False, ("route_existing_sources",), ("nbs", "cninfo"))}, {},
          "EXECUTION_DISABLED"),
         ({}, {"live_authorized": False}, "LIVE_GATE_DISABLED"),
         ({}, {"task_id": "other"}, "PLAN_CONTEXT_MISMATCH"),
@@ -282,7 +282,7 @@ def test_all_route_step_gates_are_preflighted_before_any_io():
 def test_invalid_in_memory_policy_fails_closed_before_io():
     router, repository = _Router(), _Repository()
     service = _service(
-        policy=ExecutionPolicy(True, ("route_existing_sources", "unknown"), ()),
+        policy=ExecutionPolicy(True, ("route_existing_sources", "unknown"), ("nbs", "cninfo")),
         router=router, repository=repository,
     )
     result = _execute(service)

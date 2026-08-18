@@ -78,13 +78,36 @@ class RunOutcome:
             self.errors = []
 
 
+class _LazyDatabase:
+    """惰性 Database 代理：首次访问才构造真实 SQLite（Database() 构造即落盘）。
+
+    供 --live-data 未显式传 db 的路径使用：构造 Orchestrator / dry-run 全程不落盘，
+    只有真正查询/写入（非 dry-run execute）才初始化。
+    """
+
+    def __init__(self, factory):
+        self._factory = factory
+        self._db = None
+
+    def __getattr__(self, name):
+        if name == "close":
+            # 未初始化时 close() 不得触发 factory（否则 dry-run 收尾仍会落盘）。
+            # 真实 Database 的 close 由 __getattr__ 委托（_db 已构造时）。
+            if self._db is None:
+                return lambda: None
+        if self._db is None:
+            self._db = self._factory()
+        return getattr(self._db, name)
+
+
 class Orchestrator:
     """统一控制面；具体业务由注册的 ScenarioRunner 执行。"""
 
     def __init__(self, project_root: str | Path, db: Optional[Database] = None,
                  registry: Optional[ScenarioRegistry] = None,
                  preflight: Optional[Any] = None,
-                 acquisition_coordinator: Optional[Any] = None):
+                 acquisition_coordinator: Optional[Any] = None,
+                 live_data: bool = False):
         self.project_root = Path(project_root)
         self.runs_root = self.project_root / "reports" / "runs"
         self._db = db
@@ -97,9 +120,18 @@ class Orchestrator:
             for runner_type in DEFAULT_RUNNER_TYPES:
                 self.registry.register(runner_type())
         self.preflight = preflight or self._default_preflight()
+        self._live_data = live_data
+        if self._live_data and self._db is None:
+            # 显式 live-data 授权但未提供 db：惰性代理，构造阶段不落盘。
+            # 真实初始化延迟到首次访问（execute 非 dry-run 分支的 self.db）——
+            # dry-run 时即使 --live-data 也 NO PERSISTENCE（不创建/初始化 SQLite）。
+            self._db = _LazyDatabase(lambda: Database(
+                self.project_root / "data" / "sqlite" / "research.db"))
         if acquisition_coordinator is None:
             self._assert_acquisition_preflight_protocol(self.preflight)
-            acquisition_coordinator = self._default_acquisition_coordinator(self.preflight)
+            acquisition_coordinator = self._default_acquisition_coordinator(
+                self.preflight, db=self._db, live_data=self._live_data,
+            )
         self.acquisition_coordinator = acquisition_coordinator
 
     @staticmethod
@@ -119,8 +151,19 @@ class Orchestrator:
         return DataPreflightService(req_registry, cap_registry)
 
     @staticmethod
-    def _default_acquisition_coordinator(preflight: Any) -> Any:
-        """Build the production P7-D2 Foundation path with its live gate permanently closed."""
+    def _default_acquisition_coordinator(preflight: Any, *, db: Optional[Database] = None,
+                                         live_data: bool = False) -> Any:
+        """生产 acquisition wiring。
+
+        live_data=False（默认）：disabled path —— Router/Repository 永不触达，
+        live gate 永久关闭；normal 运行不联网、不写 acquisition 数据。
+
+        live_data=True（仅显式 --live-data）：真实治理批准采集路径 —— 注入
+        nbs/cninfo Collector、SourceQueryProjector、FieldProjector、existing Router
+        与真实 Repository。enabled/capability 门仍按 policy 与 capability registry
+        生效：capability 未达 BUSINESS_SUFFICIENT 前正常执行继续 fail closed
+        （真实联网验收走独立 Source Acceptance Harness，见 scripts/acceptance/）。
+        """
         from research_os.data_layer.coordinator import AcquisitionCoordinator
         from research_os.data_layer.execution import AcquisitionExecutionService
         from research_os.data_layer.execution_policy import ExecutionPolicyRegistry
@@ -136,16 +179,56 @@ class Orchestrator:
         policy = ExecutionPolicyRegistry(
             _REPO_ROOT / "config" / "data_acquisition_execution.yaml"
         ).load()
+
+        if not live_data:
+            execution = AcquisitionExecutionService(
+                policy=policy,
+                requirement_registry=preflight.requirement_registry,
+                capability_registry=preflight.capability_registry,
+                router=_DisabledRouter(),
+                repository=_DisabledRepository(),
+            )
+            # There is intentionally no CLI switch that flips this production value:
+            # 只有显式 --live-data 才走下方真实路径。
+            return AcquisitionCoordinator(
+                preflight=preflight, execution=execution, live_authorized=False,
+            )
+
+        # ---- P7-D3：显式 --live-data 真实采集路径 ----
+        from research_os.collectors.government.nbs import NbsCollector
+        from research_os.collectors.official.cninfo import CninfoCollector
+        from research_os.data_layer.acquisition_repository import AcquisitionRepository
+        from research_os.data_layer.collector_bridge import CollectorFetcherBridge
+        from research_os.data_layer.field_projector import FieldProjector
+        from research_os.data_layer.source_query_projector import (
+            SourceQueryProjector,
+            _default_security_resolver,
+        )
+        from research_os.routing.requirements import DataRequirementRegistry
+        from research_os.routing.router import Router
+        from research_os.utils.time import now_iso
+
+        if db is None:
+            raise AssertionError("--live-data acquisition requires a database")
+        bridge = CollectorFetcherBridge(
+            {"nbs": NbsCollector(), "cninfo": CninfoCollector()},
+            projector=SourceQueryProjector(
+                security_resolver=_default_security_resolver(db)),
+            field_projector=FieldProjector(),
+        )
+        router = Router(
+            DataRequirementRegistry(_REPO_ROOT / "registry" / "data_requirements.yaml"),
+            bridge.as_fetchers(),
+        )
         execution = AcquisitionExecutionService(
             policy=policy,
             requirement_registry=preflight.requirement_registry,
             capability_registry=preflight.capability_registry,
-            router=_DisabledRouter(),
-            repository=_DisabledRepository(),
+            router=router,
+            repository=AcquisitionRepository(db, clock=now_iso),
         )
-        # There is intentionally no constructor/CLI request switch for this production value.
         return AcquisitionCoordinator(
-            preflight=preflight, execution=execution, live_authorized=False,
+            preflight=preflight, execution=execution, live_authorized=True,
         )
 
     @staticmethod
@@ -163,9 +246,14 @@ class Orchestrator:
 
     @property
     def db(self) -> Database:
-        """仅真实执行时初始化数据库，保证 dry-run 不因控制面产生副作用。"""
+        """仅真实执行时初始化数据库（幂等）；dry-run 不触发控制面副作用。"""
         if self._db is None:
             self._db = Database(self.project_root / "data" / "sqlite" / "research.db")
+        if isinstance(self._db, _LazyDatabase):
+            if self._db._db is None:
+                # 首次访问惰性代理：构造 + 初始化（此后委托真 db，不再重复初始化）
+                self._db.initialize()
+        else:
             self._db.initialize()
         return self._db
 

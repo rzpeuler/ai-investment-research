@@ -160,6 +160,24 @@ Migrations: 6 / NONE added；Schemas: 86。
 该状态不是 PASS / CLOSED / operational / real-source ready，不授权任何具体真实来源或
 Phase 6.1；下一步仅为独立验收。
 
+## P7-D3：Free-Source Production MVP（PASS / INDEPENDENTLY ACCEPTED 2026-08-18，Decision #52）
+
+`P7-D3: PASS / INDEPENDENTLY ACCEPTED`（accepted head `e8a4a9f`；已合并进 master）。
+第一批真实免费来源生产闭环（nbs → macro_data、cninfo → company_announcement）：
+
+- `SourceQueryProjector`：canonical 查询 → 来源查询精确投影（未知组合 fail closed）。
+- `FieldProjector`：RawItem canonical 字段 → minimum-field evidence（published_at →
+  publish_date；publisher(=secName) → company），exact registry、无 LLM、不修改 RawItem。
+- 生产执行策略：`enabled: false`（默认真实采集关闭）、`production_collector_ids: [nbs, cninfo]`
+  （治理批准 allowlist）；只有显式 `--live-data` 才注入真实采集（与 `--live`/LLM 分离，
+  环境变量不能打开）。
+- capability：macro_data / company_announcement → `WORKFLOW_WIRED`（BUSINESS_SUFFICIENT
+  仅独立在线验收后由治理 closeout 单独晋级）。
+- 真实在线验收已执行：NBS（inserted=7 / 幂等 reuse=7 / PIT 0 拒绝）、CNINFO 沪市 600519
+  （inserted=6 / 幂等 reuse=6）与深市 300750（验收窗口 6 条真实公告）；artifacts 见
+  `reports/acceptance/`（本地，reports/ gitignored）。
+- 本状态不是 PASS / CLOSED / operational / real-source ready；独立验收通过前不声明完成。
+
 ## 快速开始
 
 ### 环境要求

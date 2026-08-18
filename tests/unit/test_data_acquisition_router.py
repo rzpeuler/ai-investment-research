@@ -40,7 +40,7 @@ def requirements(tmp_path: Path) -> DataRequirementRegistry:
 
 
 def _fetch(items: Optional[List[Any]] = None, fields=(), error: Exception | None = None):
-    def fetch(query, time_window):
+    def fetch(data_type, query, time_window):
         if error is not None:
             raise error
         return list(items or []), set(fields)
@@ -215,7 +215,7 @@ def test_routed_batch_defensively_isolates_fetcher_mutables(requirements):
     shared_items = [shared_item]
     shared_fields = {"title", "published_at", "url"}
 
-    def shared_fetcher(query, time_window):
+    def shared_fetcher(data_type, query, time_window):
         return shared_items, shared_fields
 
     router = Router(requirements, {"primary": shared_fetcher})
@@ -239,7 +239,7 @@ def test_legacy_resolve_does_not_copy_discarded_fetch_items(requirements):
         def __deepcopy__(self, memo):
             raise RuntimeError("item snapshot prohibited")
 
-    def fetcher(query, time_window):
+    def fetcher(data_type, query, time_window):
         return [UncopyableItem()], {"title", "published_at", "url"}
 
     router = Router(requirements, {"primary": fetcher})
@@ -327,7 +327,7 @@ def test_bridge_discover_fetch_normalize_order_multiple_refs_and_items():
     fake = FakeCollector()
     fake.extra_item = True
     fetcher = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]
-    items, fields = fetcher({"q": "x"}, {"start": None, "end": None})
+    items, fields = fetcher("macro_data", {"q": "x"}, {"start": None, "end": None})
     assert fake.calls == ["discover", "fetch:1", "normalize:1", "fetch:2", "normalize:2"]
     assert [item.external_id for item in items] == ["1", "3", "2"]
     assert isinstance(fields, frozenset)
@@ -350,7 +350,7 @@ def test_bridge_fields_are_raw_item_contract_only_without_semantic_aliases():
         url="https://example.test/1",
         extra={"company": "company:1", "publish_date": "2026-08-16"},
     )])
-    _, fields = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+    _, fields = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]("macro_data", {}, {})
     assert "published_at" in fields
     assert "company" not in fields
     assert "publish_date" not in fields
@@ -366,14 +366,14 @@ def test_bridge_rejects_source_mismatch_at_every_boundary(boundary):
     else:
         fake.item_source = "other"
     with pytest.raises(RuntimeError, match="collector fake attempt failed"):
-        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]("macro_data", {}, {})
 
 
 def test_bridge_invalid_raw_item_fails_closed():
     fake = FakeCollector()
     fake.invalid_item = True
     with pytest.raises(RuntimeError, match="collector fake attempt failed"):
-        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]("macro_data", {}, {})
 
 
 @pytest.mark.parametrize(
@@ -392,7 +392,7 @@ def test_bridge_discards_all_untrusted_adapter_exception_detail(error_message):
     fake.fail_fetch_for = "2"
     fake.fetch_error = error_message
     with pytest.raises(RuntimeError) as raised:
-        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+        CollectorFetcherBridge({"fake": fake}).fetchers["fake"]("macro_data", {}, {})
     assert str(raised.value) == "collector fake attempt failed"
     assert error_message not in str(raised.value)
 
@@ -420,7 +420,7 @@ def test_bridge_failure_is_constant_through_router_primary_fallback_warning(
 
 def test_bridge_empty_discover_proves_no_fields_and_does_no_more_work():
     fake = FakeCollector(refs=[])
-    items, fields = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]({}, {})
+    items, fields = CollectorFetcherBridge({"fake": fake}).fetchers["fake"]("macro_data", {}, {})
     assert items == []
     assert fields == frozenset()
     assert fake.calls == ["discover"]

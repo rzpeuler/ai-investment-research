@@ -214,7 +214,7 @@ def _wired(
     if empty:
         # An authoritative empty result can only be represented when the source adapter's
         # contract independently proves the response field shape.
-        fetchers = {"cls": lambda query, window: (
+        fetchers = {"cls": lambda data_type, query, window: (
             [], frozenset({"title", "published_at", "url"}),
         )}
     requirement_path = ROOT / "registry" / "data_requirements.yaml"
@@ -233,7 +233,7 @@ def _wired(
 
         class _InvalidBatchRouter:
             def resolve_with_items(self, data_type, query=None, time_window=None):
-                items, fields = valid_fetch(dict(query or {}), dict(time_window or {}))
+                items, fields = valid_fetch(data_type, dict(query or {}), dict(time_window or {}))
                 route = DataRoute(
                     data_type=data_type, requested_sources=["cls"],
                     attempted_sources=["cls"], selected_source="cls",
@@ -245,7 +245,7 @@ def _wired(
     db = Database(project / "data" / "sqlite" / "research.db")
     db.initialize()
     execution = AcquisitionExecutionService(
-        policy=ExecutionPolicy(True, ("route_existing_sources",), ()),
+        policy=ExecutionPolicy(True, ("route_existing_sources",), ("nbs", "cninfo")),
         requirement_registry=requirements,
         capability_registry=capabilities,
         router=router,
