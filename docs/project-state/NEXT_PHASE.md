@@ -5,16 +5,14 @@
 顶层架构与产品治理冻结（Decision #54 / #55）完成后，当前立即顺序冻结：
 
 ```text
-1. 完成本 GOV-ARUX1 governance freeze
-2. 用户/独立架构验收
-3. 恢复 P7-D4 coding
-4. 完成 D4
-5. D4 independent acceptance
-6. D4 merge
-7. P8-A0 DeepSeek Harness Integration Spike
-8. P8-A0 independent architecture acceptance
-9. 再决定 Harness production adoption
-10. D5 / 后续数据能力按新路线继续
+1. GOV-ARUX1 governance acceptance（独立架构验收）
+2. D4 independent acceptance（implementation head 7c2791b；online acceptance NOT_RUN）
+3. findings-only fixes if required
+4. D4 closeout / merge
+5. P8-A0 DeepSeek Harness Integration Spike
+6. P8-A0 independent architecture acceptance
+7. 再决定 Harness production adoption
+8. D5 / 后续数据能力按新路线继续
 ```
 
 明确：

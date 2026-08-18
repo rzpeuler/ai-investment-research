@@ -7,7 +7,7 @@
 > P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
 > P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
-> P7-D4：IMPLEMENTATION IN PROGRESS / TEMPORARILY PAUSED FOR GOVERNANCE FREEZE（2026-08-18；PAUSED_HEAD `7c2791b`；在线验收待执行）
+> P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1；implementation head `7c2791b`；online acceptance NOT_RUN）
 > 权威规范：`docs/engineering-guide.md` V1.8
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -58,7 +58,7 @@
 | P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 | P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
 | P7-D3 Free-Source Production MVP | PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`）| nbs/cninfo 真实在线验收；allowlist [nbs, cninfo]；默认网络关闭；capability WORKFLOW_WIRED；独立验收 Decision #52，已合并进 master。 |
-| P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTATION IN PROGRESS / TEMPORARILY PAUSED FOR GOVERNANCE FREEZE | 2026-08-18 实施完成（PAUSED_HEAD `7c2791b`）；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6；**因 GOV-ARUX1 治理冻结暂停，未独立验收**；在线验收待执行。 |
+| P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1；implementation head `7c2791b`）| 2026-08-18 实施完成；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6；因 GOV-ARUX1 治理冻结暂停；online acceptance NOT_RUN。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -327,10 +327,10 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   `docs/architecture/frontend-product-architecture.md`；工程指南升级 **V1.8**。
 - 治理分支：`governance/agent-runtime-frontend-design-freeze`；GOV_BASE_SHA =
   `7c2791b2b854b88279c4c3126f7b1b2f8e861460`（D4 暂停 HEAD，与用户报告一致）。
-- **P7-D4：IMPLEMENTATION IN PROGRESS / TEMPORARILY PAUSED FOR GOVERNANCE FREEZE**；
-  PAUSED_HEAD = `7c2791b2b854b88279c4c3126f7b1b2f8e861460`。未写 P7-D4 PASS / 未独立
-  验收 / M6/M7 未 PASS（独立验收未发生）。D4 恢复后继续严格按当前 D4 taskbook 完成，
-  本冻结不改 D4 范围。
+- **P7-D4：IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（TEMPORARILY PAUSED FOR GOV-ARUX1）**；
+  implementation head = `7c2791b2b854b88279c4c3126f7b1b2f8e861460`；online acceptance =
+  NOT_RUN。未写 P7-D4 PASS / 未独立验收 / M6/M7 未 PASS（独立验收未发生）。D4 恢复后
+  继续严格按当前 D4 taskbook 完成，本冻结不改 D4 范围。
 
 ```text
 AGENT_RUNTIME_ARCHITECTURE: DESIGN_FROZEN
