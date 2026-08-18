@@ -115,14 +115,32 @@ Decision #47.8/#47.9）：
   场景只声明 Data Type，禁止声明具体来源。
 - Brief A = NEW EVENT DISCOVERY（`FAST_NEWS ∈ A`）；Brief C = CURRENT-WINDOW
   ATTENTION MONITORING（一次性窗口快照，无持续监控 / 热度历史 / 排名变化）。
-- 未新增 Collector、未扩展 Source Registry、未实现 Router v2、无 Graph write、
-  Phase 6.1 未授权、P7-D1 未授权。
+- 未新增 Collector、未扩展 Source Registry、未实现 Router v2、无 Graph write；
+  Phase 6.1 未授权。该 D0 terminal boundary 当时未授权 P7-D1，后续 P7-D1 已经独立
+  授权、实施并验收。
+
+## P7-D1：数据就绪控制面（PASS / INDEPENDENTLY ACCEPTED）
+
+P7-D1 实现 Data Readiness + Gap Classification + Acquisition Planning 控制面
+（Decision #48）：
+
+- `Plan.data_requirements` / `data_requirement_ids` 由中央
+  `registry/scenario_data_requirements.yaml` 生成（Runner 旧字段 LEGACY）。
+- `src/research_os/data_layer/*`：RequirementContextResolver → DataReadinessService
+  → GapClassifier → AcquisitionPlanner → DataPreflightService；只读、确定性、
+  零 LLM、零网络。
+- 新增 `registry/data_acquisition_capabilities.yaml`；`data_readiness` Schema 的
+  coverage_ratio 支持 null。
+- Preflight 在 Runner.execute 前；不 gate 普通数据不足；非 dry-run 持久化
+  readiness/gaps/plan artifacts。
+- 不执行 Acquisition（执行属于 P7-D2）；Router / Collectors / Source Registry 不变。
 
 当前 Schema registry 为 **85**，数据库为 **v6**，没有新增 migration。P7 data acquisition
-仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1 与 P7-D0 均已通过独立验收（`PASS /
-INDEPENDENTLY ACCEPTED`），两者均未改变任何数据源、Collector、Source
-Registry、Graph 或数据库行为。P7-D1 未授权；P7-D0 只冻结契约与 Registry，不包含
-任何数据采集能力。
+仍为 `NOT_STARTED`；Phase 6.1 未授权。P7-UX1、P7-D0 与 P7-D1 均已通过独立验收
+（`PASS / INDEPENDENTLY ACCEPTED`）；P7-D1 accepted implementation head 为
+`bc27781`，CI `31899546501` 通过。均未改变任何数据源、Collector、Source Registry、
+Graph 或数据库行为。P7-D2 仅 taskbook 与架构设计获授权；P7-D2 implementation / Acquisition
+execution 仍未授权；P7-D0/P7-D1 只包含契约与控制面，不含数据采集执行能力。
 
 ## 快速开始
 

@@ -1,10 +1,11 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-11
+> 更新日期：2026-08-16
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
-> 权威规范：`docs/engineering-guide.md` V1.5
+> P7-D1：PASS / INDEPENDENTLY ACCEPTED（accepted implementation head `bc27781`）
+> 权威规范：`docs/engineering-guide.md` V1.6
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -51,6 +52,7 @@
 | P6-F0 | PASS / MERGED | 共享契约冻结（PR #14）。 |
 | Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
 | P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
+| P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
 
 ## 2026-08-07 修复后的关键事实
 
@@ -162,6 +164,7 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   USER_TRIAL_READY: YES。该数字是 Decision #45 的历史验收快照，不是当前注册表数量。
 - Current registry after P7-UX1 implementation: Schemas: 80；DB: v6；migrations: NONE。
 - Current registry after P7-D0 contracts: Schemas: 85；DB: v6；migrations: NONE。
+- P7-D1 新增：`data_layer` 控制面（readiness/gap/planning）+ `data_acquisition_capabilities.yaml`；Schema 仍 85。
 
 ## P7-UX1 当前状态（terminal / governance closeout）
 
@@ -191,6 +194,41 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   Registry 对第 11 个/missing scenario 与 wrapper 未知字段 fail-closed、watchlist
   增加 `content_scope`（财联社 = non_fast_news_only）、未验证条目
   `last_verified_at: null`、Router 治理措辞收口。详见 `docs/tasks/phase7-data-layer-d0-r1.md`。
+
+## P7-D1 当前状态（PASS / INDEPENDENTLY ACCEPTED）
+
+- 授权：`IMPLEMENTATION AUTHORIZED — P7-D1 ONLY`；终态：`PASS /
+  INDEPENDENTLY ACCEPTED`（2026-08-16，Decision #48.10/#48.11）。accepted
+  implementation head = `bc277817ee419410803f5541d74be75a330e9713`；Acceptance CI
+  `31899546501`：3215 passed / 6 skipped / 0 failed，85/85 schemas，compileall PASS。
+  PR #25 已获 merge authorization，但仍 OPEN / NOT MERGED。
+- 实现 `src/research_os/data_layer/*` 控制面：RequirementContextResolver →
+  DataReadinessService → GapClassifier → AcquisitionPlanner → DataPreflightService。
+- `Plan.data_requirements` / `data_requirement_ids` 由中央
+  `registry/scenario_data_requirements.yaml` 生成；Runner 旧字段 LEGACY。
+- 新增 `registry/data_acquisition_capabilities.yaml`（22 data_type，与 scenario
+  data_type 集合一致）；`schemas/data_readiness.schema.json` 的 coverage_ratio 支持 null。
+- Preflight 在 Runner.execute 前；普通数据不足不 gate Runner；配置错误 fail closed。
+- 非 dry-run 持久化 `data_readiness_before.jsonl` / `data_gaps.jsonl` /
+  `acquisition_plan.json`；dry-run 零副作用。
+- R3.1（P7-D1-R3.1）完成 Final Runtime Closure：
+  完全消除 lexical datetime（parse-then-compare + date-only 显式边界 +
+  malformed fail-closed）、REQUESTED_RUN_SET coverage 生效（valid/requested
+  比率、去重、no-scan）、run_id 正式 artifact 证明（禁 directory fallback）、
+  EntityMapping coverage 服从 binding（subject singleton / industry-global null）、
+  Graph projectable payload 经 runtime projector 保留、8 类 schema-valid runtime
+  fixtures 全循环、projection gate exact registry（9 个已实现）、binding-owned
+  provenance/coverage/freshness 全链路。
+  详见 `docs/tasks/phase7-data-layer-d1-r3-1.md`。
+- R3（P7-D1-R3）完成 Runtime Semantic Binding Closure：
+  BindingResolver/Projector 接入 production preflight（design-time = runtime）、
+  Evidence subject scope 经 RawItem provenance、previous_run_ids 专用 context +
+  prior_run_lineage 共享 helper、timezone-aware PIT/window、Document/Industry tier。
+  详见 `docs/tasks/phase7-data-layer-d1-r3.md`。
+- R2（P7-D1-R2）完成 Authority Semantics Closure：43/43
+  RequirementReadinessBinding、minimum-field closure 100%、精确 6 项 D0 contract
+  纠偏、SecurityProfile/Valuation 生命周期、Financial canonical value、Tier 全链路、
+  Graph query_graph 实证、dry-run 拆两测试。详见 `docs/tasks/phase7-data-layer-d1-r2.md`。
 - 冻结 5 个数据层契约：`ScenarioDataRequirement`、`DataReadiness`、`DataGap`、
   `AcquisitionPlan`、`BriefAttentionSnapshot`；Schema registry 为 85；DB 仍 v6；
   migrations NONE。
@@ -202,5 +240,6 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   “舆论监测体系”整体语义）：`A = NEW EVENT DISCOVERY`、`C = CURRENT-WINDOW
   ATTENTION MONITORING`；`FAST_NEWS ∈ A`、`FAST_NEWS ∉ C`；C 为一次性窗口扫描，
   无持续监控 / 热度历史 / 排名变化 / 速度 / 加速度 / 持久化。
-- `P7-D1: NOT AUTHORIZED`；`NEW COLLECTORS: NOT AUTHORIZED`；`SOURCE EXPANSION:
-  NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。
+- P7-D2 的 taskbook drafting 与 architecture design 已授权；P7-D2 implementation、
+  Acquisition execution、具体外部数据源、new collectors、source expansion 仍
+  `NOT AUTHORIZED`；`GRAPH_WRITE: NONE`；`PHASE6.1: NOT_AUTHORIZED`。

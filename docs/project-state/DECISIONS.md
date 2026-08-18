@@ -2462,3 +2462,265 @@ SCHEMAS: 85
 治理 closeout 只写回已发生的验收事实，不改变 accepted implementation baseline
 （accepted code = `d06d8d7`）；governance-only closeout commit 不建立新的 accepted
 code baseline，与 Phase 6 / P7-UX1 的治理 closeout 原则一致。
+
+---
+
+## 48. P7-D1 Data Readiness & Acquisition Planning Control Plane
+
+**Date**: 2026-08-11
+**Status**: FROZEN / APPROVED（P7-D1 冻结；IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+**Scope**: Data Readiness + Gap Classification + Acquisition Planning 控制面；只读 + 确定性
+
+### 48.1 控制面原则
+
+```text
+SCENARIO_REQUIREMENT_AUTHORITY: registry/scenario_data_requirements.yaml
+READINESS: READ_ONLY / DETERMINISTIC
+GAP_CLASSIFICATION: DETERMINISTIC
+ACQUISITION_PLANNING: DETERMINISTIC
+ACQUISITION_EXECUTION: NO
+SECOND_ROUTER: NO
+ROUTER_CORE_CHANGE: NO
+NEW_COLLECTORS: NO
+SOURCE_EXPANSION: NO
+PRODUCTION_LLM: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+P7-D1 中 `AcquisitionPlan` 是控制面计划，不是执行授权。route_existing_sources /
+fetch / normalize / persist / readiness recheck 全部属于后续 P7-D2，当前禁止实现。
+
+### 48.2 Requirement Authority 切换
+
+从 P7-D1 起，正式 Data Requirement Authority = `registry/scenario_data_requirements.yaml`。
+各 Runner 的 `build_plan()["data_requirements"]` 变为 LEGACY / NON_AUTHORITATIVE；
+Orchestrator 不得采用它作为正式要求。Runner business behavior 不变；如声明与中央
+Registry 不一致，中央 Registry 胜出（可写 warning，不重新合并两套 Requirement）。
+
+### 48.3 关键边界
+
+```text
+READINESS: 只读状态判断，ZERO NETWORK / ZERO WRITE / ZERO LLM
+READINESS 不得调用: Router.resolve / Collector / HTTP / Source fetcher / LLM
+CHECKER MISSING → CONTROL_PLANE_CONFIGURATION_ERROR（不得返回 MISSING）
+PIT: 存在 ≠ as_of 时已经可知（按领域解释，禁止万能 timestamp <= as_of）
+COVERAGE_RATIO: number | null（open-world 无合法 denominator 时 null + COVERAGE_NOT_MEASURABLE）
+SOURCE_TIER: S > A > B > C > D；无法证明 provenance → SOURCE_TIER_UNPROVEN（quality ineligible）
+AUTO_ACQUIRABLE / STALE_REFRESHABLE: 仅 automatic_acquisition_lifecycle = BUSINESS_SUFFICIENT 允许
+CAPABILITY REGISTRY: 与 scenario data_type 集合完全一致（fail closed）
+ACQUISITION_PLAN: 控制面计划不执行；step 顺序 = Registry 顺序；step_id 确定性 UUID5；禁止 source 泄露
+PREFLIGHT: 在 Runner.execute 前；普通数据不足不 gate Runner；配置错误 fail closed
+DRY-RUN: 零 DB 写 / 零文件写 / 零网络 / 零 LLM（DB 不存在时不创建）
+```
+
+### 48.4 D1 不改变 Scenario 成败语义
+
+Preflight 得到 MISSING / PARTIAL / MANUAL_INPUT_REQUIRED / UNAVAILABLE 时，本阶段不得
+阻止 Runner、修改 Runner request、改变 result.status、改变 exit_code 或覆盖
+missing_data。现有 Pipeline 的 success / partial_success / degraded /
+insufficient_data / failed 语义继续权威。唯一可 fail execution 的是控制面自身
+配置/一致性故障（CONTROL_PLANE_CONFIGURATION_ERROR）。
+
+### 48.5 Terminal Boundary（P7-D1 后仍保持）
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+P7-D2: NOT AUTHORIZED
+ACQUISITION_EXECUTION: NOT AUTHORIZED
+NEW_COLLECTORS: NOT AUTHORIZED
+SOURCE_EXPANSION: NOT AUTHORIZED
+PHASE6.1: NOT_AUTHORIZED
+GRAPH_WRITE: NONE
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+---
+
+### 48.6 R1 Independent Acceptance Finding & Repair Scope
+
+P7-D1 首次独立验收发现：REGISTERED CHECKER COVERAGE ≠ SEMANTICALLY CORRECT
+READINESS。R1 返修（Readiness Semantic Correctness & Authority Alignment）已授权并
+实现：
+
+```text
+R1-01: NormalizedRequestContextAdapter（10/10 真实 Runner 契约；Task.entities 共享）
+R1-02: DataTypeReadinessSpec 22/22 authority mapping（claims/security_profiles/valuation_snapshots 修正）
+R1-03: ReadinessProvenanceResolver（evidence/raw source/evidence_ids 既有治理解析）
+R1-04: coverage 策略分离（open-world null；去工作日近似）
+R1-05: freshness_seconds 执行 + STALE + FRESHNESS_UNPROVEN
+R1-06: Graph 复用既有 lifecycle/query authority + as_of 强制
+R1-07: dry-run 读已有 DB（open_read_only）+ 连接关闭
+R1-08: DerivationPrerequisiteResolver（eligible_count 不充分）
+```
+
+R1 不改变 D1 已正确的架构（central authority / preflight before runner /
+normal gaps 不 gate runner / no acquisition execution）。返修完成后：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+```
+
+---
+
+### 48.7 R2 Independent Re-Acceptance Findings & Contract Corrections
+
+P7-D1-R1 独立复验发现仍需 Authority Semantics Closure。R2 完成：
+
+```text
+R2-01: D0 Contract Corrections（精确 6 项：1 scope_type + 5 time_policy + 5 PIT）
+        stock_research_report.company_document / industry_membership
+        industry_research.evidence_index
+        theme_discovery.evidence_index / document_corpus
+        earnings_expectation.company_announcement
+        属于 verified correction of mismatch，NOT requirement expansion
+R2-02: RequirementReadinessBinding 43/43 + MinimumFieldClosure 100%
+R2-03: ScenarioTimeContext（DailyReview/StockReview/AbnormalMove 复用既有权威）
+R2-04: SecurityProfile 生命周期（listing_date/status）
+R2-05: Valuation 生命周期（complete/partial；单候选无 field union）
+R2-06: Financial canonical value + coverage（subject null / peer N）
+R2-07: Industry scope/coverage（subject singleton / industry open-world null）
+R2-08: Evidence/Claim/Finding/Market-manifest tier 全链路
+R2-09: Graph query_graph 实证 + node_refs/edge_refs 真实
+R2-10: Dry-run 拆两测试（read + zero write proof）
+```
+
+R2 Authority Semantics Closure Rules：Requirement Binding 43/43、Canonical Field
+Projection、No Candidate Field Union、Tier via provenance、Scenario-specific time
+authority。返修完成后：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+```
+
+---
+
+### 48.8 R3 Independent Re-Acceptance Finding & Runtime Closure
+
+P7-D1-R2 独立复验发现：R2 的 binding/projector 存在但未 runtime-authoritative
+（design-time semantics ≠ runtime semantics）。R3 将其接入 production preflight/readiness：
+
+```text
+R3-01: BindingResolver 入 Preflight（同一 RequirementRegistry；43/43 closure +
+       RuntimeStrategyGate 生产执行）
+R3-02: ReadinessFieldProjector 入 runtime（canonical available_fields；
+       Financial value / statement_scope direct；symbol 非 alias；
+       未知 projection → CONFIG ERROR）
+R3-03: Evidence subject scope 经 RawItem provenance（raw_item_id → entities；
+       无法解引用 → ineligible）
+R3-04: Coverage 用 binding.coverage_strategy（claims open-world null；
+       REQUESTED_RUN_SET）
+R3-05: previous_run_ids 专用 context + prior_run_lineage 共享 helper
+       （DailyReview + Data Layer 共用；validation 强校验；run_id 实证）
+R3-06: timezone-aware PIT/window（parse_iso 比较，禁字典序）
+R3-07: Provenance 用 binding.provenance_strategy（Document source_id；
+       IndustryMembership tier）
+R3-10: Strategy Implementation Registry（binding strategy ∈ runtime supported）
+```
+
+R3 无新 contract correction；所有 Registry 冻结。返修完成后：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+（R1/R2/R3 repair chain）
+```
+
+### 48.9 R3.1 Final Runtime Closure（2026-08-11）
+
+P7-D1-R3 独立复验 = **CHANGES_REQUIRED**。确认 R3 主架构方向正确
+（binding/projector runtime wired、Evidence→RawItem、lineage、provenance、dry-run、
+graph query），无架构重写；只关闭剩余 runtime correctness blockers：
+
+```text
+B1. Remaining lexical datetime eligibility（RawItem SQL window prefilter /
+    Financial publication SQL string compare / Valuation latest 字符串排序）
+B2. REQUESTED_RUN_SET coverage 未实现（binding 仍 NOT_APPLICABLE）
+B3. run_id 仍有 directory-name fallback
+B4. EntityMapping scenario coverage 绕过 Binding（无条件 1.0/0.0）
+B5. Graph result 经 canonical projector 后丢失
+B6. Runtime positive fixtures 未全 Schema-valid
+B7. RuntimeStrategyGate 接受任意 projection 前缀
+```
+
+R3.1 收口：
+
+```text
+DATETIME ELIGIBILITY: PARSE THEN COMPARE（无 lexical datetime；date-only 显式
+    Asia/Shanghai 边界；malformed fail-closed）
+RUN_ARTIFACT BINDING: coverage_strategy = REQUESTED_RUN_SET
+RUN_COVERAGE: valid requested / unique requested（去重；empty → null / MISSING /
+    NO AUTO SCAN；minimum_coverage → PARTIAL + COVERAGE_BELOW_MINIMUM）
+RUN_ID PROOF: scenario_execution_result.json 必须存在且 task_id/run_id 非空且
+    task_id 一致；validation_status 与共享 acceptance 不矛盾；禁止 directory fallback
+ENTITY_MAPPING COVERAGE: subject → SINGLETON_TARGET；industry/global → OPEN_WORLD null
+GRAPH PROJECTOR: 仅实际 query 证明后生成 projectable payload（node_refs/edge_refs/
+    as_of/industry_id）；runtime binding+projector 下不丢失；global fail-closed；零写入
+RUNTIME FIXTURES: Pydantic → model_dump → validate_instance → persist → actual checker
+    → DataReadinessService（8 类对象全循环）
+PROJECTION GATE: SUPPORTED_PROJECTION_STRATEGIES exact registry（9 个已实现）；
+    PROJECTION_HANDLERS 与其机械一致（parity 测试）；未知 projection 初始化即
+    CONTROL_PLANE_CONFIGURATION_ERROR；删除 dead projection:financial_facts.statement_type
+BINDING RUNTIME AUTHORITY: provenance/coverage/freshness 全部 binding-owned
+    （_prov_strategy/_cov_strategy/_fresh_strategy）；production preflight 强制 binding
+    + projector，无 generic fallback
+```
+
+Registry 全冻结（R3.1 无第 7 个 contract correction）；Router/Collectors/schemas/
+runners 不变；DB v6 / Migrations NONE / Schemas 85 / Network 0 / LLM 0 /
+Graph write NONE / P7-D2 NOT_AUTHORIZED / PHASE6.1 NOT_AUTHORIZED。
+
+R3.1 完成后只能报告：
+
+```text
+P7-D1: IMPLEMENTED / AWAITING INDEPENDENT RE-ACCEPTANCE
+（R1/R2/R3/R3.1 repair chain）
+```
+
+不得自行声明 PASS / ACCEPTED / CLOSED / MERGE AUTHORIZED。
+
+### 48.10 Independent Re-Acceptance（2026-08-16）
+
+P7-D1-R3.1 完成后的独立复验结论为 **PASS**。验收覆盖 R1/R2/R3/R3.1 全返修链，
+并补充验证所有时间资格路径均 parse-then-compare、malformed fail-closed。
+
+```text
+P7-D1_ACCEPTED_IMPLEMENTATION_HEAD: bc277817ee419410803f5541d74be75a330e9713
+P7-D1-R3.1: PASS
+INDEPENDENT_RE_ACCEPTANCE: PASS
+P7-D1: PASS / INDEPENDENTLY ACCEPTED
+PR_25: MERGE AUTHORIZED / NOT MERGED
+
+ACCEPTANCE_CI: 31899546501
+PYTEST: 3215 passed / 6 skipped / 0 failed
+SCHEMAS: 85/85 PASS
+COMPILEALL: PASS
+```
+
+accepted implementation baseline = `bc27781`。其后的 governance-only closeout commit
+不建立新的 accepted code baseline。
+
+### 48.11 Terminal Boundary and Next-Step Authorization
+
+```text
+P7-D1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
+P7-D2 TASKBOOK DRAFTING: AUTHORIZED
+P7-D2 ARCHITECTURE DESIGN: AUTHORIZED
+P7-D2 IMPLEMENTATION: NOT AUTHORIZED
+ACQUISITION_EXECUTION: NOT AUTHORIZED
+SPECIFIC EXTERNAL SOURCE AUTHORIZATION: NONE
+NEW_COLLECTORS: NOT AUTHORIZED
+SOURCE_EXPANSION: NOT AUTHORIZED
+PHASE6.1: NOT_AUTHORIZED
+GRAPH_WRITE: NONE
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 85
+```
+
+设计授权不等于实施授权。P7-D2 必须完成新 taskbook、独立架构批准与显式实施授权；
+任何具体外部数据源、Collector、联网执行、持久化变更或 migration 均不在本授权内。

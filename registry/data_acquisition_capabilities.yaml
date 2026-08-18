@@ -1,0 +1,239 @@
+# 数据获取能力注册表（P7-D1）
+# 只回答：系统当前对某 Data Type 到底会不会做某类补充动作？
+# 不是 Source Registry：禁止来源选择字段（来源选择属于 data_requirements.yaml + Router）。
+# 生命周期枚举：NONE / REGISTERED / PROBED / ADAPTER_IMPLEMENTED / WORKFLOW_WIRED / BUSINESS_SUFFICIENT
+# 规则：存在 Source Registry entry != AUTO_ACQUIRABLE；只有 BUSINESS_SUFFICIENT 才允许
+#       GapClassifier 输出 AUTO_ACQUIRABLE / STALE_REFRESHABLE（保守规则）。
+
+capabilities:
+  news_flash:
+    automatic_acquisition_lifecycle: ADAPTER_IMPLEMENTED
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/collectors/news/cls.py
+    notes: cls 元数据适配器已实现但属实验性 B 级（brief/collect.py append_live_items 可选接入）；未证明业务充分，不得 AUTO_ACQUIRABLE
+
+  company_announcement:
+    automatic_acquisition_lifecycle: ADAPTER_IMPLEMENTED
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/collectors/official/cninfo.py
+    notes: cninfo 适配器已实现；生产 wiring 未证明业务充分，保守为 ADAPTER_IMPLEMENTED
+
+  company_document:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [user_document, manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 公告/定期报告文档仅人工入口（user_document / manual_inbox），无自动采集
+
+  company_profile:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox, user_document]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 公司主体主数据无自动源，仅人工登记
+
+  security_profile:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox, user_document]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 证券主体映射无自动源，仅人工登记
+
+  industry_membership:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 行业归属无自动源；首次覆盖唯一行业仅人工登记
+
+  peer_financial_data:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_financial_import]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 同行财务无自动源，仅 manual_financial_import
+
+  financial_statement_data:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_financial_import, disclosure_extraction]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/financials/import_service.py
+    notes: 人工财务导入链路存在（import_service）；无自动财务源；disclosure_extraction 未证明业务充分
+
+  market_daily_ohlcv:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_import]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/abnormal_move/market_data_loader.py
+    notes: 日线仅人工导入（manual_import）；历史行情 API 属 D2，未接入
+
+  market_valuation_snapshot:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: true
+    manual_modes: [manual_inbox, manual_financial_import]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/equity_research/assembler.py
+    notes: 市值可由价格×股本确定性推导；当前无自动价格源，仅人工输入
+
+  macro_data:
+    automatic_acquisition_lifecycle: ADAPTER_IMPLEMENTED
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/collectors/government/nbs.py
+    notes: nbs 适配器已实现；生产 wiring 未证明业务充分
+
+  brief_event_content:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 需求声明存在；primary/secondary 为空，不接来源
+
+  brief_attention_content:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs: []
+    notes: 一次性窗口关注度内容；无采集来源；不得将未采集解释为无关注
+
+  evidence:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs:
+      - src/research_os/review/evidence.py
+    notes: 内部权威对象（Evidence 存储）；非外部 Source；tier 不适用
+
+  claims:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs: []
+    notes: 内部权威对象（Claims 存储）；非外部 Source
+
+  event_evidence:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs:
+      - src/research_os/review/evidence.py
+    notes: 事件证据读取走既有 Evidence 只读路径
+
+  evidence_index:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: []
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs: []
+    notes: 证据索引为内部派生视图；无外部采集
+
+  research_findings:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: []
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs: []
+    notes: Phase 4 既有研究结论（内部权威）
+
+  run_artifacts:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: []
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs:
+      - src/research_os/orchestrator/run_directory.py
+    notes: 既有 Run 产物（reports/runs/）；内部权威
+
+  knowledge_graph_snapshot:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: []
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs:
+      - src/research_os/knowledge/query.py
+    notes: Versioned Graph 只读快照；GraphQueryService 单一权威；禁止 Graph write
+
+  document_corpus:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: false
+    manual_modes: [user_document, manual_inbox]
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: true
+    implementation_refs:
+      - src/research_os/documents/
+    notes: 文档语料仅人工入口；keyword_sweep / evidence_driven 模式使用
+
+  entity_mapping:
+    automatic_acquisition_lifecycle: NONE
+    deterministic_derivation: true
+    manual_modes: []
+    requires_human_review: false
+    requires_governed_workflow: false
+    source_tier_applicable: false
+    implementation_refs:
+      - src/research_os/models/core.py
+    notes: 证券代码/公司主体确定性映射（内部权威），可确定性解析

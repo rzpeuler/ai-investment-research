@@ -264,13 +264,13 @@ scenarios:
         purpose: research_input
         data_type: company_document
         scope: { scope_type: subject }
-        time_policy: explicit_request_window
+        time_policy: as_of_snapshot
         required: true
         minimum_fields: [title, published_at, document_type]
         minimum_coverage: 0.5
         minimum_source_tier: A
         freshness_seconds: 86400
-        point_in_time_policy: window_bounded
+        point_in_time_policy: strict_as_of
         acceptable_fallback_modes: [user_document, manual_inbox]
         degradation_policy: degraded
         notes: 公告/定期报告文档登记
@@ -278,7 +278,7 @@ scenarios:
         scenario: stock_research_report
         purpose: research_input
         data_type: industry_membership
-        scope: { scope_type: industry }
+        scope: { scope_type: subject }
         time_policy: as_of_snapshot
         required: true
         minimum_fields: [industry_id, valid_from]
@@ -373,13 +373,13 @@ scenarios:
         purpose: research_input
         data_type: evidence_index
         scope: { scope_type: industry }
-        time_policy: explicit_request_window
+        time_policy: as_of_snapshot
         required: false
         minimum_fields: [evidence_id, source_ref]
         minimum_coverage: 0.0
         minimum_source_tier: B
         freshness_seconds: 86400
-        point_in_time_policy: window_bounded
+        point_in_time_policy: strict_as_of
         acceptable_fallback_modes: []
         degradation_policy: degraded
         notes: 证据索引；缺数据时如实降级
@@ -437,13 +437,13 @@ scenarios:
         purpose: research_input
         data_type: evidence_index
         scope: { scope_type: global }
-        time_policy: explicit_request_window
+        time_policy: as_of_snapshot
         required: false
         minimum_fields: [evidence_id, source_ref]
         minimum_coverage: 0.0
         minimum_source_tier: B
         freshness_seconds: 86400
-        point_in_time_policy: window_bounded
+        point_in_time_policy: strict_as_of
         acceptable_fallback_modes: []
         degradation_policy: degraded
         notes: evidence_driven 模式
@@ -452,13 +452,13 @@ scenarios:
         purpose: research_input
         data_type: document_corpus
         scope: { scope_type: global }
-        time_policy: explicit_request_window
+        time_policy: as_of_snapshot
         required: false
         minimum_fields: [document_id, title, published_at]
         minimum_coverage: 0.0
         minimum_source_tier: C
         freshness_seconds: 86400
-        point_in_time_policy: window_bounded
+        point_in_time_policy: strict_as_of
         acceptable_fallback_modes: [manual_inbox]
         degradation_policy: degraded
         notes: keyword_sweep / evidence_driven 模式
@@ -599,13 +599,13 @@ scenarios:
         purpose: research_input
         data_type: company_announcement
         scope: { scope_type: subject }
-        time_policy: explicit_request_window
+        time_policy: as_of_snapshot
         required: false
         minimum_fields: [title, published_at, url, company]
         minimum_coverage: 0.0
         minimum_source_tier: A
         freshness_seconds: 86400
-        point_in_time_policy: window_bounded
+        point_in_time_policy: strict_as_of
         acceptable_fallback_modes: [manual_inbox]
         degradation_policy: degraded
         notes: 业绩预告/公告等事件证据

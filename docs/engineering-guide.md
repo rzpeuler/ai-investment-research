@@ -1,6 +1,6 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.5**
+**版本：V1.6**
 **变更日期：2026-08-11**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
@@ -149,6 +149,121 @@
   未来 P7-D1 或后续经独立授权后可以演化现有 Router，但不得创建并行的第二套路由控制面。
 - 本授权不包含新 Collector、Source expansion、Graph 写入、Phase 6.1 或数据库迁移；
   DB 保持 v6、MIGRATIONS NONE、SCHEMAS 85。
+
+### 0.6 V1.6 P7-D1 Data Readiness + Gap + Acquisition Planning（2026-08-11）
+
+- **Scenario Requirement 中央权威**：正式 Data Requirement Authority =
+  `registry/scenario_data_requirements.yaml`；Runner `build_plan()["data_requirements"]`
+  变 LEGACY / NON_AUTHORITATIVE。`Plan.data_requirements` 与 `data_requirement_ids`
+  由中央 Registry 生成（保持 Registry 确定性顺序）。
+- **Readiness 是只读状态判断**：`DataReadinessService` ZERO NETWORK / ZERO WRITE /
+  ZERO LLM；不得调用 Router.resolve / Collector / HTTP / Source fetcher / LLM。
+- **PIT / scope / field / coverage / tier / freshness 顺序**：1. Scope eligibility →
+  2. PIT eligibility → 3. Minimum fields → 4. Minimum coverage → 5. Minimum
+  source/tier → 6. Freshness → 7. Final status。PIT 按领域解释（published_at /
+  effective_at / valid_from / trade_date / created_at 等），禁止万能 timestamp<=as_of。
+- **GapClassifier 确定性**：ZERO LLM / NO NETWORK / NO WRITE。READY→AVAILABLE；
+  AUTO_ACQUIRABLE / STALE_REFRESHABLE 仅当 `automatic_acquisition_lifecycle =
+  BUSINESS_SUFFICIENT`；其余按能力保守映射。
+- **Acquisition Capability 与 Source Registry 分离**：
+  `registry/data_acquisition_capabilities.yaml` 只回答“系统对某 Data Type 会不会做
+  某类补充动作”，禁止来源选择字段；来源选择仍属 `data_requirements.yaml` + Router。
+- **AcquisitionPlan 不执行**：P7-D1 只生成计划（确定性 step_id UUID5、Registry 顺序、
+  禁止 source 泄露），不执行 route/fetch/normalize/persist/recheck。
+- **Existing Router 保持唯一 Router**：`src/research_os/routing/router.py` 本阶段
+  UNCHANGED；`SECOND_SOURCE_ROUTER: PROHIBITED`。
+- **D1 不改变 Scenario business success semantics**：Preflight 在 Runner.execute 前；
+  普通数据不足不 gate Runner，不改变 result.status / exit_code / missing_data。
+- **dry-run 零副作用**：DB 不存在时不创建、不 initialize、不跑 migration；
+  不创建 reports/runs artifacts；Preflight 仅内存运行。
+- **D2 才允许 Acquisition Execution**：route_existing_sources / fetch / normalize /
+  persist / readiness recheck 全部属于后续 P7-D2，当前禁止实现。
+- **R1 Readiness 语义修正**（V1.6 内，不升级 V1.7）：
+  - coverage 与 field completeness 分离：open-world（事件发现/宏观/广义新闻）无论
+    多少条 → `coverage_ratio = null` + COVERAGE_NOT_MEASURABLE；禁止用
+    `0.0` 表示 open-world 空结果。
+  - 禁止工作日≈交易日近似作为权威 denominator；市场无既有权威交易日历时
+    coverage = null（R1 不授权新增交易日历数据）。
+  - authority 映射按 `DataTypeReadinessSpec`（22/22）：claims→claims 表、
+    security_profile→security_profiles、market_valuation_snapshot→valuation_snapshots。
+  - provenance tier 由既有治理解析（Evidence.source_tier / sources.yaml），
+    禁止领域 payload 通用伪造 source_tier/tier。
+  - freshness_seconds 真正执行：有合格数据但超限 → STALE；无法证明 →
+    FRESHNESS_UNPROVEN；age = as_of - timestamp（支持历史 as_of 重放）。
+  - Graph readiness 复用既有 HistoryService/GraphQueryService（as_of 强制），
+    禁止 count 作为 READY 权威。
+  - dry-run 在 DB 存在时用 open_read_only 读取真实数据（ZERO WRITE），
+    DB 不存在时用 EmptyReadView（不创建）。
+  - AUTO_DERIVABLE 需 DerivationPrerequisiteResolver 显式证明前提；
+    eligible_record_count>0 单独不构成证明。
+- **R2 Authority Semantics Closure**（V1.6 内，不升级 V1.7）：
+  - **Requirement Binding**：每个 ScenarioDataRequirement 恰好一个
+    `RequirementReadinessBinding`（43/43），不允许同一 data_type 在所有 scenario
+    下假设语义完全相同（如 industry_membership 在 stock（subject/singleton）与
+    industry（open-world null）不同）。
+  - **Canonical Field Projection**：`minimum_fields` 每个字段必须是 authority
+    direct field 或 explicit deterministic projection（FinancialFact value /
+    industry_ids / date(published_at) / company subject / graph query result /
+    artifact lineage）；否则 CONTROL_PLANE_CONFIGURATION_ERROR。
+  - **No Candidate Field Union**：singleton 对象（CompanyProfile/SecurityProfile/
+    ValuationSnapshot/Document）必须同一 eligible candidate 满足全部 minimum_fields；
+    collection 型（FinancialFacts/Evidence corpus/peer data）允许集合级 fields 但
+    coverage 与 per-member eligibility 独立正确。
+  - **Tier via provenance**：Evidence 用 evidence_tier；Claim/ResearchFinding 用
+    evidence_ids→Evidence；Market bar 用 accepted manifest→source_id→SourceRegistry；
+    FinancialFact 支持 source_document→Evidence 链；无法证明 →
+    SOURCE_TIER_UNPROVEN。
+  - **Scenario-specific time authority**：DailyReview（day_start→min(day_end,as_of)）、
+    StockReview（review_start→min(review_end 23:59:59,as_of)）、AbnormalMove
+    （explicit→resolve_window→unresolved fail-closed）、morning/evening
+    （BriefWindowPolicy）；explicit window 必须真正过滤 candidates。
+  - SecurityProfile 生命周期（listing_date/status）与 Valuation（complete/partial）
+    按各自 Schema 语义，禁止被其他对象状态规则污染；Valuation 多 snapshot 确定性
+    选 latest eligible（禁止 field union）。
+- **R3 Runtime Semantic Binding Closure**（V1.6 内，不升级 V1.7）：
+  - **Requirement Binding MUST be runtime authority**：BindingResolver 在 production
+    preflight 构造（同一 RequirementRegistry），每 requirement 取得 binding 注入
+    context；checker 消费 binding（scope/pit/coverage/provenance/freshness/tier/
+    minimum-field），禁止绕回 generic DataType spec。
+  - **Canonical Projector MUST be consumed by runtime**：available_fields 按
+    requirement-facing canonical names 计算（binding.minimum_field_sources 判定），
+    FinancialFact value / statement_scope direct / symbol 非 alias / unknown
+    projection → CONFIG ERROR。
+  - **design-time-only semantic closure is insufficient**：43/43 binding 定义 +
+    RuntimeStrategyGate（strategy ∈ supported）才构成 runtime closure。
+  - **Evidence subject scope via RawItem provenance**：Evidence.raw_item_id →
+    RawItem.entities → scope validation；无法解引用 → ineligible。
+  - **prior-run lineage must reuse existing DailyReview authority**：
+    `review/prior_run_lineage.py` 共享 helper；validation.json 强制；
+    run_id 来自 scenario_execution_result.json；previous_run_ids 专用 context。
+  - **datetime PIT/window comparisons must be timezone-aware**：parse_iso 后比较，
+    禁止 ISO 字典序。
+  - **R3.1 Final Runtime Closure**（V1.6 内，不升级 V1.7）：
+    - **no lexical datetime eligibility**：RawItem 窗口过滤在 Python parse_iso 后
+      判定（SQL prefilter 不得 authoritative）；Financial publication PIT fetch
+      exact object 后按 instant 比较；Valuation latest 按 instant 排序；
+      date-only 字段显式 Asia/Shanghai 边界；malformed 时间 fail-closed。
+    - **requested-run-set coverage is actual valid/requested ratio**：
+      `daily_review.run_artifacts` binding = REQUESTED_RUN_SET；coverage =
+      valid/unique requested；empty → null/MISSING/no auto-scan；重复 ID 不扭曲
+      denominator；minimum_coverage 真实影响 readiness。
+    - **run_id requires formal execution artifact proof**：
+      scenario_execution_result.json 必须存在且 task_id/run_id 非空一致；
+      validation_status 与共享 lineage acceptance 不矛盾；禁止 directory fallback。
+    - **scenario EntityMapping coverage obeys Binding**：subject → SINGLETON_TARGET；
+      industry/global → OPEN_WORLD null（本阶段无完整权威 denominator）。
+    - **Graph canonical fields survive runtime projection**：仅实际 query 证明后
+      生成 projectable payload；node_refs/edge_refs 经 runtime projector 保留；
+      global fail-closed；零写入。
+    - **production runtime fixtures must be Pydantic + Schema-valid**：Pydantic →
+      model_dump → validate_instance → persist → actual checker → service；
+      partial dict 不得称为 Schema-valid fixture。
+    - **projection strategy support is exact, not prefix-based**：
+      SUPPORTED_PROJECTION_STRATEGIES 精确注册（9 个已实现）；Projector handler
+      与其机械一致；未知 projection 初始化即 CONTROL_PLANE_CONFIGURATION_ERROR。
+    - **binding-owned provenance/coverage/freshness**：checker 一律经
+      `_prov_strategy/_cov_strategy/_fresh_strategy` 消费 binding；production
+      preflight 强制 binding+projector，无 generic fallback。
 
 ---
 
