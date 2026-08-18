@@ -2766,3 +2766,47 @@ SCHEMAS: 86
 
 本决策不声明 P7-D2 PASS / CLOSED / REAL SOURCE READY / MERGE AUTHORIZED；完整 Foundation
 实现完成后仍须独立验收。
+
+## 50. P7-D2 Acquisition Execution Foundation 独立验收（2026-08-18）
+
+P7-D2 Foundation 于 2026-08-18 完成独立验收，结论 **PASS / INDEPENDENTLY ACCEPTED**。
+
+### 50.1 Independent Acceptance
+
+- 独立验收 accepted head：`55c4ba55847aec91ae425d86bf3415fcf867e7f4`（基于交接 head
+  `84f70b5` + 1 项返修：清除 D2 文档 19 处尾随空格以满足 diff-check gate；无业务代码改动）。
+- 验收复现（Windows / Python 3.11.15）：full pytest `3567 passed / 6 skipped /
+  0 failed / 1 warning`；schema validation `86/86 PASS`（`PYTHONPATH=src`）；
+  compileall PASS；diff-check PASS。Offline CI run `31945487755`（Ubuntu /
+  Python 3.12.13）记录一致。
+- 逐项对照 taskbook §12 完成定义：Foundation-only scope、production policy
+  `enabled: false` / `allowed_actions: [route_existing_sources]` /
+  `production_collector_ids: []`、capability promotions 0、new collectors 0、
+  source expansion 0、LLM/provider calls 0、Graph writes 0、DB v6 /
+  migrations NONE added / schemas 86 全部满足。
+- 执行门顺序（taskbook §3 十步）、§11 强制测试（6 个文件 / 131 测试）、Runner
+  兼容（10/10 status / exit_code / missing_data 不变）与 dry-run 零副作用测试全部通过。
+
+### 50.2 Terminal Boundary（P7-D2 独立验收后）
+
+```text
+P7-D2_INDEPENDENT_ACCEPTANCE: PASS（2026-08-18）
+REAL_SOURCE_EXECUTION: NOT_AUTHORIZED
+SPECIFIC_SOURCE_AUTHORIZATION: NONE
+PRODUCTION_COLLECTOR_IDS: []
+CAPABILITY_PROMOTIONS: 0
+NEW_COLLECTORS: 0
+SOURCE_EXPANSION: NO
+PRODUCTION_LLM_CALLS: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6
+MIGRATIONS: NONE
+SCHEMAS: 86
+```
+
+- D2 独立验收 PASS 只证明 Fake-proven Foundation 正确；不授权任何真实来源、
+  real-source execution、capability promotion、新 Collector 或 Phase 6.1。
+- D1（PR #25 已获 merge authorization）与 D2 合并进 master 后，从新 master 建立
+  P7-D3 工程基线；任何 real-source execution 仍须新的来源治理、验证、taskbook、
+  架构批准与显式 implementation authorization。

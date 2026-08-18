@@ -69,19 +69,19 @@ Phase 5: CLOSED / PASS
 - **Phase 6 research capability**: PASS
 - **Phase 6 central enablement**: PASS
 - **USER_TRIAL_READY**: YES
-- **CURRENT ENGINEERING MILESTONE**: P7-D2 Acquisition Execution Foundation（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE）
+- **CURRENT ENGINEERING MILESTONE**: P7-D2 Acquisition Execution Foundation（PASS / INDEPENDENTLY ACCEPTED 2026-08-18）；下一步 P7-D3 Free-Source Production MVP（待 D1/D2 合并后实施）
 - **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
-- **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation awaiting independent acceptance
+- **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation PASS / INDEPENDENTLY ACCEPTED
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
 - **P7-D0**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9；accepted head d06d8d7）
 - **P7-D1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11；accepted head `bc27781`；CI `31899546501`）
-- **P7-D2 FOUNDATION**: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+- **P7-D2 FOUNDATION**: PASS / INDEPENDENTLY ACCEPTED（Decision #50；accepted head `55c4ba5`）
 - **REAL DATA ACQUISITION COVERAGE**: NONE
 - **Current Schema registry**: 86（Phase 6 terminal historical snapshot was 69）
 - **DB / migrations**: v6 / NONE
-- **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`
+- **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
 - **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
-- **NEXT WORK**: independent acceptance of the P7-D2 fake-proven Foundation
+- **NEXT WORK**: 合并 P7-D1（PR #25 已授权）与 P7-D2 到 master；从新 master 建立 P7-D3 工程基线并实施 Free-Source Production MVP（nbs / cninfo）
 - **REAL-SOURCE AUTHORIZATION**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately
@@ -97,16 +97,18 @@ P7-D1 已通过独立复验（Decision #48.10/#48.11），状态为 `CLOSED / PA
 INDEPENDENTLY ACCEPTED`。accepted implementation head 为 `bc27781`，PR #25
 已获 merge authorization，但当前仍 OPEN / NOT MERGED。
 
-P7-D2 Foundation 已按独立授权完成实现，下一步只做独立验收：
+P7-D2 Foundation 已于 2026-08-18 通过独立验收（Decision #50，PASS / INDEPENDENTLY ACCEPTED，
+accepted head `55c4ba5`）：
 
 ```text
 P7-UX1: CLOSED / PASS
 P7-D0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P7-D1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
-P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+P7-D2 FOUNDATION: PASS / INDEPENDENTLY ACCEPTED（2026-08-18）
 REAL DATA ACQUISITION COVERAGE: NONE
-→ independent acceptance only
-→ real source execution / production collector IDs / capability promotion: NOT AUTHORIZED
+→ D1（PR #25 已授权）与 D2 合并进 master
+→ 从新 master 建立 P7-D3 工程基线（Free-Source Production MVP：nbs / cninfo）
+→ real source execution / production collector IDs / capability promotion: 须 P7-D3 授权
 → Phase 6.1: NOT AUTHORIZED
 ```
 

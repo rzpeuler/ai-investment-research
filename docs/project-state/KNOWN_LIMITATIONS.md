@@ -13,8 +13,8 @@
 > governance closeout 2026-08-11；统一数据层契约与 Brief A/C 冻结）；
 > P7-D1 = PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11，accepted
 > implementation head `bc27781`；数据就绪控制面）；
-> P7-D2 FOUNDATION = IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE（final implementation /
-> validation head `84f70b5dec1a65c9842628c974e1693738ab9cca`；真实采集覆盖 NONE）。
+> P7-D2 = PASS / INDEPENDENTLY ACCEPTED（2026-08-18，Decision #50；accepted head
+> `55c4ba5`；最终 implementation head `84f70b5`；真实采集覆盖 NONE）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -205,10 +205,11 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
   bar 的 tier 依赖 accepted manifest（无 manifest → SOURCE_TIER_UNPROVEN）；
   无自动历史日线/财务源；projection 仅支持已登记的 9 个策略（新增需先登记）。
 
-## 18. P7-D2 Acquisition Execution Foundation 限制（awaiting independent acceptance）
+## 18. P7-D2 Acquisition Execution Foundation 限制（PASS / INDEPENDENTLY ACCEPTED 2026-08-18）
 
-- `P7-D2 FOUNDATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`；
-  `REAL DATA ACQUISITION COVERAGE: NONE`。这不是 PASS、CLOSED、operational 或 real-source ready。
+- `P7-D2: PASS / INDEPENDENTLY ACCEPTED`（Decision #50，accepted head `55c4ba5`）；
+  `REAL DATA ACQUISITION COVERAGE: NONE`。独立验收只证明 Fake-proven Foundation 正确，
+  不证明任何真实来源可用。
 - 当前实现只由 Fake 证明。Production policy 仍 `enabled: false`；Production collector IDs: []；
   Real source execution: 0；Capability BUSINESS_SUFFICIENT promotions: 0；New collectors: 0；
   Source expansion: 0。
@@ -216,7 +217,8 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 - DB: v6；Migrations: 6 / NONE added；Schemas: 86。未新增迁移。
 - 没有任何真实 capability 达到 BUSINESS_SUFFICIENT，因此 production acquisition 继续 fail closed；
   不得把 Fake 成功、已有 Collector 代码或 foundation wiring 解释为真实数据覆盖。
-- 独立验收前不得提升状态；之后任何具体来源仍须独立 source governance、真实验证和显式授权。
+- 独立验收 PASS 不提升任何具体来源状态；之后任何具体来源仍须独立 source governance、
+  真实验证和显式授权（P7-D3）。
 - Offline CI run `31945487755` 已在 Ubuntu / Python 3.12.13 成功（3567 passed /
   6 skipped / 0 failed / 1 warning，417.14s；86/86 schemas；compile success），但离线
   Fake 证明不能替代真实来源验证。前一 run `31943822195` 仅暴露 fresh-process

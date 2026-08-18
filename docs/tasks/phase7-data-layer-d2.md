@@ -1,6 +1,6 @@
 # P7-D2：Acquisition Execution Foundation
 
-**TASKBOOK_STATUS: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE — P7-D2 FOUNDATION ONLY**
+**TASKBOOK_STATUS: PASS / INDEPENDENTLY ACCEPTED — P7-D2 FOUNDATION（2026-08-18）**
 **MILESTONE: P7-D2**
 **DESIGN_COMMIT: `5976428`**
 **PARENT_ACCEPTED_IMPLEMENTATION_HEAD: `bc277817ee419410803f5541d74be75a330e9713`**
@@ -403,3 +403,26 @@ operational / real-source ready，不授权任何具体真实来源或 Phase 6.1
 validation/test head `831afe4bc518ca2e5ffb23087d43ede4eadadd03` 修复该问题；最终 head
 `84f70b5dec1a65c9842628c974e1693738ab9cca` 的继任 run `31945487755` 成功。
 该成功仍只是 Offline/Fake 证明，不构成独立验收或真实来源授权。
+
+## 15. 独立验收（2026-08-18）
+
+```text
+P7-D2_INDEPENDENT_ACCEPTANCE: PASS（2026-08-18）
+Independent acceptance head: 55c4ba55847aec91ae425d86bf3415fcf867e7f4
+（= 交接 head 84f70b5 + 1 项返修：清除本 taskbook 与 superpowers 文档 19 处尾随空格
+  以满足 diff-check gate；无业务代码改动）
+Local reproduction: Windows / Python 3.11.15
+pytest full: 3567 passed / 6 skipped / 0 failed / 1 warning / 648.30s
+schema validation: 86/86 PASS（PYTHONPATH=src）
+compileall: PASS
+diff-check: PASS
+Production policy enabled: false（production collector IDs: []）
+Real source execution: 0；Capability BUSINESS_SUFFICIENT promotions: 0
+New collectors: 0；Source expansion: 0；LLM/provider calls: 0；Graph writes: 0
+DB: v6；Migrations: 6 / NONE added；Schemas: 86
+```
+
+独立验收对照本 taskbook §12 完成定义逐项满足（执行门顺序 §3、强制测试 §11、Runner
+兼容与 dry-run 零副作用均已复现）。该 PASS 只证明 Fake-proven Foundation 正确，不授权
+任何真实来源、real-source execution、capability promotion、新 Collector 或 Phase 6.1；
+真实来源实施须新的来源治理与显式授权（P7-D3）。
