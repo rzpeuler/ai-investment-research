@@ -1,7 +1,7 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.7**
-**变更日期：2026-08-16**
+**版本：V1.8**
+**变更日期：2026-08-18**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
@@ -281,6 +281,55 @@
   结构化错误记录均由 JSON Schema 与确定性代码 fail closed；M0 不实现 error sanitizer；
   Plan 保持不可变且不泄露来源。
 - 本授权不构成任何真实来源可用性、采集覆盖率、独立验收通过或合并授权声明。
+
+### 0.8 V1.8 Agent Runtime / Frontend Product 顶层架构治理冻结（2026-08-18）
+
+GOV-ARUX1 治理冻结（任务书 `docs/tasks/governance-agent-runtime-frontend-design-freeze.md`；
+正式决策见 `DECISIONS.md` #54 / #55）。本版本只新增**长期稳定原则**，不授权任何
+Agent Runtime 或前端实施。长期目标架构见
+`docs/architecture/agent-runtime-skill-architecture.md` 与
+`docs/architecture/frontend-product-architecture.md`。
+
+1. 四层业务架构不变：需求场景层 / 功能模块层 / 数据采集层 / 知识库层。
+2. Agent Runtime 归横向工程控制面，不是第五业务层。
+3. Frontend / Product Surface 不是第五业务层。
+4. 长期目标采用：Agent Runtime + Skill Interface + Deterministic Research OS Core。
+5. Harness target status 与 production status 分开；DeepSeek Harness 当前
+   SELECTED / DESIGN FROZEN / NOT_IMPLEMENTED / NOT PRODUCTION ACCEPTED。
+6. Skill / Tool / Workflow 正式定义：Skill = Agent 可按需加载的任务方法/说明/约束/能力
+   导航；Tool = 具有严格输入输出契约的可执行能力接口；Workflow = Research OS 中经过
+   正式治理和验收的业务执行程序。禁止三者混用。
+7. Memory 三分法：Conversation Memory（Harness Session）/ Research State（Research
+   OS）/ Knowledge Memory（Research OS SQLite/Evidence/Versioned Graph）。Agent
+   Memory 中记得的事实不得自动晋级为 Knowledge Memory。
+8. MCP 是首选 Agent → Research OS capability boundary；第一版不得暴露低级 Collector，
+   只暴露业务语义 Tool。
+9. Agent 不得绕过 Source Router / Evidence / PIT / Graph Validator；不得成为第二套
+   Source Router / Evidence authority / Graph authority。
+10. 当前 Research Workflow LLM（existing research_os.llm）与 Harness Agent LLM 第一
+    阶段允许并存；保留 LlmClient / Provider Factory / Flash→Pro escalation / budget /
+    validation / fallback / audit。
+11. Production Research Agent 默认禁止 arbitrary shell / fs-write / direct network；
+    所有权限 fail closed。
+12. Capability Guide / Data Center 必须是 authoritative projection，不得建立第二套
+    业务事实；禁止 `frontend_capabilities.yaml` 作第二套 authority。
+13. Frontend 状态展示不得夸大能力：Source Registered ≠ Collector Implemented ≠
+    Workflow Wired ≠ Business Sufficient；connection/probe success ≠
+    BUSINESS_SUFFICIENT。
+14. 数据不足 != 执行失败；partial_success / degraded / insufficient_evidence 不得统一
+    映射成“失败”。
+15. LLM / Agent gate 与 Research Live Data gate 独立，不得合并。
+16. Evidence drawer / lineage 是正式产品能力；前端不得显示模型 private chain-of-thought。
+17. 数据源编辑属于治理写操作，必须 Diff + Impact + Confirm + Audit；禁止把 Source
+    Registry 暴露为普通 YAML 编辑器。
+18. Harness version 必须 pin，禁止自动 latest；SDK 与 runtime-bin 同版本；升级必须走
+    compatibility test。
+
+本版本不把 Harness 0.1 的易变 package/class 名称写入本指南，具体实现细节放
+`docs/architecture/` 文档。P7-D4 当前代码与任务边界不受本冻结影响
+（P7-D4 IS UNAFFECTED）；P7-D4 恢复后继续严格按当前 D4 taskbook 完成。P8-A0
+（DeepSeek Harness Integration Spike）设计意图 APPROVED，但实施 NOT_AUTHORIZED，
+须在 P7-D4 PASS + INDEPENDENTLY_ACCEPTED + MERGED 之后单独授权。
 
 # 第一部分：需求确认稿
 

@@ -1,5 +1,34 @@
 # 下一阶段准入（NEXT PHASE）
 
+## GOV-ARUX1 后续顺序冻结（2026-08-18）
+
+顶层架构与产品治理冻结（Decision #54 / #55）完成后，当前立即顺序冻结：
+
+```text
+1. 完成本 GOV-ARUX1 governance freeze
+2. 用户/独立架构验收
+3. 恢复 P7-D4 coding
+4. 完成 D4
+5. D4 independent acceptance
+6. D4 merge
+7. P8-A0 DeepSeek Harness Integration Spike
+8. P8-A0 independent architecture acceptance
+9. 再决定 Harness production adoption
+10. D5 / 后续数据能力按新路线继续
+```
+
+明确：
+
+```text
+P8-A0 DESIGN INTENT: APPROVED
+P8-A0 IMPLEMENTATION: NOT_AUTHORIZED BY THIS TASK
+D5: 不得因为本次设计自动开始
+FRONTEND IMPLEMENTATION: NOT_AUTHORIZED（后续须独立 frontend taskbook）
+```
+
+可以记录：Frontend foundation 可在未来与部分数据阶段解耦实施，但 AI Research
+session integration 必须兼容最终 Harness boundary。
+
 ## 当前结论
 
 - **Phase 4 engineering foundation：PASS**

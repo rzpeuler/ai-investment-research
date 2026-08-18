@@ -105,3 +105,16 @@ Phase 3 异动分析 → Phase 4 个股研报 → Phase 5 产业图谱 → Phase
 - 修改完成后运行完整测试：`python -m pytest`。
 - 模块完成定义：spec、输入输出 Schema、实现、失败状态、正常/边界/失败测试、
   日志、版本号、示例、可被场景调用、输出通过验证器。
+
+## 10. Agent Runtime / Frontend 治理冻结执行规则（Decision #54 / #55）
+
+- DeepSeek Harness 是已批准的 Agent Runtime target，但当前 NOT_IMPLEMENTED。
+- 未经 P8-A0 taskbook 不得安装/集成 Harness。
+- Agent Runtime 不得替代 Research OS authority。
+- Skill 不得直接执行 source-specific collector routing。
+- Graph direct write/approve/apply 不得暴露给 Agent。
+- 前端不得硬编码虚假 capability status。
+- 数据源连接成功不得自动晋级 lifecycle。
+- 前端不得显示 private chain-of-thought。
+- 新的 UI/API implementation 需要独立 taskbook。
+- D4 恢复时继续遵循现有 D4 taskbook，不因 Agent Runtime Decision 改范围。

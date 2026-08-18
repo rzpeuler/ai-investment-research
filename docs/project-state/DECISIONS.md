@@ -2923,3 +2923,306 @@ GRAPH_WRITE: NONE；PHASE6.1: NOT_AUTHORIZED
   （financial_statement_data）只在独立在线验收通过后由治理 closeout 单独批准。
 - 在线验收（600519/300750 + 人工 5 科目 100% 一致）由独立验收者以 --live-data 执行；
   任一自动财务数字与官方原件不一致 → FINANCIAL AUTO EXTRACTION FAIL，不得晋级。
+
+## 54. Agent Runtime / Skill / MCP Target Architecture（2026-08-18，DESIGN FROZEN）
+
+GOV-ARUX1 治理冻结的一部分（任务书 `docs/tasks/governance-agent-runtime-frontend-design-freeze.md`）。
+本 Decision 只冻结目标架构，不授权任何实施。
+
+### 54.1 状态
+
+```text
+AGENT_RUNTIME_TARGET_ARCHITECTURE: APPROVED / DESIGN_FROZEN
+PRIMARY_RUNTIME_CANDIDATE: deepseek-ai/deepseek-harness
+HARNESS_ADOPTION_STATUS: SELECTED_FOR_INTEGRATION_SPIKE
+PRODUCTION_ADOPTION: NOT_ACCEPTED
+IMPLEMENTATION: NOT_STARTED
+CURRENT_PRODUCTION_CHAT_RUNTIME: P7-UX1 EXISTING CHAT CONTROL LAYER
+```
+
+不得把 DeepSeek Harness 写成"已成为生产 Runtime"、"已迁移"、"Agent session
+persistence 已上线"或"Skill Registry 已接入 Research OS"。
+
+### 54.2 目标架构
+
+```text
+User
+  ↓
+Frontend
+  ↓
+DeepSeek Harness
+  ├─ Agent Loop / Conversation / Durable Session
+  ├─ Context Management / Goal Management / Skill Registry
+  ├─ Tool Scheduling / Subagent capability / Agent-facing model runtime
+  ↓
+Scenario Skills / Capability Skills
+  ↓
+Research OS Tool Surface
+  ↓
+MCP
+  ↓
+Existing Python Research OS（Orchestrator / Scenario Registry / Runner /
+DataPreflight / GapClassifier / AcquisitionPlan+Execution / Existing Router /
+Collectors / Documents / Financial Facts / Evidence / PIT / Knowledge Graph /
+Graph Governance / Validators）
+  ↓
+SQLite / governed external sources
+```
+
+### 54.3 Authority 边界
+
+DeepSeek Harness 负责：Conversation、durable agent session、Agent Loop、
+model-facing context、Skill discovery/loading、Tool selection、goal continuation、
+optional subagent orchestration、agent-level model profile、Agent execution event stream。
+
+Research OS 继续拥有唯一 Authority：Entity identity、Security/Company mapping、
+as_of/PIT eligibility、Data Requirement、Data Readiness、Data Gap、Acquisition Plan、
+Source selection、Source Router、Collector authorization、RawItem、Evidence、
+Claim/structured research objects、FinancialReport/FinancialFact、deterministic
+financial computation、Document authority、Research Workflow、Research status、
+Validator、Knowledge Graph state、Graph review/approval/deterministic apply、
+Report artifact、business idempotency。
+
+Harness 不得成为第二套 Source Router、Evidence authority、Financial database、
+Graph authority、Research workflow authority 或 entity resolver authority。
+
+### 54.4 Memory 三分法
+
+- A. Conversation Memory：Owner = DeepSeek Harness Session；只存"用户和 Agent 最近
+  在讨论什么"（当前研究目标引用、用户问题、Agent 回答、tool execution references、
+  report/evidence/entity identifiers、working conversational context）；不得作为
+  FinancialFact / Evidence / Graph / Research State authority。
+- B. Research State：Owner = Research OS；记录某一次正式研究真正执行了什么
+  （Task / Plan / Request / Run / DataReadiness / Acquisition / structured result /
+  report / audit state）。
+- C. Knowledge Memory：Owner = Research OS SQLite / Evidence / Versioned Graph；
+  长期可信知识。Agent Memory 中记得的事实不得自动晋级为 Knowledge Memory。
+
+### 54.5 Skill / Tool / Workflow 定义
+
+- Skill = Agent 可按需加载的"如何完成某类任务"的方法、说明、约束和能力导航。
+- Tool = 具有严格输入输出契约的可执行能力接口。
+- Workflow = Research OS 中经过正式治理和验收的业务执行程序。
+
+禁止三者混用。Skill 可以指导 Agent 选择 Tool；Skill 不拥有数据库、不拥有 source
+selection、不得绕过正式 Workflow 的必须步骤。正式 Scenario Skill 调用一个完整
+Research OS Scenario Tool（如 `run_stock_research`），不得让 Agent 自己复制正式
+Workflow 的内部业务判定。
+
+两类 Skill：
+- A. Scenario Skill：morning-brief / abnormal-move-analysis / stock-research /
+  evening-brief / daily-review / stock-review / industry-research / theme-discovery /
+  earnings-expectation / first-coverage。
+- B. Capability Skill：financial-analysis / data-readiness / document-research /
+  evidence-review / graph-research / company-profile / acquisition-guidance，用于
+  开放式研究和组合式交互。
+
+### 54.6 MCP 边界
+
+首选方向：Python application/control plane →（Python SDK / JSON-RPC）→ DeepSeek
+Harness Runtime；Harness Tool Execution →（MCP）→ Research OS MCP Server →
+Existing Research OS services。
+
+Python SDK / JSON-RPC 主要用于启动、驱动、恢复和观察 Harness Agent Runtime；
+MCP 主要作为 Harness → Research OS 的 capability boundary。
+
+第一版 MCP 不得暴露低级 Collector（`cninfo_fetch_direct` / `nbs_fetch_direct` /
+`sina_fetch_direct` PROHIBITED），应暴露业务语义 Tool：
+get_company_profile / check_data_readiness / acquire_missing_data /
+get_financial_facts / query_documents / lookup_evidence / query_industry_graph /
+run_research_scenario / propose_graph_change。
+
+Graph：query_graph ALLOW；propose_graph_change ALLOW（未来须独立授权）；
+approve_graph_change DENY；apply_graph_change DENY。
+Source：acquire_missing_data 通过现有 Acquisition / Router；
+direct_source_selection_by_agent DENY。
+
+### 54.7 Harness Security Profile
+
+生产 Research Agent Profile 目标默认：bash OFF、filesystem_write OFF、editor OFF、
+arbitrary_subprocess OFF、direct_network OFF（除非通过受治理 Research OS capability）、
+Research OS MCP ON、Skill ON、Goal ON、Evidence read ON、Graph query ON、
+Graph direct write OFF。所有权限 fail closed。Harness coding-agent 默认配置不得直接
+复制到 Research OS 产品环境。
+
+### 54.8 Session / Privacy / Storage Policy
+
+Harness durable session 与 Research OS audit 分离。Agent Session 可以保存用户对话、
+assistant responses、tool call metadata、bounded structured tool results、Research OS
+object references；禁止写入 API key / Authorization header / Cookie / password /
+credential / 未经允许的完整网页正文 / 被 source storage policy 禁止长期保存的全文 /
+CNINFO transient PDF bytes / 其他 governed full document blobs。Research Tool 返回
+Harness 的内容优先为 structured value + bounded summary + object/evidence/reference
+IDs，而不是把整个官方 PDF / 网页正文塞进 Agent history。生产 Session retention /
+encryption / cleanup policy 由 P8-A0 先验证，正式上线前单独冻结。
+
+### 54.9 LLM Ownership
+
+第一阶段允许双层模型控制：Agent-facing LLM = DeepSeek Harness；Formal Research
+Workflow internal LLM = existing research_os.llm。保留当前已验收的 LlmClient /
+Provider Factory / Flash→Pro business escalation / budget / validation / fallback /
+audit。P8-A0 不得顺便删除/重写 existing LlmClient。未来统一 provider/profile 须另立
+Decision + taskbook。
+
+### 54.10 Harness 版本治理
+
+upstream = deepseek-ai/deepseek-harness，当前采用状态 = Developer Preview dependency
+candidate。不允许自动跟 latest；正式 Spike 必须 pin SDK/runtime exact version；
+SDK 与 runtime-bin 必须同版本；升级必须走 compatibility test；breaking change 不得
+直接进入生产；Harness 不成为 Research OS 数据契约 authority。本治理任务不修改
+pyproject.toml、不安装/不 vendoring Harness、不添加 Node runtime、不启动真实 Harness。
+
+### 54.11 P8-A0 Harness Integration Spike
+
+在 P7-D4 PASS + INDEPENDENTLY_ACCEPTED + MERGED 之后，优先进行 P8-A0 DeepSeek
+Harness Integration Spike，而不是直接完整 Agent migration。Spike 最小范围：
+Harness = Python SDK + pinned runtime + durable session + research-specific profile +
+Skill discovery + Agent Loop；Research OS Tools = get_company_profile /
+check_data_readiness / query_industry_graph / run_research_scenario；Skills =
+stock-research / financial-analysis / industry-graph-research。验证会话覆盖：
+"研究一下宁德时代" → 识别/Tool/正式 scenario；"刚才这个公司的现金流怎么样？" →
+同 session 保留目标上下文；"产业链上有什么风险？" → query graph；"再和亿纬锂能比较
+一下" → 新增第二 target 但不得污染第一 target authority。Spike 成功前 P7-UX1 不下线。
+
+### 54.12 P7-D4 Unaffected Rule
+
+P7-D4 IS UNAFFECTED BY THIS ARCHITECTURE FREEZE。本 Decision 不授权 P7-D4 使用/
+安装 Harness、MCP 化、Skill 化、重构 Orchestrator / ChatService / LlmClient、修改
+模型 routing、扩大 source/graph scope、修改 DB schema 或新增 migration。D4 恢复后
+继续严格按当前 D4 taskbook 完成。
+
+## 55. Frontend Product Architecture / Capability & Data Governance UX（2026-08-18，DESIGN FROZEN）
+
+GOV-ARUX1 治理冻结的一部分。只冻结产品架构与职责，不授权任何前端实现。
+
+### 55.1 状态与定位
+
+```text
+FRONTEND_PRODUCT_ARCHITECTURE: APPROVED / DESIGN_FROZEN
+FRONTEND_IMPLEMENTATION: NOT_AUTHORIZED BY THIS TASK
+UI CODE: UNCHANGED
+```
+
+产品定位："个人 AI 投研操作系统 / AI Research OS"。核心价值：用对话发起研究；
+用真实数据支撑研究；用 Evidence 验证研究；用产业图谱积累长期认知。不得把产品定位成
+交易终端 / 自动荐股系统 / 量化下单系统 / 目标价生成器 / ChatGPT 套壳。
+
+### 55.2 一级产品信息架构
+
+左侧主导航冻结为：`今天`；`研究`（AI研究 / 公司 / 产业图谱 / 研究库）；
+`系统能力`（能力指南 / 数据中心 / 待审核）；右上 `设置`；全局：搜索 / 当前研究
+上下文 / Evidence drawer / status indicator。允许后续视觉调整，但一级页面职责不得
+由实现 Agent 擅自改变。
+
+### 55.3 关键产品语义冻结
+
+- "今天"是日常工作入口，不使用工程术语 Dashboard；首页禁止主要展示 pytest 数量、
+  schema 数量、DB version、CI run、内部 class name、debug logs（只进高级/工程状态）。
+- AI研究 布局：左（AUTO / 10 个正式研究场景 + 历史研究/会话）；中（Conversation /
+  Business Progress / Research Result）；右（current target / as_of / data readiness /
+  online data / model profile/status / source/evidence context）。业务进度显示
+  "正在确认研究对象 … 已完成"；禁止显示模型 private chain-of-thought。
+- 两个独立开关必须保留：AI 理解（Agent/LLM 交互）≠ 在线数据（Research Live Data，
+  正式 Research OS 数据获取权限）。Agent ON 不等于自动联网；Online Data ON 不等于
+  允许任意 Agent 网络访问。
+- 用户状态词统一：已完成 / 部分完成 / 数据不足 / 正在获取数据 / 正在研究 /
+  需要你确认 / 执行失败。DATA INSUFFICIENT != EXECUTION FAILED；
+  partial_success / degraded / insufficient_evidence 不得统一映射成"失败"。
+- 研究结果页 Tabs：研究结论 / 财务 / 事件 / 风险与催化 / 证据 / 数据状态；默认展示
+  研究对象、场景、as_of、状态、信息完整度、核心研究判断、财务质量、竞争优势/弱点、
+  风险、催化、研究限制；禁止 Buy / Sell / 目标价 / 仓位 / 自动交易。
+- Evidence Drawer 是正式产品能力：至少展示 source、publisher、document/report、
+  published_at、page/block/locator、excerpt or structured value、source tier、
+  Evidence ID、RawItem/Document reference、as_of eligibility；Evidence UI 不得凭前端
+  自己创造 source authority。
+- 公司页 Tabs：概览 / 财务 / 公告 / 研究 / 产业链 / 证据；未有真实数据时必须显式显示
+  "尚未自动接入" / "数据不足" / "仅支持人工输入"；禁止伪造 K 线、实时价格、历史估值；
+  D4/D5/realtime 能力只在对应独立验收后才允许 UI 宣布自动可用。
+- 产业图谱默认：行业树 + 1-hop graph + 节点详情；支持上游/下游/竞争/替代/受益/受损
+  （按实际 ontology/relations 显示，不写死虚构关系）；显示 epistemic（GOVERNANCE /
+  FACT / MODEL_INFERENCE）；MODEL_INFERENCE 必须可查看 evidence、confidence、as_of、
+  review state；as_of selector 为正式产品能力；不得用超大蜘蛛网作默认首页。
+- 研究库支持按公司/行业/主题/日期/场景/状态检索历史研究；Report/Run/Evidence
+  authority 仍来自 Research OS。
+- 待审核对应现有 Graph candidate/review/apply 治理；展示 subject/relation/object/
+  fact or inference/evidence/conflict/review state；用户动作批准/修改后批准/暂缓/拒绝，
+  但任何前端批准动作仍必须经过 Review Contract → Validator → Deterministic Apply，
+  前端按钮不得绕过 Validator；Phase 6.1 未授权时不得出现"AI 自动更新图谱"开关。
+
+### 55.4 能力指南（正式一级能力）
+
+不是静态帮助页面。回答：系统能做什么 / 某真实研究场景怎么工作 / 工作流经过哪些步骤 /
+每一步由哪个功能模块负责 / 每个模块需要什么数据 / 使用哪些 Skill/Tool/Workflow /
+当前能力可用、部分可用还是未接入。提供"按研究场景"与"按功能模块"两个入口。
+
+- 需求场景层必须从正式 Scenario Registry / accepted scenario metadata 投影当前十场景
+  （每日晨报/异动分析/个股研报/每日晚报/每日复盘/个股复盘/行业研究/主题发现/财报预期/
+  首次覆盖），不得维护第二套硬编码业务场景 authority。
+- Workflow 可视化显示 business workflow state（理解需求→确认公司→检查数据→补充数据
+  →财务分析→业务/竞争分析→图谱上下文→语义研究→Evidence validation→正式报告），
+  禁止显示 private chain-of-thought。
+- 功能模块层按 研究入口/研究控制/数据处理/研究分析/知识能力/输出能力 展示，每个模块
+  至少显示负责什么、被哪些场景使用、输入、输出、是否确定性、是否使用 LLM、是否允许
+  网络、是否写数据库、依赖数据、当前状态、实现位置（高级信息）、Skill/Tool mapping。
+- Capability Catalog 原则：能力指南不得在 HTML/JS 中硬写完整能力真相；未来建立
+  Capability Catalog Projection（非新 business authority），组合读取 Scenario
+  Registry、Scenario Data Requirements、Data Acquisition Capabilities、Source
+  Registry、module metadata、Research OS tool metadata、未来 Harness Skill Registry；
+  前端只消费 projection。禁止创建 `frontend_capabilities.yaml` 作为第二套 authority，
+  除非后续正式 Decision 明确批准。
+
+### 55.5 数据中心（正式一级能力，数据采集层治理界面）
+
+Tabs：数据准备度 / 数据源 / 采集能力 / 采集记录。
+
+- 数据准备度：数据类型、当前状态、覆盖对象、覆盖期间、最新时间、来源等级、自动化
+  程度、缺口。DataGap 状态翻译固定：READY/AVAILABLE→已准备；AUTO_ACQUIRABLE→可以
+  自动获取；STALE_REFRESHABLE→数据较旧，可以更新；MANUAL_INPUT_REQUIRED→需要你
+  提供数据；HUMAN_REVIEW_REQUIRED→需要确认；NOT_ACQUIRABLE/UNAVAILABLE→当前没有
+  可用数据源；SOURCE_UNHEALTHY→数据源暂时不可用。不得把"Source Registry 已登记"
+  翻译成"数据已准备"。
+- 数据源按 Platform → Source 展示；字段至少包含平台、source_id、display name、
+  source type、source tier、access level、paid、login required、automation level、
+  update frequency、storage policy、allowed usage、governance status、verification
+  status、lifecycle、提供的数据类型、被哪些场景使用。支持官方披露/政府监管/行情/新闻/
+  社区/人工数据/未来其他平台；实际名单只能来自 Source Registry / governance metadata。
+- Source != Capability：Source Registered ≠ Collector Implemented ≠ Workflow Wired ≠
+  Business Sufficient。lifecycle 枚举与值以项目当前正式 lifecycle contract 为准
+  （REGISTERED → PROBED → ADAPTER_IMPLEMENTED → WORKFLOW_WIRED →
+  BUSINESS_SUFFICIENT）；禁止前端自行晋级状态。
+- 数据能力矩阵：Data Type / Current primary path / Automation / Lifecycle / Readiness /
+  Used by scenarios / Known limitations；矩阵来源为 scenario_data_requirements +
+  data_requirements + data_acquisition_capabilities + source registry + readiness
+  projection；不得从单一 sources.yaml 猜业务充分性。
+- 数据源详情（如 CNINFO）展示平台信息、来源等级、访问方式、费用、登录要求、存储策略、
+  允许用途、提供数据、Collector/Adapter 状态、Workflow 状态、Capability lifecycle、
+  最近验证、被哪些数据类型使用、被哪些场景间接使用、Known limitations。必须明确
+  "连接正常" ≠ "业务充分"。
+- 测试连接：Test Connection PASS 只代表 connectivity/probe；绝对不得自动
+  REGISTERED→WORKFLOW_WIRED 或 WORKFLOW_WIRED→BUSINESS_SUFFICIENT；任何 capability
+  晋级继续走正式治理。
+
+### 55.6 数据源编辑前端治理
+
+允许未来提供编辑/新增/停用数据源，但禁止把 Source Registry 暴露为普通 YAML 编辑器。
+两类修改必须分开处理：A. Runtime/operational preference（临时禁用、请求频率限制、
+当前不优先使用、用户 preference）；B. Governance fields（source_tier、paid、
+login_required、allowed_usage、storage_policy、source_type、authority、status）。
+Governance 修改流程固定为：编辑 → Validate → Diff Preview → Impact Analysis →
+User Confirm → Governance Write Path → Audit Record → New Effective Configuration；
+不得"表单保存 → 直接无提示覆盖 registry"。Impact Analysis 至少展示修改前/后、
+影响的数据类型、影响的场景、影响的 storage policy、影响的 acquisition capability、
+可能要求重新 probe/acceptance 的项目；`metadata_and_excerpt → full_text` 必须高亮
+存储政策变化、版权/来源治理变化、Evidence/Document 影响，不得静默生效。新增数据源
+向导：基本信息 → 访问方式 → 数据内容 → 使用范围 → 存储政策 → Probe → Governance
+Review → Register；必须显示"登记数据源 ≠ 自动可用于正式研究"。
+
+本轮治理只冻结产品流程：NO source edit API、NO registry writer、NO frontend code、
+NO governance DB table、NO migration；未来实施须单独 taskbook。
+
+### 55.7 前端与 Agent Runtime 的连接关系
+
+最终目标：Frontend → Harness Session/Agent → Skill → Tool → Research OS →
+Data/Evidence/Graph/Report。能力指南与数据中心的跨页面关联（如"个股研报 → 财务数据
+步骤"跳转到"数据中心 → financial_statement_data"，或"CNINFO → 被哪些研究使用"反向
+查看）是 read-model / projection，不是改变业务 authority。
