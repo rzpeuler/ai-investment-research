@@ -58,6 +58,15 @@ def _fake_run(*args, **kwargs):
     if "-I" in flags:
         # fetch: HEAD 附件可达性（text=True → stdout 为 str）
         return MagicMock(returncode=0, stdout="HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+    if "topSearch" in flags:
+        # topSearch: 股票代码 → orgId（官方映射）
+        import re
+        data = " ".join(str(c) for c in cmd)
+        m = re.search(r"keyWord=(\d{6})", data)
+        stock = m.group(1) if m else "600519"
+        org = {"600519": "gssh0600519", "300750": "GD165627"}.get(stock, stock)
+        return MagicMock(returncode=0, stdout=json.dumps(
+            [{"code": stock, "orgId": org}]).encode("utf-8"))
     # discover: POST 公告查询（无 text → stdout 为 bytes）
     return MagicMock(returncode=0, stdout=json.dumps(ANNOUNCEMENTS).encode("utf-8"))
 
@@ -121,8 +130,12 @@ class TestCninfoProductionWiring:
     def test_empty_result_is_not_no_event(self, monkeypatch):
         def _empty_run(*args, **kwargs):
             cmd = list(kwargs.get("args", args)[0] if args and isinstance(args[0], list) else args)
-            if "-I" in " ".join(str(c) for c in cmd):
+            flags = " ".join(str(c) for c in cmd)
+            if "-I" in flags:
                 return MagicMock(returncode=0, stdout="HTTP/1.1 200 OK\r\n\r\n")
+            if "topSearch" in flags:
+                return MagicMock(returncode=0, stdout=json.dumps(
+                    [{"code": "600519", "orgId": "gssh0600519"}]).encode("utf-8"))
             return MagicMock(returncode=0, stdout=json.dumps({"announcements": []}).encode("utf-8"))
 
         monkeypatch.setattr("research_os.collectors.official.cninfo.subprocess.run", _empty_run)

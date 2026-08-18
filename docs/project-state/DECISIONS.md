@@ -2810,3 +2810,46 @@ SCHEMAS: 86
 - D1（PR #25 已获 merge authorization）与 D2 合并进 master 后，从新 master 建立
   P7-D3 工程基线；任何 real-source execution 仍须新的来源治理、验证、taskbook、
   架构批准与显式 implementation authorization。
+
+## 51. P7-D3 Free-Source Production MVP 实施（2026-08-18）
+
+P7-D3 在 D1/D2 合并后的新 master（`52080cf`）上实施，分支
+`phase7/d3-free-source-production-mvp`；状态 **IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE**。
+
+### 51.1 实施范围与边界
+
+```text
+P7-D3_IMPLEMENTATION: DONE（head 23686f2）
+SOURCE_SCOPE: nbs / cninfo
+NEW_SOURCE_REGISTRATION: 0
+NEW_COLLECTORS: 0
+PRODUCTION_COLLECTOR_IDS: [nbs, cninfo]（治理批准 allowlist；enabled 仍 false）
+PAID_SOURCE_SUPPORT: 0
+SOURCE_QUERY_PROJECTION: PASS（SourceQueryProjector，fail closed）
+FIELD_PROJECTION: PASS（FieldProjector，exact registry）
+LIVE_DATA_GATE: --live-data（与 --live/LLM 分离；环境变量不能打开）
+CAPABILITY_PROMOTIONS: WORKFLOW_WIRED（macro_data / company_announcement；非 BUSINESS_SUFFICIENT）
+PRODUCTION_LLM_CALLS: 0
+GRAPH_WRITE: NONE
+PHASE6.1: NOT_AUTHORIZED
+DB: v6；MIGRATIONS: NONE；SCHEMAS: 86
+```
+
+### 51.2 真实在线验收执行结果（供独立验收复核）
+
+- NBS → macro_data：真实 stats.gov.cn 采集；selected_source=nbs；inserted=7；
+  幂等 run #2 reused=7；PIT=0 拒绝；readiness PARTIAL（missing=[]）。
+- CNINFO → company_announcement：沪市 600519 inserted=6 / reused=6 幂等；
+  深市 300750 验收窗口 6 条真实公告（近 5 日窗口真实 EMPTY 合法）；
+  secid/orgId 官方 topSearch 映射；publisher=secName → company 投影。
+- 验收 artifact（本地 reports/ gitignored）：`reports/acceptance/nbs_online_acceptance.md`、
+  `reports/acceptance/cninfo_online_acceptance.md`。
+
+### 51.3 Terminal Boundary（D3 实施后）
+
+- D3 实施与真实验收执行不自动等于独立验收 PASS；不得声明 PASS / CLOSED /
+  operational / real-source ready。
+- BUSINESS_SUFFICIENT 只在独立在线验收通过后由治理 closeout 单独晋级
+  （NBS 与 CNINFO 分开，不得打包）。
+- 后续路线：P7-D4（CNINFO PDF/财务数据）→ P7-D5（免费历史日线）→ P7-D6
+  （实时行情快照）→ P7-D7（新闻/舆情增强），均需各自来源治理与授权。

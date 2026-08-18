@@ -69,9 +69,9 @@ Phase 5: CLOSED / PASS
 - **Phase 6 research capability**: PASS
 - **Phase 6 central enablement**: PASS
 - **USER_TRIAL_READY**: YES
-- **CURRENT ENGINEERING MILESTONE**: P7-D2 Acquisition Execution Foundation（PASS / INDEPENDENTLY ACCEPTED 2026-08-18）；下一步 P7-D3 Free-Source Production MVP（待 D1/D2 合并后实施）
+- **CURRENT ENGINEERING MILESTONE**: P7-D3 Free-Source Production MVP（IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE 2026-08-18，head `23686f2`）；下一步独立在线验收复核
 - **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
-- **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation PASS / INDEPENDENTLY ACCEPTED
+- **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation PASS / INDEPENDENTLY ACCEPTED；D3 MVP IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
 - **P7-D0**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #47.8/#47.9；accepted head d06d8d7）
 - **P7-D1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11；accepted head `bc27781`；CI `31899546501`）
@@ -81,7 +81,7 @@ Phase 5: CLOSED / PASS
 - **DB / migrations**: v6 / NONE
 - **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
 - **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
-- **NEXT WORK**: 合并 P7-D1（PR #25 已授权）与 P7-D2 到 master；从新 master 建立 P7-D3 工程基线并实施 Free-Source Production MVP（nbs / cninfo）
+- **NEXT WORK**: 独立在线验收复核 P7-D3（NBS / CNINFO）；验收通过后治理 closeout 单独晋级 capability BUSINESS_SUFFICIENT
 - **REAL-SOURCE AUTHORIZATION**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately

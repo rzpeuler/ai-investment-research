@@ -215,7 +215,7 @@ def test_phase6_terminal_governance_closeout():
     assert "Phase6 business code on master: NONE" not in current_phase6
     assert "Serial milestone gating: ACTIVE (P6-S0 only)" not in current_phase6
 
-    assert "CURRENT ENGINEERING MILESTONE**: P7-D2 Acquisition Execution Foundation" in next_phase6
+    assert "CURRENT ENGINEERING MILESTONE**: P7-D3 Free-Source Production MVP" in next_phase6
     assert "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase6
     assert "Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED" in next_phase6
     assert "Phase 7**: D0 CLOSED / PASS" in next_phase6
@@ -376,7 +376,7 @@ def test_p7_d0_governance_is_consistent():
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
     # P7-D1 已 PASS；D2 Foundation 已实现并等待独立验收
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "NEXT WORK**: 合并 P7-D1（PR #25 已授权）与 P7-D2 到 master" in next_phase
+    assert "NEXT WORK**: 独立在线验收复核 P7-D3（NBS / CNINFO）" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
     # governance closeout taskbook 存在
