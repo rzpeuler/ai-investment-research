@@ -117,9 +117,10 @@ def _build(project_root: Path, db, *, data_type: str):
 
 
 def _evidence(router, *, data_type: str, entity_ids: list[str],
-              window_start: str, window_end: str) -> dict:
+              window: dict) -> dict:
     """真实网络证据采集：Router.resolve_with_items → 记录 item 证据。
 
+    使用 D1 权威窗口（before bundle 的 ctx.window_start/end，与 execution 链一致）。
     仅用于审计证据（不持久化）；正式执行链由 coordinator 完成。
     """
     canonical_query = {
@@ -129,10 +130,10 @@ def _evidence(router, *, data_type: str, entity_ids: list[str],
         "watchlist_group": None,
         "request_material_refs": [],
     }
-    time_window = {"start": window_start, "end": window_end}
     batch = router.resolve_with_items(
-        data_type, query=canonical_query, time_window=time_window)
+        data_type, query=canonical_query, time_window=window)
     return {
+        "window": dict(window),
         "selected_source": batch.route.selected_source,
         "status": batch.route.status,
         "items": [
@@ -195,10 +196,20 @@ def main(argv: list[str] | None = None) -> int:
             runs_root=project_root / "reports" / "runs",
             graph_repo=None, dry_run=False,
         )
+        # 权威窗口：D1 resolved context（与 execution 链一致；§46 窗口权威）
+        authority_window = None
+        for ctx in getattr(before, "contexts", []) or []:
+            req = getattr(ctx, "requirement", None)
+            if req is not None and getattr(req, "data_type", None) == args.data_type:
+                authority_window = {
+                    "start": getattr(ctx, "window_start", None),
+                    "end": getattr(ctx, "window_end", None),
+                }
+                break
+        if authority_window is None:
+            authority_window = {"start": args.window_start, "end": args.window_end}
         evidence = _evidence(router, data_type=args.data_type,
-                             entity_ids=args.entity_ids,
-                             window_start=args.window_start,
-                             window_end=args.window_end)
+                             entity_ids=args.entity_ids, window=authority_window)
 
         coordination = coordinator.coordinate(
             before=before, scenario=args.scenario, task_id=task_id,
@@ -279,16 +290,15 @@ def _readiness_summary(bundle) -> dict:
     if bundle is None:
         return {"checked_at": None}
     items = []
-    for context in getattr(bundle, "contexts", []) or []:
-        requirement = getattr(context, "requirement", None)
-        readiness = getattr(context, "readiness", None)
+    for readiness in getattr(bundle, "readiness", []) or []:
         items.append({
-            "requirement_id": getattr(requirement, "requirement_id", None)
-            if requirement is not None else None,
-            "data_type": getattr(requirement, "data_type", None)
-            if requirement is not None else None,
-            "readiness": getattr(readiness, "status", None)
-            if readiness is not None else None,
+            "requirement_id": getattr(readiness, "requirement_id", None),
+            "data_type": getattr(readiness, "data_type", None),
+            "readiness": getattr(readiness, "status", None),
+            "available_fields": list(getattr(readiness, "available_fields", []) or []),
+            "missing_fields": list(getattr(readiness, "missing_fields", []) or []),
+            "eligible_record_count": getattr(readiness, "eligible_record_count", None),
+            "ineligible_record_count": getattr(readiness, "ineligible_record_count", None),
         })
     return {
         "checked_at": getattr(bundle, "checked_at", None),

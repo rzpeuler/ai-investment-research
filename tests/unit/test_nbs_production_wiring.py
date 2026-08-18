@@ -23,8 +23,9 @@ from research_os.models import RawItem
 from research_os.validators.schema_validator import validate_instance
 
 HTML = """<html><head><title>国家统计局数据发布</title></head><body>
-<a href="./202608/t20260803_1964273.html">2026年7月流通领域生产资料价格变动情况</a>
-<a href="./202608/t20260803_1964272.html">2026年7月规模以上工业增加值</a>
+<a class="fl" href="./202608/t20260803_1964273.html" target="_blank" title='2026年7月流通领域生产资料价格变动情况'>
+<a class="fl" href="./202608/t20260803_1964273.html" target="_blank" title='2026年7月流通领域生产资料价格变动情况'>
+<a class="fl" href="./202608/t20260803_1964272.html" target="_blank" title='2026年7月规模以上工业增加值'>
 </body></html>"""
 
 ARTICLE_PAGE = "<html><head><title>2026年7月规模以上工业增加值</title></head><body>" + "x" * 800 + "</body></html>"

@@ -98,7 +98,9 @@ class TestNbsResponseHandling:
     """正常与畸形响应。"""
 
     _HTML = """<html><head><title>国家统计局数据发布</title></head><body>
-<a href="./202608/t20260803_1964273.html">2026年7月流通领域生产资料价格变动情况</a>
+<a class="fl" href="./202608/t20260803_1964273.html" target="_blank" title='2026年7月流通领域生产资料价格变动情况'>
+<a class="fl" href="./202608/t20260803_1964273.html" target="_blank" title='2026年7月流通领域生产资料价格变动情况'>
+<a class="fl" href="./202608/t20260803_1964272.html" target="_blank" title='2026年7月规模以上工业增加值'>
 </body></html>"""
 
     def test_normal_response_discover(self, collector, monkeypatch):
@@ -107,10 +109,12 @@ class TestNbsResponseHandling:
         monkeypatch.setattr("research_os.collectors.government.nbs.subprocess.run",
                             lambda *a, **k: MagicMock(returncode=0, stdout=self._HTML))
         refs = collector.discover({}, {})
-        assert len(refs) == 1
+        # 响应式布局重复链接去重后剩 2 条
+        assert len(refs) == 2
         assert refs[0].title == "2026年7月流通领域生产资料价格变动情况"
-        assert refs[0].url.startswith("https://www.stats.gov.cn")
-        assert refs[0].published_at == "2026-07-01T00:00:00"
+        assert refs[0].url.startswith("https://www.stats.gov.cn/")
+        # URL 发布日期优先于标题统计期间
+        assert refs[0].published_at == "2026-08-03T00:00:00"
 
     def test_malformed_page_raises_schema_changed(self, collector, monkeypatch):
         # 页面可达但结构不匹配：显式失败，禁止伪造数据
