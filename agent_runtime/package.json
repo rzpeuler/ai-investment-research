@@ -1,0 +1,12 @@
+{
+  "name": "p8-b1-production-foundation-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Isolated, feature-flagged DeepSeek Harness production foundation",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.7"
+  }
+}
