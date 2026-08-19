@@ -2,8 +2,26 @@
 
 **Base:** `84e515045e833579706ddd53fe111db82a64f32e`  
 **Date:** 2026-08-19  
-**Status:** **PARTIAL / FAIL FOR FULL DEMO**  
-**Decision:** Re-evaluate Harness adoption after resolving headless session/provider setup.
+**Status:** **INDEPENDENTLY REVIEWED — PARTIAL / FAIL FOR FULL DEMO**  
+**Decision:** `P8-B: NOT AUTHORIZED`
+
+## Independent review disposition
+
+| Gate | Reviewed result |
+|---|---|
+| Runtime installation | PASS |
+| Version pin | PASS |
+| Web runtime | PASS |
+| Boundary fixture | PASS |
+| Research OS authority | PASS |
+| Live provider session | FAIL / NOT COMPLETED |
+| Live model skill invocation | NOT VERIFIED |
+| Live Research OS tool invocation | NOT VERIFIED |
+| Full regression | NOT VERIFIED |
+| Overall | PARTIAL / FAIL FOR FULL DEMO |
+
+`P8-B` remains **NOT AUTHORIZED**. No follow-on implementation or production
+adoption is implied by this report.
 
 ## Results
 

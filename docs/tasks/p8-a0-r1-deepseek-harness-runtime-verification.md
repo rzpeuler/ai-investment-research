@@ -1,7 +1,9 @@
 # P8-A0-R1 DeepSeek Harness Runtime Verification Taskbook
 
-**STATUS:** EXECUTED — PARTIAL  
+**STATUS:** INDEPENDENTLY REVIEWED — PARTIAL / FAIL FOR FULL DEMO  
 **BASE:** `84e515045e833579706ddd53fe111db82a64f32e`
+
+**P8-B:** NOT AUTHORIZED
 
 The authorized verification was run in the isolated `runtime-spike/`
 environment. The official runtime installs and the web process starts, but the
