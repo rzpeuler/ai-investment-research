@@ -28,6 +28,26 @@ def _reply(request_id: object, result: object = None, error: dict[str, object] |
     sys.stdout.flush()
 
 
+def _safe_authority(result: dict[str, object]) -> dict[str, object]:
+    """Keep only bounded authority observations for internal trial metrics."""
+    allowed = {"readiness_status", "missing_count", "entity_id", "status"}
+    safe = {key: result[key] for key in allowed if key in result and isinstance(result[key], (str, int, float, bool))}
+    reference = result.get("security_reference")
+    if isinstance(reference, dict) and isinstance(reference.get("symbol"), str):
+        safe["security_reference"] = reference["symbol"]
+    return safe
+
+
+def _request_target(params: dict[str, object]) -> str | None:
+    for key in ("arguments", "input", "args"):
+        value = params.get(key)
+        if isinstance(value, dict) and isinstance(value.get("target"), str):
+            return value["target"]
+    if isinstance(params.get("target"), str):
+        return params["target"]
+    return None
+
+
 def main() -> int:
     server = build_research_os_mcp_server()
     for line in sys.stdin:
@@ -38,8 +58,11 @@ def main() -> int:
         request_id = request.get("id")
         try:
             if method == "initialize":
+                negotiated = server.perform_handshake()
+                _log({"event_type": "mcp_handshake", "namespace": negotiated.namespace,
+                      "tools": list(negotiated.tools), "status": "connected"})
                 _reply(request_id, {
-                    "protocolVersion": "2025-06-18",
+                    "protocolVersion": negotiated.version,
                     "capabilities": {"tools": {"listChanged": False}},
                     "serverInfo": {"name": "research-os-mcp/v1", "version": "1"},
                 })
@@ -53,7 +76,9 @@ def main() -> int:
                 params = request.get("params") or {}
                 name = params.get("name")
                 result = server.call(name, params.get("arguments") or {}, str(request_id))
-                _log({"event_type": "tool_call", "tool_name": name, "status": result.get("status", "unknown")})
+                _log({"event_type": "tool_call", "tool_name": name, "status": result.get("status", "unknown"),
+                      "target_reference": _request_target(params),
+                      "authority": _safe_authority(result)})
                 _reply(request_id, {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],
                                     "structuredContent": result})
             else:

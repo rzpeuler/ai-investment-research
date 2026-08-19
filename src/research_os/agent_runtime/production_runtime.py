@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import os
 import re
 import shutil
@@ -56,6 +57,26 @@ def sanitize_public_result(value: Any, *, forbidden_values: tuple[str, ...] = ()
     if "status" not in result:
         result["status"] = "completed"
     return result
+
+
+def _extract_usage(value: Any) -> dict[str, int | float]:
+    """Extract only provider-reported usage fields; never estimate them."""
+    allowed = {"input_tokens", "output_tokens", "cached_tokens", "total_tokens", "cost_usd"}
+    found: dict[str, int | float] = {}
+
+    def walk(item: Any) -> None:
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if key in allowed and isinstance(child, (int, float)) and not isinstance(child, bool):
+                    found[key] = child
+                else:
+                    walk(child)
+        elif isinstance(item, list):
+            for child in item:
+                walk(child)
+
+    walk(value)
+    return found
 
 
 def free_port() -> int:
@@ -301,7 +322,7 @@ class OfficialHarnessClient:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 result = json.load(response)
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionResetError, TimeoutError) as exc:
             raise RuntimeNotReady("PROVIDER_TIMEOUT", "Harness API request failed") from exc
         if result.get("rpcId") != request_id or not result.get("result", {}).get("ok"):
             raise SessionFailure("SESSION_CORRUPTED", "Harness API returned an invalid response")
@@ -338,8 +359,11 @@ class OfficialHarnessClient:
             row = next((item for item in listing.get("items", []) if item.get("sessionId") == session_id), None)
             if row and not row.get("running") and len(events) >= 2:
                 text = "\n".join(self._text(item.get("event", {}).get("data")) for item in events[-5:])
-                return sanitize_public_result({"status": "completed", "response": text},
-                                              forbidden_values=(session_id,))
+                result = {"status": "completed", "response": text}
+                usage = _extract_usage({"history": history, "listing": listing})
+                if usage:
+                    result["operational_metadata"] = {"usage": usage}
+                return sanitize_public_result(result, forbidden_values=(session_id,))
             time.sleep(0.5)
         raise RuntimeNotReady("TURN_TIMEOUT", "Harness turn timed out")
 
