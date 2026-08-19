@@ -4,7 +4,11 @@ dsh-runtime.*.log
 .session/
 .dsh-home/
 .r2-*-home/
+.r3-*-home/
 r2-*.json
 r2-*.jsonl
 r2-*.yaml
+r2-*.txt
+r3-*.json
+r3-*.jsonl
 dump-config.json
