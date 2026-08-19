@@ -9,18 +9,19 @@ P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accep
 后续顺序冻结：
 
 ```text
-1. P8-A0 DeepSeek Harness Integration Spike taskbook（下一里程碑）
-2. P8-A0 implementation（独立 taskbook 授权后）
-3. P8-A0 independent architecture acceptance
-4. 再决定 Harness production adoption
+1. P8-B DeepSeek Harness Production Adoption Design（当前已授权）
+2. P8-B independent design acceptance
+3. 仅在独立验收通过后评估 P8-B1 Production Foundation
 5. D5 / 后续数据能力按新路线继续
 ```
 
 明确：
 
 ```text
-P8-A0 DESIGN INTENT: APPROVED
-P8-A0 IMPLEMENTATION: NOT_AUTHORIZED（须独立 P8-A0 taskbook）
+P8-A0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
+P8-B DESIGN: AUTHORIZED
+P8-B IMPLEMENTATION: NOT_AUTHORIZED
+PRODUCTION ADOPTION: NOT_AUTHORIZED
 D5: 不得因为本次设计自动开始
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED（后续须独立 frontend taskbook）
 ```
@@ -99,7 +100,7 @@ Phase 5: CLOSED / PASS
 - **Phase 6 research capability**: PASS
 - **Phase 6 central enablement**: PASS
 - **USER_TRIAL_READY**: YES
-- **CURRENT ENGINEERING MILESTONE**: P7-D4 CNINFO Official Filing → Core Financial Facts MVP（IMPLEMENTED / ACCEPTED 2026-08-19；accepted baseline `8b153b3`）；下一步 P8-A0 DeepSeek Harness Integration Spike
+- **CURRENT ENGINEERING MILESTONE**: P8-B DeepSeek Harness Production Adoption Design（P8-A0 independently accepted at `f16a3163814345e9aee2d00615a42dae57fd86fb`）
 - **Phase 6.1 Research→GraphChange Candidate Integration**: DEFERRED / NOT_AUTHORIZED
 - **Phase 7**: D0 CLOSED / PASS；D1 CLOSED / PASS；UX1 CLOSED / PASS；D2 Foundation PASS / INDEPENDENTLY ACCEPTED；D3 MVP PASS / INDEPENDENTLY ACCEPTED（Decision #52，accepted head `e8a4a9f`）
 - **P7-UX1**: CLOSED / PASS / INDEPENDENTLY ACCEPTED（Decision #46.7；governance closeout 2026-08-10）
@@ -112,7 +113,7 @@ Phase 5: CLOSED / PASS
 - **DB / migrations**: v6 / NONE
 - **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
 - **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
-- **NEXT WORK**: P8-A0 DeepSeek Harness Integration Spike taskbook（P7-D4 已 ACCEPTED；Spike 前 P7-UX1 不下线）
+- **NEXT WORK**: Complete P8-B design and independent acceptance; keep P7-UX1 as the legacy fallback path
 - **REAL-SOURCE AUTHORIZATION**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately
