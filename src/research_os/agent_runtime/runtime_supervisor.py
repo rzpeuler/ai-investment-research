@@ -25,11 +25,13 @@ class HarnessRuntimeSupervisor:
         config: AgentRuntimeConfig | None = None,
         process_factory: Callable[[], OwnedProcess] | None = None,
         recorder: EventRecorder | None = None,
+        allow_fixture: bool = False,
     ):
         self.config = (config or AgentRuntimeConfig()).validate()
         self.process_factory = process_factory
         self.recorder = recorder or EventRecorder()
         self.verifier = ProfileVerifier(self.config.harness_version)
+        self.allow_fixture = allow_fixture
         self.process: OwnedProcess | None = None
         self.state = SupervisorState.STOPPED
         self._verification = {"version_verified": False, "profile_verified": False, "mcp_verified": False}
@@ -81,7 +83,9 @@ class HarnessRuntimeSupervisor:
                 raise RuntimeNotReady("HARNESS_BOOT_FAILED", "Harness process exited during startup")
             if descriptor is None:
                 raise RuntimeNotReady("HARNESS_BOOT_FAILED", "runtime descriptor unavailable")
-            verification = self.verifier.verify(descriptor)
+            if descriptor.get("evidence_source") != "observed_runtime" and not self.allow_fixture:
+                raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "fabricated runtime evidence cannot admit READY")
+            verification = self.verifier.verify(descriptor, allow_fixture=self.allow_fixture)
             self._verification["version_verified"] = verification.version_verified
             self._verification["profile_verified"] = verification.profile_verified
             self.recorder.record("runtime_profile_verified", version=self.config.harness_version, profile=verification.identity)
@@ -98,13 +102,23 @@ class HarnessRuntimeSupervisor:
             self._cleanup_owned_process()
             raise RuntimeNotReady(self.failure_code, str(exc)) from exc
 
-    def mark_mcp_ready(self) -> RuntimeStatus:
+    def complete_mcp_handshake(self, handshake_evidence: dict[str, Any]) -> RuntimeStatus:
         if self.state is not SupervisorState.STARTING or not self._status().process_alive:
             raise RuntimeNotReady("MCP_UNAVAILABLE", "runtime is not alive for MCP handshake")
+        if not handshake_evidence.get("connected") or handshake_evidence.get("namespace") != self.config.mcp_namespace:
+            raise RuntimeNotReady("MCP_UNAVAILABLE", "MCP handshake evidence is invalid")
+        if tuple(sorted(handshake_evidence.get("tools", ()))) != ("check_data_readiness", "get_company_profile"):
+            raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "MCP Tool evidence is not exact")
         self._verification["mcp_verified"] = True
         self.state = SupervisorState.READY
         self.recorder.record("runtime_ready", version=self.config.harness_version)
         return self.status()
+
+    def mark_mcp_ready(self, handshake_evidence: dict[str, Any] | None = None) -> RuntimeStatus:
+        """Compatibility alias; readiness still requires actual handshake evidence."""
+        if handshake_evidence is None:
+            raise RuntimeNotReady("MCP_UNAVAILABLE", "handshake evidence is required")
+        return self.complete_mcp_handshake(handshake_evidence)
 
     def _cleanup_owned_process(self) -> None:
         process = self.process

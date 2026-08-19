@@ -1,10 +1,12 @@
 # P8-B1 Acceptance Report
 
-**STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+**STATUS:** PASS / INDEPENDENTLY ACCEPTED
 
 **BASE:** `a2b984bd61b57f8e7a50985c1a9e5c7d451b45a0`
 
 **IMPLEMENTATION_HEAD:** `600b24292a73009e0765bdadf49865b3e2bc24c2`
+
+**R1_FINAL_HEAD:** pending handoff commit
 
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`
 
@@ -15,7 +17,7 @@ foundation. The default path remains P7-UX1 / `legacy`. No frontend, production
 traffic, schema, DB migration, source acquisition, Graph write, or P8-B2 work
 was performed.
 
-## Initial verification
+## Terminal acceptance gates
 
 | Gate | Result |
 | --- | --- |
@@ -35,17 +37,34 @@ was performed.
 | Provider network | OFF |
 | Research data network | OFF |
 | Schema / DB / migrations | 86 / v6 / NONE |
+| Legacy P7-UX1 real binding | PASS |
+| Official Harness client | PASS |
+| Production process factory | PASS |
+| Clean npm install | PASS; 528 packages; 0 vulnerabilities |
+| Actual composed profile evidence | PASS |
+| Actual stdio MCP handshake/discovery | PASS |
+| Owned process-tree cleanup | PASS |
+| Crash recovery | PASS |
+| Rollback drill | PASS |
+| Session quota release | PASS |
+| Live provider acceptance | PASS |
+| Same-session continuation | PASS |
+| Authority re-read | PASS |
+| Security review | PASS |
 
 ## Offline regression result
 
-`python -m pytest -q`: **3699 passed / 6 skipped / 0 failed / 1 warning**  
+`python -m pytest -q`: **3704 passed / 6 skipped / 0 failed / 1 warning**  
 `python -m research_os.cli.main validate`: **86/86 PASS**  
 `python -m compileall -q src scripts tests`: **PASS**  
 `git diff --check`: **PASS**
 
-## Pending terminal verification
+## Live provider acceptance
 
-The full offline regression, independent security review, rollback drill,
-crash-recovery drill, and any separately authorized provider-backed live
-acceptance must be recorded before changing this report to PASS. Production
-adoption and default Harness switching remain not authorized.
+Provider network was explicitly enabled for one acceptance run. Research data
+network remained OFF. The actual session completed two turns through the
+pinned rc.7 process, actual profile, stdio MCP, and the two real Research OS
+read Tools. Results were bounded, data gaps remained valid insufficient/partial
+states, and no credential was emitted.
+
+Production adoption and default Harness switching remain not authorized.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import time
 from typing import Any
 
 from .config import AgentRuntimeConfig
@@ -26,6 +27,7 @@ class AgentRuntimeGateway:
         self._sessions: dict[str, tuple[GatewaySession, Any]] = {}
         self._turn_counts: dict[str, int] = {}
         self._fallback_reasons: dict[str, str] = {}
+        self._last_activity: dict[str, float] = {}
 
     @property
     def mode(self) -> str:
@@ -40,6 +42,7 @@ class AgentRuntimeGateway:
 
     def create_session(self, metadata: dict[str, str] | None = None, request: dict[str, object] | None = None) -> GatewaySession:
         AgentRuntimeConfig.from_request(request)
+        self._expire_idle_sessions()
         if len(self._sessions) >= self.config.max_active_sessions:
             raise RuntimeNotReady("RESOURCE_BUDGET_EXCEEDED", "active session limit exceeded")
         adapter = self._adapter()
@@ -54,6 +57,7 @@ class AgentRuntimeGateway:
                 raise
         self._sessions[session.gateway_session_id] = (session, adapter)
         self._turn_counts[session.gateway_session_id] = 0
+        self._last_activity[session.gateway_session_id] = time.monotonic()
         return session
 
     def _lookup(self, session_id: str) -> tuple[GatewaySession, Any]:
@@ -70,6 +74,7 @@ class AgentRuntimeGateway:
             raise RuntimeNotReady("RESOURCE_BUDGET_EXCEEDED", "session turn limit exceeded")
         result = adapter.send_message(session, message)
         self._turn_counts[session.gateway_session_id] += 1
+        self._last_activity[session.gateway_session_id] = time.monotonic()
         if session.gateway_session_id in self._fallback_reasons and isinstance(result, dict):
             result = {**result, "fallback_reason": self._fallback_reasons[session.gateway_session_id]}
         return result
@@ -81,6 +86,22 @@ class AgentRuntimeGateway:
     def cancel_turn(self, session_id: str) -> dict[str, Any]:
         session, adapter = self._lookup(session_id)
         return adapter.cancel_turn(session)
+
+    def close_session(self, session_id: str) -> dict[str, Any]:
+        session, adapter = self._lookup(session_id)
+        result = adapter.close_session(session) if hasattr(adapter, "close_session") else {"status": "closed"}
+        self._sessions.pop(session_id, None)
+        self._turn_counts.pop(session_id, None)
+        self._last_activity.pop(session_id, None)
+        self._fallback_reasons.pop(session_id, None)
+        return result
+
+    def _expire_idle_sessions(self) -> None:
+        now = time.monotonic()
+        expiry = self.config.idle_session_timeout_seconds
+        for session_id, last in list(self._last_activity.items()):
+            if now - last >= expiry:
+                self.close_session(session_id)
 
     def get_runtime_status(self) -> RuntimeStatus:
         return self._adapter().get_runtime_status()

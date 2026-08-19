@@ -33,7 +33,9 @@ class ProfileVerifier:
     def __init__(self, expected_version: str = EXPECTED_HARNESS_VERSION):
         self.expected_version = expected_version
 
-    def verify(self, runtime: dict[str, Any]) -> ProfileVerification:
+    def verify(self, runtime: dict[str, Any], *, allow_fixture: bool = False) -> ProfileVerification:
+        if runtime.get("evidence_source") != "observed_runtime" and not allow_fixture:
+            raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "runtime evidence is not observed")
         version = runtime.get("version")
         if version != self.expected_version:
             raise RuntimeNotReady("RUNTIME_VERSION_MISMATCH", f"expected {self.expected_version}, got {version!r}")
@@ -41,13 +43,19 @@ class ProfileVerifier:
         if identity != EXPECTED_PROFILE:
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "unexpected profile identity")
         denied = set(runtime.get("denied_components", ()))
-        if not DENIED_COMPONENTS.issubset(denied):
+        disabled = set(runtime.get("disabled_components", ()))
+        if allow_fixture and not disabled:
+            disabled = denied
+        if not DENIED_COMPONENTS.issubset(denied) or not DENIED_COMPONENTS.issubset(disabled):
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "required denied capabilities are missing")
         if any(runtime.get("enabled_components", {}).get(component, False) for component in DENIED_COMPONENTS):
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "denied capability is enabled")
         if runtime.get("mcp_namespace") != MCP_NAMESPACE:
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "unexpected MCP namespace")
-        tools = frozenset(runtime.get("tools", ()))
+        handshake = runtime.get("mcp_handshake") or {}
+        if not allow_fixture and (handshake.get("connected") is not True or handshake.get("namespace") != MCP_NAMESPACE):
+            raise RuntimeNotReady("MCP_UNAVAILABLE", "actual MCP handshake evidence is missing")
+        tools = frozenset(handshake.get("tools", runtime.get("tools", ())))
         if tools != ALLOWED_TOOL_NAMES:
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "Tool allowlist is not exact")
         return ProfileVerification(True, True, True, True, identity)
@@ -55,6 +63,7 @@ class ProfileVerifier:
 
 def default_runtime_descriptor(version: str = EXPECTED_HARNESS_VERSION) -> dict[str, Any]:
     return {
+        "evidence_source": "fixture",
         "version": version,
         "profile": EXPECTED_PROFILE,
         "mcp_namespace": MCP_NAMESPACE,

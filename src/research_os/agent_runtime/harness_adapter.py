@@ -26,6 +26,7 @@ class HarnessAgentRuntimeAdapter:
         self.client = client
         self.sessions: dict[str, GatewaySession] = {}
         self.formal_work_started: set[str] = set()
+        self.agent_turn_started: set[str] = set()
 
     def admit(self) -> RuntimeStatus:
         if not self.supervisor.ready:
@@ -51,7 +52,7 @@ class HarnessAgentRuntimeAdapter:
         if session.gateway_session_id not in self.sessions:
             raise SessionFailure("SESSION_NOT_FOUND", "gateway session does not exist")
         self.admit()
-        self.formal_work_started.add(session.gateway_session_id)
+        self.agent_turn_started.add(session.gateway_session_id)
         try:
             result = self.client.send_message(session.harness_session_id or "", message)
             if not isinstance(result, dict):
@@ -63,6 +64,18 @@ class HarnessAgentRuntimeAdapter:
     def cancel_turn(self, session: GatewaySession) -> dict[str, Any]:
         self.client.cancel_turn(session.harness_session_id or "")
         return {"status": "cancelled", "gateway_session_id": session.gateway_session_id}
+
+    def mark_research_workflow_started(self, session_id: str) -> None:
+        if session_id not in self.sessions:
+            raise SessionFailure("SESSION_NOT_FOUND", "gateway session does not exist")
+        self.formal_work_started.add(session_id)
+
+    def close_session(self, session: GatewaySession) -> dict[str, Any]:
+        # Harness owns its internal persistence; only the gateway mapping is removed.
+        self.sessions.pop(session.gateway_session_id, None)
+        self.formal_work_started.discard(session.gateway_session_id)
+        self.agent_turn_started.discard(session.gateway_session_id)
+        return {"status": "closed", "gateway_session_id": session.gateway_session_id}
 
     def get_runtime_status(self) -> RuntimeStatus:
         return self.supervisor.status()

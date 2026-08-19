@@ -55,9 +55,10 @@ class FakeHarnessClient:
 
 
 def ready_supervisor():
-    supervisor = HarnessRuntimeSupervisor(process_factory=FakeProcess)
+    supervisor = HarnessRuntimeSupervisor(process_factory=FakeProcess, allow_fixture=True)
     supervisor.start(default_runtime_descriptor())
-    supervisor.mark_mcp_ready()
+    supervisor.complete_mcp_handshake({"connected": True, "namespace": "research-os-mcp/v1",
+                                       "tools": ["check_data_readiness", "get_company_profile"]})
     return supervisor
 
 
@@ -77,7 +78,7 @@ def test_config_rejects_floating_or_wrong_harness_version():
 
 
 def test_profile_verifier_is_exact_and_fail_closed():
-    verified = ProfileVerifier().verify(default_runtime_descriptor())
+    verified = ProfileVerifier().verify(default_runtime_descriptor(), allow_fixture=True)
     assert verified.verified
     extra = default_runtime_descriptor()
     extra["tools"] = sorted(ALLOWED_TOOL_NAMES | {"graph_write"})
@@ -88,20 +89,34 @@ def test_profile_verifier_is_exact_and_fail_closed():
 
 def test_supervisor_separates_process_alive_from_ready_and_owns_cleanup():
     process = FakeProcess()
-    supervisor = HarnessRuntimeSupervisor(process_factory=lambda: process)
+    supervisor = HarnessRuntimeSupervisor(process_factory=lambda: process, allow_fixture=True)
     status = supervisor.start(default_runtime_descriptor())
     assert status.process_alive and not status.ready
     assert supervisor.state is SupervisorState.STARTING
-    supervisor.mark_mcp_ready()
+    supervisor.complete_mcp_handshake({"connected": True, "namespace": "research-os-mcp/v1",
+                                       "tools": ["check_data_readiness", "get_company_profile"]})
     assert supervisor.ready
     supervisor.stop()
     assert process.terminated
     assert supervisor.state is SupervisorState.STOPPED
 
 
+def test_fabricated_descriptor_cannot_create_ready_without_fixture_mode():
+    supervisor = HarnessRuntimeSupervisor(process_factory=FakeProcess)
+    with pytest.raises(RuntimeNotReady, match="fabricated"):
+        supervisor.start(default_runtime_descriptor())
+
+
+def test_ready_requires_actual_handshake_evidence():
+    supervisor = HarnessRuntimeSupervisor(process_factory=FakeProcess, allow_fixture=True)
+    supervisor.start(default_runtime_descriptor())
+    with pytest.raises(RuntimeNotReady, match="handshake evidence"):
+        supervisor.mark_mcp_ready()
+
+
 def test_supervisor_requires_credential_before_start(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    supervisor = HarnessRuntimeSupervisor(process_factory=FakeProcess)
+    supervisor = HarnessRuntimeSupervisor(process_factory=FakeProcess, allow_fixture=True)
     with pytest.raises(RuntimeNotReady) as exc:
         supervisor.start(default_runtime_descriptor(), require_credential=True)
     assert exc.value.code == "PROVIDER_AUTH_MISSING"
@@ -179,6 +194,9 @@ def test_gateway_enforces_turn_and_active_session_limits():
         gateway.send_message(session.gateway_session_id, "two")
     with pytest.raises(RuntimeNotReady, match="active session"):
         gateway.create_session()
+    assert gateway.close_session(session.gateway_session_id)["status"] == "closed"
+    replacement = gateway.create_session()
+    assert replacement.gateway_session_id
 
 
 def test_secret_redaction_is_field_and_value_aware():

@@ -37,10 +37,12 @@ class AgentRuntimeConfig:
     max_turns: int = MAX_TURNS
     max_active_sessions: int = MAX_ACTIVE_SESSIONS
     tool_result_limit: int = MAX_TOOL_RESULT_BYTES
-    turn_timeout_seconds: int = 120
+    turn_timeout_seconds: int = 300
     provider_timeout_seconds: int = 60
     max_tool_calls: int = 8
     max_provider_retries: int = 2
+    idle_session_timeout_seconds: int = 1800
+    provider_token_budget: int = 8192
 
     def validate(self) -> "AgentRuntimeConfig":
         if self.mode not in RUNTIME_MODES:
@@ -59,6 +61,8 @@ class AgentRuntimeConfig:
             ("provider_timeout_seconds", self.provider_timeout_seconds, 1),
             ("max_tool_calls", self.max_tool_calls, 1),
             ("max_provider_retries", self.max_provider_retries, 0),
+            ("idle_session_timeout_seconds", self.idle_session_timeout_seconds, 1),
+            ("provider_token_budget", self.provider_token_budget, 1),
         ):
             if value < minimum:
                 raise ConfigurationError(f"{name} must be positive/bounded")
@@ -74,10 +78,12 @@ class AgentRuntimeConfig:
             max_turns=_int_env("AGENT_MAX_TURNS", MAX_TURNS, 1, MAX_TURNS),
             max_active_sessions=_int_env("AGENT_MAX_ACTIVE_SESSIONS", MAX_ACTIVE_SESSIONS, 1, MAX_ACTIVE_SESSIONS),
             tool_result_limit=_int_env("AGENT_TOOL_RESULT_LIMIT", MAX_TOOL_RESULT_BYTES, 1, MAX_TOOL_RESULT_BYTES),
-            turn_timeout_seconds=_int_env("AGENT_TURN_TIMEOUT_SECONDS", 120, 1, 3600),
+            turn_timeout_seconds=_int_env("AGENT_TURN_TIMEOUT_SECONDS", 300, 1, 3600),
             provider_timeout_seconds=_int_env("AGENT_PROVIDER_TIMEOUT_SECONDS", 60, 1, 3600),
             max_tool_calls=_int_env("AGENT_MAX_TOOL_CALLS", 8, 1, 100),
             max_provider_retries=_int_env("AGENT_MAX_PROVIDER_RETRIES", 2, 0, 5),
+            idle_session_timeout_seconds=_int_env("AGENT_IDLE_SESSION_TIMEOUT_SECONDS", 1800, 1, 86400),
+            provider_token_budget=_int_env("AGENT_PROVIDER_TOKEN_BUDGET", 8192, 1, 100000),
         )
         return config.validate()
 

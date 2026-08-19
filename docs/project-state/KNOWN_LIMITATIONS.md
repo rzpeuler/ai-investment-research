@@ -247,12 +247,12 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，不得声称未来能力已实现：
 
 1. 当前会话仍是 P7-UX1 IN_MEMORY_ONLY（最多 20 轮 / 128 sessions，服务退出即消失）。
-2. DeepSeek Harness P8-A0 技术集成与 P8-B 设计均已独立验收；P8-B1 foundation implementation 已授权，生产采用仍未授权。
+2. DeepSeek Harness P8-A0 技术集成与 P8-B 设计均已独立验收；P8-B 设计已独立验收，P8-B1 foundation implementation 已授权，生产采用仍未授权。
    上游为 Developer Preview，runtime 固定为 `@deepseek-ai/dsh@0.1.0-rc.7`，升级需重新验收。
 
 ## P8-B 当前限制
 
-- P8-B 设计已独立验收；P8-B1 foundation implementation 已完成但尚未独立验收。
+- P8-B 设计与 P8-B1 foundation 均已独立验收；生产采用仍未授权。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout

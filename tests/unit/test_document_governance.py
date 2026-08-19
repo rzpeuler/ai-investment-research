@@ -843,7 +843,7 @@ def test_p8_b_r1_known_limitations_has_no_stale_d4_state():
         assert stale not in limitations
 
     assert "P8-B 设计已独立验收" in limitations
-    assert "P8-B1 foundation implementation 已完成但尚未独立验收" in limitations
+    assert "P8-B1 foundation 均已独立验收" in limitations
     assert "生产采用仍未授权" in limitations
 
 
@@ -854,11 +854,11 @@ def test_p8_b1_state_is_implemented_but_not_production_accepted():
     report = _read("docs/architecture/p8-b1-acceptance-report.md")
 
     assert "P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in current
-    assert "P8-B1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in current
+    assert "P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in current
     assert "P8-B1_MCP_NAMESPACE: research-os-mcp/v1" in current
     assert "P8-B1_MCP_TOOLS: get_company_profile, check_data_readiness" in current
-    assert "P8-B1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
-    assert "TASKBOOK_STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in taskbook
-    assert "STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in report
+    assert "P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "TASKBOOK_STATUS:** PASS / INDEPENDENTLY ACCEPTED" in taskbook
+    assert "STATUS:** PASS / INDEPENDENTLY ACCEPTED" in report
     assert "PRODUCTION_ADOPTION: NOT_AUTHORIZED" in taskbook
     assert "P8-B2: NOT_AUTHORIZED" in taskbook
