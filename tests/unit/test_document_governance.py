@@ -828,3 +828,20 @@ def test_p7_d2_foundation_accepted_and_still_no_real_source_authority():
     assert "PASS / INDEPENDENTLY ACCEPTED" in p7_d2
     assert "REAL DATA ACQUISITION COVERAGE: NONE" in p7_d2
     assert "REAL SOURCE READY" not in p7_d2
+
+
+def test_p8_b_r1_known_limitations_has_no_stale_d4_state():
+    """P8-B-R1 current limitations must not contradict accepted D4 state."""
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+
+    for stale in (
+        "D4 仍未独立验收",
+        "PAUSED_HEAD `7c2791b`",
+        "IMPLEMENTATION IN PROGRESS",
+        "TEMPORARILY PAUSED FOR GOVERNANCE FREEZE",
+    ):
+        assert stale not in limitations
+
+    assert "P8-B 设计已完成，等待独立验收" in limitations
+    assert "P8-B1 implementation 未授权" in limitations
+    assert "生产采用仍未授权" in limitations

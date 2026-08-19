@@ -267,6 +267,4 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 10. Test connection 尚不构成 business sufficiency。
 11. Agent model profile / 套餐 UI 尚未实现。
 12. Harness 为 developer-preview upstream，正式采用前有 compatibility risk。
-13. D4 仍未独立验收（PAUSED_HEAD `7c2791b`，IMPLEMENTATION IN PROGRESS /
-    TEMPORARILY PAUSED FOR GOVERNANCE FREEZE）。
-14. Frontend 不得宣称 D4/D5/realtime 等尚未验收能力已自动可用。
+13. Frontend 不得宣称 D4/D5/realtime 等尚未验收能力已自动可用。
