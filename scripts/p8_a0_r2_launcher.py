@@ -21,6 +21,25 @@ def iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Terminate only the process tree created by this launcher."""
+    if proc.poll() is None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -58,11 +77,12 @@ def main() -> int:
         stderr = stderr or ""
         status = "success" if proc.returncode == 0 and stdout.strip() else "PROVIDER_SESSION_FAILED"
     except subprocess.TimeoutExpired:
-        proc.kill()
+        terminate_process_tree(proc)
         stdout, stderr = proc.communicate()
         stdout = stdout or ""
         stderr = stderr or ""
         status = "PROVIDER_SESSION_TIMEOUT"
+    terminate_process_tree(proc)
     result = {
         "status": status,
         "runtime_version": PINNED,

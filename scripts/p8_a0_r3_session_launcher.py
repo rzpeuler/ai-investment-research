@@ -115,6 +115,25 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Terminate only the process tree created by this launcher."""
+    if proc.poll() is None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
 def wait_http(base: str, proc: subprocess.Popen[str], timeout: int = 30) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -231,12 +250,7 @@ def main() -> int:
         print(json.dumps({"status": "R3_FAILED", "runtime_version": PINNED, "error": type(exc).__name__, "message": str(exc)[:1000], "tool_events": sanitized_events(event_log)}, ensure_ascii=False, indent=2))
         return 1
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        terminate_process_tree(proc)
 
 
 if __name__ == "__main__":
