@@ -114,3 +114,16 @@ git diff --check                                              # PASS
 
 当前下一里程碑 = **P8-A0 DeepSeek Harness Integration Spike taskbook**；
 P8-A0 implementation = **NOT AUTHORIZED**。
+
+## R1 返修（GOV-STATE-SYNC-P7D4-01-R1，2026-08-19）
+
+独立验收结论 REWORK_REQUIRED：NEXT_PHASE.md 当前状态区域中 P7-D2 历史字段
+（FINAL IMPLEMENTATION / VALIDATION HEAD `84f70b5...`、OFFLINE CI `31945487755`）
+缺少 P7-D2 作用域限定，可能被误判为项目当前状态。本轮返修：
+
+- 字段加 P7-D2 前缀：P7-D2 FINAL IMPLEMENTATION / VALIDATION HEAD、
+  P7-D2 OFFLINE CI（SHA 与 CI run 值保持不变，P7-D2 历史未被改写）；
+- test_p7d4_terminal_state_is_consistent() 增加 P7-D2 scope 机械断言
+  （positive：P7-D2 前缀存在；negative：未限定形式不得出现）。
+
+返修状态：REWORK_IMPLEMENTED / AWAITING SOL RE-ACCEPTANCE（PR #26 继续 OPEN）。

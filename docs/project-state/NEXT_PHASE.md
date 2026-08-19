@@ -110,8 +110,8 @@ Phase 5: CLOSED / PASS
 - **REAL DATA ACQUISITION COVERAGE**: macro_data（nbs）/ company_announcement（cninfo）WORKFLOW_WIRED；BUSINESS_SUFFICIENT 待治理 closeout
 - **Current Schema registry**: 86（Phase 6 terminal historical snapshot was 69）
 - **DB / migrations**: v6 / NONE
-- **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
-- **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
+- **P7-D2 FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
+- **P7-D2 OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
 - **NEXT WORK**: P8-A0 DeepSeek Harness Integration Spike taskbook（P7-D4 已 ACCEPTED；Spike 前 P7-UX1 不下线）
 - **NEW REAL-SOURCE AUTHORIZATION FOR P8-A0**: NONE
 

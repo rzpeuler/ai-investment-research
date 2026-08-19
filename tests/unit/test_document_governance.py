@@ -874,3 +874,9 @@ def test_p7d4_terminal_state_is_consistent():
     ]
     for phrase in stale:
         assert phrase not in living, f"stale phrase reappeared in living-state: {phrase}"
+
+    # --- P7-D2 historical fields must be scope-qualified (not project-current) ---
+    assert "P7-D2 FINAL IMPLEMENTATION / VALIDATION HEAD" in next_phase
+    assert "P7-D2 OFFLINE CI" in next_phase
+    assert "\n- **FINAL IMPLEMENTATION / VALIDATION HEAD**:" not in next_phase
+    assert "\n- **OFFLINE CI**: SUCCESS — run `31945487755`" not in next_phase
