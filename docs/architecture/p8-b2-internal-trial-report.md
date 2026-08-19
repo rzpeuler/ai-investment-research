@@ -11,12 +11,15 @@ STATUS: PARTIAL / NOT ACCEPTED
 - Default runtime: `legacy`
 - Production adoption: `NOT_AUTHORIZED`
 - P8-B3: `NOT_AUTHORIZED`
+- B2 base: `e64249e9eb99a395ebaa63308d0d72ad1d3a7a74`
+- B2 implementation head at initial report: `0ecd8c1`
 
 ## Evidence
 
 | Gate | Result |
 |---|---|
 | Runtime admission | PASS for the attempted run; restart re-verification PASS |
+| Local runtime integration | FAIL in follow-up: Harness HTTP surface did not become live within the bounded startup window |
 | Session establishment | NOT COMPLETED: provider timeout before corpus progress |
 | Live model/skill invocation | NOT VERIFIED |
 | Research OS tool invocation | NOT VERIFIED |
@@ -30,6 +33,8 @@ STATUS: PARTIAL / NOT ACCEPTED
 | Sessions / turns | 0 / 0 completed in the final run |
 | Token usage | `NOT_REPORTED` |
 | Monetary cost | `NOT_AVAILABLE_FROM_ACCEPTED_RUNTIME` |
+| Latency baseline | NOT_AVAILABLE: no completed provider-backed turn |
+| Full pytest | NOT_VERIFIED: prior full run timed out; targeted offline tests pass |
 
 ## Decision
 

@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from research_os.agent_runtime.errors import RuntimeNotReady
+from research_os.agent_runtime.config import AgentRuntimeConfig
+from research_os.agent_runtime.errors import ConfigurationError, RuntimeNotReady
 from research_os.agent_runtime.trial import (
     LatchState,
     TrialBudget,
@@ -12,6 +13,7 @@ from research_os.agent_runtime.trial import (
     TrialMetricsRecorder,
     TrialSafetyLatch,
     _tool_counts,
+    _contains_secret,
 )
 
 
@@ -41,10 +43,11 @@ def test_safety_latch_requires_operator_reset_after_trip():
 def test_trial_metrics_and_tool_counts_are_bounded():
     recorder = TrialMetricsRecorder("trial-1")
     recorder.record(event_type="turn_completed", session_public_hash="abc", turn_index=1,
-                    tool_counts={"get_company_profile": 1})
+                    tool_counts={"get_company_profile": 1}, full_prompt="secret", full_response="secret")
     rendered = json.dumps(recorder.events)
     assert "full prompt" not in rendered
     assert "full response" not in rendered
+    assert "secret" not in rendered
     assert _tool_counts([
         {"event_type": "tool_call", "tool_name": "get_company_profile"},
         {"event_type": "tool_call", "tool_name": "check_data_readiness"},
@@ -59,3 +62,14 @@ def test_trial_budget_is_explicit_and_bounded():
     assert budget.max_tool_calls > budget.max_turns
     assert budget.max_retries == 0
     assert budget.turn_timeout_seconds > 0
+
+
+def test_client_cannot_enable_harness_or_trial():
+    with pytest.raises(ConfigurationError, match="client runtime override"):
+        AgentRuntimeConfig.from_request({"runtime_mode": "harness"})
+    assert AgentRuntimeConfig.from_request({"P8_B2_INTERNAL_TRIAL": "1"}).mode == "legacy"
+
+
+def test_secret_scan_detects_credentials_without_rendering_them():
+    assert _contains_secret("Authorization: Bearer redacted", ["Authorization", "Bearer "])
+    assert not _contains_secret("safe bounded event", ["Authorization", "Bearer "])

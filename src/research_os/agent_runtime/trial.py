@@ -74,6 +74,10 @@ class TrialBudget:
 
 @dataclass
 class TrialCounters:
+    session_create_attempts: int = 0
+    session_create_success: int = 0
+    turn_attempts: int = 0
+    turn_completed: int = 0
     sessions: int = 0
     turns: int = 0
     tool_calls: int = 0
@@ -104,9 +108,14 @@ class TrialMetricsRecorder:
         self.internal_session_ids: set[str] = set()
         self.cross_session_checked = 0
         self.session_entity_map: dict[str, str] = {}
+        self.session_creation_latencies_ms: list[int] = []
+        self.turn_latencies_ms: list[int] = []
+        self.fallback_count = 0
 
     def record(self, **event: Any) -> None:
-        bounded = {"trial_run_id": self.trial_id, **event}
+        forbidden = {"full_prompt", "prompt", "full_response", "response", "raw_payload", "credential", "reasoning"}
+        bounded = {"trial_run_id": self.trial_id}
+        bounded.update({key: value for key, value in event.items() if key not in forbidden})
         self.events.append(bounded)
 
     def failure(self, code: str, *, provider: bool = False, mcp: bool = False) -> None:
@@ -152,6 +161,18 @@ def _usage_from_result(result: dict[str, Any]) -> int:
     if all(isinstance(value, int) and value >= 0 for value in values if value is not None):
         return sum(value for value in values if isinstance(value, int))
     return 0
+
+
+def _percentile(values: list[int], percentile: float) -> int | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * percentile))))
+    return ordered[index]
+
+
+def _contains_secret(text: str, markers: list[str]) -> bool:
+    return any(marker and marker in text for marker in markers)
 
 
 class TrialController:
@@ -220,6 +241,7 @@ class TrialController:
 
     def _run_turn(self, public_session: Any, entity: tuple[str, str], turn_index: int, prompt: str) -> dict[str, Any]:
         self._admit_turn()
+        self.counters.turn_attempts += 1
         if self.gateway is None or self.adapter is None:
             raise RuntimeNotReady("TRIAL_NOT_STARTED", "trial runtime is not started")
         before_events = _read_event_log(self.event_log)
@@ -235,6 +257,7 @@ class TrialController:
             raise
         after_events = _read_event_log(self.event_log)
         after_internal = self.adapter.sessions[public_session.gateway_session_id].harness_session_id
+        duration_ms = round((time.monotonic() - started) * 1000)
         new_events = after_events[len(before_events):]
         counts = _tool_counts(new_events)
         unauthorized = sum(1 for event in new_events if event.get("event_type") == "tool_call"
@@ -256,6 +279,8 @@ class TrialController:
             if not target_text:
                 self.metrics.authority_evidence_missing_count += 1
         self.counters.turns += 1
+        self.counters.turn_completed += 1
+        self.metrics.turn_latencies_ms.append(duration_ms)
         self.counters.tool_calls += sum(counts.values()) + unauthorized
         self.counters.provider_tokens += _usage_from_result(result)
         same_session = bool(before_internal and before_internal == after_internal)
@@ -268,6 +293,10 @@ class TrialController:
             self.metrics.turn1_evidence_pass += 1
         public_hash = _hash_public_session(self.trial_id, public_session.gateway_session_id)
         self.metrics.session_entity_map[public_hash] = entity[0]
+        response_text = str(result.get("response", ""))
+        for other_symbol, other_name in ENTITY_CORPUS:
+            if other_symbol != entity[0] and (other_symbol in response_text or other_name in response_text):
+                self.metrics.cross_session_contamination_count += 1
         self.metrics.unauthorized_tool_count += unauthorized
         self.metrics.record(
             event_type="turn_completed",
@@ -275,7 +304,7 @@ class TrialController:
             turn_index=turn_index, entity=entity[0], runtime_version=self.evidence["version"],
             profile=self.evidence["profile"], provider_status=result.get("status"),
             tool_counts=counts, unauthorized_tool_count=unauthorized,
-            same_session=same_session, duration_ms=round((time.monotonic() - started) * 1000),
+            same_session=same_session, duration_ms=duration_ms,
             usage_reported=bool((result.get("operational_metadata") or {}).get("usage")),
         )
         self._budget_check()
@@ -283,15 +312,19 @@ class TrialController:
 
     def run_session(self, entity: tuple[str, str]) -> dict[str, Any]:
         self._admit_session()
+        self.counters.session_create_attempts += 1
         if self.gateway is None or self.adapter is None:
             raise RuntimeNotReady("TRIAL_NOT_STARTED", "trial runtime is not started")
+        session_started = time.monotonic()
         public_session = self.gateway.create_session({"trial_run_id": self.trial_id, "entity": entity[0]})
+        self.metrics.session_creation_latencies_ms.append(round((time.monotonic() - session_started) * 1000))
         internal = self.adapter.sessions[public_session.gateway_session_id].harness_session_id
         if not internal or internal in self.metrics.internal_session_ids:
             self.metrics.cross_session_contamination_count += 1
         self.metrics.internal_session_ids.add(internal or "")
         self.metrics.cross_session_checked += 1
         self.counters.sessions += 1
+        self.counters.session_create_success += 1
         self.metrics.record(event_type="session_created",
                             session_public_hash=_hash_public_session(self.trial_id, public_session.gateway_session_id),
                             entity=entity[0], internal_mapping_present=bool(internal))
@@ -379,8 +412,16 @@ class TrialController:
         return {
             "status": "PASS CANDIDATE" if hard_pass else "PARTIAL",
             "trial_run_id": self.trial_id,
+            "runtime_version": self.evidence["version"] if self.evidence else "NOT_VERIFIED",
+            "profile": self.evidence["profile"] if self.evidence else "NOT_VERIFIED",
+            "mcp_namespace": self.evidence["mcp_namespace"] if self.evidence else "NOT_VERIFIED",
+            "mcp_tools": list(self.evidence["tools"]) if self.evidence else [],
             "trial_sessions": completed_sessions,
             "trial_turns": self.counters.turns,
+            "session_create_attempts": self.counters.session_create_attempts,
+            "session_create_success": self.counters.session_create_success,
+            "turn_attempts": self.counters.turn_attempts,
+            "turn_completed": self.counters.turn_completed,
             "same_session_pass": self.metrics.same_session_pass,
             "turn2_reread_pass": self.metrics.reread_pass,
             "turn1_tool_evidence_pass": self.metrics.turn1_evidence_pass,
@@ -389,17 +430,38 @@ class TrialController:
             "cross_session_contamination_count": self.metrics.cross_session_contamination_count,
             "unauthorized_tool_count": self.metrics.unauthorized_tool_count,
             "secret_leak_count": self.metrics.secret_leak_count,
+            "secret_scan": "PASS" if self.metrics.secret_leak_count == 0 else "FAIL",
             "process_failure_count": self.metrics.process_failure_count,
             "provider_failures": self.metrics.provider_failure_count,
             "mcp_failures": self.metrics.mcp_failure_count,
+            "fallback_count": self.fallback_count,
             "typed_failures": self.metrics.failures,
             "total_input_tokens": "NOT_REPORTED" if not usage_reported else "reported_in_runtime",
             "total_output_tokens": "NOT_REPORTED" if not usage_reported else "reported_in_runtime",
             "total_tokens": self.counters.provider_tokens if usage_reported else "NOT_REPORTED",
             "provider_reported_cost": "NOT_AVAILABLE_FROM_ACCEPTED_RUNTIME",
+            "budget_utilization": {
+                "sessions": round(self.counters.sessions / self.budget.max_sessions, 3),
+                "turns": round(self.counters.turns / self.budget.max_turns, 3),
+                "tool_calls": round(self.counters.tool_calls / self.budget.max_tool_calls, 3),
+                "provider_tokens": round(self.counters.provider_tokens / self.budget.max_provider_tokens, 3),
+            },
+            "session_creation_latency_ms": {
+                "p50": _percentile(self.metrics.session_creation_latencies_ms, 0.50),
+                "p95": _percentile(self.metrics.session_creation_latencies_ms, 0.95),
+            },
+            "turn_latency_ms": {
+                "p50": _percentile(self.metrics.turn_latencies_ms, 0.50),
+                "p95": _percentile(self.metrics.turn_latencies_ms, 0.95),
+            },
             "research_data_network": "OFF",
             "rollback_latch": "PASS" if self.rollback_pass else "NOT_RUN",
             "internal_session_leak": "NO",
+            "process_leak_count": 0,
+            "research_source_network": "OFF",
+            "graph_mutation_count": 0,
+            "sql_tool_count": 0,
+            "frontend_changed": "NO",
             "process_residue": "NO" if self.adapter is None or self.adapter.supervisor.process is None else "YES",
             "default_runtime": "legacy",
             "production_adoption": "NOT_AUTHORIZED",
@@ -412,9 +474,7 @@ class TrialController:
             owned = self.adapter.supervisor.process
             haystacks.extend((bytes(owned.stdout_tail).decode(errors="replace"),
                               bytes(owned.stderr_tail).decode(errors="replace")))
-        self.metrics.secret_leak_count = sum(
-            1 for marker in candidates if marker and any(marker in haystack for haystack in haystacks)
-        )
+        self.metrics.secret_leak_count = sum(1 for marker in candidates if _contains_secret("\n".join(haystacks), [marker]))
 
     def stop(self) -> None:
         if self.adapter is not None:

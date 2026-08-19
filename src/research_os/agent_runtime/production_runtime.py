@@ -300,7 +300,7 @@ class HarnessProcessFactory:
                 with urllib.request.urlopen(base_url, timeout=1) as response:
                     if response.status == 200:
                         return BoundedOwnedProcess(process, base_url)
-            except (urllib.error.URLError, TimeoutError):
+            except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionResetError, TimeoutError):
                 time.sleep(0.25)
         if process.poll() is None:
             BoundedOwnedProcess(process, base_url).terminate()
