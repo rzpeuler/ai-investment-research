@@ -3266,3 +3266,8 @@ deployment, frontend work, schema change, DB migration, source/collector expansi
 graph write, ChatService replacement, LlmClient removal, Orchestrator modification,
 or Harness upgrade. Default runtime remains `legacy` / P7-UX1 and production adoption
 remains NOT AUTHORIZED.
+
+P8-B1 foundation implementation is recorded as IMPLEMENTED / AWAITING
+INDEPENDENT ACCEPTANCE on its separate feature branch. This disposition does not
+authorize production default switching, production traffic, frontend wiring, or
+P8-B2.
