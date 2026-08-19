@@ -19,7 +19,7 @@ P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accep
 
 ```text
 P8-A0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
-P8-B DESIGN: AUTHORIZED
+P8-B DESIGN: COMPLETE / AWAITING INDEPENDENT ACCEPTANCE
 P8-B IMPLEMENTATION: NOT_AUTHORIZED
 PRODUCTION ADOPTION: NOT_AUTHORIZED
 D5: 不得因为本次设计自动开始
@@ -30,6 +30,12 @@ FRONTEND IMPLEMENTATION: NOT_AUTHORIZED（后续须独立 frontend taskbook）
 
 可以记录：Frontend foundation 可在未来与部分数据阶段解耦实施，但 AI Research
 session integration 必须兼容最终 Harness boundary。
+
+## P8-B Design Handoff
+
+P8-B design documents are complete and await independent acceptance. The next
+eligible task after acceptance is a separate P8-B1 Production Foundation taskbook.
+P8-B1 is not authorized by the design task.
 
 ## 当前结论
 

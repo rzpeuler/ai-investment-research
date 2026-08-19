@@ -184,7 +184,7 @@ Phase 6.1；下一步仅为独立验收。
 Decision #54 / #55）正式写入两项长期设计，**仅冻结设计，不授权实施**：
 
 - [Agent Runtime / Skill Architecture](docs/architecture/agent-runtime-skill-architecture.md)
-  —— DeepSeek Harness P8-A0 技术集成已独立验收；当前仅进入 P8-B 设计，生产采用仍未授权；
+  —— DeepSeek Harness P8-A0 技术集成已独立验收；P8-B 设计已完成并等待独立验收，生产采用仍未授权；
   Research OS 继续保有 Data / Evidence / PIT / Financial / Graph / Workflow Authority；
   Skill / Tool / Workflow 三分；Memory 三分法；MCP 为 Harness → Research OS 首选边界。
 - [Frontend Product Architecture](docs/architecture/frontend-product-architecture.md)
