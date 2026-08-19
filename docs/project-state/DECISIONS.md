@@ -3266,3 +3266,41 @@ deployment, frontend work, schema change, DB migration, source/collector expansi
 graph write, ChatService replacement, LlmClient removal, Orchestrator modification,
 or Harness upgrade. Default runtime remains `legacy` / P7-UX1 and production adoption
 remains NOT AUTHORIZED.
+
+P8-B1-R1 terminal acceptance is PASS / INDEPENDENTLY ACCEPTED on the separate
+feature branch. This disposition does not authorize production default switching,
+production traffic, frontend wiring, or P8-B2.
+
+## 58. P8-B1-R2 Runtime Integrity Re-acceptance Required (2026-08-19)
+
+P8-B1-R2 closes the findings-only implementation scope for session opacity,
+fail-closed runtime evidence, and mechanically observed live acceptance. The
+implementation is complete on the feature branch, but the current disposition is
+`IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`; execution does not self-authorize
+independent acceptance.
+
+Internal Harness session IDs remain private to the adapter/client boundary. Runtime
+composition evidence distinguishes observed, disabled, enabled, and verified-absent
+component IDs, and incomplete evidence fails closed. Live Tool evidence comes from
+the MCP event log, while same-session evidence emits only a boolean. Production
+adoption, default Harness switching, production traffic, frontend wiring, schema or
+database changes, and P8-B2 remain NOT AUTHORIZED.
+
+## 59. P8-B1-R3 Public Session Contract (2026-08-20)
+
+R3 implements the public session contract closure on the feature branch. The
+Gateway returns an allowlist-based `PublicGatewaySession`; internal
+`GatewaySession` records and Harness IDs remain inside Gateway/Adapter mappings.
+Legacy and Harness paths share the same public type, and resume/cancel/close
+results remain opaque. Current state is `IMPLEMENTED / AWAITING INDEPENDENT
+ACCEPTANCE`; production adoption and P8-B2 remain NOT AUTHORIZED.
+
+## 60. P8-B1 M0 Closeout / P8-B2 Internal Trial Authorization (2026-08-20)
+
+The P8-B1 accepted baseline is `85d7dc8`, with implementation head `caf7289`.
+P8-B1 is now recorded as `CLOSED / PASS / INDEPENDENTLY ACCEPTED` for the
+P8-B2 M0 closeout. P8-B2 is authorized only as an internal, explicit opt-in,
+non-production, reversible trial after the no-squash merge. Default runtime
+remains `legacy`; public Harness traffic, Frontend integration, Scenario
+rollout, P7-UX1 retirement, production adoption, and P8-B3 remain NOT
+AUTHORIZED. The B2 execution agent may not self-accept the trial.

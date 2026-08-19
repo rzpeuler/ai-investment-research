@@ -1,0 +1,16 @@
+{
+  "identity": "research-headless",
+  "runtime_version": "0.1.0-rc.7",
+  "mcp_namespace": "research-os-mcp/v1",
+  "denied_components": [
+    "bash", "pwsh", "filesystem_write", "filesystem_editor", "filesystem_search",
+    "jobs", "subagent", "workflow_coding_tools", "todo", "coding_goal_tools",
+    "direct_web", "web_search", "arbitrary_subprocess"
+  ],
+  "allowed_tools": ["get_company_profile", "check_data_readiness"],
+  "network_policy": {
+    "agent_provider_network": "explicit-live-only",
+    "research_data_network": "off"
+  },
+  "write_policy": "read-only"
+}
