@@ -843,22 +843,22 @@ def test_p8_b_r1_known_limitations_has_no_stale_d4_state():
         assert stale not in limitations
 
     assert "P8-B 设计已独立验收" in limitations
-    assert "P8-B1 foundation 当前为 IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in limitations
+    assert "P8-B1 foundation 均已独立验收" in limitations
     assert "生产采用仍未授权" in limitations
 
 
-def test_p8_b1_state_is_implemented_but_not_production_accepted():
+def test_p8_b1_m0_state_is_closed_and_b2_is_not_production_accepted():
     current = _read("docs/project-state/CURRENT_STATE.md")
     next_phase = _read("docs/project-state/NEXT_PHASE.md")
     taskbook = _read("docs/tasks/p8-b1-deepseek-harness-production-foundation.md")
     report = _read("docs/architecture/p8-b1-acceptance-report.md")
 
     assert "P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in current
-    assert "P8-B1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in current
+    assert "P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in current
     assert "P8-B1_MCP_NAMESPACE: research-os-mcp/v1" in current
     assert "P8-B1_MCP_TOOLS: get_company_profile, check_data_readiness" in current
-    assert "P8-B1: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in next_phase
-    assert "TASKBOOK_STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in taskbook
-    assert "STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE" in report
+    assert "P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
+    assert "TASKBOOK_STATUS:** PASS / INDEPENDENTLY ACCEPTED" in taskbook
+    assert "STATUS:** PASS / INDEPENDENTLY ACCEPTED" in report
     assert "PRODUCTION_ADOPTION: NOT_AUTHORIZED" in taskbook
     assert "P8-B2: NOT_AUTHORIZED" in taskbook

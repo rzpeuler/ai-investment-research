@@ -1,6 +1,6 @@
 # P8-B1-R3 Public Session Contract & Final Acceptance Closure
 
-**TASKBOOK_STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
+**TASKBOOK_STATUS:** PASS / INDEPENDENTLY ACCEPTED
 
 **BASE:** `de9a5e3b3cbe93fe1c17abdc3281738fe1dbea4f`
 
@@ -31,4 +31,4 @@ with a stable resumed status.
 - Production adoption: NOT_AUTHORIZED
 - P8-B2: NOT_AUTHORIZED
 
-Execution status remains `IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`.
+Execution status is `PASS / INDEPENDENTLY ACCEPTED` under the P8-B2 M0 closeout.

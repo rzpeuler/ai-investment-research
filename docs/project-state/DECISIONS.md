@@ -3294,3 +3294,13 @@ Gateway returns an allowlist-based `PublicGatewaySession`; internal
 Legacy and Harness paths share the same public type, and resume/cancel/close
 results remain opaque. Current state is `IMPLEMENTED / AWAITING INDEPENDENT
 ACCEPTANCE`; production adoption and P8-B2 remain NOT AUTHORIZED.
+
+## 60. P8-B1 M0 Closeout / P8-B2 Internal Trial Authorization (2026-08-20)
+
+The P8-B1 accepted baseline is `85d7dc8`, with implementation head `caf7289`.
+P8-B1 is now recorded as `CLOSED / PASS / INDEPENDENTLY ACCEPTED` for the
+P8-B2 M0 closeout. P8-B2 is authorized only as an internal, explicit opt-in,
+non-production, reversible trial after the no-squash merge. Default runtime
+remains `legacy`; public Harness traffic, Frontend integration, Scenario
+rollout, P7-UX1 retirement, production adoption, and P8-B3 remain NOT
+AUTHORIZED. The B2 execution agent may not self-accept the trial.

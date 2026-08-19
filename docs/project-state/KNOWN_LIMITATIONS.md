@@ -252,7 +252,7 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 
 ## P8-B 当前限制
 
-- P8-B 设计已独立验收；P8-B1 foundation 当前为 IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE，生产采用仍未授权。
+- P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已授权，生产采用仍未授权。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout
