@@ -19,7 +19,7 @@ def main() -> int:
         corpus = controller.run_corpus()
         restart = controller.restart_drill()
         rollback = controller.rollback_drill()
-        result = {**corpus, **restart, **rollback,
+        result = {**controller.evaluate_final_trial(), **restart, **rollback,
                   "provider_network": "ON", "research_data_network": "OFF",
                   "p8_b3": "NOT_AUTHORIZED"}
     except Exception as exc:

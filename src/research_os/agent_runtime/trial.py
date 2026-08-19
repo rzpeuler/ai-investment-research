@@ -15,7 +15,8 @@ from typing import Any
 from .config import AgentRuntimeConfig
 from .errors import RuntimeFailure, RuntimeNotReady
 from .gateway import AgentRuntimeGateway
-from .production_runtime import build_production_harness_adapter
+from .legacy_adapter import LegacyAgentRuntimeAdapter
+from .production_runtime import ROOT, build_production_harness_adapter
 
 
 TRIAL_ENV = "P8_B2_INTERNAL_TRIAL"
@@ -82,6 +83,9 @@ class TrialCounters:
     turns: int = 0
     tool_calls: int = 0
     provider_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
     retries: int = 0
 
 
@@ -100,8 +104,11 @@ class TrialMetricsRecorder:
         self.unauthorized_tool_count = 0
         self.secret_leak_count = 0
         self.process_failure_count = 0
+        self.process_leak_count = 0
         self.mcp_failure_count = 0
         self.provider_failure_count = 0
+        self.fallback_count = 0
+        self.budget_warning_emitted = False
         self.turn1_evidence_pass = 0
         self.turn2_readiness_pass = 0
         self.authority_evidence_missing_count = 0
@@ -110,7 +117,6 @@ class TrialMetricsRecorder:
         self.session_entity_map: dict[str, str] = {}
         self.session_creation_latencies_ms: list[int] = []
         self.turn_latencies_ms: list[int] = []
-        self.fallback_count = 0
 
     def record(self, **event: Any) -> None:
         forbidden = {"full_prompt", "prompt", "full_response", "response", "raw_payload", "credential", "reasoning"}
@@ -163,6 +169,12 @@ def _usage_from_result(result: dict[str, Any]) -> int:
     return 0
 
 
+def _usage_components(result: dict[str, Any]) -> dict[str, int]:
+    usage = (result.get("operational_metadata") or {}).get("usage") or {}
+    return {name: int(usage[name]) for name in ("input_tokens", "output_tokens", "cached_tokens")
+            if isinstance(usage.get(name), int) and usage[name] >= 0}
+
+
 def _percentile(values: list[int], percentile: float) -> int | None:
     if not values:
         return None
@@ -191,6 +203,13 @@ class TrialController:
         self._previous_event_log: str | None = None
         self._started = False
         self.rollback_pass = False
+        self.fallback_pass = False
+        self.restart_pass = False
+        self.owned_root_pid: int | None = None
+        self.root_alive_after_stop: bool | None = None
+        self.owned_descendant_count_after_stop: int | None = None
+        self.usage_fields: set[str] = set()
+        self.authority_entity_ids: dict[str, str] = {}
 
     def _require_opt_in(self) -> None:
         if os.environ.get(TRIAL_ENV) != "1":
@@ -206,6 +225,7 @@ class TrialController:
                                     turn_timeout_seconds=self.budget.turn_timeout_seconds)
         try:
             self.adapter, self.evidence = build_production_harness_adapter(config, require_credential=True)
+            self._preflight_entities()
             self.gateway = AgentRuntimeGateway(config, harness=self.adapter, fallback_before_workflow=False)
             self._started = True
             self.metrics.record(event_type="trial_started", runtime_version=self.evidence["version"],
@@ -218,6 +238,18 @@ class TrialController:
             self.stop()
             raise
 
+    def _preflight_entities(self) -> None:
+        from .mcp.tools import build_research_os_mcp_server
+        authority = build_research_os_mcp_server()
+        authority.perform_handshake()
+        for symbol, _name in (ENTITY_CORPUS[0], ENTITY_CORPUS[1]):
+            result = authority.call("get_company_profile", {"target": symbol}, f"preflight-{symbol}")
+            reference = (result.get("security_reference") or {}).get("symbol")
+            if result.get("status") not in {"success", "partial_success"} or reference != symbol:
+                raise RuntimeNotReady("AUTHORITY_PREFLIGHT_FAILED", f"entity authority unavailable: {symbol}")
+            if isinstance(result.get("entity_id"), str):
+                self.authority_entity_ids[symbol] = result["entity_id"]
+
     def _admit_session(self) -> None:
         self.latch.admit()
         if self.counters.sessions >= self.budget.max_sessions:
@@ -227,6 +259,13 @@ class TrialController:
         self.latch.admit()
         if self.counters.turns >= self.budget.max_turns:
             raise RuntimeNotReady("RESOURCE_BUDGET_EXCEEDED", "trial turn budget exhausted")
+        ratios = (
+            self.counters.turns / self.budget.max_turns,
+            self.counters.tool_calls / self.budget.max_tool_calls,
+            self.counters.provider_tokens / self.budget.max_provider_tokens,
+        )
+        if any(ratio >= 1 for ratio in ratios):
+            raise RuntimeNotReady("RESOURCE_BUDGET_EXCEEDED", "trial budget exhausted")
 
     def _budget_check(self) -> None:
         ratios = [
@@ -236,8 +275,9 @@ class TrialController:
         ]
         if max(ratios) > 1:
             raise RuntimeNotReady("RESOURCE_BUDGET_EXCEEDED", "trial budget exhausted")
-        if max(ratios) >= self.budget.warning_ratio:
+        if max(ratios) >= self.budget.warning_ratio and not self.budget_warning_emitted:
             self.metrics.record(event_type="budget_warning", utilization=round(max(ratios), 3))
+            self.budget_warning_emitted = True
 
     def _run_turn(self, public_session: Any, entity: tuple[str, str], turn_index: int, prompt: str) -> dict[str, Any]:
         self._admit_turn()
@@ -271,9 +311,12 @@ class TrialController:
             if event.get("status") not in authority_statuses:
                 continue
             authority = event.get("authority") if isinstance(event.get("authority"), dict) else {}
-            target = event.get("target_reference") or authority.get("security_reference") or authority.get("entity_id")
+            authority_target = authority.get("security_reference") or authority.get("entity_id")
+            target = authority_target
             target_text = str(target) if target is not None else ""
-            known = ENTITY_ALIASES.get(entity[0], frozenset({entity[0]}))
+            known = set(ENTITY_ALIASES.get(entity[0], frozenset({entity[0]})))
+            if entity[0] in self.authority_entity_ids:
+                known.add(self.authority_entity_ids[entity[0]])
             if target_text and not any(reference in target_text for reference in known):
                 self.metrics.authority_drift_count += 1
             if not target_text:
@@ -283,6 +326,11 @@ class TrialController:
         self.metrics.turn_latencies_ms.append(duration_ms)
         self.counters.tool_calls += sum(counts.values()) + unauthorized
         self.counters.provider_tokens += _usage_from_result(result)
+        usage = _usage_components(result)
+        self.usage_fields.update(usage)
+        self.counters.input_tokens += usage.get("input_tokens", 0)
+        self.counters.output_tokens += usage.get("output_tokens", 0)
+        self.counters.cached_tokens += usage.get("cached_tokens", 0)
         same_session = bool(before_internal and before_internal == after_internal)
         if same_session:
             self.metrics.same_session_pass += 1
@@ -353,9 +401,30 @@ class TrialController:
                 if exc.code in {"PROFILE_POLICY_MISMATCH", "MCP_UNAVAILABLE", "HARNESS_BOOT_FAILED"}:
                     self.latch.trip(exc.code)
                     break
-        return self.summary(completed)
+        self._completed_sessions = completed
+        result = self.summary(completed, final=False)
+        result["status"] = "IN_PROGRESS"
+        return result
 
     def rollback_drill(self) -> dict[str, Any]:
+        class FailingHarness:
+            mode = "harness"
+
+            def create_session(self, metadata=None):
+                raise RuntimeNotReady("MCP_UNAVAILABLE", "controlled rollback fixture")
+
+        fallback_gateway = AgentRuntimeGateway(
+            AgentRuntimeConfig(mode="harness", max_turns=2, max_active_sessions=1),
+            legacy=LegacyAgentRuntimeAdapter(project_root=ROOT),
+            harness=FailingHarness(), fallback_before_workflow=True,
+        )
+        routed = fallback_gateway.create_session({"trial_run_id": self.trial_id, "rollback": "1"})
+        fallback_reason = fallback_gateway._fallback_reasons.get(routed.gateway_session_id)
+        legacy_response = fallback_gateway.send_message(routed.gateway_session_id, "rollback readiness probe")
+        self.metrics.fallback_count += int(routed.runtime_mode == "legacy" and bool(fallback_reason))
+        self.fallback_pass = bool(routed.runtime_mode == "legacy" and fallback_reason == "MCP_UNAVAILABLE"
+                                  and isinstance(legacy_response, dict))
+        fallback_gateway.close_session(routed.gateway_session_id)
         self.latch.trip("controlled rollback drill")
         denied = False
         try:
@@ -363,7 +432,9 @@ class TrialController:
         except RuntimeNotReady:
             denied = True
         self.rollback_pass = denied
-        return {"rollback_latch": "PASS" if denied else "FAIL", "new_admission_denied": denied}
+        return {"rollback_latch": "PASS" if denied else "FAIL", "new_admission_denied": denied,
+                "real_legacy_fallback": "PASS" if self.fallback_pass else "FAIL",
+                "fallback_reason": fallback_reason}
 
     def restart_drill(self) -> dict[str, Any]:
         """Terminate only the owned runtime root, then restart and re-verify it."""
@@ -379,16 +450,18 @@ class TrialController:
         try:
             self.latch.operator_reset()
             self.start()
+            self.restart_pass = True
             return {"crash_restart": "PASS", "runtime_reverified": True}
         except RuntimeFailure as exc:
             self.metrics.failure(exc.code)
             self.metrics.process_failure_count += 1
+            self.restart_pass = False
             return {"crash_restart": "FAIL", "runtime_reverified": False}
 
     def operator_reset(self) -> None:
         self.latch.operator_reset()
 
-    def summary(self, completed_sessions: int) -> dict[str, Any]:
+    def summary(self, completed_sessions: int, *, final: bool = True) -> dict[str, Any]:
         self._scan_secrets()
         hard_pass = (
             completed_sessions >= self.budget.max_sessions
@@ -398,7 +471,12 @@ class TrialController:
             and self.metrics.unauthorized_tool_count == 0
             and self.metrics.secret_leak_count == 0
             and self.metrics.process_failure_count == 0
+            and self.metrics.process_leak_count == 0
             and self.metrics.mcp_failure_count == 0
+            and self.evidence is not None
+            and self.evidence.get("version") == "0.1.0-rc.7"
+            and self.evidence.get("profile") == "research-headless"
+            and set(self.evidence.get("tools", ())) == ALLOWED_TOOLS
             and self.metrics.same_session_pass == self.counters.turns
             and self.metrics.reread_pass == completed_sessions
             and self.metrics.turn1_evidence_pass == completed_sessions
@@ -406,11 +484,13 @@ class TrialController:
             and self.metrics.authority_evidence_missing_count == 0
             and self.metrics.cross_session_checked == completed_sessions
             and self.rollback_pass
+            and self.fallback_pass
+            and self.restart_pass
             and self.counters.provider_tokens > 0
         )
         usage_reported = self.counters.provider_tokens > 0
         return {
-            "status": "PASS CANDIDATE" if hard_pass else "PARTIAL",
+            "status": "PASS CANDIDATE" if final and hard_pass else ("PARTIAL" if final else "IN_PROGRESS"),
             "trial_run_id": self.trial_id,
             "runtime_version": self.evidence["version"] if self.evidence else "NOT_VERIFIED",
             "profile": self.evidence["profile"] if self.evidence else "NOT_VERIFIED",
@@ -434,10 +514,12 @@ class TrialController:
             "process_failure_count": self.metrics.process_failure_count,
             "provider_failures": self.metrics.provider_failure_count,
             "mcp_failures": self.metrics.mcp_failure_count,
-            "fallback_count": self.fallback_count,
+            "fallback_count": self.metrics.fallback_count,
+            "real_legacy_fallback": "PASS" if self.fallback_pass else "NOT_RUN",
             "typed_failures": self.metrics.failures,
-            "total_input_tokens": "NOT_REPORTED" if not usage_reported else "reported_in_runtime",
-            "total_output_tokens": "NOT_REPORTED" if not usage_reported else "reported_in_runtime",
+            "total_input_tokens": self.counters.input_tokens if "input_tokens" in self.usage_fields else "NOT_AVAILABLE_FROM_ACCEPTED_RUNTIME",
+            "total_output_tokens": self.counters.output_tokens if "output_tokens" in self.usage_fields else "NOT_AVAILABLE_FROM_ACCEPTED_RUNTIME",
+            "total_cached_tokens": self.counters.cached_tokens if "cached_tokens" in self.usage_fields else "NOT_AVAILABLE_FROM_ACCEPTED_RUNTIME",
             "total_tokens": self.counters.provider_tokens if usage_reported else "NOT_REPORTED",
             "provider_reported_cost": "NOT_AVAILABLE_FROM_ACCEPTED_RUNTIME",
             "budget_utilization": {
@@ -456,16 +538,22 @@ class TrialController:
             },
             "research_data_network": "OFF",
             "rollback_latch": "PASS" if self.rollback_pass else "NOT_RUN",
+            "crash_restart": "PASS" if self.restart_pass else "NOT_RUN",
             "internal_session_leak": "NO",
-            "process_leak_count": 0,
+            "process_leak_count": self.metrics.process_leak_count,
             "research_source_network": "OFF",
             "graph_mutation_count": 0,
             "sql_tool_count": 0,
             "frontend_changed": "NO",
-            "process_residue": "NO" if self.adapter is None or self.adapter.supervisor.process is None else "YES",
+            "process_residue": "NO" if self.metrics.process_leak_count == 0 else "YES",
             "default_runtime": "legacy",
             "production_adoption": "NOT_AUTHORIZED",
         }
+
+    def evaluate_final_trial(self) -> dict[str, Any]:
+        """Evaluate only after corpus, restart, rollback, and final scans."""
+        self.stop()
+        return self.summary(self._completed_sessions, final=True)
 
     def _scan_secrets(self) -> None:
         candidates = [os.environ.get("DEEPSEEK_API_KEY", ""), "Authorization", "Bearer ", "Cookie", "password"]
@@ -477,8 +565,16 @@ class TrialController:
         self.metrics.secret_leak_count = sum(1 for marker in candidates if _contains_secret("\n".join(haystacks), [marker]))
 
     def stop(self) -> None:
+        self._scan_secrets()
         if self.adapter is not None:
+            owned = self.adapter.supervisor.process
+            if owned is not None:
+                self.owned_root_pid = owned.process.pid
             self.adapter.supervisor.stop()
+            if owned is not None:
+                self.root_alive_after_stop = owned.poll() is None
+                self.owned_descendant_count_after_stop = 0 if not self.root_alive_after_stop else 1
+                self.metrics.process_leak_count = int(self.root_alive_after_stop or self.owned_descendant_count_after_stop)
         self.adapter = None
         self.gateway = None
         self._started = False

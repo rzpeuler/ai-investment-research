@@ -92,7 +92,7 @@ def check_data_readiness(target: str, as_of: str | None = None, **_: Any) -> dic
     readiness = [item.model_dump(mode="json") for item in bundle.readiness]
     gaps = [item.model_dump(mode="json") for item in bundle.gaps]
     status = "success" if readiness and all(item["status"] == "READY" for item in readiness) else "partial_success"
-    return {"status": status, "as_of": effective_as_of, "requirement_count": len(readiness),
+    return {"status": status, "entity_id": identity.get("entity_id"), "as_of": effective_as_of, "requirement_count": len(readiness),
             "missing_count": sum(item["status"] != "READY" for item in readiness),
             "readiness": readiness, "gaps": gaps,
             "limitations": ["research_data_acquisition_disabled", "no_external_source_network"]}

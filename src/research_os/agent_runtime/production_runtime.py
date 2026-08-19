@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import re
 from pathlib import Path
 from typing import Any
 
@@ -268,6 +269,12 @@ class BoundedOwnedProcess:
         return self.process.wait(timeout=timeout)
 
 
+def _redacted_tail(value: bytearray, limit: int = 2048) -> str:
+    text = bytes(value[-limit:]).decode(errors="replace")
+    return re.sub(r"(?i)(authorization|bearer|cookie|password|deepseek_api_key)(\s*[:=]\s*)\S+",
+                  r"\1\2[REDACTED]", text)
+
+
 class HarnessProcessFactory:
     """Starts only the locally installed, pinned package under an owned root."""
 
@@ -288,23 +295,35 @@ class HarnessProcessFactory:
             raise RuntimeNotReady("HARNESS_BOOT_FAILED", "production dsh binary is not installed")
         self.port = free_port()
         env = self.probe._env(self.home)
+        started = time.monotonic()
         process = subprocess.Popen([str(dsh), "--profile", "research-headless", "--host", "127.0.0.1",
                                     "--port", str(self.port)], cwd=self.repo_root, env=env,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        owned = BoundedOwnedProcess(process, f"http://127.0.0.1:{self.port}")
         base_url = f"http://127.0.0.1:{self.port}"
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeNotReady("HARNESS_BOOT_FAILED", "Harness process exited during startup")
+            exit_code = owned.poll()
+            if exit_code is not None:
+                raise RuntimeNotReady("HARNESS_BOOT_FAILED", json.dumps({
+                    "stage": "PROCESS_EXITED_BEFORE_HTTP", "exit_code": exit_code,
+                    "elapsed_ms": round((time.monotonic() - started) * 1000),
+                    "version": EXPECTED_HARNESS_VERSION, "profile": "research-headless",
+                    "port": self.port, "stdout_tail": _redacted_tail(owned.stdout_tail),
+                    "stderr_tail": _redacted_tail(owned.stderr_tail)}, ensure_ascii=False))
             try:
                 with urllib.request.urlopen(base_url, timeout=1) as response:
                     if response.status == 200:
-                        return BoundedOwnedProcess(process, base_url)
+                        return owned
             except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionResetError, TimeoutError):
                 time.sleep(0.25)
-        if process.poll() is None:
-            BoundedOwnedProcess(process, base_url).terminate()
-        raise RuntimeNotReady("HARNESS_BOOT_FAILED", "Harness HTTP surface did not become live")
+        owned.terminate()
+        raise RuntimeNotReady("HARNESS_BOOT_FAILED", json.dumps({
+            "stage": "HTTP_NOT_READY_TIMEOUT", "exit_code": owned.poll(),
+            "elapsed_ms": round((time.monotonic() - started) * 1000),
+            "version": EXPECTED_HARNESS_VERSION, "profile": "research-headless",
+            "port": self.port, "stdout_tail": _redacted_tail(owned.stdout_tail),
+            "stderr_tail": _redacted_tail(owned.stderr_tail)}, ensure_ascii=False))
 
 
 class OfficialHarnessClient:

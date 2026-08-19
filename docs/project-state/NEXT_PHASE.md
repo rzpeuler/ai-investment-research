@@ -11,7 +11,7 @@ P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accep
 ```text
 1. P8-B1 DeepSeek Harness Production Foundation
 2. P8-B1 independent acceptance
-3. P8-B2 remains not authorized
+3. P8-B2 is implemented but remains PARTIAL / NOT ACCEPTED
 5. D5 / 后续数据能力按新路线继续
 ```
 

@@ -1,5 +1,7 @@
 # P8-B2 DeepSeek Harness Internal Limited Trial
 
+STATUS: SUPERSEDED — SEE `p8-b2-internal-limited-trial.md`
+
 STATUS: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 
 P8-B1 is closed and independently accepted at the no-squash merge baseline
