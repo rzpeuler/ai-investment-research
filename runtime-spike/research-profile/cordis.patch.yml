@@ -1,0 +1,62 @@
+# Research-only P8-A0-R2 profile. Coding and mutation surfaces are disabled
+# at composition level; prompt text is not used as a permission mechanism.
+# Keep the base shell service mounted because rc.7 permission-presets depends
+# on its lifecycle; the public bash/pwsh tools below remain disabled.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-report
+  disabled: true
+- id: workflow-worker-thread
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-str-replace-editor
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: skill-filesystem
+  config:
+    customSkillDirs: [!!js process.env.P8_R2_SKILL_DIR]
+- id: system-prompt
+  config:
+    persona: >-
+      You are a research-only agent. Use the stock-research skill and the
+      Research OS tools. You must not use coding, filesystem, shell, source
+      network, collector, graph approval, or graph write capabilities. Use
+      tool results as the only authority for company identity and readiness.
+- insert:
+    - id: research-os-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: research_os
+        transport: stdio
+        command: python
+        args: ['scripts/p8_a0_r2_mcp_server.py']
+        cwd: !!js process.env.P8_R2_REPO_ROOT
+        failOnStartupError: true
+        reconnect:
+          enabled: false

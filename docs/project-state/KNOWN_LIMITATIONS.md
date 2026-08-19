@@ -247,7 +247,8 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，不得声称未来能力已实现：
 
 1. 当前会话仍是 P7-UX1 IN_MEMORY_ONLY（最多 20 轮 / 128 sessions，服务退出即消失）。
-2. DeepSeek Harness 尚未集成（NOT_INSTALLED / NOT_IMPLEMENTED）。
+2. DeepSeek Harness P8-A0 技术集成已独立验收；当前仅允许 P8-B 设计，生产采用仍未授权。
+   上游为 Developer Preview，runtime 固定为 `@deepseek-ai/dsh@0.1.0-rc.7`，升级需重新验收。
 3. Persistent Agent Conversation 尚不可用。
 4. Skill Registry 尚未进入本项目 production。
 5. Research OS MCP Server 尚未实现。

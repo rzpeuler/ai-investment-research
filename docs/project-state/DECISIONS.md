@@ -3226,3 +3226,28 @@ NO governance DB table、NO migration；未来实施须单独 taskbook。
 Data/Evidence/Graph/Report。能力指南与数据中心的跨页面关联（如"个股研报 → 财务数据
 步骤"跳转到"数据中心 → financial_statement_data"，或"CNINFO → 被哪些研究使用"反向
 查看）是 read-model / projection，不是改变业务 authority。
+## 56. P8-A0 DeepSeek Harness Technical Integration Acceptance（2026-08-19，INDEPENDENTLY ACCEPTED）
+
+P8-A0 accepted head: `f16a3163814345e9aee2d00615a42dae57fd86fb`。
+
+### 56.1 Acceptance
+
+P8-A0 的 Harness 技术集成已完成独立验收：provider-backed session、research-only profile、
+model-facing `stock-research` Skill、real MCP stdio、Research OS authority boundary、
+same-session continuation、authority re-read、new-session negative behavior 均通过。
+完整 offline regression 为 `3698 passed / 6 skipped / 0 failed / 1 warning`，schema 86，DB v6，
+migrations NONE。
+
+### 56.2 Governance boundary
+
+accepted runtime 固定为 `@deepseek-ai/dsh@0.1.0-rc.7`，上游状态为 Developer Preview。
+本 Decision 只接受技术集成可行性，并授权 P8-B 进入 production adoption design；不授权生产部署、
+ChatService 替换、LlmClient 删除、Orchestrator/Data Layer/Financial/Graph/Source Registry 修改、
+Frontend implementation、Schema change、DB migration 或 Harness version upgrade。
+
+Research OS 继续拥有 Entity、PIT、Data Readiness、Source/Collector、Evidence、Financial、Graph、
+Workflow、Validator 与 Report authority。Harness 仅拥有 conversation/session/agent-facing context、
+Skill discovery、Tool selection 与 agent execution lifecycle。
+
+P7-UX1 保持 current production/fallback path。P8-B 只能形成设计并等待独立验收；不得写成 Harness
+已生产采用，P8-B1 亦未授权。
