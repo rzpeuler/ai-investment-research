@@ -4,7 +4,7 @@
 
 **BASE:** `1b6b3e37efb159542e78e7e10a9408d66b73617e`
 
-**FINAL_HEAD:** `pending handoff commit`
+**FINAL_HEAD:** `86070d4`
 
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`
 

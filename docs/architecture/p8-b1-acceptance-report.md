@@ -6,7 +6,7 @@
 
 **IMPLEMENTATION_HEAD:** `600b24292a73009e0765bdadf49865b3e2bc24c2`
 
-**R1_FINAL_HEAD:** pending handoff commit
+**R1_FINAL_HEAD:** `86070d4`
 
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`
 
