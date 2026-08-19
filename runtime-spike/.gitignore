@@ -3,3 +3,8 @@ dsh-runtime.*.log
 *.local.json
 .session/
 .dsh-home/
+.r2-*-home/
+r2-*.json
+r2-*.jsonl
+r2-*.yaml
+dump-config.json
