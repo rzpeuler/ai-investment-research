@@ -828,3 +828,49 @@ def test_p7_d2_foundation_accepted_and_still_no_real_source_authority():
     assert "PASS / INDEPENDENTLY ACCEPTED" in p7_d2
     assert "REAL DATA ACQUISITION COVERAGE: NONE" in p7_d2
     assert "REAL SOURCE READY" not in p7_d2
+
+def test_p7d4_terminal_state_is_consistent():
+    """P7-D4 must be ACCEPTED across living-state surfaces; stale P7-D4 /
+    PR #25 phrases must not reappear. Historical snapshots (DECISIONS.md,
+    architecture docs, historical taskbooks) are intentionally excluded."""
+    current = _read("docs/project-state/CURRENT_STATE.md")
+    next_phase = _read("docs/project-state/NEXT_PHASE.md")
+    limitations = _read("docs/project-state/KNOWN_LIMITATIONS.md")
+    readme = _read("README.md")
+    agents = _read("AGENTS.md")
+    living = "\n".join([current, next_phase, limitations, readme, agents])
+
+    # --- positive: P7-D4 accepted facts ---
+    assert "P7-D4" in current and "IMPLEMENTED / ACCEPTED" in current
+    assert "P7-D4" in next_phase and "IMPLEMENTED / ACCEPTED" in next_phase
+    assert "P7-D4" in limitations and "IMPLEMENTED / ACCEPTED" in limitations
+    assert "8b153b3" in current, "accepted baseline 8b153b3 must be in CURRENT_STATE"
+    assert "8b153b3" in next_phase, "accepted baseline 8b153b3 must be in NEXT_PHASE"
+    assert "7c2791b" in current, "D4 implementation head 7c2791b must be in CURRENT_STATE"
+    # P8-A0 remains a taskbook; implementation not authorized
+    assert "P8-A0" in next_phase and "NOT AUTHORIZED" in next_phase
+    assert "NEXT WORK" in next_phase and "P8-A0" in next_phase
+    # Harness / Frontend remain not implemented
+    assert "Harness" in limitations and "NOT_IMPLEMENTED" in limitations
+    assert "Harness" in readme and "NOT IMPLEMENTED" in readme
+    assert "NOT AUTHORIZED" in readme
+    # PR #25 merged fact
+    assert "PR #25 MERGED" in current
+    # AGENTS active rule: D4 accepted, next milestone P8-A0
+    assert "P7-D4 已 ACCEPTED / MERGED" in agents
+    assert "P8-A0" in agents
+
+    # --- negative: stale P7-D4 / PR #25 current-state phrases ---
+    stale = [
+        "P7-D4 因本治理冻结暂停",
+        "D4 仍未独立验收",
+        "PAUSED_HEAD",
+        "online acceptance NOT_RUN",
+        "IMPLEMENTATION IN PROGRESS",
+        "TEMPORARILY PAUSED",
+        "IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE",
+        "PR #25 merge authorized / not merged",
+        "PR #25 已获 merge authorization，但仍 OPEN / NOT MERGED",
+    ]
+    for phrase in stale:
+        assert phrase not in living, f"stale phrase reappeared in living-state: {phrase}"

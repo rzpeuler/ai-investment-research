@@ -117,4 +117,4 @@ Phase 3 异动分析 → Phase 4 个股研报 → Phase 5 产业图谱 → Phase
 - 数据源连接成功不得自动晋级 lifecycle。
 - 前端不得显示 private chain-of-thought。
 - 新的 UI/API implementation 需要独立 taskbook。
-- D4 恢复时继续遵循现有 D4 taskbook，不因 Agent Runtime Decision 改范围。
+- P7-D4 已 ACCEPTED / MERGED（2026-08-19）。下一 Agent Runtime 里程碑为 P8-A0；未经独立 P8-A0 taskbook 不得安装或集成 Harness。

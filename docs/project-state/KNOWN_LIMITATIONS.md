@@ -2,7 +2,7 @@
 
 > 如实记录当前能力边界。每项限制均不得被绕过式实现伪装。
 
-> 当前统一结论（2026-08-16）：Phase 4 engineering foundation = PASS；
+> 当前统一结论（2026-08-19）：Phase 4 engineering foundation = PASS；
 > Phase 5 = CLOSED / PASS；Phase 6 research workflows = PASS / centrally enabled；
 > Graph→Research = read-only Phase 6A path enabled；
 > Phase 6 Research→GraphChange Candidate integration = DEFERRED；
@@ -14,7 +14,13 @@
 > P7-D1 = PASS / INDEPENDENTLY ACCEPTED（Decision #48.10/#48.11，accepted
 > implementation head `bc27781`；数据就绪控制面）；
 > P7-D2 = PASS / INDEPENDENTLY ACCEPTED（2026-08-18，Decision #50；accepted head
-> `55c4ba5`；最终 implementation head `84f70b5`；真实采集覆盖 NONE）。
+> `55c4ba5`；最终 implementation head `84f70b5`；真实采集覆盖 NONE）；
+> P7-D3 = PASS / INDEPENDENTLY ACCEPTED（2026-08-18，Decision #52；accepted head
+> `e8a4a9f`；nbs/cninfo 真实在线验收）；
+> P7-D4 = IMPLEMENTED / ACCEPTED（2026-08-19，accepted baseline `8b153b3`；
+> 独立验收 PASS）；
+> P8-A0 = NEXT TASKBOOK / IMPLEMENTATION NOT AUTHORIZED；
+> DeepSeek Harness = NOT IMPLEMENTED（DESIGN FROZEN / SELECTED CANDIDATE）。
 
 Phase 6 PASS 不代表所有外部数据源均已完备，也不保证每次真实运行成功。结果仍受数据与
 Evidence 可得性约束，可合法返回 `partial_success`、`degraded` 或
@@ -88,8 +94,11 @@ Apply 能力，但 Phase 6 场景输出尚未中央接入该候选链路。
 
 - **真实 LLM Provider 已配置**：七项必需语义任务在两个真实案例中全部通过；未显式
   `--live`、凭证缺失或 Provider 故障时仍如实回退，不生成伪造 `MODEL_INFERENCE`
-- **自动财务源未验证**：financial_statement_data 无 primary/secondary，
-  仅 `manual_financial_import` + `disclosure_extraction`；未验证接口不得登记
+- **自动财务链路（P7-D4）**：CNINFO 官方年报 → company_document → deterministic
+  derive_existing → CORE financial_statement_data / FinancialFact 已实现
+  （WORKFLOW_WIRED）；仍非所有财务数据的 direct automatic source、非通用 PDF/OCR
+  财务平台、非任意报告格式/任意 taxonomy 全自动抽取，金融企业专用指标未完整覆盖；
+  BUSINESS_SUFFICIENT 不自动晋级。
 - **历史行情仍仅人工导入**：日线 fallback=manual_import；市值/股本历史序列无自动来源
 - **PDF 表格解析覆盖有限**：原生文本/CSV 表格可解析；通用 PDF 表格识别为协议层
   （native_text/table_parser 部分支持）；完整年报表格依赖人工校正
@@ -258,6 +267,7 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 10. Test connection 尚不构成 business sufficiency。
 11. Agent model profile / 套餐 UI 尚未实现。
 12. Harness 为 developer-preview upstream，正式采用前有 compatibility risk。
-13. D4 仍未独立验收（PAUSED_HEAD `7c2791b`，IMPLEMENTATION IN PROGRESS /
-    TEMPORARILY PAUSED FOR GOVERNANCE FREEZE）。
-14. Frontend 不得宣称 D4/D5/realtime 等尚未验收能力已自动可用。
+13. P7-D4 已独立验收并合并进 master（2026-08-19，accepted baseline `8b153b3`）；
+    company_document / financial_statement_data 仍为 WORKFLOW_WIRED，
+    BUSINESS_SUFFICIENT / deterministic_derivation=true 不因 D4 ACCEPTED 自动晋级。
+14. Frontend 不得宣称 D5/realtime 等尚未验收能力已自动可用（D4 已验收可如实展示）。

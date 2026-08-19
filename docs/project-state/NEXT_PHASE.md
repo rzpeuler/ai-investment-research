@@ -113,7 +113,7 @@ Phase 5: CLOSED / PASS
 - **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
 - **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
 - **NEXT WORK**: P8-A0 DeepSeek Harness Integration Spike taskbook（P7-D4 已 ACCEPTED；Spike 前 P7-UX1 不下线）
-- **REAL-SOURCE AUTHORIZATION**: NONE
+- **NEW REAL-SOURCE AUTHORIZATION FOR P8-A0**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately
 authorized by its approved taskbook and Decision #46, but that authorization is limited to the
@@ -125,8 +125,7 @@ P7-UX1 已通过独立验收并完成 governance closeout（PASS / INDEPENDENTLY
 work 或 database migration。
 
 P7-D1 已通过独立复验（Decision #48.10/#48.11），状态为 `CLOSED / PASS /
-INDEPENDENTLY ACCEPTED`。accepted implementation head 为 `bc27781`，PR #25
-已获 merge authorization，但当前仍 OPEN / NOT MERGED。
+INDEPENDENTLY ACCEPTED`。accepted implementation head 为 `bc27781`，PR #25 已合并（MERGED）。
 
 P7-D2 Foundation 已于 2026-08-18 通过独立验收（Decision #50，PASS / INDEPENDENTLY ACCEPTED，
 accepted head `55c4ba5`）：
@@ -137,7 +136,7 @@ P7-D0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P7-D1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P7-D2 FOUNDATION: PASS / INDEPENDENTLY ACCEPTED（2026-08-18）
 REAL DATA ACQUISITION COVERAGE: NONE
-→ D1（PR #25 已授权）与 D2 合并进 master
+→ D1（PR #25）与 D2 已合并进 master
 → 从新 master 建立 P7-D3 工程基线（Free-Source Production MVP：nbs / cninfo）
 → real source execution / production collector IDs / capability promotion: 须 P7-D3 授权
 → Phase 6.1: NOT AUTHORIZED
