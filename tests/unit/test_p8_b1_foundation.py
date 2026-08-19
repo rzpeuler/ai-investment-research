@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from research_os.agent_runtime.errors import ConfigurationError, RuntimeNotReady
 from research_os.agent_runtime.gateway import AgentRuntimeGateway
 from research_os.agent_runtime.harness_adapter import HarnessAgentRuntimeAdapter
 from research_os.agent_runtime.mcp.server import ResearchOSMCPServer
-from research_os.agent_runtime.models import SupervisorState
+from research_os.agent_runtime.models import PublicGatewaySession, SupervisorState
 from research_os.agent_runtime.observability import EventRecorder, redact
 from research_os.agent_runtime.profile_verifier import ProfileVerifier, default_runtime_descriptor
 from research_os.agent_runtime.profile_verifier import FORBIDDEN_COMPONENT_IDS_RC7
@@ -231,12 +232,56 @@ def test_harness_gateway_uses_opaque_session_and_continuation():
     gateway = AgentRuntimeGateway(AgentRuntimeConfig(mode="harness"), harness=adapter)
     session = gateway.create_session()
     assert session.gateway_session_id.startswith("gw_")
-    assert session.gateway_session_id != session.harness_session_id
+    assert isinstance(session, PublicGatewaySession)
+    assert not hasattr(session, "harness_session_id")
+    internal = adapter.sessions[session.gateway_session_id]
+    assert internal.harness_session_id == "internal-session-1"
     assert gateway.send_message(session.gateway_session_id, "continue")["status"] == "accepted"
-    gateway.resume_session(session.gateway_session_id)
-    gateway.cancel_turn(session.gateway_session_id)
+    resumed = gateway.resume_session(session.gateway_session_id)
+    cancelled = gateway.cancel_turn(session.gateway_session_id)
+    assert resumed.status == "resumed"
+    assert cancelled["status"] == "cancelled"
     assert client.messages == [("internal-session-1", "continue")]
     assert client.cancelled == ["internal-session-1"]
+
+
+def test_public_session_contract_is_stable_and_recursive():
+    client = FakeHarnessClient()
+    adapter = HarnessAgentRuntimeAdapter(
+        ready_supervisor(),
+        ResearchOSMCPServer({
+            "get_company_profile": lambda **_: {"status": "partial_success"},
+            "check_data_readiness": lambda **_: {"status": "partial_success"},
+        }),
+        client,
+    )
+    gateway = AgentRuntimeGateway(AgentRuntimeConfig(mode="harness"), harness=adapter)
+    public = gateway.create_session({"acceptance": "r3", "internal_session_id": "forbidden"})
+    results = [public, gateway.send_message(public.gateway_session_id, "hello"),
+               gateway.resume_session(public.gateway_session_id),
+               gateway.cancel_turn(public.gateway_session_id),
+               gateway.close_session(public.gateway_session_id)]
+    for result in results:
+        rendered = repr(result) + json.dumps(asdict(result) if hasattr(result, "__dataclass_fields__") else result)
+        assert "harness_session_id" not in rendered
+        assert "internal-session-1" not in rendered
+    assert isinstance(public, PublicGatewaySession)
+    assert public.metadata == {"acceptance": "r3"}
+    assert adapter.sessions == {}
+
+
+def test_legacy_and_harness_create_sessions_share_public_type():
+    legacy = AgentRuntimeGateway(AgentRuntimeConfig(mode="legacy"))
+    harness_adapter = HarnessAgentRuntimeAdapter(
+        ready_supervisor(),
+        ResearchOSMCPServer({
+            "get_company_profile": lambda **_: {"status": "partial_success"},
+            "check_data_readiness": lambda **_: {"status": "partial_success"},
+        }),
+        FakeHarnessClient(),
+    )
+    harness = AgentRuntimeGateway(AgentRuntimeConfig(mode="harness"), harness=harness_adapter)
+    assert type(legacy.create_session()) is type(harness.create_session()) is PublicGatewaySession
 
 
 def test_harness_admission_failure_falls_back_once_before_workflow():

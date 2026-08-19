@@ -39,9 +39,34 @@ class GatewaySession:
 
 
 @dataclass(frozen=True)
+class PublicGatewaySession:
+    """Stable caller-facing session view; internal Harness identity is absent."""
+
+    gateway_session_id: str
+    runtime_mode: str
+    status: str
+    metadata: dict[str, str] = field(default_factory=dict)
+
+
+PUBLIC_SESSION_METADATA_KEYS = frozenset({"acceptance"})
+
+
+def to_public_session(session: GatewaySession, *, status: str = "active") -> PublicGatewaySession:
+    metadata = {
+        key: value for key, value in session.metadata.items()
+        if key in PUBLIC_SESSION_METADATA_KEYS
+    }
+    return PublicGatewaySession(
+        gateway_session_id=session.gateway_session_id,
+        runtime_mode=session.runtime_mode,
+        status=status,
+        metadata=metadata,
+    )
+
+
+@dataclass(frozen=True)
 class ToolCallResult:
     status: str
     payload: dict[str, Any]
     tool: str
     request_id: str
-

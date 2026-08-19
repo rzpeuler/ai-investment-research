@@ -9,7 +9,7 @@ from .config import AgentRuntimeConfig
 from .errors import ConfigurationError, RuntimeFailure, RuntimeNotReady, SessionFailure
 from .harness_adapter import HarnessAgentRuntimeAdapter
 from .legacy_adapter import LegacyAgentRuntimeAdapter
-from .models import GatewaySession, RuntimeStatus
+from .models import GatewaySession, PublicGatewaySession, RuntimeStatus, to_public_session
 
 
 class AgentRuntimeGateway:
@@ -40,7 +40,7 @@ class AgentRuntimeGateway:
             raise ConfigurationError("Harness adapter is not configured")
         return self.harness
 
-    def create_session(self, metadata: dict[str, str] | None = None, request: dict[str, object] | None = None) -> GatewaySession:
+    def create_session(self, metadata: dict[str, str] | None = None, request: dict[str, object] | None = None) -> PublicGatewaySession:
         AgentRuntimeConfig.from_request(request)
         self._expire_idle_sessions()
         if len(self._sessions) >= self.config.max_active_sessions:
@@ -58,7 +58,7 @@ class AgentRuntimeGateway:
         self._sessions[session.gateway_session_id] = (session, adapter)
         self._turn_counts[session.gateway_session_id] = 0
         self._last_activity[session.gateway_session_id] = time.monotonic()
-        return session
+        return to_public_session(session)
 
     def _lookup(self, session_id: str) -> tuple[GatewaySession, Any]:
         try:
@@ -79,9 +79,10 @@ class AgentRuntimeGateway:
             result = {**result, "fallback_reason": self._fallback_reasons[session.gateway_session_id]}
         return result
 
-    def resume_session(self, session_id: str) -> GatewaySession:
+    def resume_session(self, session_id: str) -> PublicGatewaySession:
         session, adapter = self._lookup(session_id)
-        return adapter.resume_session(session.gateway_session_id)
+        adapter.resume_session(session.gateway_session_id)
+        return to_public_session(session, status="resumed")
 
     def cancel_turn(self, session_id: str) -> dict[str, Any]:
         session, adapter = self._lookup(session_id)

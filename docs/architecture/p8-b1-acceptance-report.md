@@ -8,6 +8,8 @@
 
 **R1_FINAL_HEAD:** `86070d4`
 
+**R3_FINAL_HEAD:** pending handoff commit
+
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`
 
 ## Scope
@@ -58,10 +60,14 @@ was performed.
 | Live Tool event evidence | PASS; MCP event log |
 | Live authority re-read | PASS; new readiness event |
 | Live secret scan | PASS |
+| Public create session contract | PASS |
+| Public session DTO has no internal ID | PASS |
+| Legacy / Harness public contract | CONSISTENT |
+| Resume public contract | PASS |
 
 ## Offline regression result
 
-`python -m pytest -q`: **3709 passed / 6 skipped / 0 failed / 1 warning**
+`python -m pytest -q`: **3712 passed / 6 skipped / 0 failed / 1 warning**
 `python -m research_os.cli.main validate`: **86/86 PASS**  
 `python -m compileall -q src scripts tests`: **PASS**  
 `git diff --check`: **PASS**

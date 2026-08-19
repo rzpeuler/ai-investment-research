@@ -83,7 +83,7 @@ def main() -> int:
             "profile_observed": evidence["profile"],
             "mcp_namespace": evidence["mcp_namespace"],
             "mcp_tools": list(evidence["tools"]),
-            "gateway_session_opaque": session.gateway_session_id != session.harness_session_id,
+            "gateway_session_opaque": session.gateway_session_id != before_internal,
             "same_internal_session": same_internal_session,
             "turn1_status": turn1.get("status"),
             "turn1_response_exists": bool(turn1.get("response")),

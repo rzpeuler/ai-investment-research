@@ -3285,3 +3285,12 @@ component IDs, and incomplete evidence fails closed. Live Tool evidence comes fr
 the MCP event log, while same-session evidence emits only a boolean. Production
 adoption, default Harness switching, production traffic, frontend wiring, schema or
 database changes, and P8-B2 remain NOT AUTHORIZED.
+
+## 59. P8-B1-R3 Public Session Contract (2026-08-20)
+
+R3 implements the public session contract closure on the feature branch. The
+Gateway returns an allowlist-based `PublicGatewaySession`; internal
+`GatewaySession` records and Harness IDs remain inside Gateway/Adapter mappings.
+Legacy and Harness paths share the same public type, and resume/cancel/close
+results remain opaque. Current state is `IMPLEMENTED / AWAITING INDEPENDENT
+ACCEPTANCE`; production adoption and P8-B2 remain NOT AUTHORIZED.
