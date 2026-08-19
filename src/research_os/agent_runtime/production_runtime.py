@@ -27,6 +27,36 @@ ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_ROOT = ROOT / "agent_runtime"
 PROFILE_ROOT = PACKAGE_ROOT / "profiles" / "research-headless"
 
+PUBLIC_RESULT_KEYS = frozenset({"status", "response", "operational_metadata"})
+PRIVATE_RESULT_KEYS = frozenset({
+    "session_id", "harness_session_id", "internal_session_id", "session",
+    "raw_session", "session_storage_path", "storage_path",
+})
+
+
+def sanitize_public_result(value: Any, *, forbidden_values: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Return the small public contract; raw Harness payloads never cross it."""
+    if not isinstance(value, dict):
+        raise SessionFailure("SESSION_CORRUPTED", "Harness response must be an object")
+
+    def clean(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {
+                key: clean(child) for key, child in item.items()
+                if key not in PRIVATE_RESULT_KEYS
+            }
+        if isinstance(item, list):
+            return [clean(child) for child in item]
+        if isinstance(item, str):
+            if any(secret and secret in item for secret in forbidden_values):
+                return "[REDACTED]"
+        return item
+
+    result = {key: clean(value[key]) for key in PUBLIC_RESULT_KEYS if key in value}
+    if "status" not in result:
+        result["status"] = "completed"
+    return result
+
 
 def free_port() -> int:
     with socket.socket() as sock:
@@ -111,11 +141,16 @@ class ProductionEvidenceProbe:
         self.prepare_profile(home)
         version = self._run_dsh(["--version"], home)
         composed = self._run_dsh(["--profile", "research-headless", "--dump-config"], home)
+        component_blocks = {
+            match.group(1): match.group(0)
+            for match in re.finditer(r"(?ms)^- id: ([^\n]+).*?(?=^- id: |\Z)", composed)
+        }
+        observed_component_ids = set(component_blocks)
         observed_keys = {
             component for component in (
                 "bash", "pwsh", "fs", "fs-search", "jobs", "subagent-control", "subagent",
                 "workflow", "todo", "goal", "str-replace-editor", "web", "web-search-deepseek", "subprocess",
-            ) if f"id: tool-{component}" in composed or f"id: {component}" in composed
+            ) if f"tool-{component}" in observed_component_ids or component in observed_component_ids
         }
         # The composed config is the observed source; disabled markers are required for every denied id.
         required_ids = {
@@ -124,11 +159,8 @@ class ProductionEvidenceProbe:
             "workflow": "tool-workflow", "todo": "tool-todo", "goal": "tool-goal",
             "str-replace-editor": "tool-str-replace-editor", "web": "tool-web", "web-search-deepseek": "web-search-deepseek",
         }
-        blocks = re.split(r"(?m)(?=^- id: )", composed)
         disabled = {key for key, item_id in required_ids.items()
-                    if any(f"- id: {item_id}" in block and "disabled: true" in block for block in blocks)}
-        if any("- id: subprocess" in block and "disabled: true" in block for block in blocks):
-            disabled.add("subprocess")
+                    if item_id in component_blocks and re.search(r"disabled:\s*true\s*$", component_blocks[item_id], re.MULTILINE)}
         names = {
             "bash": "bash", "pwsh": "pwsh", "fs": "filesystem_write", "fs-search": "filesystem_search",
             "jobs": "jobs", "subagent-control": "subagent", "subagent": "subagent",
@@ -138,9 +170,25 @@ class ProductionEvidenceProbe:
         }
         observed = {names[key] for key in observed_keys if key in names}
         disabled_observed = {names[key] for key in disabled if key in names}
-        # Absence of an independently named capability is positive observed evidence.
-        observed.add("arbitrary_subprocess")
-        if "arbitrary_subprocess" not in disabled_observed:
+        forbidden_component_ids = {
+            "tool-bash", "tool-pwsh", "tool-fs", "tool-fs-search", "tool-jobs", "tool-web",
+            "web-search-deepseek", "tool-subagent", "tool-subagent-control", "tool-workflow",
+            "tool-todo", "tool-goal", "tool-str-replace-editor",
+        }
+        disabled_component_ids = sorted(
+            component_id for component_id in forbidden_component_ids
+            if component_id in component_blocks and re.search(r"disabled:\s*true\s*$", component_blocks[component_id], re.MULTILINE)
+        )
+        absent_forbidden_component_ids = sorted(
+            component_id for component_id in forbidden_component_ids if component_id not in component_blocks
+        )
+        enabled_component_ids = sorted(
+            component_id for component_id in forbidden_component_ids
+            if component_id in component_blocks and component_id not in disabled_component_ids
+        )
+        if any(component_id in enabled_component_ids for component_id in ("tool-bash", "tool-pwsh")):
+            observed.add("arbitrary_subprocess")
+        if any(component_id in disabled_component_ids for component_id in ("tool-bash", "tool-pwsh")):
             disabled_observed.add("arbitrary_subprocess")
         mcp = self.probe_mcp()
         return {
@@ -148,6 +196,10 @@ class ProductionEvidenceProbe:
             "version": version.lstrip("v").strip(),
             "profile": "research-headless",
             "composed_config": composed,
+            "observed_component_ids": sorted(observed_component_ids),
+            "disabled_component_ids": disabled_component_ids,
+            "enabled_component_ids": enabled_component_ids,
+            "absent_forbidden_component_ids": absent_forbidden_component_ids,
             "denied_components": sorted(observed),
             "disabled_components": sorted(disabled_observed),
             "mcp_namespace": mcp["namespace"],
@@ -286,7 +338,8 @@ class OfficialHarnessClient:
             row = next((item for item in listing.get("items", []) if item.get("sessionId") == session_id), None)
             if row and not row.get("running") and len(events) >= 2:
                 text = "\n".join(self._text(item.get("event", {}).get("data")) for item in events[-5:])
-                return {"status": "completed", "response": text, "session_id": session_id}
+                return sanitize_public_result({"status": "completed", "response": text},
+                                              forbidden_values=(session_id,))
             time.sleep(0.5)
         raise RuntimeNotReady("TURN_TIMEOUT", "Harness turn timed out")
 

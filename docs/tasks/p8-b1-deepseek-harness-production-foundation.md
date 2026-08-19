@@ -1,6 +1,6 @@
 # P8-B1 DeepSeek Harness Production Foundation
 
-**TASKBOOK_STATUS:** PASS / INDEPENDENTLY ACCEPTED
+**TASKBOOK_STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 **TYPE:** Production foundation implementation; non-production-default; feature-flagged  
 **BASE:** `a2b984bd61b57f8e7a50985c1a9e5c7d451b45a0`  
 **BRANCH:** `feature/p8-b1-production-foundation`  

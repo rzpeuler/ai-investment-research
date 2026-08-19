@@ -1,6 +1,6 @@
 # P8-B1 Acceptance Report
 
-**STATUS:** PASS / INDEPENDENTLY ACCEPTED
+**STATUS:** IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE
 
 **BASE:** `a2b984bd61b57f8e7a50985c1a9e5c7d451b45a0`
 
@@ -17,7 +17,7 @@ foundation. The default path remains P7-UX1 / `legacy`. No frontend, production
 traffic, schema, DB migration, source acquisition, Graph write, or P8-B2 work
 was performed.
 
-## Terminal acceptance gates
+## R2 acceptance gates
 
 | Gate | Result |
 | --- | --- |
@@ -51,10 +51,17 @@ was performed.
 | Same-session continuation | PASS |
 | Authority re-read | PASS |
 | Security review | PASS |
+| Internal Harness session ID public leak | NOT EXPOSED |
+| Runtime evidence fabricated PASS | REMOVED |
+| Runtime evidence fail-closed mutation tests | PASS |
+| Live same-session evidence | PASS; boolean only |
+| Live Tool event evidence | PASS; MCP event log |
+| Live authority re-read | PASS; new readiness event |
+| Live secret scan | PASS |
 
 ## Offline regression result
 
-`python -m pytest -q`: **3704 passed / 6 skipped / 0 failed / 1 warning**  
+`python -m pytest -q`: **3709 passed / 6 skipped / 0 failed / 1 warning**
 `python -m research_os.cli.main validate`: **86/86 PASS**  
 `python -m compileall -q src scripts tests`: **PASS**  
 `git diff --check`: **PASS**
@@ -63,8 +70,10 @@ was performed.
 
 Provider network was explicitly enabled for one acceptance run. Research data
 network remained OFF. The actual session completed two turns through the
-pinned rc.7 process, actual profile, stdio MCP, and the two real Research OS
-read Tools. Results were bounded, data gaps remained valid insufficient/partial
-states, and no credential was emitted.
+pinned rc.7 process, actual profile, and stdio MCP. The MCP event log observed
+both allowed Tools in Turn 1 and a new `check_data_readiness` event in Turn 2.
+Same-session continuity was computed internally and emitted only as a boolean;
+no internal Harness ID was recorded. Research data network remained OFF and the
+secret scan passed.
 
 Production adoption and default Harness switching remain not authorized.

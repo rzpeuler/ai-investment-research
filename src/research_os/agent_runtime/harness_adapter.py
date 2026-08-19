@@ -40,11 +40,11 @@ class HarnessAgentRuntimeAdapter:
         self.sessions[session.gateway_session_id] = session
         return session
 
-    def resume_session(self, session_id: str) -> GatewaySession:
+    def resume_session(self, session_id: str) -> dict[str, Any]:
         try:
             session = self.sessions[session_id]
             self.client.resume_session(session.harness_session_id or "")
-            return session
+            return {"status": "resumed", "gateway_session_id": session.gateway_session_id}
         except KeyError as exc:
             raise SessionFailure("SESSION_NOT_FOUND", "gateway session does not exist") from exc
 

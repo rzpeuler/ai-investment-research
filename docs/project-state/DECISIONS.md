@@ -3270,3 +3270,18 @@ remains NOT AUTHORIZED.
 P8-B1-R1 terminal acceptance is PASS / INDEPENDENTLY ACCEPTED on the separate
 feature branch. This disposition does not authorize production default switching,
 production traffic, frontend wiring, or P8-B2.
+
+## 58. P8-B1-R2 Runtime Integrity Re-acceptance Required (2026-08-19)
+
+P8-B1-R2 closes the findings-only implementation scope for session opacity,
+fail-closed runtime evidence, and mechanically observed live acceptance. The
+implementation is complete on the feature branch, but the current disposition is
+`IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE`; execution does not self-authorize
+independent acceptance.
+
+Internal Harness session IDs remain private to the adapter/client boundary. Runtime
+composition evidence distinguishes observed, disabled, enabled, and verified-absent
+component IDs, and incomplete evidence fails closed. Live Tool evidence comes from
+the MCP event log, while same-session evidence emits only a boolean. Production
+adoption, default Harness switching, production traffic, frontend wiring, schema or
+database changes, and P8-B2 remain NOT AUTHORIZED.

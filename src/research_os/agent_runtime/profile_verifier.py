@@ -15,6 +15,22 @@ DENIED_COMPONENTS = frozenset({
     "direct_web", "web_search", "arbitrary_subprocess",
 })
 
+FORBIDDEN_COMPONENT_IDS_RC7 = {
+    "bash": frozenset({"tool-bash"}),
+    "pwsh": frozenset({"tool-pwsh"}),
+    "filesystem_write": frozenset({"tool-fs"}),
+    "filesystem_editor": frozenset({"tool-str-replace-editor"}),
+    "filesystem_search": frozenset({"tool-fs-search"}),
+    "jobs": frozenset({"tool-jobs"}),
+    "subagent": frozenset({"tool-subagent", "tool-subagent-control"}),
+    "workflow_coding_tools": frozenset({"tool-workflow"}),
+    "todo": frozenset({"tool-todo"}),
+    "coding_goal_tools": frozenset({"tool-goal"}),
+    "direct_web": frozenset({"tool-web"}),
+    "web_search": frozenset({"web-search-deepseek"}),
+    "arbitrary_subprocess": frozenset({"tool-bash", "tool-pwsh"}),
+}
+
 
 @dataclass(frozen=True)
 class ProfileVerification:
@@ -46,7 +62,19 @@ class ProfileVerifier:
         disabled = set(runtime.get("disabled_components", ()))
         if allow_fixture and not disabled:
             disabled = denied
-        if not DENIED_COMPONENTS.issubset(denied) or not DENIED_COMPONENTS.issubset(disabled):
+        if not allow_fixture:
+            observed_ids = set(runtime.get("observed_component_ids", ()))
+            disabled_ids = set(runtime.get("disabled_component_ids", ()))
+            enabled_ids = set(runtime.get("enabled_component_ids", ()))
+            absent_ids = set(runtime.get("absent_forbidden_component_ids", ()))
+            if not observed_ids or not (disabled_ids | enabled_ids | absent_ids).issubset(observed_ids | absent_ids):
+                raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "runtime component inventory is incomplete")
+            for capability, component_ids in FORBIDDEN_COMPONENT_IDS_RC7.items():
+                if component_ids & enabled_ids:
+                    raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", f"forbidden capability is enabled: {capability}")
+                if not (component_ids & disabled_ids or component_ids.issubset(absent_ids)):
+                    raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", f"forbidden capability evidence is incomplete: {capability}")
+        elif not DENIED_COMPONENTS.issubset(denied) or not DENIED_COMPONENTS.issubset(disabled):
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "required denied capabilities are missing")
         if any(runtime.get("enabled_components", {}).get(component, False) for component in DENIED_COMPONENTS):
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "denied capability is enabled")
@@ -69,5 +97,9 @@ def default_runtime_descriptor(version: str = EXPECTED_HARNESS_VERSION) -> dict[
         "mcp_namespace": MCP_NAMESPACE,
         "denied_components": sorted(DENIED_COMPONENTS),
         "enabled_components": {component: False for component in DENIED_COMPONENTS},
+        "observed_component_ids": sorted({item for items in FORBIDDEN_COMPONENT_IDS_RC7.values() for item in items}),
+        "disabled_component_ids": sorted({item for items in FORBIDDEN_COMPONENT_IDS_RC7.values() for item in items}),
+        "enabled_component_ids": [],
+        "absent_forbidden_component_ids": [],
         "tools": sorted(ALLOWED_TOOL_NAMES),
     }

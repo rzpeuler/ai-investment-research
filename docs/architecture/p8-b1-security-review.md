@@ -1,6 +1,6 @@
-# P8-B1-R1 Security Review
+# P8-B1-R2 Security Review
 
-**STATUS:** PASS
+**STATUS:** PASS / AWAITING INDEPENDENT ACCEPTANCE
 
 ## Observed runtime evidence
 
@@ -21,7 +21,7 @@ the JSON policy manifest alone.
 | bash / pwsh | unreachable; composition-disabled Tool entries |
 | filesystem write/editor/search | unreachable; composition-disabled Tool entries |
 | web / web search | Tool entries disabled; no direct source network |
-| arbitrary subprocess | no agent-facing Tool; process service is supervisor-owned |
+| arbitrary subprocess | observed disabled Tool composition; no policy-only PASS |
 | source Tools | absent from actual MCP discovery |
 | SQL Tools | absent from actual MCP discovery |
 | Graph mutation Tools | absent from actual MCP discovery |
@@ -29,6 +29,11 @@ the JSON policy manifest alone.
 | process cleanup | owned root tree only; unrelated processes untouched |
 
 ## Boundary conclusion
+
+Internal Harness session IDs are retained only inside the adapter/client boundary
+and are not present in send, resume, cancel, Gateway, event-log, or acceptance
+outputs. Runtime evidence distinguishes observed, disabled, enabled, and verified
+absent component IDs; incomplete or ambiguous evidence fails closed.
 
 Research OS remains the authority for identity and readiness. The Harness
 client does not read the Research OS database, choose sources, execute

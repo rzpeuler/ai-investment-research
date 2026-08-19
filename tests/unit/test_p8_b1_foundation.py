@@ -13,6 +13,8 @@ from research_os.agent_runtime.mcp.server import ResearchOSMCPServer
 from research_os.agent_runtime.models import SupervisorState
 from research_os.agent_runtime.observability import EventRecorder, redact
 from research_os.agent_runtime.profile_verifier import ProfileVerifier, default_runtime_descriptor
+from research_os.agent_runtime.profile_verifier import FORBIDDEN_COMPONENT_IDS_RC7
+from research_os.agent_runtime.production_runtime import OfficialHarnessClient, sanitize_public_result
 from research_os.agent_runtime.runtime_supervisor import HarnessRuntimeSupervisor
 from research_os.agent_runtime.tool_catalog import ALLOWED_TOOL_NAMES, advertised_tools
 from research_os.agent_runtime.legacy_adapter import LegacyAgentRuntimeAdapter
@@ -85,6 +87,74 @@ def test_profile_verifier_is_exact_and_fail_closed():
     with pytest.raises(RuntimeNotReady) as exc:
         ProfileVerifier().verify(extra)
     assert exc.value.code == "PROFILE_POLICY_MISMATCH"
+
+
+def test_public_result_sanitizer_removes_internal_session_id_recursively():
+    secret = "internal-session-secret-123"
+    result = sanitize_public_result({
+        "status": "completed",
+        "response": {"text": "ok", "nested": {"session_id": secret}},
+        "session_id": secret,
+    }, forbidden_values=(secret,))
+    rendered = json.dumps(result)
+    assert "session_id" not in rendered
+    assert secret not in rendered
+    assert set(result) == {"status", "response"}
+
+
+def test_official_client_send_message_result_has_no_internal_session_id(monkeypatch):
+    client = OfficialHarnessClient("http://127.0.0.1:1")
+    internal = "internal-session-secret-123"
+
+    def rpc(method, payload):
+        if method == "session.prompt":
+            return {"accepted": True}
+        if method == "session.history":
+            return {"events": [{"event": {"data": "prompt"}}, {"event": {"data": "answer"}}]}
+        if method == "session.list":
+            return {"items": [{"sessionId": internal, "running": False}]}
+        raise AssertionError(method)
+
+    monkeypatch.setattr(client, "_rpc", rpc)
+    result = client.send_message(internal, "hello")
+    assert internal not in json.dumps(result)
+    assert set(result) == {"status", "response"}
+
+
+def test_profile_verifier_fail_closed_for_enabled_or_missing_component_evidence():
+    runtime = default_runtime_descriptor()
+    runtime["evidence_source"] = "observed_runtime"
+    runtime["mcp_handshake"] = {"connected": True, "namespace": "research-os-mcp/v1",
+                                 "tools": ["check_data_readiness", "get_company_profile"]}
+    runtime["enabled_component_ids"] = ["tool-bash"]
+    with pytest.raises(RuntimeNotReady, match="enabled"):
+        ProfileVerifier().verify(runtime)
+
+    runtime = default_runtime_descriptor()
+    runtime["evidence_source"] = "observed_runtime"
+    runtime["mcp_handshake"] = {"connected": True, "namespace": "research-os-mcp/v1",
+                                 "tools": ["check_data_readiness", "get_company_profile"]}
+    runtime["disabled_component_ids"] = []
+    runtime["observed_component_ids"] = ["agent"]
+    runtime["absent_forbidden_component_ids"] = []
+    with pytest.raises(RuntimeNotReady, match="incomplete"):
+        ProfileVerifier().verify(runtime)
+
+
+def test_profile_verifier_allows_complete_verified_absence_only():
+    runtime = default_runtime_descriptor()
+    runtime.update({
+        "evidence_source": "observed_runtime",
+        "observed_component_ids": ["agent"],
+        "disabled_component_ids": [],
+        "enabled_component_ids": [],
+        "absent_forbidden_component_ids": sorted({
+            component_id for ids in FORBIDDEN_COMPONENT_IDS_RC7.values() for component_id in ids
+        }),
+        "mcp_handshake": {"connected": True, "namespace": "research-os-mcp/v1",
+                          "tools": ["check_data_readiness", "get_company_profile"]},
+    })
+    assert ProfileVerifier().verify(runtime).verified
 
 
 def test_supervisor_separates_process_alive_from_ready_and_owns_cleanup():
