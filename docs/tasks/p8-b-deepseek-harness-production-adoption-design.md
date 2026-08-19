@@ -3,7 +3,7 @@
 **TASKBOOK_STATUS:** DESIGN COMPLETE / AWAITING INDEPENDENT ACCEPTANCE  
 **TYPE:** Governance and architecture design only  
 **BASE:** `b048f65`  
-**P8-B_DESIGN_HEAD:** `cdb8510`  
+**P8-B_DESIGN_HEAD:** `cdb8510`
 **P8-A0_ACCEPTED_HEAD:** `f16a3163814345e9aee2d00615a42dae57fd86fb`  
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`  
 **UPSTREAM:** Developer Preview  
