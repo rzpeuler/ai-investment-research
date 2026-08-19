@@ -1,0 +1,12 @@
+{
+  "name": "p8-a0-r1-runtime-spike",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Isolated verification environment for DeepSeek Harness P8-A0-R1",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.7"
+  }
+}
