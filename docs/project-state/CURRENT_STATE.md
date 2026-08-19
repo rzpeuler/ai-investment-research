@@ -55,7 +55,7 @@
 | P6-F0 | PASS / MERGED | 共享契约冻结（PR #14）。 |
 | Phase 6 | CLOSED / PASS | 七个研究场景已通过验收并由默认 Registry / Orchestrator 中央启用；USER_TRIAL_READY = YES。 |
 | P7-UX1 Conversational Research Gateway | PASS / INDEPENDENTLY ACCEPTED | 本地 Chat UX / control-plane adapter 已通过独立验收；不代表 Phase 7 全阶段 PASS，不授权数据采集或 Phase 6.1。 |
-| P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 merge authorized / not merged；P7-D2 仅 taskbook 与架构设计获授权。 |
+| P7-D1 Data Readiness Control Plane | PASS / INDEPENDENTLY ACCEPTED | R1/R2/R3/R3.1 返修链已通过独立复验；PR #25 MERGED；P7-D2 仅 taskbook 与架构设计获授权。 |
 | P7-D2 Acquisition Execution Foundation | PASS / INDEPENDENTLY ACCEPTED | 2026-08-18 独立验收（accepted head `55c4ba5`）；Fake-proven execution foundation 正确；生产默认关闭、真实采集覆盖仍为 NONE。 |
 | P7-D3 Free-Source Production MVP | PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`）| nbs/cninfo 真实在线验收；allowlist [nbs, cninfo]；默认网络关闭；capability WORKFLOW_WIRED；独立验收 Decision #52，已合并进 master。 |
 | P7-D4 CNINFO Filing → Core Financial Facts MVP | IMPLEMENTED / ACCEPTED | 2026-08-18 实施完成（implementation head `7c2791b`）；2026-08-19 独立验收通过并 no-squash 合并进 master（accepted baseline `8b153b3`）；company_document 年报 transient 下载 → DocumentRecord/Block/Evidence；derive_existing 首次实现（financial_statement_data ← company_document）；FinancialStatementExtractor；86 schema / DB v6。 |
@@ -207,7 +207,7 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
   INDEPENDENTLY ACCEPTED`（2026-08-16，Decision #48.10/#48.11）。accepted
   implementation head = `bc277817ee419410803f5541d74be75a330e9713`；Acceptance CI
   `31899546501`：3215 passed / 6 skipped / 0 failed，85/85 schemas，compileall PASS。
-  PR #25 已获 merge authorization，但仍 OPEN / NOT MERGED。
+  PR #25 已合并（MERGED）。
 - 实现 `src/research_os/data_layer/*` 控制面：RequirementContextResolver →
   DataReadinessService → GapClassifier → AcquisitionPlanner → DataPreflightService。
 - `Plan.data_requirements` / `data_requirement_ids` 由中央

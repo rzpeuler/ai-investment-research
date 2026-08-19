@@ -157,8 +157,8 @@ Production collector IDs: []；Capability BUSINESS_SUFFICIENT promotions: 0；Ne
 Source expansion: 0；LLM/provider calls: 0；Graph writes: 0。DB: v6；
 Migrations: 6 / NONE added；Schemas: 86。
 
-该状态不是 PASS / CLOSED / operational / real-source ready，不授权任何具体真实来源或
-Phase 6.1；下一步仅为独立验收。
+P7-D2 已完成独立验收；其 PASS 仅证明 Fake-proven Acquisition Foundation，不自动授权
+真实来源。
 
 ## P7-D3：Free-Source Production MVP（PASS / INDEPENDENTLY ACCEPTED 2026-08-18，Decision #52）
 
@@ -176,7 +176,16 @@ Phase 6.1；下一步仅为独立验收。
 - 真实在线验收已执行：NBS（inserted=7 / 幂等 reuse=7 / PIT 0 拒绝）、CNINFO 沪市 600519
   （inserted=6 / 幂等 reuse=6）与深市 300750（验收窗口 6 条真实公告）；artifacts 见
   `reports/acceptance/`（本地，reports/ gitignored）。
-- 本状态不是 PASS / CLOSED / operational / real-source ready；独立验收通过前不声明完成。
+- P7-D3 已完成独立在线验收；该验收只覆盖当时授权的 nbs/cninfo Free-Source MVP，
+  不自动授权新的来源或 BUSINESS_SUFFICIENT 晋级。
+
+## P7-D4：CNINFO Filing → Core Financial Facts（IMPLEMENTED / ACCEPTED 2026-08-19）
+
+`P7-D4: IMPLEMENTED / ACCEPTED`（独立验收 PASS；accepted baseline
+`8b153b3`，2026-08-19 no-squash 合并进 master）。CNINFO 官方年报 → transient
+PDF materialization → DocumentRecord/Block/Evidence → derive_existing →
+FinancialStatementExtractor → core FinancialFact。capability：company_document /
+financial_statement_data = WORKFLOW_WIRED（BUSINESS_SUFFICIENT 不自动晋级）。
 
 ## 顶层架构与产品设计（DESIGN FROZEN / NOT IMPLEMENTED）
 
@@ -192,7 +201,8 @@ Decision #54 / #55）正式写入两项长期设计，**仅冻结设计，不授
   前端实现 NOT_AUTHORIZED，须独立 frontend taskbook。
 
 状态：**DESIGN FROZEN / NOT IMPLEMENTED**。当前实际会话入口仍为 P7-UX1；
-P7-D4 因本治理冻结暂停（PAUSED_HEAD `7c2791b`），恢复后继续按 D4 taskbook 完成。
+P7-D4 = IMPLEMENTED / ACCEPTED（accepted baseline `8b153b3`，2026-08-19 合并进
+master）；下一里程碑为 P8-A0 taskbook（implementation NOT AUTHORIZED）。
 
 ## 快速开始
 
