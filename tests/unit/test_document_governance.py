@@ -376,7 +376,7 @@ def test_p7_d0_governance_is_consistent():
     assert "d06d8d714958f58d44fb130f8fb30a3aff7e4a7a" in current
     # P7-D1 已 PASS；D2 Foundation 已实现并等待独立验收；D4 已 ACCEPTED，下一里程碑 P8-A0
     assert "P7-D1" in next_phase and "CLOSED / PASS / INDEPENDENTLY ACCEPTED" in next_phase
-    assert "NEXT WORK**: Complete P8-B design and independent acceptance" in next_phase
+    assert "NEXT WORK**: Implement P8-B1 foundation and independently accept it" in next_phase
     assert "P7-D1 IN_PROGRESS" not in next_phase
     assert "P7 DATA ACQUISITION STARTED" not in next_phase
     # governance closeout taskbook 存在
@@ -842,6 +842,6 @@ def test_p8_b_r1_known_limitations_has_no_stale_d4_state():
     ):
         assert stale not in limitations
 
-    assert "P8-B 设计已完成，等待独立验收" in limitations
-    assert "P8-B1 implementation 未授权" in limitations
+    assert "P8-B 设计已独立验收" in limitations
+    assert "P8-B1 foundation implementation 已授权但尚未独立验收" in limitations
     assert "生产采用仍未授权" in limitations

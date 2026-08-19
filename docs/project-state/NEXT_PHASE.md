@@ -9,9 +9,9 @@ P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accep
 后续顺序冻结：
 
 ```text
-1. P8-B DeepSeek Harness Production Adoption Design（当前已授权）
-2. P8-B independent design acceptance
-3. 仅在独立验收通过后评估 P8-B1 Production Foundation
+1. P8-B1 DeepSeek Harness Production Foundation
+2. P8-B1 independent acceptance
+3. P8-B2 remains not authorized
 5. D5 / 后续数据能力按新路线继续
 ```
 
@@ -19,8 +19,8 @@ P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accep
 
 ```text
 P8-A0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
-P8-B DESIGN: COMPLETE / AWAITING INDEPENDENT ACCEPTANCE
-P8-B IMPLEMENTATION: NOT_AUTHORIZED
+P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED
+P8-B1: AUTHORIZED / IMPLEMENTATION NOT YET ACCEPTED
 PRODUCTION ADOPTION: NOT_AUTHORIZED
 D5: 不得因为本次设计自动开始
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED（后续须独立 frontend taskbook）
@@ -33,9 +33,9 @@ session integration 必须兼容最终 Harness boundary。
 
 ## P8-B Design Handoff
 
-P8-B design documents are complete and await independent acceptance. The next
-eligible task after acceptance is a separate P8-B1 Production Foundation taskbook.
-P8-B1 is not authorized by the design task.
+P8-B design documents are independently accepted on `9aa7071`. The authorized
+next task is the separate P8-B1 Production Foundation taskbook. P8-B2 remains
+not authorized.
 
 ## 当前结论
 
@@ -119,7 +119,7 @@ Phase 5: CLOSED / PASS
 - **DB / migrations**: v6 / NONE
 - **FINAL IMPLEMENTATION / VALIDATION HEAD**: `84f70b5dec1a65c9842628c974e1693738ab9cca`（independent acceptance head `55c4ba5`）
 - **OFFLINE CI**: SUCCESS — run `31945487755`（Ubuntu / Python 3.12.13）
-- **NEXT WORK**: Complete P8-B design and independent acceptance; keep P7-UX1 as the legacy fallback path
+- **NEXT WORK**: Implement P8-B1 foundation and independently accept it; keep P7-UX1 as the legacy fallback path
 - **REAL-SOURCE AUTHORIZATION**: NONE
 
 Phase 6 completion itself did not authorize Phase 6.1 or Phase 7。P7-UX1 is now separately

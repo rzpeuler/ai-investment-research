@@ -1,13 +1,13 @@
 # P8-B DeepSeek Harness Production Adoption Design
 
-**TASKBOOK_STATUS:** DESIGN COMPLETE / AWAITING INDEPENDENT ACCEPTANCE  
+**TASKBOOK_STATUS:** DESIGN COMPLETE / INDEPENDENTLY ACCEPTED
 **TYPE:** Governance and architecture design only  
 **BASE:** `b048f65`  
-**P8-B_DESIGN_HEAD:** `cdb8510`
+**P8-B_DESIGN_HEAD:** `9aa7071`
 **P8-A0_ACCEPTED_HEAD:** `f16a3163814345e9aee2d00615a42dae57fd86fb`  
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`  
 **UPSTREAM:** Developer Preview  
-**IMPLEMENTATION:** NOT AUTHORIZED  
+**IMPLEMENTATION:** P8-B1 AUTHORIZED AFTER M0
 **PRODUCTION_ADOPTION:** NOT AUTHORIZED  
 **SCHEMA_CHANGE:** NONE  
 **DB_MIGRATION:** NONE
@@ -119,7 +119,7 @@ Detailed design is recorded in:
 - [x] Resource and cost controls defined
 - [x] Frontend/backend contract defined without frontend implementation
 - [x] No production adoption, schema change, migration, or Harness upgrade performed
-- [ ] Independent P8-B design acceptance
+- [x] Independent P8-B design acceptance
 
-**Next:** independent acceptance of P8-B design. Only after that acceptance may a
-separate P8-B1 Production Foundation taskbook be considered.
+**Next:** execute the separately authorized P8-B1 Production Foundation taskbook
+after its M0 governance closeout.

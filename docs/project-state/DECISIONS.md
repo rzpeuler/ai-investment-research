@@ -3251,17 +3251,18 @@ Skill discovery、Tool selection 与 agent execution lifecycle。
 
 P7-UX1 保持 current production/fallback path。P8-B 只能形成设计并等待独立验收；不得写成 Harness
 已生产采用，P8-B1 亦未授权。
-## 57. P8-B DeepSeek Harness Production Adoption Design（2026-08-19，DESIGN COMPLETE / AWAITING INDEPENDENT ACCEPTANCE）
+## 57. P8-B DeepSeek Harness Production Adoption Design（2026-08-19，PASS / INDEPENDENTLY ACCEPTED）
 
-P8-B design is complete on accepted master `b048f65` and is awaiting independent
+P8-B design is complete on accepted master `9aa7071` and has passed independent
 acceptance. The design covers persistent isolated Node topology, Harness/Research OS
 memory ownership, versioned `research-os-mcp/v1` boundary, Skill/Tool/Workflow
 separation, model ownership, fail-closed security and credential lifecycle, runtime
 operations, observability, dual-path migration, rollback, feature flagging, preview
 risk, cost controls, and frontend/backend contracts.
 
-P8-B design authorization does not authorize P8-B1 implementation, production
+P8-B independent acceptance authorizes the separate P8-B1 Production Foundation
+taskbook after its M0 governance closeout. It does not authorize production
 deployment, frontend work, schema change, DB migration, source/collector expansion,
 graph write, ChatService replacement, LlmClient removal, Orchestrator modification,
 or Harness upgrade. Default runtime remains `legacy` / P7-UX1 and production adoption
-remains NOT AUTHORIZED until an independent design acceptance and a later taskbook.
+remains NOT AUTHORIZED.
