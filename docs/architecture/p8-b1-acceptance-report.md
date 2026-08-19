@@ -8,7 +8,7 @@
 
 **R1_FINAL_HEAD:** `86070d4`
 
-**R3_FINAL_HEAD:** pending handoff commit
+**R3_FINAL_HEAD:** `caf7289`
 
 **HARNESS:** `@deepseek-ai/dsh@0.1.0-rc.7`
 
