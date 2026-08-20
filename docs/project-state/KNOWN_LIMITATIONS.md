@@ -332,3 +332,11 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   已同步；预算测试断言已加锁）。正式 trial 重跑不再受 200k 预算截断；1M 上限下
   20-turn corpus（预测 476k–886k）可完成，超出仍 fail-closed。P8-B2 仍需 Sol
   独立验收。
+- **P8-B2-INTERNAL-TRIAL-001（2026-08-21）**：Harness 内部试运行验证完成 —
+  审计确认全仓唯一 AI 入口为 LlmClient（无第二套 AI 执行路径）；默认 provider
+  仍为 legacy 直连（冻结，未切换）；evening_brief / stock_review /
+  industry_research 当前无 LLM 调用（`llm_called: false`，语义模块未连接，
+  属未来 taskbook）；Harness 入口为 opt-in（`P8_B2_SCENARIO_TRIAL=1`，
+  `HarnessLlmProvider`），经 Harness 的调用其 model_id 报告为
+  `deepseek-harness/<class>`（Harness 响应不暴露实际模型名 — 路由粒度限制）。
+  Production Adoption（P8-B3）仍 NOT_AUTHORIZED。

@@ -323,3 +323,19 @@ UNCHANGED: max_sessions 10 / max_turns 20 / max_tool_calls 60 / max_retries 0 /
 NEXT: Sol 验收 BUDGET-DECISION + BUDGET-IMPL → 按 LIVE-00 边界重新执行正式 trial
   （新 RESUME taskbook）。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-INTERNAL-TRIAL-001 — Harness 内部试运行验证（2026-08-21）
+
+```text
+AUDIT: 唯一 AI 入口 = LlmClient；无第二套 AI 路径；默认 provider = legacy 直连
+  （冻结）；evening_brief/stock_review/industry_research 无 LLM（llm_called:false 诚实标记）
+IMPLEMENTED: HarnessLlmProvider（opt-in P8_B2_SCENARIO_TRIAL=1，LlmClient 后置
+  控制面，默认不变）+ provider_factory harness= opt-in + 5 场景验证脚本 +
+  14 个离线测试 + CI workflow
+VERIFICATION: 5 场景验证（first_coverage/earnings_expectation 真实
+  EquityLlmTasks→Harness→DeepSeek；3 个确定性场景诚实 no-LLM）— 结果见验收报告
+RISKS: 默认 runtime 未切换（P8-B3 未授权）；Harness 模型路由粒度受限；
+  确定性场景语义模块未连接（未来 taskbook）
+NEXT: Sol 验收本任务 → Production Adoption 决策（P8-B3）另行授权。
+  P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

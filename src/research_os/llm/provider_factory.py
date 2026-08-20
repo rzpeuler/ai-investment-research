@@ -21,13 +21,21 @@ def create_provider(
     provider_id: str = "deepseek",
     live: bool = False,
     urlopen=None,
+    harness: bool = False,
 ):
-    """非 live 返回 None，保证默认路径不可能访问网络。"""
+    """非 live 返回 None，保证默认路径不可能访问网络。
+
+    ``harness=True``（P8-B2 内部试运行 opt-in）返回经 Harness 控制面执行的
+    provider；默认路径保持 legacy 直连 provider 不变。
+    """
     config = get_provider_config(project_root, provider_id)
     if not live:
         return None
     if not config.enabled:
         raise ValueError(f"Provider 已禁用: {provider_id}")
+    if harness:
+        from research_os.llm.providers.harness import HarnessLlmProvider
+        return HarnessLlmProvider()
     if config.adapter == "deepseek_chat_completions":
         return DeepSeekChatCompletionsProvider(config, urlopen=urlopen)
     raise ValueError(f"未知 Provider adapter: {config.adapter}")

@@ -1,0 +1,120 @@
+name: P8-B2-INTERNAL-TRIAL-001 Scenario Verification
+
+# P8-B2-INTERNAL-TRIAL-001: verifies the unified LlmClient -> Harness ->
+# DeepSeek path for the equity-family scenarios and the honest no-LLM markers
+# of the deterministic scenarios. Opt-in via P8_B2_SCENARIO_TRIAL=1; the
+# default runtime remains legacy. Bounded: at most 16 harness-backed provider
+# calls per run. The credential is injected ONLY via the GitHub Actions
+# secret mechanism; the provider never prints or stores the key.
+# workflow_dispatch resolves workflows from the default branch only, so this
+# branch-local workflow also triggers on pushes to this branch.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - task/P8-B2-INTERNAL-TRIAL-001
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p8-b2-internal-trial-001
+  cancel-in-progress: false
+
+jobs:
+  scenario-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Python dependencies
+        run: pip install ".[dev]"
+
+      - name: Install pinned Harness (npm ci)
+        working-directory: agent_runtime
+        run: npm ci
+
+      - name: Provision Research OS authority (deterministic v6 + corpus profiles)
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PYEOF'
+          import json
+          from pathlib import Path
+          from research_os.agent_runtime.production_runtime import ROOT
+          from research_os.storage import Database
+
+          db_path = ROOT / "data" / "sqlite" / "research.db"
+          db = Database(db_path)
+          db.initialize()
+          rows = [
+              {"security_profile_id": "714a4b94-3c9c-5ba6-b5ff-3bd34e485665",
+               "payload": {"security_profile_id": "714a4b94-3c9c-5ba6-b5ff-3bd34e485665",
+                           "symbol": "600519.SH", "exchange": "SH", "status": "listed", "version": 1,
+                           "security_entity_id": "security:600519.SH",
+                           "company_entity_id": "company:maotai", "name": "贵州茅台",
+                           "company_name": "贵州茅台酒股份有限公司"},
+               "security_entity_id": "security:600519.SH", "company_entity_id": "company:maotai",
+               "symbol": "600519.SH", "exchange": "SH", "status": "listed", "version": 1},
+              {"security_profile_id": "f023225b-3a5f-5851-800e-3560482918b7",
+               "payload": {"security_profile_id": "f023225b-3a5f-5851-800e-3560482918b7",
+                           "symbol": "300750.SZ", "exchange": "SZ", "status": "listed", "version": 1,
+                           "security_entity_id": "security:300750.SZ",
+                           "company_entity_id": "company:catl", "name": "宁德时代",
+                           "company_name": "宁德时代新能源科技股份有限公司"},
+               "security_entity_id": "security:300750.SZ", "company_entity_id": "company:catl",
+               "symbol": "300750.SZ", "exchange": "SZ", "status": "listed", "version": 1},
+          ]
+          for row in rows:
+              db._conn.execute(
+                  "INSERT OR REPLACE INTO security_profiles "
+                  "(security_profile_id, payload, security_entity_id, company_entity_id, symbol, exchange, status, version) "
+                  "VALUES (?,?,?,?,?,?,?,?)",
+                  (row["security_profile_id"], json.dumps(row["payload"], ensure_ascii=False),
+                   row["security_entity_id"], row["company_entity_id"], row["symbol"],
+                   row["exchange"], row["status"], row["version"]))
+          db._conn.commit()
+          print("AUTHORITY_PROVISIONED", db._conn.execute("PRAGMA user_version").fetchone()[0])
+          db._conn.close()
+          PYEOF
+
+      - name: Scenario verification through Harness control plane
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          P8_B2_SCENARIO_TRIAL: "1"
+        timeout-minutes: 90
+        run: |
+          set +e
+          PYTHONPATH=src python scripts/p8_b2_scenario_trial.py
+          code=$?
+          set -e
+          echo "SCENARIO_TRIAL_EXIT_CODE=$code"
+          if [ "$code" = "1" ]; then
+            echo "BLOCKED_CREDENTIAL_UNAVAILABLE"
+            exit 3
+          fi
+          exit "$code"
+
+      - name: Targeted P8-B2 tests
+        run: python -m pytest tests/unit/test_p8_b2_harness_llm_entry.py tests/unit/test_p8_b2_internal_trial.py tests/unit/test_p8_b2_evidence_integrity.py tests/unit/test_p8_b2_usage_evidence.py tests/unit/test_p8_b1_mcp_protocol_negotiation.py -q
+
+      - name: Full pytest
+        run: python -m pytest
+
+      - name: Validate schemas
+        run: python -m research_os.cli.main validate
+
+      - name: Compile
+        run: python -m compileall -q src scripts tests

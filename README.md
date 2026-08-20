@@ -185,6 +185,8 @@ Decision #54 / #55）正式写入两项长期设计，**仅冻结设计，不授
 
 - [Agent Runtime / Skill Architecture](docs/architecture/agent-runtime-skill-architecture.md)
   —— DeepSeek Harness P8-A0 技术集成、P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 仅授权 internal trial，生产采用仍未授权；
+  2026-08-21 P8-B2-INTERNAL-TRIAL-001 完成 Harness 内部试运行验证（审计：唯一 AI 入口 = LlmClient，无第二套 AI 路径；
+  opt-in HarnessLlmProvider `P8_B2_SCENARIO_TRIAL=1`，默认 runtime 保持 legacy；详见 `docs/architecture/p8-b2-harness-call-path-audit.md`）；
   Research OS 继续保有 Data / Evidence / PIT / Financial / Graph / Workflow Authority；
   Skill / Tool / Workflow 三分；Memory 三分法；MCP 为 Harness → Research OS 首选边界。
 - [Frontend Product Architecture](docs/architecture/frontend-product-architecture.md)

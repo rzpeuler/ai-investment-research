@@ -3437,3 +3437,21 @@ max_provider_tokens` 从 200,000 提高至 **1,000,000**
 - 回归：full pytest、schema 86/86、compile、Offline CI 通过（见验收报告）。
 - P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；正式 corpus 重新执行属
   后续 RESUME taskbook；Agent 不得 self-accept。
+
+## 68. P8-B2 Internal Trial Scenario Verification（2026-08-21，VERIFIED / AWAITING ACCEPTANCE）
+
+P8-B2-INTERNAL-TRIAL-001 完成 Harness 内部试运行验证（"验证优先，不扩展
+功能"）：审计确认全仓唯一 AI 执行入口为 `LlmClient`（预算/校验/降级/审计
+统一层），无第二套 AI 调用路径；默认 provider 保持 legacy 直连（冻结）；
+新增 opt-in `HarnessLlmProvider`（`P8_B2_SCENARIO_TRIAL=1`）把场景 LLM 调用
+经统一入口路由到 pinned Harness 控制面，默认路径不变。
+
+验证结论：first_coverage / earnings_expectation 的真实 EquityLlmTasks 经
+Harness 执行（有界 ≤16 次 provider-backed 调用）；evening_brief /
+stock_review / industry_research 为确定性路径（`llm_called: false` 诚实
+标记）；失败降级（timeout/invalid/schema/budget）与审计字段由离线测试锁定；
+无伪造 MODEL_INFERENCE；Evidence 链与 schema 校验未受影响。
+
+本 Decision 记录验证事实，不构成 Production Adoption 授权。P8-B3 与生产
+默认切换仍 NOT_AUTHORIZED；P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
+Agent 不得 self-accept。
