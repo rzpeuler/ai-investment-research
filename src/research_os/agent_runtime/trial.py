@@ -83,7 +83,11 @@ class TrialBudget:
     max_sessions: int = 10
     max_turns: int = 20
     max_tool_calls: int = 60
-    max_provider_tokens: int = 200_000
+    # Governance decision P8-B2-LIVE-01-BUDGET-DECISION-01 (Option B):
+    # raised from 200_000 to 1_000_000 based on observed provider usage
+    # (23.8k-44.3k tokens/turn; 20 turns ≈ 476k-886k). See
+    # docs/tasks/p8-b2-live-01-budget-decision.md.
+    max_provider_tokens: int = 1_000_000
     max_retries: int = 0
     turn_timeout_seconds: int = 300
     warning_ratio: float = 0.8

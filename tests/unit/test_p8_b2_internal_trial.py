@@ -62,6 +62,9 @@ def test_trial_budget_is_explicit_and_bounded():
     assert budget.max_tool_calls > budget.max_turns
     assert budget.max_retries == 0
     assert budget.turn_timeout_seconds > 0
+    # Governance decision P8-B2-LIVE-01-BUDGET-DECISION-01 (Option B):
+    # 1,000,000 covers the observed 476k-886k projection for 20 turns.
+    assert budget.max_provider_tokens == 1_000_000
 
 
 def test_client_cannot_enable_harness_or_trial():

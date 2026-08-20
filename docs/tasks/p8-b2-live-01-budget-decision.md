@@ -1,6 +1,6 @@
 # P8-B2-LIVE-01-BUDGET-DECISION-01 — Formal Trial Token Budget Boundary Decision
 
-STATUS: DECIDED / AWAITING INDEPENDENT ACCEPTANCE (Sol)
+STATUS: DECIDED / IMPLEMENTED (BUDGET-IMPL-01) / AWAITING INDEPENDENT ACCEPTANCE (Sol)
 
 本任务基于真实 provider usage evidence 重新评估正式 Trial 的 token budget
 设计。纯治理/文档任务：**无代码修改**；budget 值的实现变更（如需）属后续
@@ -105,12 +105,10 @@ provider-reported 值，经 REPAIR-02 映射）。
 `docs/tasks/p8-b2-live-00-trial-boundary-design.md` §5.6 的变更，需要：
 
 1. Sol 独立验收本 BUDGET-DECISION；
-2. 后续授权实现 taskbook（例如 P8-B2-BUDGET-IMPL-01）：把
-   `max_provider_tokens` 更新为 1,000,000 + 同步 LIVE-00 边界文档 +
-   更新 budget 相关测试断言（如有）＋ 回归测试；
+2. 实现 taskbook **P8-B2-LIVE-01-BUDGET-IMPL-01**（2026-08-21 已完成）：
+   `TrialBudget.max_provider_tokens` 200,000 → 1,000,000（trial.py）、
+   LIVE-00 §5.6 已同步、预算测试断言已加锁、回归全绿；
 3. 然后按 LIVE-00 边界重新执行正式 trial（新 RESUME taskbook）。
-
-不得在本任务中实现该值变更。
 
 ## 6. 状态
 

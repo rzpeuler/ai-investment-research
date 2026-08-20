@@ -326,3 +326,9 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   该值变更属于代码变更（`TrialBudget` 默认值），按任务书标注
   ARCHITECTURE_DECISION_REQUIRED，由后续授权 taskbook 实施；在实施前正式
   trial 若重跑仍会如实触发 budget exhaustion。P8-B2 仍需 Sol 独立验收。
+
+- **P8-B2 token budget 已实施（2026-08-21，BUDGET-IMPL-01）**：`max_provider_tokens`
+  已按 BUDGET-DECISION-01 从 200,000 提高至 1,000,000（TrialBudget + LIVE-00 §5.6
+  已同步；预算测试断言已加锁）。正式 trial 重跑不再受 200k 预算截断；1M 上限下
+  20-turn corpus（预测 476k–886k）可完成，超出仍 fail-closed。P8-B2 仍需 Sol
+  独立验收。

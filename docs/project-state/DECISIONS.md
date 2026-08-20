@@ -3420,3 +3420,20 @@ self-accept。
   taskbook（BUDGET-IMPL）实施；本决策不改代码、不重跑 trial、不改
   acceptance criteria / failure semantics / cost controls 其余项。
 - P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
+
+## 67. P8-B2 Formal Trial Token Budget Implemented（2026-08-21，IMPLEMENTED）
+
+实施 BUDGET-DECISION-01（Decision #66，Option B）：`TrialBudget.
+max_provider_tokens` 从 200,000 提高至 **1,000,000**
+（`src/research_os/agent_runtime/trial.py`），同步
+`docs/tasks/p8-b2-live-00-trial-boundary-design.md` §5.6，并在
+`test_trial_budget_is_explicit_and_bounded` 增加 1,000,000 断言。
+
+- 依据：真实观测 23.8k–44.3k tokens/turn（provider-reported）；20 turns ≈
+  476k–886k；1M = 观测高端 +13% 余量；warning 0.8 → 800k；最大成本有界。
+- 未改变：max_sessions 10 / max_turns 20 / max_tool_calls 60 / max_retries 0 /
+  turn_timeout 300s / concurrency 1 / failure semantics / acceptance gate /
+  provider boundary。
+- 回归：full pytest、schema 86/86、compile、Offline CI 通过（见验收报告）。
+- P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；正式 corpus 重新执行属
+  后续 RESUME taskbook；Agent 不得 self-accept。

@@ -309,3 +309,17 @@ IMPLEMENTATION: TrialBudget 值变更 = ARCHITECTURE_DECISION_REQUIRED →
 NEXT: Sol 验收本决策 → BUDGET-IMPL taskbook → 按 LIVE-00 边界重新执行正式 trial
   （新 RESUME）。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-LIVE-01-BUDGET-IMPL-01 — Budget Value Implemented（2026-08-21）
+
+```text
+IMPLEMENTED: TrialBudget.max_provider_tokens 200,000 → 1,000,000
+  （src/research_os/agent_runtime/trial.py；依据 BUDGET-DECISION-01 Option B）
+SYNCED: docs/tasks/p8-b2-live-00-trial-boundary-design.md §5.6（1,000,000 +
+  decision 依据）；test_trial_budget_is_explicit_and_bounded 增加 1,000,000 断言
+UNCHANGED: max_sessions 10 / max_turns 20 / max_tool_calls 60 / max_retries 0 /
+  turn_timeout 300s / warning_ratio 0.8 / concurrency 1 / failure semantics /
+  acceptance gate / provider boundary
+NEXT: Sol 验收 BUDGET-DECISION + BUDGET-IMPL → 按 LIVE-00 边界重新执行正式 trial
+  （新 RESUME taskbook）。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

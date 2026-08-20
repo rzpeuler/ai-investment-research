@@ -151,7 +151,7 @@ failure 只计数一次，不得通过重试掩盖失败。失败证据必须保
 | max sessions | 10 | TrialBudget（accepted） |
 | max turns | 20 | TrialBudget |
 | max tool calls | 60 | TrialBudget |
-| max provider tokens | 200,000 | TrialBudget；超出即终止 |
+| max provider tokens | 1,000,000 | TrialBudget；超出即终止。2026-08-21 按 BUDGET-DECISION-01（Option B）由 200,000 提高：真实观测 23.8k–44.3k tokens/turn，20 turns ≈ 476k–886k；1M = 观测高端 +13% 余量；warning 0.8 → 800k |
 | turn timeout | 300s | TrialBudget.turn_timeout_seconds |
 | provider timeout | 60s | AgentRuntimeConfig |
 | max retries | 0 | 无自动重试 |
