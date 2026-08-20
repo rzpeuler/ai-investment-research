@@ -47,13 +47,17 @@ jobs:
         run: npm ci
 
       - name: Provision Research OS authority (deterministic v6 + corpus profiles)
+        env:
+          PYTHONPATH: src
         run: |
           python - <<'PYEOF'
           import json
           from pathlib import Path
+          from research_os.agent_runtime.production_runtime import ROOT
           from research_os.storage import Database
 
-          db = Database(Path("data/sqlite/research.db"))
+          db_path = ROOT / "data" / "sqlite" / "research.db"
+          db = Database(db_path)
           db.initialize()  # deterministic migrations -> user_version 6
           rows = [
               {
@@ -88,7 +92,7 @@ jobs:
           db._conn.commit()
           version = db._conn.execute("PRAGMA user_version").fetchone()[0]
           db._conn.close()
-          print(f"AUTHORITY_PROVISIONED user_version={version}")
+          print(f"AUTHORITY_PROVISIONED path={db_path} user_version={version}")
           assert version == 6, "authority DB must be v6"
           PYEOF
           python - <<'PYEOF'
