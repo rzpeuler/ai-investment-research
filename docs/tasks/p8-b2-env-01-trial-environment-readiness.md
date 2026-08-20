@@ -126,6 +126,19 @@ by offline test `test_probe_cannot_increment_formal_acceptance_counters`.
 - `FORMAL_TRIAL_READY = NO` on this host (formal gate requires owned process
   cleanup verified and process residue = NO).
 
+## Windows limitation and Linux validation (P8-B2-ENV-02)
+
+- **Windows limitation（如实记录）**：本宿主为 Windows，accepted R2 清理证据模型
+  无法枚举 owned process tree（`cleanup_status` = root TERMINATED / tree
+  NOT_VERIFIED），因此 `PROCESS_CLEANUP_VERIFIED = NOT_VERIFIED`（fail-closed）。
+  这是平台证据限制，不是代码缺陷；不得把 Windows 结果解释为 Linux 结果。
+- **Linux validation**：`PROCESS_CLEANUP_VERIFIED = YES` / `PROCESS_RESIDUE = NO`
+  的 POSIX 机械证明由 GitHub Actions `ubuntu-latest` 执行环境完成 — 详见
+  `docs/tasks/p8-b2-env-02-linux-validation.md` 与 P8-B2-ENV-02 验收报告
+  （workflow：`.github/workflows/p8-b2-env-02-linux-validation.yml`，不修改
+  生产 Offline CI）。
+- 不记录 `P8-B2 ACCEPTED`；P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`。
+
 ## Offline tests
 
 `tests/unit/test_p8_b2_env_readiness.py` — 15 deterministic tests covering the

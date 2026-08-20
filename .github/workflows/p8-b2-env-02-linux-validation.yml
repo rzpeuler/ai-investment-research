@@ -1,0 +1,75 @@
+name: P8-B2-ENV-02 Linux Validation
+
+# ENV-02-only validation workflow (P8-B2-ENV-02-ADJUST-01).
+# Runs the P8-B2 environment readiness probe and the accepted Linux
+# process-ownership regression on a real Ubuntu POSIX runner.
+# This workflow is separate from the production Offline CI and does not
+# modify it. It is never an acceptance corpus run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Python dependencies
+        run: pip install ".[dev]"
+
+      - name: Install pinned Harness (npm ci)
+        working-directory: agent_runtime
+        run: npm ci
+
+      - name: Environment facts
+        run: |
+          grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release
+          echo "kernel: $(uname -r)"
+          echo "arch: $(uname -m)"
+          python --version
+          node --version
+          echo "harness: $(agent_runtime/node_modules/.bin/dsh --version)"
+
+      - name: Targeted Linux process-ownership tests
+        run: python -m pytest tests/unit/test_p8_b2_process_ownership_linux.py -q
+
+      - name: P8-B2 environment readiness probe
+        env:
+          # Used only if a GitHub secret is configured; absent here it stays
+          # empty and the probe truthfully reports credential NO (BLOCKED).
+          # The probe never prints, logs, stores or commits the value.
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set +e
+          P8_B2_ENV_READINESS=1 PYTHONPATH=src python scripts/p8_b2_env_readiness.py
+          probe_code=$?
+          set -e
+          echo "P8_B2_ENV_READINESS_PROBE_EXIT_CODE=$probe_code"
+          echo "FORMAL_ACCEPTANCE_TURN=NO"
+          if [ "$probe_code" = "2" ]; then
+            echo "PROCESS_VALIDATION_FAILED"
+            exit 2
+          fi
+
+      - name: Full pytest
+        run: python -m pytest
+
+      - name: Validate schemas
+        run: python -m research_os.cli.main validate
+
+      - name: Compile
+        run: python -m compileall -q src scripts tests
