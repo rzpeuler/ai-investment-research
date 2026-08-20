@@ -256,6 +256,15 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   P8-B2-R2 已完成 acceptance evidence-integrity 修复（失败单次计数、进程残留 fail-closed、secret 证据单调、
   证据来源标注），但官方 post-fix live trial 因隔离 worktree 无 Harness 二进制、approved 环境机制未暴露
   provider credential 而保持 PARTIAL（`HARNESS_BOOT_FAILED`，未执行 provider-backed turn）。
+- P8-B2-ENV-01 环境就绪探针（2026-08-20）已关闭上述环境阻断：隔离 worktree 内 `npm ci`（committed
+  package-lock.json）可确定性安装 pinned `@deepseek-ai/dsh@0.1.0-rc.7` 并可真实启动；approved 凭证存在且
+  一次 bounded provider-backed connectivity probe 成功（flash，191 tokens，`ENVIRONMENT_READINESS_PROBE_ONLY`）。
+  MCP（`research-os-mcp/v1`，恰好 2 个授权工具）、runtime/profile、secret hygiene 均 VERIFIED。
+- **当前宿主（Windows）正式 trial 就绪性 = FAIL（fail-closed）**：accepted R2 清理证据模型在 Windows 无法枚举
+  owned process tree（`cleanup_status` = root TERMINATED / tree NOT_VERIFIED），因此 formal trial 的
+  `process residue = NO` gate 无法在本宿主机械证明；`FORMAL_TRIAL_READY = NO`。同一机制在 POSIX 由 accepted
+  Linux process-group 回归测试（GitHub Offline CI on Ubuntu）证明 VERIFIED。P8-B2-ENV-01 的 READY 判定需
+  Sol 独立验收；正式 10-session / 20-turn corpus 未执行。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout

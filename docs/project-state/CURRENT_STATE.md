@@ -360,6 +360,7 @@ P8-B1_R2: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B1_R3: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B2: IMPLEMENTED / PARTIAL / NOT ACCEPTED
 P8-B2_R2: IMPLEMENTED / evidence-integrity repair delivered; PARTIAL official trial (no provider credential / Harness binary available in isolated worktree)
+P8-B2_ENV-01: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE (environment readiness task `docs/tasks/p8-b2-env-01-trial-environment-readiness.md`); live probe on Windows host = FAIL (fail-closed: owned process-tree cleanup NOT_VERIFIED on Windows); pinned Harness boot / provider credential + connectivity / runtime-profile / MCP boot+namespace+toolset / secret hygiene all VERIFIED; FORMAL_TRIAL_READY = NO on this host; formal corpus NOT executed
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED
 ```
 

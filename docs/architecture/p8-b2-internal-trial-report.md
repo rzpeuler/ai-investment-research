@@ -80,3 +80,38 @@ frontend exposure, or P8-B3 authorization follows.
 
 Non-blocking repository hygiene: PR #26 remains stale (based on an obsolete
 P7-D4/P8-A0 worldview) and must not be merged.
+
+## P8-B2-ENV-01 Environment Readiness (2026-08-20)
+
+The P8-B2-ENV-01 environment readiness probe was implemented and executed from
+the isolated worktree `ai-investment-research-env01`
+(branch `task/P8-B2-ENV-01-trial-readiness`, based on `35a315c`). It verifies
+prerequisites only; it is not the formal acceptance corpus and executed
+**0 sessions / 0 turns**.
+
+Live gate results on this host (Windows):
+
+| Prerequisite | Result |
+|---|---|
+| Pinned Harness `@deepseek-ai/dsh@0.1.0-rc.7` installed (fresh `npm ci`) | YES |
+| Harness executable boot (real bounded invocation) | YES |
+| Provider credential present (never exposed) | YES |
+| Provider-backed connectivity (one bounded probe call, flash, 191 tokens) | YES |
+| Runtime / profile observed (`research-headless`, denied components exact) | YES |
+| MCP server boot + namespace `research-os-mcp/v1` | YES |
+| Exactly two tools, 0 unauthorized, in-process handshake | YES |
+| Owned process root terminated, no OS residue | YES |
+| Owned process **tree** cleanup evidence | NOT_VERIFIED (Windows; accepted fail-closed model) |
+| Secret hygiene | YES (0 markers) |
+
+Overall readiness on this host: **FAIL (fail-closed)** — the only blocker is
+`PROCESS_CLEANUP_VERIFIED = NOT_VERIFIED`: the accepted R2 cleanup evidence
+model cannot enumerate the owned process tree on Windows, so the formal
+`process residue = NO` gate cannot be proven on this host. The same mechanism
+is proven `VERIFIED` on POSIX by the accepted Linux process-group tests in the
+GitHub Offline CI. `FORMAL_TRIAL_READY = NO` on this host.
+
+The previous PARTIAL run's environment blockers are closed: the pinned Harness
+now boots in an isolated worktree, and the approved credential is present and
+provider connectivity is verified. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`.

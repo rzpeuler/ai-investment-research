@@ -31,3 +31,15 @@ rollback latch, owned-process crash/restart, secret scan, and process hygiene.
 The execution result is only `PASS CANDIDATE`, `PARTIAL`, or `FAIL`; independent
 acceptance is required. Production adoption and P8-B3 remain
 `NOT_AUTHORIZED`.
+
+## Environment readiness (P8-B2-ENV-01)
+
+Before the formal corpus (P8-B2-LIVE-01) is authorized, the environment
+readiness task `docs/tasks/p8-b2-env-01-trial-environment-readiness.md` must be
+independently accepted. Readiness probes are structurally separated from the
+acceptance corpus: they hold no counters, cannot admit sessions/turns, and mark
+every provider call `ENVIRONMENT_READINESS_PROBE_ONLY` /
+`FORMAL_ACCEPTANCE_TURN = NO`. As of 2026-08-20 the live probe on the Windows
+host is `FAIL` (fail-closed on owned process-tree cleanup evidence); all other
+prerequisites (pinned Harness boot, provider credential + connectivity,
+runtime/profile, MCP boot/namespace/toolset, secret hygiene) are verified.
