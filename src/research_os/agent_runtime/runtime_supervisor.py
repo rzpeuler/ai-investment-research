@@ -127,8 +127,16 @@ class HarnessRuntimeSupervisor:
             return
         try:
             if process.poll() is None:
-                process.terminate()
-                process.wait(timeout=5)
+                terminate = getattr(process, "terminate_tree", None)
+                if callable(terminate):
+                    terminate()
+                else:
+                    process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    if hasattr(process, "process"):
+                        process.process.kill()
         except Exception:
             # The supervisor only touches its own process object; failure is recorded by state.
             pass

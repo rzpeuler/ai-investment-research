@@ -19,16 +19,25 @@ def main() -> int:
         corpus = controller.run_corpus()
         restart = controller.restart_drill()
         rollback = controller.rollback_drill()
-        result = {**controller.evaluate_final_trial(), **restart, **rollback,
-                  "provider_network": "ON", "research_data_network": "OFF",
-                  "p8_b3": "NOT_AUTHORIZED"}
+        # evaluate_final_trial returns the authoritative, frozen evidence
+        # snapshot. The CLI may only add non-authoritative metadata; it must
+        # not override acceptance fields (R2-02).
+        snapshot = controller.evaluate_final_trial()
+        result = {
+            **snapshot,
+            "provider_network": "ON",
+            "research_data_network": "OFF",
+            "p8_b3": "NOT_AUTHORIZED",
+            "restart_drill_detail": restart,
+            "rollback_drill_detail": rollback,
+            "corpus_report": {k: v for k, v in corpus.items() if k not in snapshot},
+        }
     except Exception as exc:
         result = {"status": "PARTIAL", "error_code": getattr(exc, "code", type(exc).__name__),
                   "provider_network": "ON", "research_data_network": "OFF",
                   "production_adoption": "NOT_AUTHORIZED", "p8_b3": "NOT_AUTHORIZED"}
     finally:
         controller.stop()
-    result["process_residue"] = "NO"
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "PASS CANDIDATE" else 1
 

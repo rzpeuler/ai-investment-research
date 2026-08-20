@@ -253,6 +253,9 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。
+  P8-B2-R2 已完成 acceptance evidence-integrity 修复（失败单次计数、进程残留 fail-closed、secret 证据单调、
+  证据来源标注），但官方 post-fix live trial 因隔离 worktree 无 Harness 二进制、approved 环境机制未暴露
+  provider credential 而保持 PARTIAL（`HARNESS_BOOT_FAILED`，未执行 provider-backed turn）。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout
