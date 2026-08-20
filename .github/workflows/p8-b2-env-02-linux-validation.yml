@@ -5,8 +5,13 @@ name: P8-B2-ENV-02 Linux Validation
 # process-ownership regression on a real Ubuntu POSIX runner.
 # This workflow is separate from the production Offline CI and does not
 # modify it. It is never an acceptance corpus run.
+# NOTE: workflow_dispatch resolves workflows from the default branch only,
+# so this branch-local workflow also triggers on pushes to this branch.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - task/P8-B2-ENV-02-linux-validation
 
 permissions:
   contents: read
