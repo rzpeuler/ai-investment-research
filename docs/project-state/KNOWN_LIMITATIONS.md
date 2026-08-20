@@ -318,3 +318,11 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   max_provider_tokens=200,000** — 该 budget 属冻结 cost control（未修改），
   需 Sol 在正式 corpus 重新执行前作出治理决定；否则下一次 trial 将如实报告
   budget exhaustion（约第 5-9 turn）。P8-B2 仍需 Sol 独立验收。
+- **P8-B2 token budget 治理决策（2026-08-21，BUDGET-DECISION-01）**：真实观测显示
+  每 provider-backed turn 用量 23.8k–44.3k tokens，20-turn corpus 预计
+  476k–886k tokens，超过当前冻结上限 200,000。治理决策：将
+  `max_provider_tokens` 提高至 1,000,000（Option B；基于 observed 证据，
+  高端 +13% 余量；warning 0.8 → 800k；成本有界且仅 provider-reported）。
+  该值变更属于代码变更（`TrialBudget` 默认值），按任务书标注
+  ARCHITECTURE_DECISION_REQUIRED，由后续授权 taskbook 实施；在实施前正式
+  trial 若重跑仍会如实触发 budget exhaustion。P8-B2 仍需 Sol 独立验收。

@@ -285,3 +285,27 @@ GOVERNANCE FINDING（需 Sol 决策）: 实测每 turn 用量 ~24-44k tokens；
 NEXT: Sol 验收 REPAIR-02 + budget 决策 → 按 LIVE-00 边界重新执行正式 trial
   （新 RESUME taskbook）。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-LIVE-01-BUDGET-DECISION-01 — Token Budget Boundary Decided（2026-08-21）
+
+治理决策（详见 `docs/tasks/p8-b2-live-01-budget-decision.md`）：
+
+```text
+OBSERVED: 每 provider-backed turn 23.8k–44.3k tokens（dsh rc.7 tokenUsage，
+  provider-reported；REPAIR-02 / RESUME-03 真实观测）
+DERIVED: 20 turns ≈ 476k–886k tokens
+CURRENT: max_provider_tokens = 200,000（LIVE-00 §5.6，设计期无真实证据设定）
+OPTIONS:
+  A（保持 200k）: 第 5–9 turn 触发 RESOURCE_BUDGET_EXCEEDED → corpus 无法完成
+    → 正式 acceptance 物理不可达；拒绝
+  B（提高）: 评估 500k（高端不足）/ 1,000,000（高端 +13% 余量，推荐）/
+    2,000,000（余量过大，削弱有限预算意图）
+  C（减少 turn）: 改变已验收 acceptance corpus = 降低标准；决策规则禁止；拒绝
+DECISION: Option B — max_provider_tokens 200,000 → 1,000,000
+  （warning 0.8 → 800k；最大成本有界 ≤1M tokens；仅 provider-reported；
+  acceptance gate / failure semantics / retry / timeout / concurrency 不变）
+IMPLEMENTATION: TrialBudget 值变更 = ARCHITECTURE_DECISION_REQUIRED →
+  后续授权 taskbook（BUDGET-IMPL）实施，本任务无代码修改
+NEXT: Sol 验收本决策 → BUDGET-IMPL taskbook → 按 LIVE-00 边界重新执行正式 trial
+  （新 RESUME）。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

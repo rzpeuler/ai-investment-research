@@ -3398,3 +3398,25 @@ runtime（dsh rc.7）在 `session.history/list` 的 `projections.values.tokenUsa
 REPAIR-02（扩展 usage 提取映射 + 离线测试）→ 按 LIVE-00 边界重新执行正式
 trial。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得
 self-accept。
+
+## 66. P8-B2 Formal Trial Token Budget Boundary（2026-08-21，DECIDED / AWAITING ACCEPTANCE）
+
+基于真实 provider usage evidence 重新评估正式 trial 的 token budget
+（决策文档：`docs/tasks/p8-b2-live-01-budget-decision.md`）。
+
+- **Observed**：每 provider-backed turn 23.8k–44.3k tokens（dsh rc.7
+  `projections.values.tokenUsage`，provider-reported，REPAIR-02 / RESUME-03
+  真实观测，经 REPAIR-02 映射）。
+- **Derived**：20 turns ≈ 476k–886k tokens。
+- **决策（Option B）**：`max_provider_tokens` 从 200,000 提高至 **1,000,000**。
+  - 依据：覆盖观测高端 886k 并保留 ~13% 余量（缓存/延迟/上下文波动）；
+    保持"防止失控 usage"的有限预算意图；warning 0.8 → 800k；
+    最大成本有界（≤1M tokens，仅 provider-reported，无推断）。
+  - 拒绝 Option A（200k 使 corpus 在第 5–9 turn 必然 budget exhaustion，
+    正式 acceptance 物理不可达）与 Option C（减少 turn = 降低已验收
+    acceptance 标准，被决策规则禁止）。
+- **实现边界**：`TrialBudget.max_provider_tokens` 值变更属代码变更 —
+  标注 **ARCHITECTURE_DECISION_REQUIRED**，由 Sol 验收本决策后的授权
+  taskbook（BUDGET-IMPL）实施；本决策不改代码、不重跑 trial、不改
+  acceptance criteria / failure semantics / cost controls 其余项。
+- P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
