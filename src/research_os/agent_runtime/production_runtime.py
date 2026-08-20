@@ -231,6 +231,22 @@ class ProductionEvidenceProbe:
         }
 
 
+def _parse_stat_pgrp(stat_text: str) -> int | None:
+    """Extract the process-group id from a ``/proc/<pid>/stat`` line.
+
+    Layout (stat(5)):: pid (comm) state ppid pgrp session ...
+    The comm segment may itself contain spaces, parentheses or newlines, so we
+    always parse from the *last* ``)`` and then skip the state (index 0) and
+    ppid (index 1): pgrp is index 2 of the trailing fields.
+    """
+    try:
+        pivot = stat_text.rindex(")")
+        fields = stat_text[pivot + 2:].split()
+        return int(fields[2])
+    except (ValueError, IndexError):
+        return None
+
+
 class BoundedOwnedProcess:
     """Wraps a runtime process and tracks an explicit ownership boundary.
 
@@ -287,11 +303,17 @@ class BoundedOwnedProcess:
         return os.name != "nt"
 
     def _own_group_alive(self) -> bool:
-        """Mechanically prove the owned process group has no live members.
+        """Mechanically prove whether the owned process group has live members.
 
-        On Linux only, enumerate ``/proc`` entries whose process group equals
-        the owned PGID. On other POSIX platforms without ``/proc`` we cannot
-        enumerate the group mechanically, so return ``None`` (NOT_VERIFIED).
+        True if at least one /proc entry (other than the already-reaped root)
+        still reports the owned PGID. None if the group cannot be enumerated
+        (no /proc, or no process group could be captured).
+
+        ``/proc/<pid>/stat`` layout (stat(5))::
+            pid (comm) state ppid pgrp session tty_nr tpgid ...
+        The comm field may itself contain spaces, parentheses or newlines, so
+        always parse from the *last* ``)`` and skip the state field (index 0)
+        and ppid (index 1): pgrp is field index 2 of the trailing tokens.
         """
         if self.owned_pgid is None:
             return None
@@ -306,40 +328,43 @@ class BoundedOwnedProcess:
                 stat = stat_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            # stat(5): pid (comm) state ppid pgrp ...
-            try:
-                pgrp = int(stat.split(")")[1].split()[1])
-            except (IndexError, ValueError):
-                continue
-            if pgrp == self.owned_pgid:
+            if _parse_stat_pgrp(stat) == self.owned_pgid:
                 return True
         return False
 
     def terminate_tree(self, grace_seconds: float | None = None) -> None:
-        """Terminate only the owned process group/tree. No global enumeration."""
-        if self.process.poll() is not None:
-            return
+        """Terminate only the owned process group/tree. No global enumeration.
+
+        The owned root may already have exited while descendants survive, so
+        cleanup is always attempted against the owned PGID/root — never
+        skipped merely because the root process itself is gone.
+        """
         if os.name == "nt":
             # Tree-aware owned-root termination (already present); never a global kill.
-            subprocess.run(["taskkill", "/PID", str(self.owned_pid), "/T", "/F"],
-                           capture_output=True, check=False)
+            if self.process.poll() is None:
+                subprocess.run(["taskkill", "/PID", str(self.owned_pid), "/T", "/F"],
+                               capture_output=True, check=False)
             return
-        # POSIX: graceful group signal first, then bounded escalation.
+        # POSIX: graceful group signal first, then bounded escalation. Target
+        # the owned PGID regardless of whether the root has already exited.
         pgid = self.owned_pgid
         if pgid is None:
             pgid = self.owned_pid
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, OSError) as exc:
-            if exc.errno != errno.ESRCH:
-                pass
+        if pgid is None:
+            return
+        self._signal_owned_group(pgid, signal.SIGTERM)
         deadline = time.monotonic() + (grace_seconds or self.DEFAULT_GRACE_SECONDS)
         while time.monotonic() < deadline:
-            if not self._own_group_alive():
+            group_alive = self._own_group_alive()
+            if group_alive is False:
                 return
             time.sleep(0.1)
+        self._signal_owned_group(pgid, signal.SIGKILL)
+
+    @staticmethod
+    def _signal_owned_group(pgid: int, sig: int) -> None:
         try:
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(pgid, sig)
         except (ProcessLookupError, OSError) as exc:
             if exc.errno != errno.ESRCH:
                 pass
@@ -347,25 +372,35 @@ class BoundedOwnedProcess:
     def cleanup_status(self) -> dict[str, Any]:
         """Bounded evidence distinguishing root vs owned-tree cleanup.
 
-        Returns a structured verdict:
-          - ``root``: ``TERMINATED`` / ``ALIVE`` / ``NOT_STARTED``
-          - ``tree``: ``VERIFIED`` (tree proven gone) / ``NOT_VERIFIED``
-                      (cannot be mechanically proven) / ``FAILED`` (proven alive)
+        Returns a structured verdict with root/tree states that are
+        mechanically consistent:
+          - root ``ALIVE`` / ``TERMINATED`` / ``NOT_STARTED`` from live child
+            handle only (root is owned).
+          - tree ``VERIFIED``  -> group mechanically proven empty (no residue)
+          - tree ``FAILED``    -> group mechanically proven non-empty (a real
+                                   process leak that must surface as residue)
+          - tree ``NOT_VERIFIED`` -> group membership cannot be proven, or the
+                                   owned tree cannot be enumerated. Fail-closed.
         """
-        code = self.process.poll()
         if self.owned_pid is None or self.process is None:
             return {"root": "NOT_STARTED", "tree": "NOT_VERIFIED"}
-        if code is None:
-            return {"root": "ALIVE", "tree": "FAILED"}
+        code = self.process.poll()
         if os.name == "nt":
-            # Windows: root reaped is the mechanical bound we can prove without
-            # enumerating every descendant; treat the tree as NOT_VERIFIED unless
-            # we can additionally prove no owned group remains.
+            # Windows: we own the root PID; root reaping is the mechanical bound
+            # we can prove without enumerating every descendant. A live root is
+            # always a real leak; an empty/reaped root with no group enumeration
+            # is NOT_VERIFIED (fail-closed).
+            if code is None:
+                return {"root": "ALIVE", "tree": "FAILED"}
             return {"root": "TERMINATED", "tree": "NOT_VERIFIED"}
+        if code is None:
+            # Root alive means the owned process group is (at least) the root:
+            # a real, mechanically proven leak.
+            return {"root": "ALIVE", "tree": "FAILED"}
         group_alive = self._own_group_alive()
         if group_alive is None:
             return {"root": "TERMINATED", "tree": "NOT_VERIFIED"}
-        return {"root": "TERMINATED", "tree": "VERIFIED" if not group_alive else "FAILED"}
+        return {"root": "TERMINATED", "tree": "FAILED" if group_alive else "VERIFIED"}
 
     def terminate(self):
         if self.process.poll() is None:

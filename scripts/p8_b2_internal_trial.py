@@ -33,7 +33,10 @@ def main() -> int:
             "corpus_report": {k: v for k, v in corpus.items() if k not in snapshot},
         }
     except Exception as exc:
-        result = {"status": "PARTIAL", "error_code": getattr(exc, "code", type(exc).__name__),
+        # Boot/start/run failure still renders the full fail-closed evidence
+        # snapshot (rework 6): complete fields + evidence basis + error code.
+        reason = getattr(exc, "code", None) or type(exc).__name__
+        result = {**controller.finalize_fail_closed(reason),
                   "provider_network": "ON", "research_data_network": "OFF",
                   "production_adoption": "NOT_AUTHORIZED", "p8_b3": "NOT_AUTHORIZED"}
     finally:

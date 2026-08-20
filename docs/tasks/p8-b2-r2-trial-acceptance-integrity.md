@@ -122,3 +122,42 @@ Official post-fix trial run:
 - PRODUCTION ADOPTION: NOT_AUTHORIZED
 - No execution-agent self-acceptance; only independent Sol verification may
   convert an eligible `PASS CANDIDATE` into project acceptance.
+
+## Rework (second revision) — acceptance evidence integrity repair 2
+
+The first revision (HEAD `add8229`) was returned for rework. The following
+holes were closed and are covered by regression tests:
+
+1. **`/proc/<pid>/stat` pgrp parsing** — now parses from the *last* `)` and
+   reads the pgrp at post-state field index 2 (state, ppid, pgrp). Extracted
+   as `_parse_stat_pgrp()` and unit-tested for comms with spaces, parentheses
+   and newlines.
+2. **`terminate_tree` honoring surviving group after root exit** — no longer
+   returns early because the owned root exited; the owned PGID is signalled
+   regardless of root state.
+3. **`tree == FAILED` is a real process leak** — `cleanup_status()` reporting
+   `FAILED` (group mechanically proven non-empty) now surfaces as
+   `process_residue == YES` and increments `process_leak_count`; the PASS gate
+   stays closed.
+4. **Three-state mechanical consistency** — `VERIFIED -> NO`,
+   `FAILED -> YES`, `NOT_VERIFIED -> NOT_VERIFIED` (fail-closed). Root alive is
+   also a real leak.
+5. **`evidence_basis` dynamic** — computed from evidence that actually exists
+   (e.g. `runtime_version` becomes `NOT_AVAILABLE` when no runtime was
+   observed; `process_residue` is `OBSERVED` only when a mechanical
+   VERIFIED/FAILED verdict exists).
+6. **boot/start failure renders a complete fail-closed snapshot** — the CLI now
+   calls `TrialController.finalize_fail_closed(reason)` so even a failed boot
+   emits the full acceptance field set plus `error_code` and `evidence_basis`,
+   never a bare error object.
+7. **Real Linux offline process-group regression tests** —
+   `tests/unit/test_p8_b2_process_ownership_linux.py` (POSIX-only, skips on
+   Windows) exercises the real `BoundedOwnedProcess` for the
+   "root exited but a descendant survives" case and proves `FAILED` residue and
+   `terminate_tree` group cleanup.
+8. **GitHub Actions pytest failure resolved** — the pre-existing failure
+   `test_real_company_capability_reads_existing_authority` (`data_degraded` in
+   a clean checkout) is fixed by pointing the authority DB override
+   (`P8_AUTHORITY_DB_PATH`) at a deterministic, self-contained SQLite fixture
+   instead of the git-ignored repo-root artifact. Offline CI is expected to go
+   green.

@@ -1,12 +1,16 @@
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from research_os.agent_runtime.research_capabilities import (
     MAX_RESULT_BYTES,
     TOOLS,
+    AUTHORITY_DB_ENV,
     bounded,
     check_data_readiness,
     get_company_profile,
@@ -16,7 +20,44 @@ from research_os.agent_runtime.research_capabilities import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_real_company_capability_reads_existing_authority():
+@pytest.fixture
+def authority_db(tmp_path, monkeypatch):
+    """A dedicated, deterministic authority DB for offline capability tests.
+
+    The real repo-root ``data/sqlite/research.db`` is a git-ignored artifact
+    that does not exist in a clean checkout (e.g. CI), so capability tests
+    must not depend on it. We instead point the authority DB override at a
+    self-contained SQLite file in a temp path.
+    """
+    db_path = tmp_path / "data" / "sqlite" / "research.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        # Column layout must mirror the real authority view the capability
+        # queries: payload JSON plus a status column with an active marker.
+        conn.execute("CREATE TABLE security_profiles (payload TEXT, status TEXT)")
+        conn.execute("CREATE TABLE company_profiles (payload TEXT, status TEXT)")
+        conn.execute(
+            "INSERT INTO security_profiles (payload, status) VALUES (?, ?)",
+            (json.dumps({
+                "symbol": "600519.SH",
+                "exchange": "SH",
+                "company_entity_id": "company:maotai",
+                "current_name": "贵州茅台",
+                "security_type": "common_share",
+                "listing_date": "2020-01-01",
+                "currency": "CNY",
+                "share_class": "A",
+            }, ensure_ascii=False), "listed"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setenv(AUTHORITY_DB_ENV, str(db_path))
+    return db_path
+
+
+def test_real_company_capability_reads_existing_authority(authority_db):
     result = get_company_profile("600519.SH")
     assert result["status"] == "partial_success"
     assert result["entity_id"] == "company:maotai"
@@ -24,7 +65,7 @@ def test_real_company_capability_reads_existing_authority():
     assert result["company_profile"] is None
 
 
-def test_real_readiness_capability_is_read_only_and_explicit():
+def test_real_readiness_capability_is_read_only_and_explicit(authority_db):
     result = check_data_readiness("600519.SH", "2026-08-19T00:00:00+08:00")
     assert result["requirement_count"] == len(result["readiness"]) == 7
     assert result["missing_count"] == 7

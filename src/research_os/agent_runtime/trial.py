@@ -495,37 +495,60 @@ class TrialController:
     def _process_residue(self) -> str:
         """Mechanical source for the owned process-tree residue gate.
 
-        ``NO`` only when owned-tree cleanup has been mechanically verified
-        (``owned_tree_cleanup == VERIFIED``). On platforms/modes where that
-        cannot be proven, the result is ``NOT_VERIFIED`` and the acceptance
-        gate stays closed (fail-closed). A proven leak is ``YES``.
+        Three-state, mechanically consistent (R2-04 / rework 3-4):
+          - owned_tree_cleanup == ``VERIFIED`` -> ``NO`` (tree proven gone)
+          - owned_tree_cleanup == ``FAILED``   -> ``YES`` (real process leak)
+          - root still alive, or recorded leak  -> ``YES``
+          - otherwise (tree ``NOT_VERIFIED``)   -> ``NOT_VERIFIED`` (fail-closed)
+        ``NO`` is only possible when the owned process tree is mechanically
+        proven empty; ``FAILED`` is always surfaced as a real residue.
         """
-        if self.root_cleanup == "TERMINATED" and not self.root_alive_after_stop:
-            if self.owned_tree_cleanup == "VERIFIED" and self.metrics.process_leak_count <= 0:
-                return "NO"
-            if self.metrics.process_leak_count > 0:
-                return "YES"
-            return "NOT_VERIFIED"
-        if self.metrics.process_leak_count > 0:
+        tree = self.owned_tree_cleanup
+        if tree == "FAILED":
+            return "YES"
+        if tree == "VERIFIED":
+            return "NO"
+        if self.root_cleanup == "ALIVE" or self.metrics.process_leak_count > 0:
             return "YES"
         return "NOT_VERIFIED"
 
     def _evidence_basis(self, *, final: bool) -> dict[str, str]:
-        """Classify evidence provenance for acceptance-critical fields (R2-05)."""
+        """Classify acceptance-field provenance from evidence that actually exists.
+
+        Values reflect whether observational evidence was produced for this
+        trial, not static configuration intent:
+          - OBSERVED                         evidence actually recorded
+          - DERIVED_FROM_OBSERVED_RUNTIME    derived from an observed running
+                                             Harness for this trial
+          - POLICY_INVARIANT                 a policy/authorization constant
+                                             (never claimed as observed)
+          - NOT_AVAILABLE / NOT_VERIFIED     evidence did not exist/verified
+        """
+        runtime_observed = bool(self.evidence and self.evidence.get("version"))
+        runtime_derived = EvidenceBasis.DERIVED_FROM_OBSERVED_RUNTIME.value if runtime_observed else EvidenceBasis.NOT_AVAILABLE.value
+        runs_observed = final and self.counters.turn_completed > 0
+        observed = EvidenceBasis.OBSERVED.value if runs_observed else EvidenceBasis.NOT_AVAILABLE.value
+        secret_observed = final or self._started
+        process_leak = self.owned_tree_cleanup
+        process_basis = (
+            EvidenceBasis.OBSERVED.value
+            if process_leak in {"VERIFIED", "FAILED"}
+            else EvidenceBasis.NOT_VERIFIED.value
+        )
         return {
-            "runtime_version": EvidenceBasis.DERIVED_FROM_OBSERVED_RUNTIME.value,
-            "profile": EvidenceBasis.DERIVED_FROM_OBSERVED_RUNTIME.value,
-            "mcp_namespace": EvidenceBasis.DERIVED_FROM_OBSERVED_RUNTIME.value,
-            "mcp_tools": EvidenceBasis.DERIVED_FROM_OBSERVED_RUNTIME.value,
-            "same_session": EvidenceBasis.OBSERVED.value,
-            "fresh_readiness": EvidenceBasis.OBSERVED.value,
-            "turn1_tool_evidence": EvidenceBasis.OBSERVED.value,
-            "authority_drift": EvidenceBasis.OBSERVED.value,
-            "unauthorized_tools": EvidenceBasis.OBSERVED.value,
-            "secret_scan": EvidenceBasis.OBSERVED.value,
-            "process_residue": EvidenceBasis.OBSERVED.value if self._process_residue() == "NO" else EvidenceBasis.NOT_VERIFIED.value,
-            "provider_failures": EvidenceBasis.OBSERVED.value,
-            "mcp_failures": EvidenceBasis.OBSERVED.value,
+            "runtime_version": runtime_derived,
+            "profile": runtime_derived,
+            "mcp_namespace": runtime_derived,
+            "mcp_tools": runtime_derived,
+            "same_session": observed,
+            "fresh_readiness": observed,
+            "turn1_tool_evidence": observed,
+            "authority_drift": observed,
+            "unauthorized_tools": observed,
+            "secret_scan": EvidenceBasis.OBSERVED.value if secret_observed else EvidenceBasis.NOT_AVAILABLE.value,
+            "process_residue": process_basis,
+            "provider_failures": EvidenceBasis.OBSERVED.value if (final or self.metrics.failures) else EvidenceBasis.NOT_AVAILABLE.value,
+            "mcp_failures": EvidenceBasis.OBSERVED.value if (final or self.metrics.mcp_failure_count) else EvidenceBasis.NOT_AVAILABLE.value,
             "research_source_network": EvidenceBasis.POLICY_INVARIANT.value,
             "default_runtime": EvidenceBasis.POLICY_INVARIANT.value,
             "production_adoption": EvidenceBasis.POLICY_INVARIANT.value,
@@ -551,6 +574,28 @@ class TrialController:
             self.stop()  # cleanup + final secret scan + observe residue
             self._freeze_evidence_snapshot()
         return self._evidence_snapshot
+
+    def finalize_fail_closed(self, reason: str) -> dict[str, Any]:
+        """Produce a complete fail-closed evidence snapshot after a
+        boot/start/run failure, even when the runtime never became available.
+
+        This satisfies the acceptance requirement that a failed trial still
+        renders the full acceptance field set with explicit evidence basis,
+        rather than a bare error object. ``stop()`` is invoked to (attempt)
+        owned cleanup and free the temporary event log; the frozen snapshot
+        reflects the mechanically available evidence only.
+        """
+        if self._evidence_snapshot is None:
+            self._final_completed_sessions = 0
+            self.latch.trip("trial failed closed")
+            self.stop()
+            self._freeze_evidence_snapshot()
+            assert self._evidence_snapshot is not None
+        # Non-authoritative metadata: may be added, never changes hard gates.
+        snapshot = dict(self._evidence_snapshot)
+        snapshot["error_code"] = reason
+        snapshot["status"] = "PARTIAL"
+        return snapshot
 
     def _freeze_evidence_snapshot(self) -> None:
         """Freeze the final acceptance evidence snapshot once; later renders
@@ -715,7 +760,12 @@ class TrialController:
                     self.root_cleanup = "NOT_VERIFIED"
                     self.owned_tree_cleanup = "NOT_VERIFIED"
                 self.owned_descendant_count_after_stop = int(self.root_alive_after_stop)
-                self.metrics.process_leak_count = int(self.root_alive_after_stop)
+                # A mechanically proven leak: root still alive OR owned-tree
+                # cleanup reports FAILED (group proven non-empty).
+                tree_failed = self.owned_tree_cleanup == "FAILED"
+                self.metrics.process_leak_count = int(
+                    self.root_alive_after_stop or tree_failed
+                )
         self.adapter = None
         self.gateway = None
         self._started = False

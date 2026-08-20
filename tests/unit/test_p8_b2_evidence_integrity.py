@@ -418,3 +418,34 @@ def test_pass_candidate_blocked_by_each_hard_security_gate():
         result = controller._render_summary(10, final=True)
         assert result["status"] != "PASS CANDIDATE", name
         assert result["status"] == "PARTIAL", name
+
+
+# ---------------------------------------------------------------------------
+# Rework 1 / 7 — /proc/<pid>/stat pgrp parsing is robust to tricky comm names
+# ---------------------------------------------------------------------------
+
+def test_parse_stat_pgrp_handles_spaces_and_parens_in_comm():
+    from research_os.agent_runtime.production_runtime import _parse_stat_pgrp
+
+    # comm with spaces: fields after ')' are  [S, 1, 2500, ...]
+    assert _parse_stat_pgrp("1234 (some name with spaces) S 1 2500 2500 1 3 0") == 2500
+    # comm containing ')' itself (must parse from the LAST ')')
+    assert _parse_stat_pgrp("7 (node (js) server) S 1 42 42 1 0 0") == 42
+    # trailing newline tolerated
+    assert _parse_stat_pgrp("9 (dsh) S 1 77 77 1 0 0\n") == 77
+    # malformed / missing fields -> None (skip, not crash)
+    assert _parse_stat_pgrp("5 (truncated") is None
+    assert _parse_stat_pgrp("6 (bad) S") is None
+
+
+def test_failed_tree_is_a_real_leak_with_yes_residue():
+    """tree==FAILED is a mechanically-proven process leak -> process_residue=YES
+    and the PASS gate stays closed, on every platform."""
+    controller = make_controller()
+    controller.owned_tree_cleanup = "FAILED"
+    controller.root_cleanup = "TERMINATED"
+    controller.root_alive_after_stop = False
+    result = controller._render_summary(10, final=True)
+    assert result["process_residue"] == "YES"
+    assert result["status"] != "PASS CANDIDATE"
+    assert controller._evidence_basis(final=True)["process_residue"] == EvidenceBasis.OBSERVED.value
