@@ -87,7 +87,7 @@ def main() -> int:
     adapter = HarnessLlmProvider()
     client = LlmClient(provider=adapter, configured=True, db=_Db(conn))
 
-    summary: dict = {"scenarios": {}, "harness_calls": 0, "total_tokens": 0}
+    summary: dict = {"scenarios": {}, "harness_attempts": 0, "total_tokens": 0}
     try:
         for scenario, tasks in SCENARIO_LLM_TASKS.items():
             runner = EquityLlmTasks(client, depth="fast")  # flash_max=2, pro_max=0
@@ -106,15 +106,26 @@ def main() -> int:
                     "pro_used": runner.budget.pro_used,
                 }
             calls = len(adapter.calls)
-            scenario_result["harness_calls"] = calls
+            scenario_result["harness_attempts"] = calls
             scenario_result["flash_used"] = runner.budget.flash_used
-            summary["harness_calls"] += calls
+            summary["harness_attempts"] = summary.get("harness_attempts", 0) + calls
             summary["scenarios"][scenario] = scenario_result
-            print(f"SCENARIO {scenario}: tasks={len(tasks)} harness_calls={calls} "
+            print(f"SCENARIO {scenario}: tasks={len(tasks)} harness_attempts={calls} "
                   f"flash_used={runner.budget.flash_used}", flush=True)
 
         summary["non_llm_scenarios"] = _check_non_llm_honesty()
         summary["audit_rows"] = conn.execute("SELECT COUNT(*) FROM llm_call_records").fetchone()[0]
+        # Provider-reported tokens only (from the audit payloads); never inferred.
+        tokens = 0
+        for (payload,) in conn.execute("SELECT payload FROM llm_call_records"):
+            try:
+                usage = json.loads(payload).get("usage_metadata", {}).get("provider_usage") or {}
+            except (TypeError, json.JSONDecodeError):
+                usage = {}
+            total = usage.get("total_tokens")
+            if isinstance(total, (int, float)):
+                tokens += int(total)
+        summary["total_tokens"] = tokens
         summary["default_runtime"] = "legacy"
         summary["status"] = "COMPLETED"
     finally:

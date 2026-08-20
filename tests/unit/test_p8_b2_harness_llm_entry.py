@@ -91,6 +91,7 @@ def test_prose_response_is_invalid_response():
     assert result["ok"] is False
     assert result["error_type"] == "invalid_response"
     assert result["retryable"] is False
+    assert provider.calls[-1]["status"] == "invalid_response"  # attempt recorded
 
 
 def test_provider_timeout_is_typed_and_retryable():
@@ -100,6 +101,7 @@ def test_provider_timeout_is_typed_and_retryable():
     assert result["ok"] is False
     assert result["error_type"] == "PROVIDER_TIMEOUT"
     assert result["retryable"] is True
+    assert provider.calls[-1]["status"] == "failed"  # attempt recorded for audit
 
 
 def test_harness_boot_failure_is_typed_and_retryable():

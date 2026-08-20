@@ -92,6 +92,8 @@ class HarnessLlmProvider:
             + schema_text + "\n\n" + request.prompt
         )
         started_at = self.calls.__len__()
+        entry = {"call_id": request.call_id, "task_id": request.task_id,
+                 "model_class": request.requested_model_class, "started_at": started_at}
         try:
             session = self.adapter.create_session({"provider": self.provider_id,
                                                    "task_id": request.task_id,
@@ -106,11 +108,16 @@ class HarnessLlmProvider:
         except Exception as exc:  # noqa: BLE001 — harness failure → typed provider error
             code = getattr(exc, "code", "network_error")
             retryable = code in {"PROVIDER_TIMEOUT", "TURN_TIMEOUT", "HARNESS_BOOT_FAILED"}
+            entry["status"] = "failed"
+            entry["error_type"] = code
+            self.calls.append(entry)
             return self._error(code, getattr(exc, "message", str(exc))[:200], retryable)
 
         response_text = str(result.get("response", ""))
         output = _extract_json_object(response_text)
         if output is None:
+            entry["status"] = "invalid_response"
+            self.calls.append(entry)
             return self._error("invalid_response", "Harness 响应缺少有效 JSON content", False)
         usage = result.get("operational_metadata", {}).get("usage") if isinstance(
             result.get("operational_metadata"), dict) else None
@@ -120,9 +127,8 @@ class HarnessLlmProvider:
             key: value for key, value in usage.items()
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         } if isinstance(usage, dict) else {}
-        self.calls.append({"call_id": request.call_id, "task_id": request.task_id,
-                           "model_class": request.requested_model_class,
-                           "status": "completed", "started_at": started_at})
+        entry["status"] = "completed"
+        self.calls.append(entry)
         return {
             "ok": True,
             "provider": self.provider_id,
