@@ -72,9 +72,72 @@ Harness、MCP 或 Research OS 核心逻辑。
 
 ## Linux validation evidence
 
-<!-- filled from the Ubuntu CI run -->
-- Ubuntu runner: `ubuntu-latest`（GitHub-hosted）
-- Workflow run: 见任务分支上的最终文档更新与验收报告
+Ubuntu CI workflow run（`P8-B2-ENV-02 Linux Validation`，run ID `32366675372`，
+`workflow_dispatch` + branch push 触发，结论 SUCCESS，HEAD `ba59f32`）：
+
+### 环境事实（Ubuntu runner）
+
+| Item | Value |
+|---|---|
+| OS | Ubuntu 24.04.4 LTS（VERSION_ID 24.04） |
+| Kernel | 6.17.0-1022-azure |
+| Architecture | x86_64 |
+| Python | 3.12.14 |
+| Node | v24.19.0 |
+| Harness (`dsh --version`) | 0.1.0-rc.7 |
+
+### Readiness probe 结果（`P8_B2_ENV_READINESS=1 PYTHONPATH=src python scripts/p8_b2_env_readiness.py`）
+
+最终结果：**BLOCKED**（唯一原因：GitHub Actions 环境未配置 `DEEPSEEK_API_KEY`
+secret — `gh secret list` 为空；按任务书如实报告 `PROVIDER_BLOCKED`，不伪造
+READY。探针 exit code = 1，workflow 继续执行后续步骤）。
+
+| Gate | Status | Verdict | Evidence basis |
+|---|---|---|---|
+| HARNESS_AVAILABLE | YES | READY | OBSERVED |
+| HARNESS_VERSION_VERIFIED | YES（0.1.0-rc.7） | READY | OBSERVED |
+| PROVIDER_CREDENTIAL_PRESENT | NO | BLOCKED | OBSERVED |
+| PROVIDER_CONNECTIVITY_VERIFIED | NOT_VERIFIED | BLOCKED | NOT_VERIFIED |
+| RUNTIME_PROFILE_VERIFIED | YES（research-headless） | READY | DERIVED_FROM_OBSERVED_RUNTIME |
+| MCP_SERVER_BOOT_VERIFIED | YES | READY | OBSERVED |
+| MCP_NAMESPACE_VERIFIED | YES（research-os-mcp/v1） | READY | OBSERVED |
+| MCP_TOOLSET_VERIFIED | YES（2 tools，0 unauthorized） | READY | OBSERVED |
+| **PROCESS_CLEANUP_VERIFIED** | **YES** | **READY** | OBSERVED |
+| SECRET_HYGIENE_VERIFIED | YES（0 markers） | READY | OBSERVED |
+
+**Process ownership（本任务核心）**：
+
+```
+ROOT_TERMINATED:      YES
+OWNED_TREE_CLEANUP:   VERIFIED
+PROCESS_RESIDUE:      NO
+PROCESS_CLEANUP_VERIFIED: YES
+```
+
+即：在 Ubuntu Linux POSIX 环境，accepted R2 owned process-tree cleanup 机制
+（`BoundedOwnedProcess.terminate_tree` + `/proc` PGID 枚举 + `cleanup_status`）
+机械证明 owned process group 已清空、无残留 — Windows 宿主无法提供的证据
+在 Linux 上已获得。
+
+### 测试（Ubuntu runner 全部步骤 SUCCESS）
+
+- Targeted：`python -m pytest tests/unit/test_p8_b2_process_ownership_linux.py -q`
+  → 步骤 SUCCESS（该文件 3 个测试全部执行通过；与全量 pytest 交叉验证一致：
+  Ubuntu 3769 passed vs Windows 3766 passed，差值恰为该 3 个 Linux-only 测试）。
+- Full：`python -m pytest` → **3769 passed, 6 skipped, 1 warning in 436.08s**。
+- Schema：`python -m research_os.cli.main validate` → **86/86 PASS**。
+- Compile：`python -m compileall -q src scripts tests` → **PASS**。
+
+### Provider handling（如实记录）
+
+- GitHub secret `DEEPSEEK_API_KEY`：**未配置**（`gh secret list` 为空）。
+- 探针输出 `approved_credential_present: NO`、`connectivity_verified: NOT_VERIFIED`、
+  `credential_value_exposed: NO`；未输出 key、未写日志、未写 artifact、未写仓库。
+- `FORMAL_ACCEPTANCE_TURN: NO`；probe marker `ENVIRONMENT_READINESS_PROBE_ONLY`。
+- 结论：`PROVIDER_BLOCKED`（环境凭证不可用，非实现缺陷；不伪造 READY）。
+- 注：approved 凭证在宿主（Windows）环境中存在且 ENV-01 已机械验证
+  provider connectivity（一次 bounded probe，191 tokens）；本任务不改动任何
+  凭证处理代码。
 
 ## Formal trial separation
 
@@ -87,6 +150,8 @@ Harness、MCP 或 Research OS 核心逻辑。
 ## 状态
 
 - 不记录 `P8-B2 ACCEPTED`；P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`。
+- **Linux（Ubuntu CI）process validation：PASS**（`PROCESS_CLEANUP_VERIFIED=YES`、
+  `PROCESS_RESIDUE=NO`）。
+- 整体 readiness：**BLOCKED（provider credential 在 GitHub CI 环境不可用）**。
 - Windows 宿主限制（ENV-01）：`PROCESS_CLEANUP_VERIFIED = NOT_VERIFIED`
   （fail-closed），详见 `docs/tasks/p8-b2-env-01-trial-environment-readiness.md`。
-- Linux（Ubuntu CI）验证结果：见验收报告与本文档 evidence 章节。

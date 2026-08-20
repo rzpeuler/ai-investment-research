@@ -133,10 +133,14 @@ by offline test `test_probe_cannot_increment_formal_acceptance_counters`.
   NOT_VERIFIED），因此 `PROCESS_CLEANUP_VERIFIED = NOT_VERIFIED`（fail-closed）。
   这是平台证据限制，不是代码缺陷；不得把 Windows 结果解释为 Linux 结果。
 - **Linux validation**：`PROCESS_CLEANUP_VERIFIED = YES` / `PROCESS_RESIDUE = NO`
-  的 POSIX 机械证明由 GitHub Actions `ubuntu-latest` 执行环境完成 — 详见
-  `docs/tasks/p8-b2-env-02-linux-validation.md` 与 P8-B2-ENV-02 验收报告
-  （workflow：`.github/workflows/p8-b2-env-02-linux-validation.yml`，不修改
-  生产 Offline CI）。
+  的 POSIX 机械证明已由 GitHub Actions `ubuntu-latest`（Ubuntu 24.04.4 LTS，
+  kernel 6.17.0-1022-azure，x86_64，Python 3.12.14，Node v24.19.0）完成 —
+  详见 `docs/tasks/p8-b2-env-02-linux-validation.md` 与 P8-B2-ENV-02 验收报告
+  （workflow：`.github/workflows/p8-b2-env-02-linux-validation.yml`，run
+  `32366675372`，不修改生产 Offline CI）。Ubuntu 上整体 readiness 为 BLOCKED，
+  唯一原因：GitHub CI 未配置 `DEEPSEEK_API_KEY` secret（`PROVIDER_BLOCKED`，
+  如实报告，不伪造 READY）；process / harness / runtime / MCP / security gates
+  全部 READY。
 - 不记录 `P8-B2 ACCEPTED`；P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`。
 
 ## Offline tests
