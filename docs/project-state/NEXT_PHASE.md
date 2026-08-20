@@ -259,3 +259,29 @@ NEXT ACTION:
   4. 在正式 corpus 通过全部 gate 并经独立验收前，P8-B2 保持
      IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-LIVE-01-REPAIR-02 — Usage Evidence Extraction Fixed（2026-08-21）
+
+根因与修复（详见 `docs/tasks/p8-b2-live-01-repair-02-usage-evidence.md`）：
+
+```text
+ROOT CAUSE: accepted runtime（dsh rc.7）在 projections.values.tokenUsage 以
+  camelCase 键名报告 usage（uncachedInputTokens / outputTokens /
+  cacheReadTokens / cacheWriteTokens），_extract_usage 未识别 →
+  total_tokens = NOT_REPORTED → provider_tokens = 0 → PASS gate 未过。
+FIX（最小，已实施）: _extract_usage 增加 dsh 字段映射 —
+  input_tokens = uncached + cacheRead + cacheWrite；output_tokens = output；
+  cached_tokens = cacheRead + cacheWrite；cache_read/write_tokens 单独暴露；
+  total_tokens = uncached + output + cacheRead + cacheWrite。
+  仅使用 provider-reported 值，无推断/估算/硬编码；9 个离线回归测试。
+VALIDATION（真实运行时，有界单 turn）: 修复后 EXTRACTED_USAGE =
+  {input 23201, output 587, cached 10624, cache_read 10624, cache_write 0,
+  total 23788} → provider_tokens > 0 = TRUE。
+GOVERNANCE FINDING（需 Sol 决策）: 实测每 turn 用量 ~24-44k tokens；
+  20 turns ≈ 480-880k，超过冻结的 max_provider_tokens = 200,000 →
+  下一次正式 trial 将在约第 5-9 turn 如实触发 RESOURCE_BUDGET_EXCEEDED。
+  budget 属冻结 cost control，本任务未修改；Sol 需在重新执行前就
+  max_provider_tokens 作出治理决定。
+NEXT: Sol 验收 REPAIR-02 + budget 决策 → 按 LIVE-00 边界重新执行正式 trial
+  （新 RESUME taskbook）。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

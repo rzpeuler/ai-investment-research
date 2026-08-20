@@ -62,15 +62,26 @@ def sanitize_public_result(value: Any, *, forbidden_values: tuple[str, ...] = ()
 
 
 def _extract_usage(value: Any) -> dict[str, int | float]:
-    """Extract only provider-reported usage fields; never estimate them."""
+    """Extract only provider-reported usage fields; never estimate them.
+
+    Recognizes the accepted runtime's snake_case fields and the pinned dsh
+    rc.7 tokenUsage fields (``uncachedInputTokens`` / ``outputTokens`` /
+    ``cacheReadTokens`` / ``cacheWriteTokens``), which are mapped
+    deterministically to the evidence vocabulary. Only values the runtime
+    reported are used; nothing is estimated or hardcoded.
+    """
     allowed = {"input_tokens", "output_tokens", "cached_tokens", "total_tokens", "cost_usd"}
+    dsh_keys = {"uncachedInputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"}
     found: dict[str, int | float] = {}
+    dsh: dict[str, int | float] = {}
 
     def walk(item: Any) -> None:
         if isinstance(item, dict):
             for key, child in item.items():
                 if key in allowed and isinstance(child, (int, float)) and not isinstance(child, bool):
                     found[key] = child
+                elif key in dsh_keys and isinstance(child, (int, float)) and not isinstance(child, bool):
+                    dsh[key] = child
                 else:
                     walk(child)
         elif isinstance(item, list):
@@ -78,6 +89,19 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
                 walk(child)
 
     walk(value)
+    if dsh:
+        # Deterministic mapping of dsh rc.7 tokenUsage (provider-reported).
+        uncached = dsh.get("uncachedInputTokens", 0)
+        output = dsh.get("outputTokens", 0)
+        cache_read = dsh.get("cacheReadTokens", 0)
+        cache_write = dsh.get("cacheWriteTokens", 0)
+        input_total = uncached + cache_read + cache_write
+        found.setdefault("input_tokens", input_total)
+        found.setdefault("output_tokens", output)
+        found.setdefault("cached_tokens", cache_read + cache_write)
+        found.setdefault("cache_read_tokens", cache_read)
+        found.setdefault("cache_write_tokens", cache_write)
+        found.setdefault("total_tokens", input_total + output)
     return found
 
 

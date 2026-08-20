@@ -262,3 +262,40 @@ LIVE-00). This is a usage-extraction mapping gap (same class as REPAIR-01),
 requiring a REPAIR-02 taskbook (map provider-reported fields + offline tests)
 before the next formal trial run. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
+## P8-B2-LIVE-01-REPAIR-02 Usage Evidence Extraction Fix (2026-08-21)
+
+STATUS: COMPLETE / AWAITING INDEPENDENT ACCEPTANCE
+（详细分析：`docs/tasks/p8-b2-live-01-repair-02-usage-evidence.md`）
+
+Root cause: the pinned dsh rc.7 runtime reports provider usage under
+`projections.values.tokenUsage` with camelCase keys
+(`uncachedInputTokens` / `outputTokens` / `cacheReadTokens` /
+`cacheWriteTokens`); `_extract_usage` only recognized snake_case keys
+(`input_tokens` / `output_tokens` / `cached_tokens` / `total_tokens` /
+`cost_usd`), so the extraction was empty and the trial reported
+`total_tokens = NOT_REPORTED`, failing the `provider_tokens > 0` PASS gate
+despite a fully completed corpus (RESUME-03).
+
+Minimal fix (production code, usage extraction only): `_extract_usage` now
+also collects the dsh tokenUsage fields and maps them deterministically
+(provider-reported only, no inference): `input_tokens = uncached + cacheRead +
+cacheWrite`; `output_tokens = output`; `cached_tokens = cacheRead + cacheWrite`;
+`cache_read_tokens` / `cache_write_tokens` exposed separately;
+`total_tokens = uncached + output + cacheRead + cacheWrite`. Existing
+snake_case recognition preserved; missing optional fields → 0; non-numeric
+values ignored; strings (the only possible secret carrier) never enter usage
+evidence. 9 offline regression tests added
+(`tests/unit/test_p8_b2_usage_evidence.py`).
+
+Real-runtime validation (bounded single turn, not corpus): after the fix
+`EXTRACTED_USAGE = {input_tokens: 23201, output_tokens: 587,
+cached_tokens: 10624, cache_read_tokens: 10624, cache_write_tokens: 0,
+total_tokens: 23788}` → `provider_tokens > 0 = TRUE`.
+
+Governance finding (recorded, not modified): measured per-turn usage is
+~24k–44k tokens; 20 turns ≈ 480k–880k tokens, exceeding the frozen
+`max_provider_tokens = 200,000` (LIVE-00 §5.6 / TrialBudget). The next formal
+trial run will truthfully report budget exhaustion around turn 5–9 unless Sol
+adjusts the frozen budget — a governance decision required before the next
+LIVE-01 run. P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.

@@ -309,3 +309,12 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   `total_tokens = NOT_REPORTED`（LIVE-00 禁止推断，如实记录）。该 usage 提取映射缺口
   与 REPAIR-01 同类，需 REPAIR-02 taskbook 最小修复（映射 provider-reported 字段 +
   离线测试）后重新执行正式 trial；P8-B2 仍需 Sol 独立验收。
+- **P8-B2-LIVE-01-REPAIR-02（2026-08-21）**：usage evidence 提取映射已修复 —
+  `_extract_usage` 现可识别 dsh rc.7 tokenUsage 字段（uncachedInputTokens /
+  outputTokens / cacheReadTokens / cacheWriteTokens）并确定性映射为
+  input/output/cached/cache_read/cache_write/total_tokens（仅 provider-reported
+  值，无推断）；9 个离线回归测试；真实运行时验证 total_tokens=23788 > 0。
+  治理发现：实测每 turn 用量 ~24-44k tokens，20 turns ≈ 480-880k，**超过冻结的
+  max_provider_tokens=200,000** — 该 budget 属冻结 cost control（未修改），
+  需 Sol 在正式 corpus 重新执行前作出治理决定；否则下一次 trial 将如实报告
+  budget exhaustion（约第 5-9 turn）。P8-B2 仍需 Sol 独立验收。
