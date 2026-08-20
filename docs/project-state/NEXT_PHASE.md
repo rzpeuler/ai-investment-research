@@ -1,31 +1,35 @@
 # 下一阶段准入（NEXT PHASE）
 
-## P8-B2-LIVE-01 Formal Trial — BLOCKED（2026-08-20）
+## P8-B2-LIVE-01 Formal Trial — EXECUTED → PARTIAL（2026-08-20，RESUME-02）
 
-正式 provider-backed trial 按 P8-B2-LIVE-00 冻结边界尝试执行，结果 **BLOCKED**：
+正式 provider-backed trial 在 approved credential boundary（GitHub Actions
+secret 已配置）下于 GitHub Actions `ubuntu-latest` 执行，结果 **PARTIAL**：
 
 ```text
-TRIAL: P8-B2-LIVE-01
-STATUS: BLOCKED（credential absent in approved execution environment）
-SESSIONS: 0 / 10
-TURNS: 0 / 20
-PROVIDER_CALLS: 0
-BLOCKER: GitHub Actions 环境未配置 DEEPSEEK_API_KEY secret
-  （gh secret list 为空；repo secret total_count = 0；无 environment/org secrets）
-FORMAL_CORPUS_EXECUTED: NO
+TRIAL: P8-B2-LIVE-01（RESUME-02）
+STATUS: PARTIAL（fail-closed evidence snapshot 已生成）
+READINESS PROBE（trial 前）: READY — credential YES / connectivity YES / process cleanup VERIFIED
+SESSIONS: completed 0 / 10（session_create_attempts=2, success=1）
+TURNS: completed 0 / 20（turn_attempts=1）
+PROVIDER_CALLS: 1 attempted（首次 provider-backed turn → PROVIDER_TIMEOUT，typed 单次计数，无重试）
+TYPED_FAILURES: {PROVIDER_TIMEOUT: 1, HARNESS_BOOT_FAILED: 1}
+  - 第 1 turn：session.prompt 未在 300s turn timeout 内完成 → PROVIDER_TIMEOUT
+  - 第 2 session create：Harness 进程不再 READY（adapter.admit → HARNESS_BOOT_FAILED）→ latch 触发 → fail-closed 停止
+PROCESS: root TERMINATED / owned tree VERIFIED / residue NO / leak 0
+SECRET: secret_scan PASS（0 markers）；artifact/log/diff 三扫描 CLEAN
+DRILLS: rollback PASS / crash-restart PASS / legacy fallback PASS
+MCP: research-os-mcp/v1；恰好 2 tools；0 unauthorized；0 authority drift
+FORMAL_CORPUS_EXECUTED: YES（bounded、provider-backed、20-turn corpus 未完成）
 ```
-
-原因：任务书强制仅允许 GitHub Actions secret 注入 `DEEPSEEK_API_KEY`，且禁止
-替换 provider / mock / 修改 acceptance gate / 伪造成功；凭证不存在 → 立即
-BLOCKED。未产生任何 provider-backed turn，未消耗 acceptance corpus。
 
 NEXT ACTION：
 
 ```text
-1. authorized operator 在 GitHub Actions 配置 DEEPSEEK_API_KEY secret（approved
-   credential execution boundary，Decision #62/#63）；
-2. 重新执行 P8-B2-LIVE-01（同一 taskbook 与 LIVE-00 边界）；
-3. 在此之前 P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+1. Sol 独立验证 LIVE-01 PARTIAL evidence（frozen snapshot + artifact + 本报告）；
+2. 调查首次 provider-backed turn 的 PROVIDER_TIMEOUT（DeepSeek 响应延迟 vs dsh 进程稳定性），
+   以及 timeout 后 Harness 进程未恢复 READY 的行为；
+3. 依据调查结果按 LIVE-00 边界重新执行 LIVE-01（不修改 acceptance criteria / trial contract）；
+4. 在正式 corpus 完成并经独立验收前，P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
 
 ## P7-D4 当前状态与后续顺序（2026-08-19）

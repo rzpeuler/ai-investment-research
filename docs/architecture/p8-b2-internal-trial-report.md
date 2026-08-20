@@ -142,3 +142,46 @@ the trial did not start.
 
 P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; this BLOCKED outcome is
 truthful and is not converted into any form of PASS.
+
+## P8-B2-LIVE-01 Formal Trial Execution — PARTIAL (2026-08-20, RESUME-02)
+
+STATUS: **PARTIAL**（fail-closed evidence snapshot generated; frozen）
+
+Environment: GitHub Actions `ubuntu-latest` — Ubuntu 24.04.4 LTS, kernel
+6.17.0-1022-azure, x86_64, Python 3.12.14, Node v24.19.0; Harness
+`@deepseek-ai/dsh` `0.1.0-rc.7` (npm ci); authority DB provisioned
+deterministically (v6 + corpus security profiles; self-check PASS).
+Workflow run `32385207624` (head `e8ccff0`), all steps SUCCESS.
+
+Pre-trial readiness probe: **READY** — `approved_credential_present=YES`,
+`connectivity_verified=YES` (bounded provider call), `owned_tree_cleanup=VERIFIED`,
+`process_residue=NO`, `secret_hygiene=YES`.
+
+Trial evidence snapshot (artifact `p8-b2-live-01-evidence/trial-evidence.json`):
+
+| Item | Result |
+|---|---|
+| Trial status | PARTIAL |
+| Sessions completed | 0 / 10 (session_create_attempts=2, success=1) |
+| Turns completed | 0 / 20 (turn_attempts=1) |
+| Provider-backed turn | 1 attempted → `PROVIDER_TIMEOUT` (typed, counted once, no retry) |
+| Second session create | `HARNESS_BOOT_FAILED` (Harness process not READY after timeout; adapter.admit) → latch tripped → fail-closed stop |
+| Typed failures | `{PROVIDER_TIMEOUT: 1, HARNESS_BOOT_FAILED: 1}` |
+| Runtime / MCP | 0.1.0-rc.7 / research-headless; `research-os-mcp/v1`; exactly 2 tools; 0 unauthorized; 0 authority drift |
+| Process cleanup | root TERMINATED / owned tree VERIFIED / residue NO / leak 0 |
+| Secret scan | PASS (secret_leak_count=0) |
+| Drills | rollback PASS / crash-restart PASS / legacy fallback PASS |
+| Budget utilization | sessions 0.1; turns 0.0; tool_calls 0.0; provider_tokens 0.0 |
+| Tokens | NOT_REPORTED (no completed provider turn) |
+
+Interpretation: the frozen failure semantics worked as designed — a real
+provider-backed turn was attempted, the timeout was recorded exactly once with
+no hidden retry, the Harness process loss was fail-closed, cleanup was
+mechanically verified on Linux, and no secret leaked. The 10-session / 20-turn
+corpus did not complete; the result is a truthful `PARTIAL`, not converted into
+any form of PASS.
+
+Next action: Sol independent verification of this evidence; investigate the
+first-turn provider timeout and post-timeout Harness process recovery; then
+re-run LIVE-01 under the frozen LIVE-00 boundary. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`.

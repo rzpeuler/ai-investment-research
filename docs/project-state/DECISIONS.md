@@ -3348,3 +3348,29 @@ provider、禁止使用 mock、禁止修改 acceptance gate、禁止伪造成功
 secret（approved credential execution boundary，Decision #62 的 5.2）后，
 重新执行 P8-B2-LIVE-01。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
 Agent 不得 self-accept。
+
+## 64. P8-B2-LIVE-01 Formal Trial Executed — PARTIAL（2026-08-20）
+
+P8-B2-LIVE-01（RESUME-02）在 approved credential boundary（GitHub Actions
+`DEEPSEEK_API_KEY` secret，授权方 2026-08-20 配置）下于 GitHub Actions
+`ubuntu-latest` 执行正式 provider-backed trial。结果 **PARTIAL**（fail-closed，
+evidence snapshot 已生成，frozen 后不可改写）。
+
+关键证据：
+
+- trial 前 readiness probe = **READY**（credential YES / connectivity YES /
+  process cleanup VERIFIED / secret hygiene YES）；
+- 首次 provider-backed turn 未在 300s turn timeout 内完成 → `PROVIDER_TIMEOUT`
+  （typed 单次计数，max_retries=0，无自动重试）；
+- timeout 后 Harness 进程不再 READY → 第二次 session create `HARNESS_BOOT_FAILED`
+  （adapter.admit）→ latch 触发 → fail-closed 停止；
+- completed sessions 0/10、turns 0/20（1 attempted）；process cleanup VERIFIED
+  （root TERMINATED / tree VERIFIED / residue NO）；secret_scan PASS（0 markers）；
+  rollback / crash-restart / legacy fallback drills PASS；MCP namespace + 恰好 2
+  tools + 0 unauthorized；authority drift 0；
+- 安全三扫描（git diff / artifact / workflow log）CLEAN，无凭证泄露。
+
+本 Decision 记录执行事实与 failure semantics 的正确性，不构成验收。
+P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；正式 10-session / 20-turn
+corpus 未完成；下一步：Sol 独立验证 evidence，调查首 turn provider timeout 与
+Harness 进程恢复行为，按 LIVE-00 边界重新执行。Agent 不得 self-accept。
