@@ -115,3 +115,30 @@ The previous PARTIAL run's environment blockers are closed: the pinned Harness
 now boots in an isolated worktree, and the approved credential is present and
 provider connectivity is verified. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
+## P8-B2-LIVE-01 Formal Trial Attempt (2026-08-20)
+
+STATUS: **BLOCKED**
+
+The formal provider-backed trial was attempted under the frozen P8-B2-LIVE-00
+execution boundary (GitHub Actions `ubuntu-latest` + GitHub Actions secret
+credential injection). The approved execution environment has **no
+`DEEPSEEK_API_KEY` secret** — mechanical evidence: `gh secret list` is empty,
+repo `actions/secrets` total_count = 0, no environment secrets, no org secrets.
+Per the LIVE-01 taskbook mandate (credential absent → immediate BLOCKED; no
+provider substitution, no mock, no acceptance-gate change, no faked success),
+the trial did not start.
+
+| Item | Result |
+|---|---|
+| Sessions | 0 / 10 |
+| Turns | 0 / 20 |
+| Provider-backed turns | 0 |
+| Provider calls | 0 |
+| FORMAL_CORPUS_EXECUTED | NO |
+| Blocker | approved credential execution boundary not provisioned (GitHub Actions secret missing) |
+| Evidence snapshot | NOT GENERATED (no trial evidence existed to freeze) |
+| Next action | authorized operator provisions `DEEPSEEK_API_KEY` secret, then re-run LIVE-01 |
+
+P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; this BLOCKED outcome is
+truthful and is not converted into any form of PASS.

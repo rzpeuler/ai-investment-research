@@ -3331,3 +3331,20 @@ trial；P8-B2-LIVE-01 之前 `FORMAL_CORPUS_EXECUTED = NO`。
 5. **Acceptance**：Agent 不得 self-accept；只有独立 reviewer 可接受；
    P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED，直到 P8-B2-LIVE-01
    正式 corpus 完成并经独立验收。
+
+## 63. P8-B2-LIVE-01 Formal Trial BLOCKED — Credential Absent（2026-08-20）
+
+P8-B2-LIVE-01 正式 provider-backed trial 按 LIVE-00 冻结边界尝试执行，结果
+**BLOCKED**：approved execution environment（GitHub Actions `ubuntu-latest`）
+未配置 `DEEPSEEK_API_KEY` secret — 机械证据：`gh secret list` 为空、repo
+`actions/secrets` total_count = 0、无 environment secrets、无 org secrets。
+
+按 LIVE-01 taskbook 强制规则：credential 不存在 → 立即 BLOCKED；禁止替换
+provider、禁止使用 mock、禁止修改 acceptance gate、禁止伪造成功。因此未执行
+任何 provider-backed turn（0 sessions / 0 turns / 0 provider calls），
+`FORMAL_CORPUS_EXECUTED = NO`，未消耗 acceptance corpus。
+
+后续动作：由 authorized operator 在 GitHub Actions 配置 `DEEPSEEK_API_KEY`
+secret（approved credential execution boundary，Decision #62 的 5.2）后，
+重新执行 P8-B2-LIVE-01。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
+Agent 不得 self-accept。

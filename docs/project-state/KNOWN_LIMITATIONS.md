@@ -269,6 +269,12 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   （execution environment / credential boundary / evidence model / failure / cost / acceptance workflow）
   由 `docs/tasks/p8-b2-live-00-trial-boundary-design.md` 定义，待 Sol 独立验收；在边界获批前
   （P8-B2-LIVE-01 之前）不执行任何 formal corpus（`FORMAL_CORPUS_EXECUTED = NO`）。
+- **P8-B2-LIVE-01 正式 trial 尝试 = BLOCKED（2026-08-20）**：approved execution environment
+  （GitHub Actions ubuntu-latest）未配置 `DEEPSEEK_API_KEY` secret（`gh secret list` 为空；
+  repo secret total_count = 0；无 environment/org secrets），任务书强制立即 BLOCKED —
+  未执行任何 provider-backed turn（0 sessions / 0 turns / 0 provider calls）。下一步需要
+  authorized operator 配置该 secret（approved credential execution boundary）后重新执行
+  LIVE-01；在此之前不得替换 provider、不得使用 mock、不得修改 acceptance gate、不得伪造成功。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout

@@ -1,5 +1,33 @@
 # 下一阶段准入（NEXT PHASE）
 
+## P8-B2-LIVE-01 Formal Trial — BLOCKED（2026-08-20）
+
+正式 provider-backed trial 按 P8-B2-LIVE-00 冻结边界尝试执行，结果 **BLOCKED**：
+
+```text
+TRIAL: P8-B2-LIVE-01
+STATUS: BLOCKED（credential absent in approved execution environment）
+SESSIONS: 0 / 10
+TURNS: 0 / 20
+PROVIDER_CALLS: 0
+BLOCKER: GitHub Actions 环境未配置 DEEPSEEK_API_KEY secret
+  （gh secret list 为空；repo secret total_count = 0；无 environment/org secrets）
+FORMAL_CORPUS_EXECUTED: NO
+```
+
+原因：任务书强制仅允许 GitHub Actions secret 注入 `DEEPSEEK_API_KEY`，且禁止
+替换 provider / mock / 修改 acceptance gate / 伪造成功；凭证不存在 → 立即
+BLOCKED。未产生任何 provider-backed turn，未消耗 acceptance corpus。
+
+NEXT ACTION：
+
+```text
+1. authorized operator 在 GitHub Actions 配置 DEEPSEEK_API_KEY secret（approved
+   credential execution boundary，Decision #62/#63）；
+2. 重新执行 P8-B2-LIVE-01（同一 taskbook 与 LIVE-00 边界）；
+3. 在此之前 P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```
+
 ## P7-D4 当前状态与后续顺序（2026-08-19）
 
 P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accepted baseline
