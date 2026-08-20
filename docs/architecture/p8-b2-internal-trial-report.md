@@ -185,3 +185,37 @@ Next action: Sol independent verification of this evidence; investigate the
 first-turn provider timeout and post-timeout Harness process recovery; then
 re-run LIVE-01 under the frozen LIVE-00 boundary. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
+## P8-B2-LIVE-01-REPAIR-01 Root Cause Diagnosis (2026-08-20)
+
+STATUS: COMPLETE / AWAITING INDEPENDENT ACCEPTANCE
+（详细分析：`docs/tasks/p8-b2-live-01-repair-01-timeout-diagnosis.md`）
+
+**PROVIDER_TIMEOUT root cause — Adapter/configuration defect (our side), NOT
+provider latency.** The formal trial's first provider-backed turn failed because
+the pinned Harness process crashed: our stdio MCP server
+(`scripts/p8_b1_mcp_server.py`) replied `protocolVersion: "1"` to the Harness's
+MCP client (`@deepseek-ai/dsh-mcp-client` on `@modelcontextprotocol/sdk`
+1.30.0), which only supports `2025-11-25 / 2025-06-18 / 2025-03-26 /
+2024-11-05 / 2024-10-07` → "Server's protocol version is not supported: 1" →
+`failOnStartupError: true` → dsh process exited (code 1) → the turn's HTTP
+requests failed (mapped to `PROVIDER_TIMEOUT` by `_rpc`) → supervisor FAILED →
+`HARNESS_BOOT_FAILED` on the next session create. The fail-closed machinery
+(typed single-count failures, no retry, latch, process cleanup VERIFIED, secret
+scan PASS) worked as designed; the defect was the protocol negotiation.
+
+Reproduction (bounded single-turn diagnostic, real provider, not corpus):
+
+| | Before fix | After fix |
+|---|---|---|
+| Turn | `TURN_FAILED PROVIDER_TIMEOUT 2.6s` | `TURN_COMPLETED 22.7s "completed"` |
+| Process | exit code 1 (crash; SDK version error in stderr) | alive (`poll()=None`) |
+| Supervisor | FAILED | READY |
+
+Minimal fix applied (no acceptance/trial-contract/security changes):
+`negotiate_mcp_protocol_version` added to `mcp/contracts.py` (echoes supported
+client versions, falls back to `2024-11-05`), used by the stdio server's
+initialize reply; 5 offline unit tests added. Namespace `research-os-mcp/v1`,
+tools, failure semantics, budgets unchanged. Re-run condition for LIVE-01 is
+met; the formal 10-session / 20-turn corpus has NOT been re-executed. P8-B2
+remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.

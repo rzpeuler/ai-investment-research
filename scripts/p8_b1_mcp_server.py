@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from research_os.agent_runtime.mcp.contracts import negotiate_mcp_protocol_version
 from research_os.agent_runtime.mcp.tools import build_research_os_mcp_server
 
 
@@ -59,10 +60,18 @@ def main() -> int:
         try:
             if method == "initialize":
                 negotiated = server.perform_handshake()
+                # The MCP SDK used by the pinned Harness rejects non-date
+                # protocol versions ("Server's protocol version is not
+                # supported"), which crashed the Harness process. Negotiate
+                # the wire version; the internal namespace contract is
+                # unchanged.
+                client_version = (request.get("params") or {}).get("protocolVersion")
+                protocol_version = negotiate_mcp_protocol_version(client_version)
                 _log({"event_type": "mcp_handshake", "namespace": negotiated.namespace,
-                      "tools": list(negotiated.tools), "status": "connected"})
+                      "tools": list(negotiated.tools), "protocol_version": protocol_version,
+                      "status": "connected"})
                 _reply(request_id, {
-                    "protocolVersion": negotiated.version,
+                    "protocolVersion": protocol_version,
                     "capabilities": {"tools": {"listChanged": False}},
                     "serverInfo": {"name": "research-os-mcp/v1", "version": "1"},
                 })

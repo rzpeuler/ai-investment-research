@@ -8,6 +8,26 @@ from ..config import MCP_NAMESPACE, MAX_TOOL_RESULT_BYTES
 from ..errors import ToolFailure, ToolNotAllowed
 from ..tool_catalog import ALLOWED_TOOL_NAMES, ToolDefinition
 
+# Protocol versions accepted by the MCP SDK used by the pinned Harness
+# (@deepseek-ai/dsh-mcp-client → @modelcontextprotocol/sdk 1.30.0). The SDK
+# rejects any other value with "Server's protocol version is not supported".
+SUPPORTED_MCP_PROTOCOL_VERSIONS = (
+    "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07",
+)
+DEFAULT_MCP_PROTOCOL_VERSION = "2024-11-05"
+
+
+def negotiate_mcp_protocol_version(client_version: str | None) -> str:
+    """Negotiate the MCP wire protocol version for the stdio server.
+
+    Echoes the client's offered version when it is supported by the MCP SDK;
+    otherwise falls back to a stable supported baseline. The internal
+    ``MCPHandshake.version`` (namespace contract version) is unchanged.
+    """
+    if client_version in SUPPORTED_MCP_PROTOCOL_VERSIONS:
+        return client_version
+    return DEFAULT_MCP_PROTOCOL_VERSION
+
 
 @dataclass(frozen=True)
 class MCPHandshake:

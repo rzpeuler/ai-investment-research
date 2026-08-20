@@ -32,6 +32,30 @@ NEXT ACTION：
 4. 在正式 corpus 完成并经独立验收前，P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
 
+## P8-B2-LIVE-01-REPAIR-01 — 根因已定位并修复（2026-08-20）
+
+调查结论（详见 `docs/tasks/p8-b2-live-01-repair-01-timeout-diagnosis.md`）：
+
+```text
+ROOT CAUSE: 我方 stdio MCP server（scripts/p8_b1_mcp_server.py）initialize 回复
+  protocolVersion "1"；pinned Harness 的 MCP SDK（@deepseek-ai/dsh-mcp-client，
+  @modelcontextprotocol/sdk 1.30.0）只接受日期版协议
+  （2025-11-25 / 2025-06-18 / 2025-03-26 / 2024-11-05 / 2024-10-07）
+  → "Server's protocol version is not supported: 1" → failOnStartupError
+  → dsh 进程以 exit code 1 崩溃 → turn 失败（被 _rpc 映射为 PROVIDER_TIMEOUT）
+  → supervisor FAILED → HARNESS_BOOT_FAILED。
+  NOT provider latency：修复后完整 tool-calling turn 仅 22.7s。
+HARNESS_RECOVERY: HARNESS_BOOT_FAILED 是预期 fail-closed 行为（进程死亡检测 →
+  admit 拒绝 → latch），机制正确；缺陷在协议协商（上述）。
+FIX（最小，已实施）: contracts.py 新增 negotiate_mcp_protocol_version（echo 受支持
+  版本，否则回退 2024-11-05）；stdio server initialize 使用协商结果；
+  新增 5 个离线单元测试。namespace / tools / failure semantics / budgets 不变。
+VALIDATION: 有界单 turn 诊断（真实 provider，非 corpus）修复前 TURN_FAILED 2.6s +
+  进程 exit 1；修复后 TURN_COMPLETED 22.7s + 进程存活 + supervisor READY。
+NEXT: Sol 验证 REPAIR-01 后，重新执行 P8-B2-LIVE-01（10 sessions / 20 turns，
+  同一 LIVE-00 边界；正式 corpus 尚未重新执行）。
+```
+
 ## P7-D4 当前状态与后续顺序（2026-08-19）
 
 P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accepted baseline

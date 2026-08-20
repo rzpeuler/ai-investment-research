@@ -272,12 +272,19 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 - **P8-B2-LIVE-01 正式 trial 执行 = PARTIAL（2026-08-20，RESUME-02）**：approved credential
   boundary（GitHub Actions `DEEPSEEK_API_KEY` secret）已配置；trial 在 GitHub Actions
   ubuntu-latest 上执行，readiness probe 全 gate READY（含 provider connectivity）。
-  首次 provider-backed turn 未在 300s turn timeout 内完成 → `PROVIDER_TIMEOUT`（typed、
-  单次计数、无重试）；随后 Harness 进程不再 READY（session 2 create →
-  `HARNESS_BOOT_FAILED`）→ latch 触发 → fail-closed 停止。结果：completed sessions
-  0/10、turns 0/20（1 次 attempted）；process cleanup VERIFIED（residue NO）；
-  secret_scan PASS；drills PASS；evidence snapshot 已生成。正式 10-session / 20-turn
-  corpus 未完成，P8-B2 仍需 Sol 独立验收。
+  首次 provider-backed turn 失败（`PROVIDER_TIMEOUT`，typed、单次计数、无重试）；
+  随后 Harness 进程不再 READY（`HARNESS_BOOT_FAILED`）→ latch 触发 → fail-closed 停止。
+  结果：completed sessions 0/10、turns 0/20（1 次 attempted）；process cleanup VERIFIED
+  （residue NO）；secret_scan PASS；drills PASS；evidence snapshot 已生成。
+- **REPAIR-01 根因（已定位并修复，2026-08-20）**：PARTIAL 的根因不是 provider 延迟 —
+  我方 stdio MCP server 回复 `protocolVersion "1"`，被 pinned Harness 的 MCP SDK
+  （`@deepseek-ai/dsh-mcp-client`）拒绝（"Server's protocol version is not supported:
+  1"）→ `failOnStartupError` → dsh 进程崩溃（exit 1）→ turn 失败（被映射为
+  `PROVIDER_TIMEOUT`）→ supervisor FAILED → `HARNESS_BOOT_FAILED`。最小修复已实施：
+  `negotiate_mcp_protocol_version`（contracts.py）+ stdio server 使用；namespace /
+  tools / failure semantics / budgets 不变。修复后有界单 turn 诊断（真实 provider，
+  非 corpus）：`TURN_COMPLETED 22.7s`、进程存活、supervisor READY。正式
+  10-session / 20-turn corpus 尚未重新执行，P8-B2 仍需 Sol 独立验收。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout
