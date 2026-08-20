@@ -3304,3 +3304,21 @@ non-production, reversible trial after the no-squash merge. Default runtime
 remains `legacy`; public Harness traffic, Frontend integration, Scenario
 rollout, P7-UX1 retirement, production adoption, and P8-B3 remain NOT
 AUTHORIZED. The B2 execution agent may not self-accept the trial.
+
+## 61. Use Ubuntu CI as P8-B2 POSIX validation environment（2026-08-20）
+
+Decision: 放弃 Windows + QEMU + WHPX + Arch VM 本地虚拟化方案，采用 GitHub
+Actions Ubuntu runner（`ubuntu-latest`）作为 P8-B2 POSIX validation environment。
+
+原因：
+
+- reproducible：GitHub-hosted Ubuntu 24.04.4 LTS，任何会话可重复执行；
+- auditable：workflow run 与日志可审计，证据可追溯；
+- lower maintenance cost：无需本地虚拟化基础设施与临时工具链；
+- aligned with CI：与生产 Offline CI 同一执行环境语义。
+
+验证结果（ENV-02-ADJUST-01，PASS）：Linux 上 `PROCESS_CLEANUP_VERIFIED = YES` /
+`OWNED_TREE_CLEANUP = VERIFIED` / `PROCESS_RESIDUE = NO`；整体 readiness 因 GitHub
+CI 未配置 `DEEPSEEK_API_KEY` secret 而为 BLOCKED（`PROVIDER_BLOCKED`，如实报告）。
+正式 provider-backed trial（P8-B2-LIVE-01）仍 NOT AUTHORIZED / NOT EXECUTED；
+P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。

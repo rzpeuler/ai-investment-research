@@ -115,3 +115,30 @@ The previous PARTIAL run's environment blockers are closed: the pinned Harness
 now boots in an isolated worktree, and the approved credential is present and
 provider connectivity is verified. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
+## ENV-02 Linux Validation Result (2026-08-20)
+
+Environment: GitHub Actions `ubuntu-latest` — Ubuntu 24.04.4 LTS（kernel
+6.17.0-1022-azure，x86_64，Python 3.12.14，Node v24.19.0）.
+
+Evidence（readiness probe on Ubuntu，workflow run `32367844021`，SUCCESS）:
+
+- PROCESS_CLEANUP_VERIFIED = **YES**（OBSERVED）
+- ROOT_TERMINATED = YES；OWNED_TREE_CLEANUP = **VERIFIED**；PROCESS_RESIDUE = **NO**
+- Harness `@deepseek-ai/dsh@0.1.0-rc.7` 可启动（executable_available / boot = YES）
+- MCP：namespace `research-os-mcp/v1`；恰好 `get_company_profile` +
+  `check_data_readiness`；unauthorized = 0
+- full pytest PASS（3769 passed / 6 skipped）；schema 86/86；compile PASS
+
+Provider:
+
+- **BLOCKED until approved credential execution environment exists**（GitHub CI
+  未配置 `DEEPSEEK_API_KEY` secret → `PROVIDER_BLOCKED`，如实报告，未伪造 READY）
+
+Formal trial:
+
+- **NOT EXECUTED**（`FORMAL_CORPUS_EXECUTED = NO`）
+
+Windows host（ENV-01，CLOSED）: 无法机械证明 POSIX owned process-tree cleanup →
+fail-closed（`PROCESS_CLEANUP_VERIFIED = NOT_VERIFIED`）；该限制不适用于 Linux。
+P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`。

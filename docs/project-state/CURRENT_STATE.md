@@ -1,6 +1,6 @@
 # 当前项目状态（CURRENT STATE）
 
-> 更新日期：2026-08-18
+> 更新日期：2026-08-20
 > Phase 6：CLOSED / PASS（P6-S6 Governance Closeout）
 > P7-UX1：PASS / INDEPENDENTLY ACCEPTED（governance closeout）
 > P7-D0：PASS / INDEPENDENTLY ACCEPTED（governance closeout 2026-08-11）
@@ -8,6 +8,7 @@
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
 > P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
 > P7-D4：IMPLEMENTED / ACCEPTED（2026-08-19 独立验收通过并 no-squash 合并进 master，accepted baseline `8b153b3`）
+> P8-B2：IMPLEMENTED / PARTIAL / NOT ACCEPTED（R2 / integration / Linux environment validation 已验收；正式 provider-backed trial 未执行）
 > 权威规范：`docs/engineering-guide.md` V1.8
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
@@ -359,8 +360,12 @@ P8-B1_R1: SUPERSEDED BY R2 FINDINGS / RE-ACCEPTANCE REQUIRED
 P8-B1_R2: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B1_R3: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B2: IMPLEMENTED / PARTIAL / NOT ACCEPTED
-P8-B2_R2: IMPLEMENTED / evidence-integrity repair delivered; PARTIAL official trial (no provider credential / Harness binary available in isolated worktree)
-P8-B2_ENV-01: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE (environment readiness task `docs/tasks/p8-b2-env-01-trial-environment-readiness.md`); live probe on Windows host = FAIL (fail-closed: owned process-tree cleanup NOT_VERIFIED on Windows); pinned Harness boot / provider credential + connectivity / runtime-profile / MCP boot+namespace+toolset / secret hygiene all VERIFIED; FORMAL_TRIAL_READY = NO on this host; formal corpus NOT executed
+P8-B2_R2: PASS / ACCEPTED (evidence-integrity repair, provenance completeness, authority DB override removal, process ownership fixes, secret evidence hardening)
+P8-B2_R2_INTEGRATION: PASS / ACCEPTED (integrated into feature/p8-b2-internal-trial at 35a315c)
+P8-B2_ENV-01: CLOSED (Windows host cannot mechanically prove POSIX owned process-tree cleanup → fail-closed: PROCESS_CLEANUP_VERIFIED=NOT_VERIFIED / PROCESS_RESIDUE=NOT_VERIFIED; all other readiness gates verified on Windows host)
+P8-B2_ENV-02: PASS / ACCEPTED — Linux environment validation (GitHub Actions ubuntu-latest: Ubuntu 24.04.4 LTS, kernel 6.17.0-1022-azure, x86_64, Python 3.12.14, Node v24.19.0; PROCESS_CLEANUP_VERIFIED=YES / OWNED_TREE_CLEANUP=VERIFIED / PROCESS_RESIDUE=NO; Harness 0.1.0-rc.7 boots; MCP namespace research-os-mcp/v1 with exactly 2 tools; provider BLOCKED until approved credential execution environment exists)
+P8-B2_BLOCKER: Formal provider-backed internal trial execution (10 sessions / 20 provider-backed turns) — FORMAL_CORPUS_EXECUTED=NO
+P8-B2_NEXT_TASK: P8-B2-LIVE-01 preparation
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED
 ```
 

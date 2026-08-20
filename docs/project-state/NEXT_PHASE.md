@@ -1,5 +1,24 @@
 # 下一阶段准入（NEXT PHASE）
 
+## P8-B2 当前里程碑（2026-08-20）
+
+```text
+CURRENT ENGINEERING MILESTONE: P8-B2（IMPLEMENTED / PARTIAL / NOT ACCEPTED）
+COMPLETED:
+- P8-B2-R2 accepted（evidence-integrity repair）
+- P8-B2-R2 integration accepted（feature/p8-b2-internal-trial @ 35a315c）
+- P8-B2 Linux environment validation accepted（GitHub Actions Ubuntu 24.04.4 LTS：
+  PROCESS_CLEANUP_VERIFIED=YES / OWNED_TREE_CLEANUP=VERIFIED / PROCESS_RESIDUE=NO）
+CURRENT BLOCKER:
+- Formal provider-backed internal trial execution（10 sessions / 20 provider-backed turns）
+- FORMAL_CORPUS_EXECUTED = NO
+NEXT TASK:
+- P8-B2-LIVE-01 preparation
+PRODUCTION ADOPTION: NOT_AUTHORIZED
+P8-B3: NOT_AUTHORIZED
+DEFAULT_RUNTIME: legacy
+```
+
 ## P7-D4 当前状态与后续顺序（2026-08-19）
 
 P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accepted baseline
@@ -11,7 +30,9 @@ P7-D4 已于 2026-08-19 完成独立验收并 no-squash 合并进 master（accep
 ```text
 1. P8-B1 DeepSeek Harness Production Foundation
 2. P8-B1 independent acceptance
-3. P8-B2 is implemented but remains PARTIAL / NOT ACCEPTED (P8-B2-R2 evidence-integrity repair delivered)
+3. P8-B2 remains IMPLEMENTED / PARTIAL / NOT ACCEPTED（R2 + integration + Linux environment validation 已验收；
+   正式 provider-backed trial 未开始，FORMAL_CORPUS_EXECUTED = NO）
+4. P8-B2-LIVE-01 preparation（当前 next task）
 5. D5 / 后续数据能力按新路线继续
 ```
 
