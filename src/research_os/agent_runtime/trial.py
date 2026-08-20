@@ -29,6 +29,22 @@ ENTITY_ALIASES = {
     "600519.SH": frozenset({"600519.SH", "600519", "Kweichow Moutai", "贵州茅台", "茅台"}),
     "300750.SZ": frozenset({"300750.SZ", "300750", "CATL", "宁德时代"}),
 }
+PASS_CANDIDATE = "PASS CANDIDATE"
+PARTIAL = "PARTIAL"
+
+
+class EvidenceBasis(str, Enum):
+    """Provenance distinction for acceptance fields.
+
+    A value must never *look* mechanically observed when it is only a static
+    policy assertion.
+    """
+
+    OBSERVED = "OBSERVED"
+    DERIVED_FROM_OBSERVED_RUNTIME = "DERIVED_FROM_OBSERVED_RUNTIME"
+    POLICY_INVARIANT = "POLICY_INVARIANT"
+    NOT_AVAILABLE = "NOT_AVAILABLE"
+    NOT_VERIFIED = "NOT_VERIFIED"
 
 
 class LatchState(str, Enum):
@@ -125,6 +141,12 @@ class TrialMetricsRecorder:
         self.events.append(bounded)
 
     def failure(self, code: str, *, provider: bool = False, mcp: bool = False) -> None:
+        """Record one causal failure exactly once.
+
+        This is the single counting authority for typed failures. Callers
+        (the corpus-level handler) must invoke it at most once per causal
+        exception; attempt counters separately track attempts.
+        """
         self.failures[code] = self.failures.get(code, 0) + 1
         self.provider_failure_count += int(provider)
         self.mcp_failure_count += int(mcp)
@@ -208,8 +230,12 @@ class TrialController:
         self.owned_root_pid: int | None = None
         self.root_alive_after_stop: bool | None = None
         self.owned_descendant_count_after_stop: int | None = None
+        self.owned_tree_cleanup: str | None = None
+        self.root_cleanup: str | None = None
         self.usage_fields: set[str] = set()
         self.authority_entity_ids: dict[str, str] = {}
+        self._evidence_snapshot: dict[str, Any] | None = None
+        self._final_completed_sessions: int | None = None
 
     def _require_opt_in(self) -> None:
         if os.environ.get(TRIAL_ENV) != "1":
@@ -275,9 +301,9 @@ class TrialController:
         ]
         if max(ratios) > 1:
             raise RuntimeNotReady("RESOURCE_BUDGET_EXCEEDED", "trial budget exhausted")
-        if max(ratios) >= self.budget.warning_ratio and not self.budget_warning_emitted:
+        if max(ratios) >= self.budget.warning_ratio and not self.metrics.budget_warning_emitted:
             self.metrics.record(event_type="budget_warning", utilization=round(max(ratios), 3))
-            self.budget_warning_emitted = True
+            self.metrics.budget_warning_emitted = True
 
     def _run_turn(self, public_session: Any, entity: tuple[str, str], turn_index: int, prompt: str) -> dict[str, Any]:
         self._admit_turn()
@@ -290,8 +316,9 @@ class TrialController:
         try:
             result = self.gateway.send_message(public_session.gateway_session_id, prompt)
         except RuntimeFailure as exc:
-            self.metrics.failure(exc.code, provider=exc.code.startswith("PROVIDER"),
-                                 mcp=exc.code.startswith("MCP"))
+            # NOTE: counting is deferred to the single corpus-level owner to
+            # avoid double counting one causal failure (R2-01). Only bounded
+            # evidence is recorded here.
             self.metrics.record(event_type="turn_failure", session_public_hash=_hash_public_session(self.trial_id, public_session.gateway_session_id),
                                 turn_index=turn_index, code=exc.code)
             raise
@@ -443,7 +470,11 @@ class TrialController:
         owned_process = self.adapter.supervisor.process
         if owned_process is None:
             return {"crash_restart": "FAIL"}
-        owned_process.terminate()
+        terminate_tree = getattr(owned_process, "terminate_tree", None)
+        if callable(terminate_tree):
+            terminate_tree()
+        else:
+            owned_process.terminate()
         self.adapter.supervisor.stop()
         self.adapter = None
         self.gateway = None
@@ -453,15 +484,144 @@ class TrialController:
             self.restart_pass = True
             return {"crash_restart": "PASS", "runtime_reverified": True}
         except RuntimeFailure as exc:
-            self.metrics.failure(exc.code)
-            self.metrics.process_failure_count += 1
+            # start() already records the admission failure (process_failure /
+            # typed). Do not double count the same causal restart failure here.
             self.restart_pass = False
             return {"crash_restart": "FAIL", "runtime_reverified": False}
 
     def operator_reset(self) -> None:
         self.latch.operator_reset()
 
+    def _process_residue(self) -> str:
+        """Mechanical source for the owned process-tree residue gate.
+
+        Three-state, mechanically consistent (R2-04 / rework 3-4):
+          - owned_tree_cleanup == ``VERIFIED`` -> ``NO`` (tree proven gone)
+          - owned_tree_cleanup == ``FAILED``   -> ``YES`` (real process leak)
+          - root still alive, or recorded leak  -> ``YES``
+          - otherwise (tree ``NOT_VERIFIED``)   -> ``NOT_VERIFIED`` (fail-closed)
+        ``NO`` is only possible when the owned process tree is mechanically
+        proven empty; ``FAILED`` is always surfaced as a real residue.
+        """
+        tree = self.owned_tree_cleanup
+        if tree == "FAILED":
+            return "YES"
+        if tree == "VERIFIED":
+            return "NO"
+        if self.root_cleanup == "ALIVE" or self.metrics.process_leak_count > 0:
+            return "YES"
+        return "NOT_VERIFIED"
+
+    def _evidence_basis(self, *, final: bool) -> dict[str, str]:
+        """Classify acceptance-field provenance from evidence that actually exists.
+
+        Values reflect whether observational evidence was produced for this
+        trial, not static configuration intent:
+          - OBSERVED                         evidence actually recorded
+          - DERIVED_FROM_OBSERVED_RUNTIME    derived from an observed running
+                                             Harness for this trial
+          - POLICY_INVARIANT                 a policy/authorization constant
+                                             (never claimed as observed)
+          - NOT_AVAILABLE / NOT_VERIFIED     evidence did not exist/verified
+        """
+        runtime_observed = bool(self.evidence and self.evidence.get("version"))
+        runtime_derived = EvidenceBasis.DERIVED_FROM_OBSERVED_RUNTIME.value if runtime_observed else EvidenceBasis.NOT_AVAILABLE.value
+        runs_observed = final and self.counters.turn_completed > 0
+        observed = EvidenceBasis.OBSERVED.value if runs_observed else EvidenceBasis.NOT_AVAILABLE.value
+        secret_observed = final or self._started
+        process_leak = self.owned_tree_cleanup
+        process_basis = (
+            EvidenceBasis.OBSERVED.value
+            if process_leak in {"VERIFIED", "FAILED"}
+            else EvidenceBasis.NOT_VERIFIED.value
+        )
+        return {
+            "runtime_version": runtime_derived,
+            "profile": runtime_derived,
+            "mcp_namespace": runtime_derived,
+            "mcp_tools": runtime_derived,
+            "same_session": observed,
+            "fresh_readiness": observed,
+            "turn1_tool_evidence": observed,
+            "authority_drift": observed,
+            "unauthorized_tools": observed,
+            "secret_scan": EvidenceBasis.OBSERVED.value if secret_observed else EvidenceBasis.NOT_AVAILABLE.value,
+            "process_residue": process_basis,
+            "provider_failures": EvidenceBasis.OBSERVED.value if (final or self.metrics.failures) else EvidenceBasis.NOT_AVAILABLE.value,
+            "mcp_failures": EvidenceBasis.OBSERVED.value if (final or self.metrics.mcp_failure_count) else EvidenceBasis.NOT_AVAILABLE.value,
+            "research_data_network": EvidenceBasis.POLICY_INVARIANT.value,
+            "research_source_network": EvidenceBasis.POLICY_INVARIANT.value,
+            "internal_session_leak": EvidenceBasis.NOT_VERIFIED.value,
+            "graph_mutation_count": EvidenceBasis.POLICY_INVARIANT.value,
+            "sql_tool_count": EvidenceBasis.POLICY_INVARIANT.value,
+            "frontend_changed": EvidenceBasis.POLICY_INVARIANT.value,
+            "default_runtime": EvidenceBasis.POLICY_INVARIANT.value,
+            "production_adoption": EvidenceBasis.POLICY_INVARIANT.value,
+        }
+
+    def evaluate_final_trial(self) -> dict[str, Any]:
+        """Evaluate the official post-fix acceptance corpus.
+
+        Finalization sequence (single authority, R2-02/R2-03/R2-04):
+          collect final runtime evidence
+          → perform final secret scan      (inside ``summary``'s freeze path)
+          → perform owned process cleanup  (``stop``)
+          → mechanically observe cleanup   (``stop``)
+          → freeze evidence snapshot
+          → render summary / return
+          → delete temporary raw artifacts (after snapshot is frozen)
+        """
+        if self._evidence_snapshot is None:
+            completed = getattr(self, "_completed_sessions", None)
+            if completed is None:
+                completed = 0
+            self._final_completed_sessions = completed
+            self.stop()  # cleanup + final secret scan + observe residue
+            self._freeze_evidence_snapshot()
+        return self._evidence_snapshot
+
+    def finalize_fail_closed(self, reason: str) -> dict[str, Any]:
+        """Produce a complete fail-closed evidence snapshot after a
+        boot/start/run failure, even when the runtime never became available.
+
+        This satisfies the acceptance requirement that a failed trial still
+        renders the full acceptance field set with explicit evidence basis,
+        rather than a bare error object. ``stop()`` is invoked to (attempt)
+        owned cleanup and free the temporary event log; the frozen snapshot
+        reflects the mechanically available evidence only.
+        """
+        if self._evidence_snapshot is None:
+            self._final_completed_sessions = 0
+            self.latch.trip("trial failed closed")
+            self.stop()
+            self._freeze_evidence_snapshot()
+            assert self._evidence_snapshot is not None
+        # Non-authoritative metadata: may be added, never changes hard gates.
+        snapshot = dict(self._evidence_snapshot)
+        snapshot["error_code"] = reason
+        snapshot["status"] = "PARTIAL"
+        return snapshot
+
+    def _freeze_evidence_snapshot(self) -> None:
+        """Freeze the final acceptance evidence snapshot once; later renders
+        format it but must not change acceptance fields."""
+        if self._evidence_snapshot is not None:
+            return
+        completed = self._final_completed_sessions
+        if completed is None:
+            completed = self._completed_sessions
+        self._ev_render = self._render_summary(completed, final=True)
+        # Deep-copy the mutable render so live state changes cannot leak in.
+        self._evidence_snapshot = json.loads(json.dumps(self._ev_render))
+        self._ev_render = None
+
     def summary(self, completed_sessions: int, *, final: bool = True) -> dict[str, Any]:
+        if self._evidence_snapshot is not None:
+            # Report layer may format a frozen snapshot; it may not change it.
+            return dict(self._evidence_snapshot)
+        return self._render_summary(completed_sessions, final=final)
+
+    def _render_summary(self, completed_sessions: int, *, final: bool = True) -> dict[str, Any]:
         self._scan_secrets()
         hard_pass = (
             completed_sessions >= self.budget.max_sessions
@@ -487,14 +647,15 @@ class TrialController:
             and self.fallback_pass
             and self.restart_pass
             and self.counters.provider_tokens > 0
+            and self._process_residue() == "NO"
         )
         usage_reported = self.counters.provider_tokens > 0
         return {
             "status": "PASS CANDIDATE" if final and hard_pass else ("PARTIAL" if final else "IN_PROGRESS"),
             "trial_run_id": self.trial_id,
-            "runtime_version": self.evidence["version"] if self.evidence else "NOT_VERIFIED",
-            "profile": self.evidence["profile"] if self.evidence else "NOT_VERIFIED",
-            "mcp_namespace": self.evidence["mcp_namespace"] if self.evidence else "NOT_VERIFIED",
+            "runtime_version": self.evidence["version"] if self.evidence else "NOT_AVAILABLE",
+            "profile": self.evidence["profile"] if self.evidence else "NOT_AVAILABLE",
+            "mcp_namespace": self.evidence["mcp_namespace"] if self.evidence else "NOT_AVAILABLE",
             "mcp_tools": list(self.evidence["tools"]) if self.evidence else [],
             "trial_sessions": completed_sessions,
             "trial_turns": self.counters.turns,
@@ -539,42 +700,77 @@ class TrialController:
             "research_data_network": "OFF",
             "rollback_latch": "PASS" if self.rollback_pass else "NOT_RUN",
             "crash_restart": "PASS" if self.restart_pass else "NOT_RUN",
-            "internal_session_leak": "NO",
+            "internal_session_leak": "NOT_VERIFIED",
             "process_leak_count": self.metrics.process_leak_count,
             "research_source_network": "OFF",
             "graph_mutation_count": 0,
             "sql_tool_count": 0,
             "frontend_changed": "NO",
-            "process_residue": "NO" if self.metrics.process_leak_count == 0 else "YES",
+            "process_residue": self._process_residue(),
+            "root_cleanup": self.root_cleanup or "NOT_STARTED",
+            "owned_tree_cleanup": self.owned_tree_cleanup or "NOT_VERIFIED",
             "default_runtime": "legacy",
             "production_adoption": "NOT_AUTHORIZED",
+            "evidence_basis": self._evidence_basis(final=final),
         }
 
-    def evaluate_final_trial(self) -> dict[str, Any]:
-        """Evaluate only after corpus, restart, rollback, and final scans."""
-        self.stop()
-        return self.summary(self._completed_sessions, final=True)
-
     def _scan_secrets(self) -> None:
+        """Scan bounded runtime evidence for known secret markers.
+
+        Secret evidence is monotonic (R2-03): a positive finding anywhere in
+        the trial lifecycle must not later become zero because artifacts were
+        cleaned up. We only ever take the maximum across scans so cleanup never
+        erases an earlier positive result. Raw secret values are never stored;
+        only the bounded count retained.
+        """
         candidates = [os.environ.get("DEEPSEEK_API_KEY", ""), "Authorization", "Bearer ", "Cookie", "password"]
         haystacks = [_read_event_log(self.event_log).__repr__()]
         if self.adapter is not None and self.adapter.supervisor.process is not None:
             owned = self.adapter.supervisor.process
             haystacks.extend((bytes(owned.stdout_tail).decode(errors="replace"),
                               bytes(owned.stderr_tail).decode(errors="replace")))
-        self.metrics.secret_leak_count = sum(1 for marker in candidates if _contains_secret("\n".join(haystacks), [marker]))
+        found = sum(1 for marker in candidates if _contains_secret("\n".join(haystacks), [marker]))
+        self.metrics.secret_leak_count = max(self.metrics.secret_leak_count, found)
 
     def stop(self) -> None:
+        """Finalize owned process cleanup and (re)observe cleanup evidence.
+
+        Order matters for acceptance evidence integrity:
+          1. final secret scan (before artifacts are deleted)
+          2. owned process-tree cleanup
+          3. mechanical observation of cleanup result
+          4. release references
+        Delete temporary raw artifacts only after the evidence snapshot has
+        been frozen (see ``evaluate_final_trial``).
+        """
         self._scan_secrets()
         if self.adapter is not None:
             owned = self.adapter.supervisor.process
             if owned is not None:
-                self.owned_root_pid = owned.process.pid
+                self.owned_root_pid = owned.owned_pid if hasattr(owned, "owned_pid") else owned.process.pid
+            # Terminate only the owned process tree.
+            if owned is not None:
+                terminate = getattr(owned, "terminate_tree", None)
+                if callable(terminate):
+                    terminate()
             self.adapter.supervisor.stop()
             if owned is not None:
                 self.root_alive_after_stop = owned.poll() is None
-                self.owned_descendant_count_after_stop = 0 if not self.root_alive_after_stop else 1
-                self.metrics.process_leak_count = int(self.root_alive_after_stop or self.owned_descendant_count_after_stop)
+                status = getattr(owned, "cleanup_status", None)
+                if callable(status):
+                    status = status()
+                    self.root_cleanup = status.get("root")
+                    self.owned_tree_cleanup = status.get("tree")
+                else:
+                    self.root_cleanup = "NOT_VERIFIED"
+                    self.owned_tree_cleanup = "NOT_VERIFIED"
+                self.owned_descendant_count_after_stop = int(self.root_alive_after_stop)
+                # A mechanically proven leak: root still alive OR owned-tree
+                # cleanup reports FAILED (group proven non-empty).
+                tree_failed = self.owned_tree_cleanup == "FAILED"
+                self.metrics.process_leak_count = int(
+                    self.root_alive_after_stop or tree_failed
+                )
         self.adapter = None
         self.gateway = None
         self._started = False

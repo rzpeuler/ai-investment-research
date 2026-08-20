@@ -16,6 +16,9 @@ from research_os.utils.time import now_iso
 ROOT = Path(__file__).resolve().parents[3]
 MAX_RESULT_BYTES = 64 * 1024
 
+def _authority_db_path() -> Path:
+    return ROOT / "data" / "sqlite" / "research.db"
+
 
 def _payload_rows(db: Any, table: str) -> list[dict[str, Any]]:
     rows = []
@@ -43,7 +46,7 @@ def get_company_profile(target: str, **_: Any) -> dict[str, Any]:
     """Return exact-match identity from existing SQLite authority only."""
     if not isinstance(target, str) or not target.strip():
         return {"status": "insufficient_evidence", "reason": "target_required"}
-    db_path = ROOT / "data" / "sqlite" / "research.db"
+    db_path = _authority_db_path()
     if not db_path.is_file():
         return {"status": "data_degraded", "reason": "authoritative_db_missing"}
     db = Database.open_read_only(db_path)

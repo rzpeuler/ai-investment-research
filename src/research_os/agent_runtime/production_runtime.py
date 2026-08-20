@@ -1,11 +1,13 @@
 """Real rc.7 runtime binding: package probe, profile evidence, HTTP client and factory."""
 from __future__ import annotations
 
+import errno
 import json
 import http.client
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -14,7 +16,6 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-import re
 from pathlib import Path
 from typing import Any
 
@@ -230,12 +231,52 @@ class ProductionEvidenceProbe:
         }
 
 
+def _parse_stat_pgrp(stat_text: str) -> int | None:
+    """Extract the process-group id from a ``/proc/<pid>/stat`` line.
+
+    Layout (stat(5)):: pid (comm) state ppid pgrp session ...
+    The comm segment may itself contain spaces, parentheses or newlines, so we
+    always parse from the *last* ``)`` and then skip the state (index 0) and
+    ppid (index 1): pgrp is index 2 of the trailing fields.
+    """
+    try:
+        pivot = stat_text.rindex(")")
+        fields = stat_text[pivot + 2:].split()
+        return int(fields[2])
+    except (ValueError, IndexError):
+        return None
+
+
 class BoundedOwnedProcess:
+    """Wraps a runtime process and tracks an explicit ownership boundary.
+
+    Ownership boundary:
+      - POSIX: the child is spawned as its own session/process-group leader
+        (``start_new_session=True``); shutdown targets only that process group.
+      - Windows: the child root PID is recorded and shutdown uses the
+        tree-aware ``taskkill /T`` mechanism for that owned root only.
+
+    Cleanup status is deliberately distinct from a bare ``poll()`` so callers
+    can distinguish *root terminated* from *owned tree verified gone* from
+    *cleanup not verifiable*. Never treat inability to verify as zero residue.
+    """
+
+    DEFAULT_GRACE_SECONDS = 5
+    DEFAULT_ESCAPE_SECONDS = 5
+
     def __init__(self, process: subprocess.Popen[bytes], base_url: str):
         self.process = process
         self.base_url = base_url
         self.stdout_tail = bytearray()
         self.stderr_tail = bytearray()
+        # Explicit ownership boundary captured at spawn time.
+        self.owned_pid = process.pid
+        self.owned_pgid: int | None = None
+        if os.name != "nt" and hasattr(os, "getpgid"):
+            try:
+                self.owned_pgid = os.getpgid(self.owned_pid)
+            except (ProcessLookupError, PermissionError, OSError):
+                self.owned_pgid = None
         self._threads = [
             threading.Thread(target=self._drain, args=(process.stdout, self.stdout_tail), daemon=True),
             threading.Thread(target=self._drain, args=(process.stderr, self.stderr_tail), daemon=True),
@@ -248,7 +289,13 @@ class BoundedOwnedProcess:
         if stream is None:
             return
         while True:
-            chunk = stream.read(4096)
+            try:
+                chunk = stream.read(4096)
+            except (ValueError, OSError):
+                # The owned process may close its pipes during cleanup while
+                # this daemon drain thread is between reads.  That is a
+                # normal lifecycle termination, not a thread failure.
+                return
             if not chunk:
                 return
             target.extend(chunk)
@@ -256,6 +303,110 @@ class BoundedOwnedProcess:
 
     def poll(self):
         return self.process.poll()
+
+    @property
+    def own_start_new_session(self) -> bool:
+        return os.name != "nt"
+
+    def _own_group_alive(self) -> bool:
+        """Mechanically prove whether the owned process group has live members.
+
+        True if at least one /proc entry (other than the already-reaped root)
+        still reports the owned PGID. None if the group cannot be enumerated
+        (no /proc, or no process group could be captured).
+
+        ``/proc/<pid>/stat`` layout (stat(5))::
+            pid (comm) state ppid pgrp session tty_nr tpgid ...
+        The comm field may itself contain spaces, parentheses or newlines, so
+        always parse from the *last* ``)`` and skip the state field (index 0)
+        and ppid (index 1): pgrp is field index 2 of the trailing tokens.
+        """
+        if self.owned_pgid is None:
+            return None
+        proc = Path("/proc")
+        if not proc.is_dir():
+            return None
+        for entry in proc.iterdir():
+            stat_path = entry / "stat"
+            if not entry.name.isdigit() or not stat_path.exists():
+                continue
+            try:
+                stat = stat_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if _parse_stat_pgrp(stat) == self.owned_pgid:
+                return True
+        return False
+
+    def terminate_tree(self, grace_seconds: float | None = None) -> None:
+        """Terminate only the owned process group/tree. No global enumeration.
+
+        The owned root may already have exited while descendants survive, so
+        cleanup is always attempted against the owned PGID/root — never
+        skipped merely because the root process itself is gone.
+        """
+        if os.name == "nt":
+            # Tree-aware owned-root termination (already present); never a global kill.
+            if self.process.poll() is None:
+                subprocess.run(["taskkill", "/PID", str(self.owned_pid), "/T", "/F"],
+                               capture_output=True, check=False)
+            return
+        # POSIX: graceful group signal first, then bounded escalation. Target
+        # the owned PGID regardless of whether the root has already exited.
+        pgid = self.owned_pgid
+        if pgid is None:
+            pgid = self.owned_pid
+        if pgid is None:
+            return
+        self._signal_owned_group(pgid, signal.SIGTERM)
+        deadline = time.monotonic() + (grace_seconds or self.DEFAULT_GRACE_SECONDS)
+        while time.monotonic() < deadline:
+            group_alive = self._own_group_alive()
+            if group_alive is False:
+                return
+            time.sleep(0.1)
+        self._signal_owned_group(pgid, signal.SIGKILL)
+
+    @staticmethod
+    def _signal_owned_group(pgid: int, sig: int) -> None:
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, OSError) as exc:
+            if exc.errno != errno.ESRCH:
+                pass
+
+    def cleanup_status(self) -> dict[str, Any]:
+        """Bounded evidence distinguishing root vs owned-tree cleanup.
+
+        Returns a structured verdict with root/tree states that are
+        mechanically consistent:
+          - root ``ALIVE`` / ``TERMINATED`` / ``NOT_STARTED`` from live child
+            handle only (root is owned).
+          - tree ``VERIFIED``  -> group mechanically proven empty (no residue)
+          - tree ``FAILED``    -> group mechanically proven non-empty (a real
+                                   process leak that must surface as residue)
+          - tree ``NOT_VERIFIED`` -> group membership cannot be proven, or the
+                                   owned tree cannot be enumerated. Fail-closed.
+        """
+        if self.owned_pid is None or self.process is None:
+            return {"root": "NOT_STARTED", "tree": "NOT_VERIFIED"}
+        code = self.process.poll()
+        if os.name == "nt":
+            # Windows: we own the root PID; root reaping is the mechanical bound
+            # we can prove without enumerating every descendant. A live root is
+            # always a real leak; an empty/reaped root with no group enumeration
+            # is NOT_VERIFIED (fail-closed).
+            if code is None:
+                return {"root": "ALIVE", "tree": "FAILED"}
+            return {"root": "TERMINATED", "tree": "NOT_VERIFIED"}
+        if code is None:
+            # Root alive means the owned process group is (at least) the root:
+            # a real, mechanically proven leak.
+            return {"root": "ALIVE", "tree": "FAILED"}
+        group_alive = self._own_group_alive()
+        if group_alive is None:
+            return {"root": "TERMINATED", "tree": "NOT_VERIFIED"}
+        return {"root": "TERMINATED", "tree": "FAILED" if group_alive else "VERIFIED"}
 
     def terminate(self):
         if self.process.poll() is None:
@@ -296,9 +447,13 @@ class HarnessProcessFactory:
         self.port = free_port()
         env = self.probe._env(self.home)
         started = time.monotonic()
+        # Explicit ownership boundary: on POSIX the Harness becomes its own
+        # session/process-group leader so shutdown targets only that group.
+        posix_group: dict[str, Any] = {"start_new_session": True} if os.name != "nt" else {}
         process = subprocess.Popen([str(dsh), "--profile", "research-headless", "--host", "127.0.0.1",
                                     "--port", str(self.port)], cwd=self.repo_root, env=env,
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   **posix_group)
         owned = BoundedOwnedProcess(process, f"http://127.0.0.1:{self.port}")
         base_url = f"http://127.0.0.1:{self.port}"
         deadline = time.monotonic() + 30

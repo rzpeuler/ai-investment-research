@@ -19,16 +19,38 @@ def main() -> int:
         corpus = controller.run_corpus()
         restart = controller.restart_drill()
         rollback = controller.rollback_drill()
-        result = {**controller.evaluate_final_trial(), **restart, **rollback,
-                  "provider_network": "ON", "research_data_network": "OFF",
-                  "p8_b3": "NOT_AUTHORIZED"}
+        # evaluate_final_trial returns the authoritative, frozen evidence
+        # snapshot. The CLI may only add non-authoritative metadata; it must
+        # not override acceptance fields (R2-02).
+        snapshot = controller.evaluate_final_trial()
+        result = {
+            **snapshot,
+            "provider_network": "ON",
+            "research_data_network": "OFF",
+            "p8_b3": "NOT_AUTHORIZED",
+            "metadata_basis": {
+                "provider_network": "POLICY_INVARIANT",
+                "research_data_network": "POLICY_INVARIANT",
+                "p8_b3": "POLICY_INVARIANT",
+            },
+            "restart_drill_detail": restart,
+            "rollback_drill_detail": rollback,
+            "corpus_report": {k: v for k, v in corpus.items() if k not in snapshot},
+        }
     except Exception as exc:
-        result = {"status": "PARTIAL", "error_code": getattr(exc, "code", type(exc).__name__),
+        # Boot/start/run failure still renders the full fail-closed evidence
+        # snapshot (rework 6): complete fields + evidence basis + error code.
+        reason = getattr(exc, "code", None) or type(exc).__name__
+        result = {**controller.finalize_fail_closed(reason),
                   "provider_network": "ON", "research_data_network": "OFF",
-                  "production_adoption": "NOT_AUTHORIZED", "p8_b3": "NOT_AUTHORIZED"}
+                  "production_adoption": "NOT_AUTHORIZED", "p8_b3": "NOT_AUTHORIZED",
+                  "metadata_basis": {
+                      "provider_network": "POLICY_INVARIANT",
+                      "research_data_network": "POLICY_INVARIANT",
+                      "p8_b3": "POLICY_INVARIANT",
+                  }}
     finally:
         controller.stop()
-    result["process_residue"] = "NO"
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "PASS CANDIDATE" else 1
 
