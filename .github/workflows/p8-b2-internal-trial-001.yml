@@ -7,12 +7,12 @@ name: P8-B2-INTERNAL-TRIAL-001 Scenario Verification
 # calls per run. The credential is injected ONLY via the GitHub Actions
 # secret mechanism; the provider never prints or stores the key.
 # workflow_dispatch resolves workflows from the default branch only, so this
-# branch-local workflow also triggers on pushes to this branch.
+# branch-local workflow also triggers on pushes to this branch. The formal
+# verification runs completed (2026-08-21, SUCCESS); the push trigger is
+# removed so future pushes cannot accidentally re-run the provider-backed
+# verification.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - task/P8-B2-INTERNAL-TRIAL-001
 
 permissions:
   contents: read
