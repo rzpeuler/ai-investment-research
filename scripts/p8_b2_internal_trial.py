@@ -28,6 +28,11 @@ def main() -> int:
             "provider_network": "ON",
             "research_data_network": "OFF",
             "p8_b3": "NOT_AUTHORIZED",
+            "metadata_basis": {
+                "provider_network": "POLICY_INVARIANT",
+                "research_data_network": "POLICY_INVARIANT",
+                "p8_b3": "POLICY_INVARIANT",
+            },
             "restart_drill_detail": restart,
             "rollback_drill_detail": rollback,
             "corpus_report": {k: v for k, v in corpus.items() if k not in snapshot},
@@ -38,7 +43,12 @@ def main() -> int:
         reason = getattr(exc, "code", None) or type(exc).__name__
         result = {**controller.finalize_fail_closed(reason),
                   "provider_network": "ON", "research_data_network": "OFF",
-                  "production_adoption": "NOT_AUTHORIZED", "p8_b3": "NOT_AUTHORIZED"}
+                  "production_adoption": "NOT_AUTHORIZED", "p8_b3": "NOT_AUTHORIZED",
+                  "metadata_basis": {
+                      "provider_network": "POLICY_INVARIANT",
+                      "research_data_network": "POLICY_INVARIANT",
+                      "p8_b3": "POLICY_INVARIANT",
+                  }}
     finally:
         controller.stop()
     print(json.dumps(result, ensure_ascii=False, indent=2))

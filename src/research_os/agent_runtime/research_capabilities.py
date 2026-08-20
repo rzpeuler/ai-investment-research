@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -17,15 +16,7 @@ from research_os.utils.time import now_iso
 ROOT = Path(__file__).resolve().parents[3]
 MAX_RESULT_BYTES = 64 * 1024
 
-# Allow an offline/isolated test or environment to point at a dedicated
-# authority DB without depending on the git-ignored repo-root SQLite artifact.
-AUTHORITY_DB_ENV = "P8_AUTHORITY_DB_PATH"
-
-
 def _authority_db_path() -> Path:
-    override = os.environ.get(AUTHORITY_DB_ENV)
-    if override:
-        return Path(override)
     return ROOT / "data" / "sqlite" / "research.db"
 
 

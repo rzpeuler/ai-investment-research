@@ -157,7 +157,25 @@ holes were closed and are covered by regression tests:
    `terminate_tree` group cleanup.
 8. **GitHub Actions pytest failure resolved** — the pre-existing failure
    `test_real_company_capability_reads_existing_authority` (`data_degraded` in
-   a clean checkout) is fixed by pointing the authority DB override
-   (`P8_AUTHORITY_DB_PATH`) at a deterministic, self-contained SQLite fixture
-   instead of the git-ignored repo-root artifact. Offline CI is expected to go
-   green.
+   a clean checkout) is fixed with a deterministic, self-contained SQLite
+   fixture injected through a pytest-only monkeypatch. Production authority
+   resolution remains fixed at the repository authority path; no
+   `P8_AUTHORITY_DB_PATH` runtime override exists.
+
+## Final closeout
+
+The final acceptance-integrity blockers are closed on the existing R2 branch:
+
+- Acceptance and scope fields now have explicit, truthful provenance; the
+  absence of mechanical session-leak evidence is reported as
+  `internal_session_leak = NOT_VERIFIED`.
+- The production `P8_AUTHORITY_DB_PATH` override was removed. Offline
+  capability tests use only a pytest monkeypatch seam with a temporary SQLite
+  fixture, while normal authority resolution remains fixed.
+- Owned process drain threads exit quietly when their streams close during
+  cleanup; the regression test covers an already-closed owned stream.
+- Final validation and the GitHub Offline CI result must be recorded here once
+  the repaired commit has been pushed.
+- P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; this closeout does not
+  rerun the provider-backed trial and does not self-accept the task.
+- Independent Sol acceptance remains pending.

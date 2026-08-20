@@ -289,7 +289,13 @@ class BoundedOwnedProcess:
         if stream is None:
             return
         while True:
-            chunk = stream.read(4096)
+            try:
+                chunk = stream.read(4096)
+            except (ValueError, OSError):
+                # The owned process may close its pipes during cleanup while
+                # this daemon drain thread is between reads.  That is a
+                # normal lifecycle termination, not a thread failure.
+                return
             if not chunk:
                 return
             target.extend(chunk)

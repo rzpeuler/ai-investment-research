@@ -1,8 +1,10 @@
 import json
+import io
 import os
 import sqlite3
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -10,11 +12,12 @@ import pytest
 from research_os.agent_runtime.research_capabilities import (
     MAX_RESULT_BYTES,
     TOOLS,
-    AUTHORITY_DB_ENV,
+    _authority_db_path,
     bounded,
     check_data_readiness,
     get_company_profile,
 )
+from research_os.agent_runtime.production_runtime import BoundedOwnedProcess
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,8 +56,16 @@ def authority_db(tmp_path, monkeypatch):
         conn.commit()
     finally:
         conn.close()
-    monkeypatch.setenv(AUTHORITY_DB_ENV, str(db_path))
+    monkeypatch.setattr(
+        "research_os.agent_runtime.research_capabilities._authority_db_path",
+        lambda: db_path,
+    )
     return db_path
+
+
+def test_authority_path_is_fixed_and_ignores_legacy_environment_override(monkeypatch):
+    monkeypatch.setenv("P8_AUTHORITY_DB_PATH", "C:/should/not/be used.db")
+    assert _authority_db_path() == ROOT / "data" / "sqlite" / "research.db"
 
 
 def test_real_company_capability_reads_existing_authority(authority_db):
@@ -100,3 +111,16 @@ def test_research_profile_disables_coding_tools_at_composition_layer():
     for tool_id in ("tool-bash", "tool-pwsh", "tool-fs", "tool-fs-search", "tool-str-replace-editor", "tool-web"):
         assert f"- id: {tool_id}\n  disabled: true" in profile
     assert "@deepseek-ai/dsh-mcp-client" in profile
+
+
+def test_closed_owned_stream_drain_exits_quietly():
+    stream = io.BytesIO(b"owned output")
+    stream.close()
+    target = bytearray()
+    thread = threading.Thread(
+        target=BoundedOwnedProcess._drain,
+        args=(stream, target),
+    )
+    thread.start()
+    thread.join(timeout=2)
+    assert not thread.is_alive()

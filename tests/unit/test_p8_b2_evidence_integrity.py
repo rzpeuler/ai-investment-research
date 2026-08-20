@@ -305,15 +305,64 @@ def test_cli_cannot_overwrite_mechanical_process_result(monkeypatch):
 def test_evidence_basis_is_explicit_for_critical_gates():
     controller = make_controller()
     basis = controller._evidence_basis(final=True)
-    for key in ("runtime_version", "profile", "mcp_tools", "same_session",
+    for key in ("runtime_version", "profile", "mcp_namespace", "mcp_tools", "same_session",
                 "fresh_readiness", "authority_drift", "unauthorized_tools",
-                "secret_scan", "process_residue", "provider_failures",
-                "research_source_network", "default_runtime", "production_adoption"):
+                "turn1_tool_evidence", "secret_scan", "process_residue", "provider_failures",
+                "mcp_failures", "research_data_network", "research_source_network",
+                "internal_session_leak", "graph_mutation_count", "sql_tool_count",
+                "frontend_changed", "default_runtime", "production_adoption"):
         assert key in basis
     assert basis["default_runtime"] == EvidenceBasis.POLICY_INVARIANT.value
     assert basis["production_adoption"] == EvidenceBasis.POLICY_INVARIANT.value
+    assert basis["internal_session_leak"] == EvidenceBasis.NOT_VERIFIED.value
     assert basis["process_residue"] in {
         EvidenceBasis.OBSERVED.value, EvidenceBasis.NOT_VERIFIED.value}
+
+
+def test_authoritative_snapshot_has_truthful_provenance_for_all_scope_fields():
+    controller = make_controller()
+    snapshot = controller._render_summary(0, final=True)
+    required = {
+        "runtime_version", "profile", "mcp_namespace", "mcp_tools",
+        "same_session", "fresh_readiness", "turn1_tool_evidence",
+        "authority_drift", "unauthorized_tools", "secret_scan",
+        "process_residue", "provider_failures", "mcp_failures",
+        "research_data_network", "research_source_network",
+        "internal_session_leak", "graph_mutation_count", "sql_tool_count",
+        "frontend_changed", "default_runtime", "production_adoption",
+    }
+    assert required <= snapshot["evidence_basis"].keys()
+    assert snapshot["internal_session_leak"] == "NOT_VERIFIED"
+    assert snapshot["evidence_basis"]["internal_session_leak"] == "NOT_VERIFIED"
+    assert snapshot["evidence_basis"]["default_runtime"] == "POLICY_INVARIANT"
+    assert snapshot["evidence_basis"]["production_adoption"] == "POLICY_INVARIANT"
+
+
+@pytest.mark.parametrize(
+    ("cleanup", "expected_value", "expected_basis"),
+    [("VERIFIED", "NO", "OBSERVED"),
+     ("FAILED", "YES", "OBSERVED"),
+     ("NOT_VERIFIED", "NOT_VERIFIED", "NOT_VERIFIED")],
+)
+def test_process_residue_value_and_provenance_follow_cleanup_verdict(
+    cleanup, expected_value, expected_basis
+):
+    controller = make_controller()
+    controller.owned_tree_cleanup = cleanup
+    result = controller._render_summary(0, final=True)
+    assert result["process_residue"] == expected_value
+    assert result["evidence_basis"]["process_residue"] == expected_basis
+
+
+def test_runtime_absence_is_not_claimed_as_runtime_derived():
+    controller = make_controller()
+    controller.evidence = None
+    result = controller._render_summary(0, final=True)
+    assert result["runtime_version"] == "NOT_AVAILABLE"
+    assert result["profile"] == "NOT_AVAILABLE"
+    assert result["mcp_namespace"] == "NOT_AVAILABLE"
+    for key in ("runtime_version", "profile", "mcp_namespace", "mcp_tools"):
+        assert result["evidence_basis"][key] in {"NOT_AVAILABLE", "NOT_VERIFIED"}
 
 
 # ---------------------------------------------------------------------------

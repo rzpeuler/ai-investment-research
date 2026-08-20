@@ -40,6 +40,12 @@ trial can be independently reviewed:
 | R2-04 tree cleanup not mechanical | owned process-group + `cleanup_status` + fail-closed residue |
 | R2-05 no evidence provenance | `evidence_basis` mapping on critical fields |
 
+Final closeout status: provenance coverage is complete for the authoritative
+acceptance/scope snapshot; `P8_AUTHORITY_DB_PATH` runtime support is removed
+and the deterministic authority fixture is test-only; and the owned-process
+drain-thread lifecycle warning is covered by regression testing. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`; independent Sol acceptance is pending.
+
 ## Evidence
 
 | Gate | Result |
