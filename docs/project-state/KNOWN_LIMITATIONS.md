@@ -265,6 +265,10 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   `process residue = NO` gate 无法在本宿主机械证明；`FORMAL_TRIAL_READY = NO`。同一机制在 POSIX 由 accepted
   Linux process-group 回归测试（GitHub Offline CI on Ubuntu）证明 VERIFIED。P8-B2-ENV-01 的 READY 判定需
   Sol 独立验收；正式 10-session / 20-turn corpus 未执行。
+- **Formal provider-backed trial boundary under preparation**：正式 trial 的执行边界
+  （execution environment / credential boundary / evidence model / failure / cost / acceptance workflow）
+  由 `docs/tasks/p8-b2-live-00-trial-boundary-design.md` 定义，待 Sol 独立验收；在边界获批前
+  （P8-B2-LIVE-01 之前）不执行任何 formal corpus（`FORMAL_CORPUS_EXECUTED = NO`）。
 - 默认 runtime 仍为 P7-UX1 legacy/fallback；Harness 未被设为生产默认。
 - Frontend contract 仅为设计，未实现任何 Harness UI/API。
 - Persistent production topology、正式 credential store、load/cost evidence 与 rollout

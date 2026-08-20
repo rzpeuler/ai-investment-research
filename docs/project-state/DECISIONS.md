@@ -3304,3 +3304,30 @@ non-production, reversible trial after the no-squash merge. Default runtime
 remains `legacy`; public Harness traffic, Frontend integration, Scenario
 rollout, P7-UX1 retirement, production adoption, and P8-B3 remain NOT
 AUTHORIZED. The B2 execution agent may not self-accept the trial.
+
+## 62. P8-B2 Formal Trial Execution Boundary（2026-08-20，DESIGN FROZEN / NOT EXECUTED）
+
+为 P8-B2-LIVE-01 Formal Internal Trial 冻结执行边界（设计文档：
+`docs/tasks/p8-b2-live-00-trial-boundary-design.md`）。本 Decision 不授权执行
+trial；P8-B2-LIVE-01 之前 `FORMAL_CORPUS_EXECUTED = NO`。
+
+1. **Execution environment**：正式 trial 在 GitHub Actions `ubuntu-latest`
+   （Ubuntu 24.04.4 LTS）执行 — 与 Decision #61 POSIX validation environment
+   一致；Linux 上 `PROCESS_CLEANUP_VERIFIED = YES` / `PROCESS_RESIDUE = NO`
+   已机械验证；Windows 宿主无法提供 POSIX owned process proof（fail-closed）。
+2. **Credential boundary**：`DEEPSEEK_API_KEY` 只经 approved secret mechanism
+   （GitHub Actions secret，由 authorized operator 在 LIVE-01 授权流程中配置）
+   注入；禁止进入 repository / git history / logs / artifacts / reports；
+   只允许观察 `CREDENTIAL_PRESENT = YES`，禁止 key value / prefix / suffix /
+   length fingerprint。凭证不可用时如实 `BLOCKED`，不得伪造或替换 provider。
+3. **Evidence retention policy**：只保留 bounded aggregate evidence（frozen
+   snapshot）；原始 prompts / raw responses / reasoning / credentials /
+   内部 session id 一律不保留；临时 event log 进程本地、snapshot 冻结后删除；
+   evidence basis 词汇与 R2 一致（OBSERVED / DERIVED_FROM_OBSERVED_RUNTIME /
+   POLICY_INVARIANT / NOT_AVAILABLE / NOT_VERIFIED）。
+4. **Failure / cost semantics**：provider / MCP failure → FAIL（单次计数）；
+   process cleanup failure → FAIL_CLOSED；credential unavailable → BLOCKED；
+   无自动 retry（max_retries = 0）；max_provider_tokens = 200,000；concurrency = 1。
+5. **Acceptance**：Agent 不得 self-accept；只有独立 reviewer 可接受；
+   P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED，直到 P8-B2-LIVE-01
+   正式 corpus 完成并经独立验收。
