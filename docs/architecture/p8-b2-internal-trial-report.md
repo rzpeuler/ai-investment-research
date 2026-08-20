@@ -219,3 +219,46 @@ initialize reply; 5 offline unit tests added. Namespace `research-os-mcp/v1`,
 tools, failure semantics, budgets unchanged. Re-run condition for LIVE-01 is
 met; the formal 10-session / 20-turn corpus has NOT been re-executed. P8-B2
 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
+## P8-B2-LIVE-01-RESUME-03 Formal Trial Execution — Corpus Completed, PARTIAL (2026-08-21)
+
+STATUS: **PARTIAL**（corpus 完整执行；fail-closed evidence snapshot frozen）
+
+Environment: GitHub Actions `ubuntu-latest`（Ubuntu 24.04.4 LTS, kernel
+6.17.0-1022-azure, x86_64, Python 3.12.14, Node v24.19.0）；Harness
+`@deepseek-ai/dsh` `0.1.0-rc.7`；authority provisioned deterministically；
+REPAIR-01 MCP negotiation fix in tree（base `cb0c738`）。Workflow run
+`32391248096`（head `5efe138`），all steps SUCCESS；pre-trial readiness probe
+= READY（credential YES / connectivity YES）。
+
+Trial evidence snapshot（artifact `p8-b2-live-01-evidence/trial-evidence.json`）:
+
+| Item | Result |
+|---|---|
+| Sessions | **10 / 10**（create 10/10） |
+| Turns | **20 / 20**（attempts 20, completed 20） |
+| same_session_pass / turn2_reread_pass / turn1_evidence_pass | 20 / 10 / 10 |
+| authority_drift / auth_evidence_missing | 0 / 0 |
+| unauthorized_tool_count / cross_session_contamination | 0 / 0 |
+| provider_failures / mcp_failures / typed_failures | 0 / 0 / {} |
+| secret_scan / secret_leak_count | PASS / 0 |
+| process_residue / root / owned tree | NO / TERMINATED / VERIFIED |
+| drills（rollback / crash-restart / fallback） | PASS / PASS / PASS |
+| turn latency p50 / p95 | 6218 ms / 8767 ms |
+| total_tokens | NOT_REPORTED（usage extraction gap — see below） |
+| budget utilization | sessions 1.0 / turns 1.0 / tool_calls 0.5 / provider_tokens 0.0 |
+
+REPAIR-01 validation goals: all achieved — Harness stable across the corpus,
+20/20 provider-backed turns completed, session/turn evidence complete, process
+cleanup VERIFIED, failure semantics intact (0 typed failures).
+
+**Remaining PASS gate (only): `provider_tokens > 0`.** The accepted runtime
+reports usage in `session.history/list` under `projections.values.tokenUsage`
+with dsh-specific keys (`uncachedInputTokens`, `outputTokens`,
+`cacheReadTokens`, `cacheWriteTokens`); `_extract_usage` only maps
+`input_tokens / output_tokens / cached_tokens / total_tokens / cost_usd`, so
+the extraction is empty and `total_tokens = NOT_REPORTED` (no inference per
+LIVE-00). This is a usage-extraction mapping gap (same class as REPAIR-01),
+requiring a REPAIR-02 taskbook (map provider-reported fields + offline tests)
+before the next formal trial run. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`.

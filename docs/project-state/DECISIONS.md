@@ -3374,3 +3374,27 @@ evidence snapshot 已生成，frozen 后不可改写）。
 P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；正式 10-session / 20-turn
 corpus 未完成；下一步：Sol 独立验证 evidence，调查首 turn provider timeout 与
 Harness 进程恢复行为，按 LIVE-00 边界重新执行。Agent 不得 self-accept。
+
+## 65. P8-B2-LIVE-01-RESUME-03 Formal Trial Corpus Completed（2026-08-21）
+
+REPAIR-01（MCP protocol negotiation 修复，commit `cb0c738`）后，正式
+provider-backed trial 在 GitHub Actions `ubuntu-latest` 重新执行
+（run `32391248096`，approved credential boundary）。**10-session / 20-turn
+corpus 完整执行**：sessions 10/10、turns 20/20、turn_completed 20、typed
+failures 空、authority drift 0、unauthorized 0、secret scan PASS（0 leaks）、
+process residue NO（root TERMINATED / tree VERIFIED）、rollback / crash-restart /
+legacy fallback drills PASS、turn latency p50 6218ms / p95 8767ms。
+
+结果 **PARTIAL**：唯一未过的 PASS gate 是 `provider_tokens > 0` — accepted
+runtime（dsh rc.7）在 `session.history/list` 的 `projections.values.tokenUsage`
+以 dsh 特有键名报告 usage（`uncachedInputTokens` / `outputTokens` /
+`cacheReadTokens` / `cacheWriteTokens`），而 `_extract_usage` 只识别
+`input_tokens / output_tokens / cached_tokens / total_tokens / cost_usd` →
+提取为空 → `total_tokens = NOT_REPORTED` → `provider_tokens = 0`。这是 usage
+提取映射缺口（与 REPAIR-01 同类），不是 contract / acceptance / provider
+问题；LIVE-00 的"不推断 usage"语义保持。
+
+本 Decision 记录执行事实，不构成验收。下一步：Sol 验证 evidence →
+REPAIR-02（扩展 usage 提取映射 + 离线测试）→ 按 LIVE-00 边界重新执行正式
+trial。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得
+self-accept。

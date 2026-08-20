@@ -300,3 +300,12 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 11. Agent model profile / 套餐 UI 尚未实现。
 12. Harness 为 developer-preview upstream，正式采用前有 compatibility risk。
 13. Frontend 不得宣称 D4/D5/realtime 等尚未验收能力已自动可用。
+- **P8-B2-LIVE-01-RESUME-03（2026-08-21）**：REPAIR-01 修复后正式 corpus **已完整执行**
+  （10/10 sessions、20/20 provider-backed turns、0 failures、secret scan PASS、
+  process cleanup VERIFIED、drills PASS、latency p50 6.2s），但 STATUS 仍为 PARTIAL —
+  唯一未过的 PASS gate 是 `provider_tokens > 0`：accepted runtime 以 dsh 特有键名
+  （`projections.values.tokenUsage`：uncachedInputTokens / outputTokens /
+  cacheReadTokens / cacheWriteTokens）报告 usage，`_extract_usage` 未映射 →
+  `total_tokens = NOT_REPORTED`（LIVE-00 禁止推断，如实记录）。该 usage 提取映射缺口
+  与 REPAIR-01 同类，需 REPAIR-02 taskbook 最小修复（映射 provider-reported 字段 +
+  离线测试）后重新执行正式 trial；P8-B2 仍需 Sol 独立验收。

@@ -6,14 +6,11 @@ name: P8-B2-LIVE-01 Formal Trial
 # (600519.SH x5, 300750.SZ x5) x 2 provider-backed turns = 20 turns.
 # The credential is injected ONLY via the GitHub Actions secret mechanism;
 # the trial/probe never print, store or commit the key.
-# workflow_dispatch resolves workflows from the default branch only, so this
-# branch-local workflow also triggers on pushes to this branch; the push
-# trigger is removed after the formal run to prevent accidental re-runs.
+# The formal run completed (2026-08-21, PARTIAL — corpus completed, usage
+# extraction gap pending REPAIR-02); the branch push trigger was removed so
+# future pushes cannot accidentally re-run the provider-backed corpus.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - task/P8-B2-LIVE-01-RESUME-03-formal-trial
 
 permissions:
   contents: read

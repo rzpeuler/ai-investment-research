@@ -231,3 +231,31 @@ OCR、LLM 财务提取、Graph write、Phase 6.1、DB migration、新 Schema。
 - 688981.SH 受控缺失未被提升为 success；
 - DeepSeek 间歇性超时仍按 8/1 共享预算降级，且日志无凭证泄漏；
 - 保持分钟行情、自动历史日线、通用 OCR 和深度媒体等未验证能力为明确限制。
+
+## P8-B2-LIVE-01-RESUME-03 — Corpus Completed; PARTIAL on usage evidence gate（2026-08-21）
+
+REPAIR-01 修复后正式 trial 重新执行（run `32391248096`，GitHub Actions
+ubuntu-latest，approved credential boundary）：
+
+```text
+CORPUS: COMPLETED — sessions 10/10，turns 20/20（turn_attempts=20, completed=20）
+EVIDENCE: same_session_pass=20 / turn2_reread_pass=10 / turn1_evidence_pass=10
+  authority_drift=0 / unauthorized=0 / secret_leak=0（secret_scan=PASS）
+  provider_failures=0 / mcp_failures=0 / typed_failures={}
+  process_residue=NO（root TERMINATED / tree VERIFIED）/ drills PASS
+  latency p50=6218ms p95=8767ms / session_create 10/10
+REPAIR-01 验证目标：全部达成（Harness 稳定、20/20 provider-backed turns 完成、
+  session/turn evidence 完整、process cleanup VERIFIED、failure semantics 0 失败）
+STATUS: PARTIAL — 唯一未过的 PASS gate：provider_tokens > 0
+  （total_tokens=NOT_REPORTED：accepted runtime 在 projections.values.tokenUsage
+  以 dsh 特有键名报告 usage — uncachedInputTokens/outputTokens/cacheReadTokens/
+  cacheWriteTokens — 而 _extract_usage 未映射这些键；属 usage 提取映射缺口，
+  与 REPAIR-01 同类，需 REPAIR-02 taskbook 最小修复；非 contract/推断问题）
+NEXT ACTION:
+  1. Sol 独立验证 RESUME-03 evidence（frozen snapshot + artifact）；
+  2. REPAIR-02：扩展 _extract_usage 映射 dsh tokenUsage 键（provider-reported，
+     非推断），新增离线测试；
+  3. 修复后按 LIVE-00 边界重新执行 LIVE-01（RESUME-04）。
+  4. 在正式 corpus 通过全部 gate 并经独立验收前，P8-B2 保持
+     IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```
