@@ -1,0 +1,160 @@
+name: P8-B2-LIVE-01 Formal Trial
+
+# P8-B2-LIVE-01 / RESUME-02 formal provider-backed internal trial.
+# Runs on GitHub Actions ubuntu-latest (frozen LIVE-00 boundary): 10 sessions
+# (600519.SH x5, 300750.SZ x5) x 2 provider-backed turns = 20 turns.
+# The credential is injected ONLY via the GitHub Actions secret mechanism;
+# the trial/probe never print, store or commit the key.
+# NOTE: workflow_dispatch resolves workflows from the default branch only, so
+# this branch-local workflow also triggers on pushes to this branch; the push
+# trigger is removed after the formal run to prevent accidental re-runs.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - task/P8-B2-LIVE-01-formal-trial
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p8-b2-live-01
+  cancel-in-progress: false
+
+jobs:
+  formal-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Python dependencies
+        run: pip install ".[dev]"
+
+      - name: Install pinned Harness (npm ci)
+        working-directory: agent_runtime
+        run: npm ci
+
+      - name: Provision Research OS authority (deterministic v6 + corpus profiles)
+        run: |
+          python - <<'PYEOF'
+          import json
+          from pathlib import Path
+          from research_os.storage import Database
+
+          db = Database(Path("data/sqlite/research.db"))
+          db.initialize()  # deterministic migrations -> user_version 6
+          rows = [
+              {
+                  "security_profile_id": "714a4b94-3c9c-5ba6-b5ff-3bd34e485665",
+                  "payload": {"security_profile_id": "714a4b94-3c9c-5ba6-b5ff-3bd34e485665",
+                              "symbol": "600519.SH", "exchange": "SH", "status": "listed", "version": 1,
+                              "security_entity_id": "security:600519.SH",
+                              "company_entity_id": "company:maotai", "name": "贵州茅台",
+                              "company_name": "贵州茅台酒股份有限公司"},
+                  "security_entity_id": "security:600519.SH", "company_entity_id": "company:maotai",
+                  "symbol": "600519.SH", "exchange": "SH", "status": "listed", "version": 1,
+              },
+              {
+                  "security_profile_id": "f023225b-3a5f-5851-800e-3560482918b7",
+                  "payload": {"security_profile_id": "f023225b-3a5f-5851-800e-3560482918b7",
+                              "symbol": "300750.SZ", "exchange": "SZ", "status": "listed", "version": 1,
+                              "security_entity_id": "security:300750.SZ",
+                              "company_entity_id": "company:catl", "name": "宁德时代",
+                              "company_name": "宁德时代新能源科技股份有限公司"},
+                  "security_entity_id": "security:300750.SZ", "company_entity_id": "company:catl",
+                  "symbol": "300750.SZ", "exchange": "SZ", "status": "listed", "version": 1,
+              },
+          ]
+          for row in rows:
+              db._conn.execute(
+                  "INSERT OR REPLACE INTO security_profiles "
+                  "(security_profile_id, payload, security_entity_id, company_entity_id, symbol, exchange, status, version) "
+                  "VALUES (?,?,?,?,?,?,?,?)",
+                  (row["security_profile_id"], json.dumps(row["payload"], ensure_ascii=False),
+                   row["security_entity_id"], row["company_entity_id"], row["symbol"],
+                   row["exchange"], row["status"], row["version"]))
+          db._conn.commit()
+          version = db._conn.execute("PRAGMA user_version").fetchone()[0]
+          db._conn.close()
+          print(f"AUTHORITY_PROVISIONED user_version={version}")
+          assert version == 6, "authority DB must be v6"
+          PYEOF
+          python - <<'PYEOF'
+          from research_os.agent_runtime.research_capabilities import get_company_profile
+          for symbol in ("600519.SH", "300750.SZ"):
+              result = get_company_profile(symbol)
+              reference = (result.get("security_reference") or {}).get("symbol")
+              assert result.get("status") in {"success", "partial_success"}, result
+              assert reference == symbol, result
+              print(f"AUTHORITY_SELF_CHECK {symbol}: status={result.get('status')} reference={reference}")
+          PYEOF
+
+      - name: Environment facts
+        run: |
+          grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release
+          echo "kernel: $(uname -r)"
+          echo "arch: $(uname -m)"
+          python --version
+          node --version
+          echo "harness: $(agent_runtime/node_modules/.bin/dsh --version)"
+
+      - name: Environment + credential verification (readiness probe)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set +e
+          P8_B2_ENV_READINESS=1 PYTHONPATH=src python scripts/p8_b2_env_readiness.py | tee readiness-probe.json
+          probe_code=${PIPESTATUS[0]}
+          set -e
+          echo "READINESS_PROBE_EXIT_CODE=$probe_code"
+          if grep -q '"approved_credential_present": "NO"' readiness-probe.json; then
+            echo "BLOCKED_CREDENTIAL_UNAVAILABLE"
+            exit 3
+          fi
+          if grep -q '"credential_value_exposed": "YES"' readiness-probe.json; then
+            echo "CREDENTIAL_EXPOSED"
+            exit 3
+          fi
+
+      - name: Formal trial execution (10 sessions / 20 provider-backed turns)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        timeout-minutes: 150
+        run: |
+          set +e
+          P8_B2_INTERNAL_TRIAL=1 PYTHONPATH=src python scripts/p8_b2_internal_trial.py | tee trial-evidence.json
+          trial_code=${PIPESTATUS[0]}
+          set -e
+          echo "TRIAL_EXIT_CODE=$trial_code"
+          echo "FORMAL_CORPUS_EXECUTED=YES"
+
+      - name: Upload trial evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: p8-b2-live-01-evidence
+          path: trial-evidence.json
+          if-no-files-found: error
+
+      - name: Targeted P8-B2 tests
+        run: python -m pytest tests/unit/test_p8_b2_internal_trial.py tests/unit/test_p8_b2_evidence_integrity.py tests/unit/test_p8_b2_process_ownership_linux.py tests/unit/test_p8_b2_env_readiness.py -q
+
+      - name: Full pytest
+        run: python -m pytest
+
+      - name: Validate schemas
+        run: python -m research_os.cli.main validate
+
+      - name: Compile
+        run: python -m compileall -q src scripts tests
