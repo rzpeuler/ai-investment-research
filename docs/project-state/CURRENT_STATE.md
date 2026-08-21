@@ -388,6 +388,16 @@ validator, threshold, or default runtime changed. The report records
 `fake_model_inference=0` and `validator_bypass=0`. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
 
+## P8-B2-R5-D — Harness Benchmark Reevaluation (2026-08-21)
+
+The fixed EVAL-001 corpus was confirmed at 13 cases and the R5-D runner now
+writes `reports/harness_benchmark_r5d.json`. Live execution was attempted with
+the R5 runtime but exceeded the 180-second bound in the Harness/MCP provider
+process and was cleaned up. Final report status is `BLOCKED_PROVIDER_TIMEOUT`;
+schema-valid rate, recovery delta, repair delta, latency, and token cost are
+`NOT_AVAILABLE`. No threshold, corpus, Schema, Validator, Normalizer, or
+runtime default changed. P8-B3 remains not ready.
+
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 
 Implemented on branch `task/P8-B2-R5-C-JSON-BOUNDARY-RECOVERY-IMPLEMENTATION`.

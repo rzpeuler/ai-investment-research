@@ -442,6 +442,15 @@ bounded real probe timed out before the normal/structured comparison. Keep
 structured mode probe-only. R5-C is not recommended until the provider exposes
 and documents a supported structured transport.
 
+## P8-B2-R5-D — Harness Benchmark Reevaluation (2026-08-21)
+
+The 13-case fixed corpus was used and the report path is
+`reports/harness_benchmark_r5d.json`. The live R5 runtime exceeded the
+180-second bounded execution window (`BLOCKED_PROVIDER_TIMEOUT`); provider and
+MCP child processes were cleaned up. No live before/after metric or P8-B3 gate
+decision is available. Re-run in an environment with a bounded, responsive
+Harness runtime; do not change corpus or thresholds.
+
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 
 Implemented as a bounded deterministic adapter. Recovery supports whitespace /

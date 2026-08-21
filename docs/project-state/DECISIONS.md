@@ -3543,6 +3543,19 @@ schema 备选。
 （benchmark 重跑 + P8-B3 评估）。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
 
+## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
+
+The fixed EVAL-001 corpus contains 13 cases. R5-D updated the benchmark output
+to `reports/harness_benchmark_r5d.json` and added explicit R3 comparison plus
+JSON recovery, repair, reliability, cost, and threshold metrics. A live run
+with the R5 runtime exceeded the 180-second bounded execution window and ended
+`BLOCKED_PROVIDER_TIMEOUT`; the started Harness/MCP child processes were
+cleaned up. Therefore schema-valid rate, recovery benefit, repair benefit,
+latency, and token-cost deltas are `NOT_AVAILABLE`. No benchmark case,
+threshold, Schema, Validator, Normalizer, or default runtime changed. P8-B3
+remains not authorized and P8-B2 remains `IMPLEMENTED / PARTIAL / NOT
+ACCEPTED`.
+
 ## 77. P8-B2-R5-C Harness JSON Boundary Recovery Implementation (2026-08-21)
 
 The approved R5-C design is implemented as `src/research_os/llm/json_recovery.py`

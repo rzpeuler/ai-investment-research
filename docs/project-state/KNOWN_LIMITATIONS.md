@@ -377,6 +377,12 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   production structured mode is enabled, and no validator/schema threshold was
   changed.
 
+- **P8-B2-R5-D benchmark reevaluation (2026-08-21)**: fixed EVAL-001 corpus
+  confirmed at 13 cases. The R5 runtime benchmark exceeded the 180-second
+  bounded execution window and ended `BLOCKED_PROVIDER_TIMEOUT`; the report
+  is `reports/harness_benchmark_r5d.json`. Live schema-valid, recovery,
+  repair, latency, and token-cost comparisons remain unavailable.
+
 - **P8-B2-R5-C JSON Boundary Recovery (2026-08-21)**: deterministic recovery
   is implemented for whitespace/BOM, one Markdown fence, and one unique
   surrounding object. It rejects malformed, ambiguous, duplicate-key,

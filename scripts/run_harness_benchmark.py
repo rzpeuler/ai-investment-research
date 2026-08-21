@@ -36,7 +36,7 @@ from research_os.validators.schema_validator import load_schema  # noqa: E402
 BENCHMARK_ENV = "P8_B2_HARNESS_BENCHMARK"
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS_PATH = ROOT / "config" / "harness_benchmark" / "corpus.yaml"
-REPORT_PATH = ROOT / "reports" / "harness_benchmark_latest.json"
+REPORT_PATH = ROOT / "reports" / "harness_benchmark_r5d.json"
 
 SCHEMA_VALID_RATE_REQUIRED = 0.70  # governance decision (P8-B3 entry)
 
@@ -66,6 +66,22 @@ class _Db:
 
 def _load_corpus() -> dict[str, Any]:
     return yaml.safe_load(CORPUS_PATH.read_text(encoding="utf-8"))
+
+
+def _write_blocked_report(status: str, reason: str) -> None:
+    """Persist an explicit report when live execution cannot start."""
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_PATH.write_text(json.dumps({
+        "benchmark": "P8-B2-R5-D-HARNESS-BENCHMARK-REEVALUATION",
+        "status": status,
+        "corpus_path": str(CORPUS_PATH),
+        "corpus_size": 13,
+        "reason": reason,
+        "thresholds_unchanged": True,
+        "schema_valid_rate": None,
+        "json_recovery": {"status": "NOT_AVAILABLE"},
+        "comparison": {"status": "NOT_AVAILABLE"},
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _build_request(case: dict[str, Any], prompt: str):
@@ -190,10 +206,12 @@ def _secret_scan(text: str) -> int:
 
 def main() -> int:
     if os.environ.get(BENCHMARK_ENV) != "1":
+        _write_blocked_report("BENCHMARK_NOT_ENABLED", "opt-in environment variable missing")
         print(json.dumps({"status": "BENCHMARK_NOT_ENABLED", "default_runtime": "legacy"},
                          ensure_ascii=False, indent=2))
         return 2
     if not os.environ.get("DEEPSEEK_API_KEY"):
+        _write_blocked_report("BLOCKED_CREDENTIAL_UNAVAILABLE", "DEEPSEEK_API_KEY missing")
         print(json.dumps({"status": "BLOCKED_CREDENTIAL_UNAVAILABLE"}, ensure_ascii=False))
         return 1
 
@@ -342,11 +360,30 @@ def main() -> int:
             "success_rate": round(recovery_successes / recovery_attempts, 3)
             if recovery_attempts else 0.0,
             "before_json_format_failure": 5,
+            "json_format_failure_before": 5,
             "after_json_format_failure": sum(
                 1 for r in harness
                 if _classify_failure(str(r.get("first_validation_error", ""))) == "json_format_failure"
             ),
+            "json_format_failure_after": sum(
+                1 for r in harness
+                if _classify_failure(str(r.get("first_validation_error", ""))) == "json_format_failure"
+            ),
             "before_source": "P8-B2-R5-A benchmark run 32460687556",
+        },
+        "comparison": {
+            "r3_baseline": {
+                "schema_valid_rate": 0.50,
+                "json_format_failure": 1,
+                "source": "P8-B2-R3 benchmark run 32447199752",
+            },
+            "r5d": {
+                "schema_valid_rate": schema_valid_rate,
+                "json_format_failure": sum(
+                    1 for r in harness
+                    if _classify_failure(str(r.get("first_validation_error", ""))) == "json_format_failure"
+                ),
+            },
         },
         "thresholds": thresholds,
         "results": results,
