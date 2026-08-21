@@ -369,3 +369,9 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   缺失（各 ×5 cases）— 属模型字段完成度问题，prompt 级杠杆已穷尽；0.70 需
   治理决策级杠杆（profile/模型策略、结构化输出强制、测量方法）。Schema /
   Validator / Normalizer / threshold 未变。
+- **P8-B2-R5-A（2026-08-21）**：GenerationControlledProvider 已实现 —
+  有界 validator-driven repair loop 实证有效：missing_required_field 失败
+  从 3-5 cases 降至 0（字段级统计为空）；json_format_failure（无 JSON 输出）
+  类按任务书走诚实 fallback（5 cases，repair 不覆盖）；整体 schema_valid_rate
+  仍在运行方差带（0.2-0.5，本 run 0.3），0.70 未达。repair 增加每任务
+  ≤2 次额外 provider 调用（计入预算与 audit，无隐藏 retry）。

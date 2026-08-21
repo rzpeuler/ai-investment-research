@@ -433,3 +433,20 @@ DESIGN（无代码实现）: 下一代 Generation Control 架构 —
 NEXT: Sol 验收设计 → R5-A 实现 taskbook。P8-B2 保持
   IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-R5-A — Generation Controller 实现（2026-08-21）
+
+```text
+IMPLEMENTED: GenerationControlledProvider（provider 包装层，有界
+  generate-validate-repair loop，max_repair_passes=2）+ repair.py（字段级
+  错误提取 + 修复 prompt）+ audit 扩展（generation_pass/repair_round/
+  provider_calls/validation_error_summary）+ benchmark repair metrics
+TESTS: 9 个 fake-provider 测试；run 内 full pytest 3840 passed / 0 failed；
+  schema 86/86
+BENCHMARK（run 32460687556）: schema_valid_rate 0.3（方差带内）；
+  missing_required_field 3-5 → 0（repair 完全消除该类失败）；json_format
+  5（fallback 类）；repair metrics: success 0.333 / avg rounds 1.67 /
+  added calls 10；0.70 未达（本任务不要求）
+NEXT: Sol 验收 → R5-B（Harness JSON-mode 探测，针对 json_format 主导失败）
+  → R5-D benchmark 重跑。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

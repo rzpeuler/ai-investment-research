@@ -3542,3 +3542,21 @@ schema 备选。
 （Harness JSON-mode 探测，治理决策）→ R5-C（multi-pass 备选）→ R5-D
 （benchmark 重跑 + P8-B3 评估）。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
+
+## 74. P8-B2-R5-A Generation Controller Implementation（2026-08-21，IMPLEMENTED / AWAITING ACCEPTANCE）
+
+实现 GenerationControlledProvider（provider 包装层，LlmClient 单入口/
+预算/审计/降级不变）：有界 generate-validate-repair loop（max 2 轮），
+validator 仍为唯一质量判断来源，repair 不绕过 schema、不伪造字段；审计
+扩展 generation_pass / repair_round / provider_calls /
+validation_error_summary（向后兼容）。
+
+实证（benchmark run 32460687556）：missing_required_field 3-5 → **0**
+（repair 完全消除该类失败）；json_format_failure 5 属 fallback 类；
+repair metrics：success 0.333 / avg rounds 1.67 / added calls 10；
+schema_valid_rate 0.3（方差带内）；0.70 未达（本任务不要求）。Schema /
+Validator / Normalizer / threshold / default runtime 未变。
+
+下一步：R5-B（Harness JSON-mode 探测，针对 json_format 主导失败）→ R5-D
+benchmark 重跑。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
+Agent 不得 self-accept。
