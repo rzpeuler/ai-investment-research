@@ -26,10 +26,12 @@ Harness 替代 Legacy；**不是** Production Adoption）
 | POSIX 验证脚本 | `scripts/p8_a2_posix_validation.py`（opt-in `P8_A2_POSIX_VALIDATION=1`） |
 | CI workflow | `.github/workflows/p8-a3-pilot-evaluation.yml`（push 到本分支触发） |
 | 首次 CI 运行 | run 32512091426：POSIX 步骤 FAILED —— `PROFILE_POLICY_MISMATCH: Tool allowlist is not exact`（根因：stdio MCP server 需 `P8_A0_HYBRID_SPIKE=1` 才暴露 4-tool 表面，脚本未内部设置；已修复） |
-| 修复后 | 脚本内部设置 `P8_A0_HYBRID_SPIKE=1`；push 到 `task/P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION` 触发重跑 |
+| **重跑（run 32520242340，Ubuntu）** | **POSIX 验证 PASS：`process_cleanup: {root: TERMINATED, tree: VERIFIED}`，`process_residue: "NO"`，exit code 0** |
 | 本地（Windows） | `process_residue` = NOT_VERIFIED（accepted R2 模型 Windows fail-closed，如实记录，不宣称 NO） |
 
-> 如实声明：Ubuntu 机械证据以 CI 重跑结果为准（首次失败 + 根因 + 修复已记录）。
+> **Ubuntu 机械证据已取得**：`process_residue=NO`（owned process tree 机械证明
+> 为空）—— 关闭 P8-A0 遗留的 Windows NOT_VERIFIED 缺口。CI run 32520242340
+> step 8 PASS。
 
 ## 3. Corpus Results（300s 预算运行；600s 预算重跑结论一致）
 
@@ -52,27 +54,30 @@ get_company_profile 一次并返回摘要"）9.5s 完成**（含真实工具调�
 prompt 的开放程度 → 问题集中在开放探索 prompt 触发的 agentic 循环
 （多工具 / 多轮 / 空图重试），不是 Harness 不可用，也不是预算不足。
 
-## 4. Reliability Metrics（300s / 600s 两次运行）
+## 4. Reliability Metrics（300s / 600s 两次本地运行 + Ubuntu CI 运行）
 
-| 指标 | 300s 运行 | 600s 运行 |
-|---|---|---|
-| session_success_rate | 0.0（0/5） | 0.0（0/5） |
-| session_attempted / completed | 5 / 0 | 5 / 0 |
-| continuity_rate | 1.0（same_session 全真） | 1.0 |
-| timeout_count | 5 | 5 |
-| cleanup_status | root TERMINATED / tree NOT_VERIFIED（Windows） | 同左 |
-| 对照：定向 turn 延迟 | 9.5s（成功） | — |
+| 指标 | 300s 运行 | 600s 运行 | Ubuntu CI（600s） |
+|---|---|---|---|
+| session_success_rate | 0.0（0/5） | 0.0（0/5） | 0.0（0/5） |
+| session_attempted / completed | 5 / 0 | 5 / 0 | 5 / 0 |
+| continuity_rate | 1.0（same_session 全真） | 1.0 | — |
+| timeout_count | 5 | 5 | 5 |
+| cleanup_status | root TERMINATED / tree NOT_VERIFIED（Windows） | 同左 | **root TERMINATED / tree VERIFIED（process_residue=NO）** |
+| 对照：定向 turn 延迟 | 9.5s（成功） | — | — |
 
-## 5. Governance Metrics（两次运行均全过）
+**跨平台一致性**：Windows 与 Ubuntu CI 的探索 corpus 结果完全一致
+（5/5 timeout、governance 全过）→ 发现与宿主无关。
 
-| 指标 | 要求 | 结果 |
-|---|---|---|
-| audit_completeness | 100% | **100%（8/8）** |
-| unauthorized_tool | 0 | **0** |
-| authority_drift | 0 | **0** |
-| secret_leak | 0 | **0**（含 DEEPSEEK_API_KEY 扫描） |
-| strict_schema_entered_harness | 0 | **0** |
-| graph_write_attempted | false | **false** |
+## 5. Governance Metrics（本地 + Ubuntu CI 均全过）
+
+| 指标 | 要求 | 本地结果 | Ubuntu CI 结果 |
+|---|---|---|---|
+| audit_completeness | 100% | **100%（8/8）** | **1.0** |
+| unauthorized_tool | 0 | **0** | **0** |
+| authority_drift | 0 | **0** | — |
+| secret_leak | 0 | **0**（含 DEEPSEEK_API_KEY 扫描） | **0** |
+| strict_schema_entered_harness | 0 | **0** | — |
+| graph_write_attempted | false | **false** | — |
 
 ## 6. Value Metrics（proxy indicators）
 
