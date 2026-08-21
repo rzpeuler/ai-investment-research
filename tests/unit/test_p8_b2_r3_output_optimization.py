@@ -90,14 +90,15 @@ def test_failure_classification_categories():
     assert _classify("something else") == "other"
 
 
-def test_prompt_includes_completion_checklist_and_self_validation():
+def test_prompt_uses_measured_best_structure():
+    # R4-R1 empirical finding: the completion checklist / self-validation
+    # instructions systematically reduced schema-valid rate (0.2/0.2 across
+    # two runs) vs the R3 structure (0.5). The prompt therefore keeps the
+    # full schema + required constraints + example WITHOUT the checklist.
     prompt = build_harness_prompt(None, SIMPLE, task_name="catalyst_candidates")
-    assert "必填字段完成清单" in prompt
-    assert "[ ] id" in prompt and "[ ] company_entity_id" in prompt
-    assert "输出前自检" in prompt
-    assert "全部必填字段均已存在" in prompt
-    assert "不要输出任何自检说明文字" in prompt
-    # Combined strategy: the full schema text IS included (needed for JSON
-    # structure generation) alongside the checklist and self-validation.
-    assert "additionalProperties" in prompt  # full schema kept
-    assert "JSON Schema" in prompt
+    assert "必填字段（必须全部出现在输出中，不得缺失）" in prompt
+    assert "company_entity_id" in prompt
+    assert "完整合法示例" in prompt
+    assert "JSON Schema" in prompt and "additionalProperties" in prompt
+    assert "必填字段完成清单" not in prompt  # checklist removed (empirical regression)
+    assert "输出前自检" not in prompt
