@@ -195,7 +195,8 @@ def main() -> int:
     conn.execute("CREATE TABLE llm_call_records (call_id TEXT, payload TEXT, task_id TEXT,"
                  " module TEXT, status TEXT, called_at TEXT)")
 
-    harness_provider = HarnessLlmProvider()
+    from research_os.llm.providers.generation_controller import GenerationControlledProvider
+    harness_provider = GenerationControlledProvider(HarnessLlmProvider(), max_repair_passes=2)
     harness_client = LlmClient(provider=harness_provider, configured=True, db=_Db(conn))
     legacy_config = load_provider_config(ROOT / "config" / "llm_providers.yaml", "deepseek")
     legacy_client = LlmClient(provider=DeepSeekChatCompletionsProvider(legacy_config),
@@ -268,6 +269,20 @@ def main() -> int:
                            "status": "MET" if secret_hits == 0 else "NOT_MET"},
     }
 
+    repair_states = getattr(harness_provider, "states", [])
+    repaired = [s for s in repair_states if s.repair_round > 0]
+    repair_success_rate = round(
+        sum(1 for s in repair_states if s.repair_round > 0 and not s.validation_errors) / len(repaired), 3
+    ) if repaired else 0.0
+    average_repair_rounds = round(sum(s.repair_round for s in repaired) / len(repaired), 2) if repaired else 0.0
+    added_provider_calls = sum(s.provider_calls for s in repair_states) - len(harness)
+    repair_metrics = {
+        "repair_success_rate": repair_success_rate,
+        "average_repair_rounds": average_repair_rounds,
+        "added_provider_calls": max(added_provider_calls, 0),
+        "cases_needing_repair": len(repaired),
+    }
+
     report = {
         "benchmark": "P8-B2-EVAL-001",
         "corpus_version": corpus.get("version"),
@@ -304,6 +319,7 @@ def main() -> int:
             },
         },
         "missing_field_stats": _missing_field_stats(harness),
+        "repair_metrics": repair_metrics,
         "thresholds": thresholds,
         "results": results,
     }
