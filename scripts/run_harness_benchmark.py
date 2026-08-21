@@ -214,7 +214,7 @@ def main() -> int:
         for case in failure_cases:
             results.append(_run_failure_case(case, case["failure"], _Db(conn)))
     finally:
-        harness_provider.adapter.supervisor.stop()
+        harness_provider.base_provider.adapter.supervisor.stop()
 
     # ---------------- Metrics ----------------
     harness = [r for r in results if r["runtime"] == "harness"]
