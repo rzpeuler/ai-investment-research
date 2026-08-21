@@ -337,7 +337,8 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 ```text
 AGENT_RUNTIME_ARCHITECTURE: DESIGN_FROZEN
 HARNESS_ARCHITECTURE: DESIGN_FROZEN
-HARNESS_IMPLEMENTATION: NOT_IMPLEMENTED
+HARNESS_IMPLEMENTATION: SPIKE_COMPLETE
+HARNESS_PILOT_DESIGN: DESIGNED / AWAITING ACCEPTANCE (P8-A1, 2026-08-22)
 PRODUCTION_ACCEPTANCE: NO
 DEEPSEEK_HARNESS: TECHNICAL_INTEGRATION_VIABLE / P8-B1 FOUNDATION AUTHORIZED
 HARNESS_INTEGRATION: P8-A0 PASS / INDEPENDENTLY ACCEPTED
@@ -350,6 +351,7 @@ FRONTEND_SOURCE_EDITING: NOT_IMPLEMENTED
 P8-A0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-A0_ACCEPTED_HEAD: f16a3163814345e9aee2d00615a42dae57fd86fb
 P8-A0_HYBRID_SPIKE: EXECUTED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-21; hybrid 4-tool MCP facade + 3 skills + real continuous session; report docs/architecture/p8-a0-hybrid-runtime-spike-report.md; default runtime legacy; P8-A1 NOT_AUTHORIZED)
+P8-A1_HYBRID_PILOT_DESIGN: DESIGNED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-22; pilot design docs/architecture/p8-a1-hybrid-pilot-design.md: task classification HARNESS_ALLOWED/LEGACY_REQUIRED, deterministic Runtime Router, permission model, session governance, audit boundary, pilot acceptance criteria; docs-only, no runtime switch; P8-A2 implementation NOT_AUTHORIZED)
 P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B_DESIGN_HEAD: 9aa7071
@@ -468,6 +470,29 @@ bypass; secret scan 0). Report:
 Default runtime remains legacy; P8-B3 / production adoption remain NOT_AUTHORIZED.
 Windows process-cleanup evidence is fail-closed NOT_VERIFIED (accepted R2 model);
 POSIX re-run recommended before P8-A1.
+
+## P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN — Hybrid Agent Runtime Pilot Design (2026-08-22)
+
+Design task (docs only, production code 0 changes). Hybrid Agent Runtime pilot
+design established (`docs/architecture/p8-a1-hybrid-pilot-design.md`, Decision
+#82): core principle Exploration → Harness, Structured Research Output → Legacy.
+Task classification: `HARNESS_ALLOWED` (industry exploration / research
+preparation / evidence discovery assistance / multi-turn analyst assistant /
+hypothesis generation; output never directly becomes a formal Research
+Artifact) vs `LEGACY_REQUIRED` (FinancialFact / ResearchFinding / Catalyst /
+Risk / Evidence binding / Final report sections; strict Validator required).
+Deterministic Runtime Router (inputs task_type / output_contract / risk_level /
+authority_requirement → LEGACY_ONLY / HARNESS_ALLOWED / HYBRID; default
+LEGACY_ONLY; whitelist is config artifact). Permission model (ALLOW company
+profile / graph query / data readiness / bounded scenario trigger; DENY graph
+write / evidence mutation / financial fact creation / datasource direct
+access). Session governance (bounded lifetime; LLM request 60s / agent turn
+300s / tool 30s timeouts; token budget provider-reported ≤ governance cap).
+Audit boundary (runtime_selection / harness_session_id / skill_used /
+tools_called / authority_checks / final_artifact_source → answers "which
+runtime produced this conclusion?"). Pilot acceptance criteria (Reliability /
+Governance / Value / Cost). No implementation authorized; default runtime
+remains legacy; P8-A2 implementation NOT_AUTHORIZED.
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 

@@ -566,3 +566,35 @@ NEXT: Sol 独立验收 spike（MCP 4-tool 表面 / Skill 定义 / Session 结果
   作为默认严格结构化生成 runtime）。默认 runtime 保持 legacy；
   P8-B3 / production adoption 保持 NOT_AUTHORIZED。
 ```
+
+## P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN — Hybrid Agent Runtime Pilot Design（2026-08-22）
+
+```text
+DESIGN COMPLETE（设计任务；production code 0 changes；默认 runtime 保持
+  legacy；Harness 保持 opt-in）:
+  Hybrid Agent Runtime 生产试点设计（DECISIONS #82；
+  docs/architecture/p8-a1-hybrid-pilot-design.md）:
+  - 核心原则: Exploration → Harness；Structured Research Output → Legacy
+  - Task Classification: HARNESS_ALLOWED（industry exploration / research
+    preparation / evidence discovery assistance / multi-turn analyst
+    assistant / hypothesis generation；输出不直接成为正式 Research Artifact）
+    vs LEGACY_REQUIRED（FinancialFact / ResearchFinding / Catalyst / Risk /
+    Evidence binding / Final report sections；需严格 Validator）
+  - Runtime Router: 确定性（非 LLM 决策）；输入 task_type / output_contract /
+    risk_level / authority_requirement → LEGACY_ONLY / HARNESS_ALLOWED /
+    HYBRID；默认 LEGACY_ONLY；白名单为配置工件
+  - Permission Model: ALLOW（company profile / graph query / data readiness /
+    bounded scenario trigger）vs DENY（graph write / evidence mutation /
+    financial fact creation / datasource direct access）
+  - Session Governance: session lifetime 有界；区分 LLM request 60s / agent
+    turn 300s（P8-A0 实测 180s 不足）/ tool 30s；token budget provider-reported
+    ≤ 治理上限（如 1M/会话）
+  - Audit Boundary: runtime_selection / harness_session_id / skill_used /
+    tools_called / authority_checks / final_artifact_source
+  - Pilot Acceptance Criteria: Reliability / Governance / Value / Cost
+NEXT: Sol 验收 P8-A1 设计 → POSIX CI（ubuntu）重跑 P8-A0 spike 取得
+  process_residue=NO 的机械证据 → 独立 taskbook 授权 P8-A2（生产试点实施：
+  Runtime Router 配置工件 + 权限表落地 + audit 字段扩展 + 试点 corpus）。
+  P8-A2 不切换默认 runtime；不删除 Legacy；不改 LlmClient / Schema /
+  Validator。P8-B3 / production adoption 保持 NOT_AUTHORIZED。
+```

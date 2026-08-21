@@ -288,6 +288,26 @@ P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE 如实记录 spike 能力边界（spike 非�
 8. **Session 未持久化**：spike session 由 Harness 内部管理，未接入 Research OS
    持久化 / audit 落库（spike 只记录 bounded JSON 报告）。
 
+## 23. P8-A1 Hybrid Agent Runtime Pilot Design 限制（2026-08-22，DESIGNED / NOT IMPLEMENTED）
+
+P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN 如实记录设计边界（设计非实施）：
+
+1. **Pilot 设计未实现**：Runtime Router / Permission Model / Session
+   Governance / Audit 字段扩展均停留在设计文档（`p8-a1-hybrid-pilot-design.md`），
+   未进入代码；P8-A2 实施未授权。
+2. **默认 runtime 仍为 legacy**：Harness 保持 opt-in（spike 级别），未进入生产
+   试点；`PRODUCTION_ADOPTION = NO`。
+3. **Windows 宿主清理证据 fail-closed**（继承 P8-A0）：`process_residue` 只能
+   NOT_VERIFIED；P8-A2 前需 POSIX CI 重跑取得机械证据。
+4. **Agent turn timeout 预算**：设计建议 300s（P8-A0 实测 180s 不足）；生产试点
+   必须配置充足 turn 预算或拆分更小回合，否则高延迟任务会超时。
+5. **token 成本**：agentic 多轮 token 用量高于 legacy 单轮（LIVE-01 24-44k/
+   回合）；试点须受 token 治理上限约束（如 1M/会话），超出 fail-closed。
+6. **HARNESS_ALLOWED 价值未量化**：探索类任务对 Legacy 成稿的实际可用率
+   （exploration quality）尚无基准数据，需 P8-A2 试点 corpus 采集。
+7. **Session 未接入 Research OS 持久化 / audit 落库**：`final_artifact_source`
+   等审计字段尚未落库实现，属 P8-A2 范围。
+
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。

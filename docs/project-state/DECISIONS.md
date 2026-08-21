@@ -3659,6 +3659,44 @@ P8-A1 未授权（建议 Sol 验收 + POSIX CI 重跑后独立 taskbook 授权�
 runtime 保持 legacy；P8-B3 / production adoption 保持 NOT_AUTHORIZED；
 Agent 不得 self-accept。
 
+## 82. P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN Hybrid Agent Runtime Pilot Design（2026-08-22，DESIGNED / AWAITING ACCEPTANCE）
+
+P8-A1 生产试点设计完成（`docs/architecture/p8-a1-hybrid-pilot-design.md`，
+设计任务；production code 0 changes；默认 runtime 保持 legacy；Harness 保持
+opt-in）。基于 P8-A0 spike（SDK / session / skill / MCP tool / authority 验证
+通过）与 P8-B2（Harness 不适合严格 Schema Artifact，0.10 vs 0.90）实证，
+建立 Hybrid Runtime 使用规范：
+
+- **核心原则**：Exploration → Harness（Agent Orchestration Runtime）；
+  Structured Research Output → Legacy（research_os.llm 严格 schema 路径）。
+- **Task Classification**：HARNESS_ALLOWED（industry exploration / research
+  preparation / evidence discovery assistance / multi-turn analyst assistant /
+  hypothesis generation；输出不直接成为正式 Research Artifact）vs
+  LEGACY_REQUIRED（FinancialFact / ResearchFinding / Catalyst / Risk /
+  Evidence binding / Final report sections；需严格 Validator）。
+- **Runtime Router**：确定性（非 LLM 决策）；输入 task_type / output_contract /
+  risk_level / authority_requirement；输出 LEGACY_ONLY / HARNESS_ALLOWED /
+  HYBRID；默认 LEGACY_ONLY；白名单为配置工件。
+- **Permission Model**：ALLOW（company profile / graph query / data readiness /
+  bounded scenario trigger）vs DENY（graph write / evidence mutation /
+  financial fact creation / datasource direct access）。
+- **Session Governance**：session lifetime 有界（20 turn / 128 sessions /
+  1800s idle）；区分 LLM request timeout（60s）/ agent turn timeout（300s，
+  P8-A0 实证 180s 不足）/ tool timeout（30s）；token budget provider-reported
+  ≤ 治理上限（如 1M/会话）。
+- **Audit Boundary**：记录 runtime_selection / harness_session_id / skill_used /
+  tools_called / authority_checks / final_artifact_source；可回答"这个研究结论
+  由哪个 runtime 产生？"。
+- **Pilot Acceptance Criteria**：Reliability（session success / cleanup
+  evidence）/ Governance（audit completeness / zero unauthorized）/
+  Value（analyst usefulness / exploration quality）/
+  Cost（latency / token）；全过且 Sol 认可才进入 P8-A2。
+
+本 Decision 不授权实施（不切换 runtime、不删除 Legacy、不改 LlmClient /
+Schema / Validator）；P8-A2 生产试点实施需独立 taskbook 授权。默认 runtime
+保持 legacy；P8-B3 / production adoption 保持 NOT_AUTHORIZED；Agent 不得
+self-accept。
+
 ## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
 
 The fixed EVAL-001 corpus contains 13 cases. R5-D completed under benchmark-only
