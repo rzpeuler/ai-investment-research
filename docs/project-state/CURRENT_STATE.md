@@ -369,6 +369,7 @@ P8-B2_BUDGET-DECISION: DECIDED (2026-08-21 governance decision `docs/tasks/p8-b2
 P8-B2_BUDGET-IMPL: IMPLEMENTED (2026-08-21 BUDGET-IMPL-01: TrialBudget.max_provider_tokens 200,000 → 1,000,000 per BUDGET-DECISION-01; LIVE-00 §5.6 synced; budget test assertion pinned; full pytest/schema/compile/CI green)
 P8-B2_NEXT: Sol acceptance of BUDGET-DECISION + BUDGET-IMPL; then re-run LIVE-01 (new RESUME taskbook) per LIVE-00 boundary
 P8-B2_INTERNAL-TRIAL-001: COMPLETE (2026-08-21 harness internal-trial verification: audit confirms single AI entry = LlmClient, no second AI path; default provider stays legacy (frozen); opt-in HarnessLlmProvider (P8_B2_SCENARIO_TRIAL=1) routes scenario LLM calls through the pinned Harness control plane; 5 scenarios verified (first_coverage/earnings_expectation real EquityLlmTasks via Harness; evening_brief/stock_review/industry_research honest llm_called:false); failure/budget/audit/no-fake-MODEL_INFERENCE locked by 14 offline tests; P8-B3/production adoption NOT_AUTHORIZED)
+P8-B2_R1: COMPLETE (2026-08-21 harness output contract stabilization: deterministic normalizer unwrap/key-conformance/prune between harness output and Sol schema validation; schema-valid success 0 → 1 (catalyst_candidates via real harness, errs=0); no standard lowering, no validator bypass, no fabrication; audit +resolved_model_id (observed deepseek-v4-flash); 27 offline tests; P8-B3/production adoption NOT_AUTHORIZED)
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED
 ```
 

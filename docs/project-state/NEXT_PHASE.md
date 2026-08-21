@@ -339,3 +339,21 @@ RISKS: 默认 runtime 未切换（P8-B3 未授权）；Harness 模型路由粒�
 NEXT: Sol 验收本任务 → Production Adoption 决策（P8-B3）另行授权。
   P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-R1 — Harness 输出契约稳定化（2026-08-21）
+
+```text
+PROBLEM: Harness 输出与 Sol 严格 schema 不匹配 → schema-valid success = 0/6
+FIX: Deterministic Output Normalizer（unwrap / key conformance / prune；
+  不发明字段、不改值、不降标准）+ Harness 路径 prompt 指令强化 +
+  audit 新增 resolved_model_id（observed profile model: deepseek-v4-flash）
+VERIFICATION（run 32440917679, SUCCESS）: schema-valid success = 1 > 0 ✓
+  - earnings_expectation:catalyst_candidates 经真实 Harness 通过严格
+    catalyst schema（errs=0）
+  - 其余任务诚实回退（值级 UNKNOWN / 无 JSON / 预算耗尽），无伪造
+  - 27 个离线测试；full pytest / schema / compileall / CI 全绿
+REMAINING RISK（更新）: 多数任务仍因值级问题或无语义 JSON 回退（模型行为
+  问题，非适配层缺陷）；默认 runtime 仍 legacy；P8-B3 未授权
+NEXT: Sol 验收 R1 → Production Adoption 决策另行授权。
+  P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

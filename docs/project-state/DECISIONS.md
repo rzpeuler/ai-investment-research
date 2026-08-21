@@ -3455,3 +3455,21 @@ stock_review / industry_research 为确定性路径（`llm_called: false` 诚实
 本 Decision 记录验证事实，不构成 Production Adoption 授权。P8-B3 与生产
 默认切换仍 NOT_AUTHORIZED；P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
 Agent 不得 self-accept。
+
+## 69. P8-B2-R1 Harness Output Contract Stabilization（2026-08-21，VERIFIED / AWAITING ACCEPTANCE）
+
+P8-B2-R1 在 LlmClient 与 Sol schema 校验之间增加**确定性输出规范化层**
+（`src/research_os/llm/normalization.py`：unwrap / key conformance / prune），
+三层边界 = raw harness output → normalized output → validated artifact。
+**未降低 schema 标准、未绕过验证器、未将模型输出直写 Research Object**；
+规范化后仍违反 schema（缺失必填/枚举/格式）继续诚实回退。
+
+验证（真实 Harness，run 32440917679，SUCCESS）：schema-valid success
+**0 → 1** — `earnings_expectation:catalyst_candidates` 经 Harness→DeepSeek→
+规范化→严格 catalyst schema 校验通过（errs=0）。其余任务因值级问题
+（`UNKNOWN` 等）或无语义 JSON 回退，无伪造。audit 新增 `resolved_model_id`
+（observed profile model deepseek-v4-flash），`model_id` 保持兼容。
+
+本 Decision 记录验证事实与适配层边界，不构成 Production Adoption 授权；
+P8-B3 与生产默认切换仍 NOT_AUTHORIZED；P8-B2 保持
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。

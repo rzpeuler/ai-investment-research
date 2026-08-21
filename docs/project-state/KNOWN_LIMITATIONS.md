@@ -340,3 +340,11 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   `HarnessLlmProvider`），经 Harness 的调用其 model_id 报告为
   `deepseek-harness/<class>`（Harness 响应不暴露实际模型名 — 路由粒度限制）。
   Production Adoption（P8-B3）仍 NOT_AUTHORIZED。
+- **P8-B2-R1（2026-08-21）**：Harness 输出契约已通过确定性规范化层稳定 —
+  `normalize_harness_output`（unwrap / key conformance / prune，不发明字段、
+  不降标准）使真实 Harness 路径出现首个 schema-valid 成功
+  （catalyst_candidates，errs=0；schema-valid success 0 → 1）。其余任务仍
+  因值级问题（如 `company_entity_id: 'UNKNOWN'` 不匹配 `^company:`）或无
+  语义 JSON 输出而诚实回退 — 属模型行为问题，非适配层缺陷；进一步提升需
+  模型/提示策略评估。audit 新增 `resolved_model_id`（observed profile model
+  deepseek-v4-flash）。P8-B2 仍需 Sol 独立验收。

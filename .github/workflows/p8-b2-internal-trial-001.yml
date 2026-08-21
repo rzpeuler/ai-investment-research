@@ -8,13 +8,12 @@ name: P8-B2-INTERNAL-TRIAL-001 Scenario Verification
 # Bounded: at most 16 harness-backed provider calls per run. The credential is
 # injected ONLY via the GitHub Actions secret mechanism; the provider never
 # prints or stores the key. workflow_dispatch resolves workflows from the
-# default branch only, so this branch-local workflow also triggers on pushes
-# to the R1 branch; the push trigger is removed after the verification run.
+# default branch only, so this branch-local workflow also triggered on pushes
+# to the R1 branch; the R1 verification run completed (2026-08-21, SUCCESS,
+# schema-valid success = 1); the push trigger is removed to prevent accidental
+# re-runs.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - task/P8-B2-R1-HARNESS-OUTPUT-CONTRACT-STABILIZATION
 
 permissions:
   contents: read
