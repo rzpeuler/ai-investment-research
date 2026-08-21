@@ -377,6 +377,17 @@ P8-B2_R5-A: COMPLETE (2026-08-21 generation controller implemented: GenerationCo
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED
 ```
 
+## P8-B2-R5-B — Harness Structured Output Capability Probe (2026-08-21)
+
+The probe-only capability detector and bounded normal-vs-structured runner are
+implemented. The pinned Harness adapter exposes no provider-level
+`send_structured_message` seam; the real bounded probe ended
+`BLOCKED / PROBE_TIMEOUT` before comparison metrics were available. No
+structured-output support is claimed, and no production routing, schema,
+validator, threshold, or default runtime changed. The report records
+`fake_model_inference=0` and `validator_bypass=0`. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
 本治理冻结只改文档（AGENTS.md / README.md / engineering-guide / DECISIONS / 状态文档 /
 architecture 文档 / 任务书）；production code 0 changes、schema count 86 不变、DB v6
 不变、migrations NONE、source registry 不变。

@@ -26,6 +26,7 @@ from research_os.agent_runtime.config import AgentRuntimeConfig
 from research_os.agent_runtime.production_runtime import build_production_harness_adapter
 from research_os.llm.normalization import normalize_harness_output
 from research_os.llm.schema_context import build_harness_prompt
+from research_os.llm.structured_output import detect_structured_output_capability
 
 # Opt-in marker; identical semantics to the trial's P8_B2_INTERNAL_TRIAL=1.
 SCENARIO_TRIAL_ENV = "P8_B2_SCENARIO_TRIAL"
@@ -77,7 +78,8 @@ class HarnessLlmProvider:
     provider_id = "deepseek-harness"
 
     def __init__(self, adapter: Any = None, *, timeout_seconds: int = _TIMEOUT_SECONDS,
-                 max_input_chars: int = _MAX_INPUT_CHARS, resolved_model_id: str | None = None):
+                 max_input_chars: int = _MAX_INPUT_CHARS, resolved_model_id: str | None = None,
+                 structured_output: bool = False):
         if adapter is None:
             adapter, resolved_model_id = build_harness_adapter()
         self.adapter = adapter
@@ -86,7 +88,22 @@ class HarnessLlmProvider:
         # Observed from the composed runtime config (agent-default-model);
         # the Harness session itself does not expose the model per call.
         self.resolved_model_id = resolved_model_id or "deepseek-v4-flash"
+        self.structured_output = structured_output
         self.calls: list[dict[str, Any]] = []
+
+    def capability(self) -> dict[str, Any]:
+        """Return probe metadata without changing runtime behavior."""
+        if not self.structured_output:
+            return {
+                "provider": self.provider_id,
+                "model": self.resolved_model_id,
+                "structured_output_supported": callable(
+                    getattr(self.adapter, "send_structured_message", None)),
+                "mode": "normal",
+                "status": "NOT_REQUESTED",
+                "configuration": {"transport": "provider_level"},
+            }
+        return detect_structured_output_capability(self, self.resolved_model_id).as_dict()
 
     def complete_json(self, request, output_schema: dict[str, Any]) -> dict[str, Any]:
         if len(request.prompt) > self.max_input_chars:
@@ -99,12 +116,27 @@ class HarnessLlmProvider:
         started_at = self.calls.__len__()
         entry = {"call_id": request.call_id, "task_id": request.task_id,
                  "model_class": request.requested_model_class, "started_at": started_at}
+        send_structured = None
+        if self.structured_output:
+            send_structured = getattr(self.adapter, "send_structured_message", None)
+            if not callable(send_structured):
+                entry["status"] = "unsupported"
+                self.calls.append(entry)
+                return self._error(
+                    "structured_output_unsupported",
+                    "Harness adapter has no provider-level structured-output method",
+                    False,
+                )
         try:
             session = self.adapter.create_session({"provider": self.provider_id,
                                                    "task_id": request.task_id,
                                                    "call_id": request.call_id})
             try:
-                result = self.adapter.send_message(session, prompt)
+                if self.structured_output:
+                    assert send_structured is not None
+                    result = send_structured(session, prompt, output_schema)
+                else:
+                    result = self.adapter.send_message(session, prompt)
             finally:
                 try:
                     self.adapter.close_session(session)

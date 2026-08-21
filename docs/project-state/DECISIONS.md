@@ -3543,6 +3543,20 @@ schema 备选。
 （benchmark 重跑 + P8-B3 评估）。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
 
+## 75. P8-B2-R5-B Harness Structured Output Capability Probe (2026-08-21)
+
+The probe-only implementation adds an explicit capability matrix and bounded
+normal-vs-structured runner. Structured mode is considered supported only when
+the provider adapter exposes a provider-level `send_structured_message` seam;
+prompt instructions alone are not capability evidence. The pinned Harness
+adapter exposes no such seam, and the real bounded probe ended
+`BLOCKED / PROBE_TIMEOUT`, so JSON parse success, schema-valid-rate, latency,
+and token-cost deltas are `NOT_AVAILABLE`. The report records
+`fake_model_inference=0` and `validator_bypass=0`; no schema, validator,
+threshold, production routing, or default runtime changed. R5-C is not
+recommended pending an actual provider capability. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
 ## 74. P8-B2-R5-A Generation Controller Implementation（2026-08-21，IMPLEMENTED / AWAITING ACCEPTANCE）
 
 实现 GenerationControlledProvider（provider 包装层，LlmClient 单入口/

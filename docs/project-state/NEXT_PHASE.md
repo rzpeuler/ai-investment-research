@@ -434,6 +434,14 @@ NEXT: Sol 验收设计 → R5-A 实现 taskbook。P8-B2 保持
   IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
 
+## P8-B2-R5-B probe result (2026-08-21)
+
+The structured-output capability probe did not establish provider support: the
+pinned Harness adapter has no provider-level structured-output method, and the
+bounded real probe timed out before the normal/structured comparison. Keep
+structured mode probe-only. R5-C is not recommended until the provider exposes
+and documents a supported structured transport.
+
 ## P8-B2-R5-A — Generation Controller 实现（2026-08-21）
 
 ```text

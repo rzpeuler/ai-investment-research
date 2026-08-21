@@ -369,6 +369,14 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   缺失（各 ×5 cases）— 属模型字段完成度问题，prompt 级杠杆已穷尽；0.70 需
   治理决策级杠杆（profile/模型策略、结构化输出强制、测量方法）。Schema /
   Validator / Normalizer / threshold 未变。
+- **P8-B2-R5-B structured output probe (2026-08-21)**: the capability matrix
+  and probe runner are implemented, but the pinned Harness adapter has no
+  provider-level structured-output transport. The bounded real probe ended
+  `BLOCKED / PROBE_TIMEOUT`; normal-vs-structured JSON success,
+  schema-valid-rate, latency, and token-cost deltas are `NOT_AVAILABLE`. No
+  production structured mode is enabled, and no validator/schema threshold was
+  changed.
+
 - **P8-B2-R5-A（2026-08-21）**：GenerationControlledProvider 已实现 —
   有界 validator-driven repair loop 实证有效：missing_required_field 失败
   从 3-5 cases 降至 0（字段级统计为空）；json_format_failure（无 JSON 输出）
