@@ -348,3 +348,10 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   语义 JSON 输出而诚实回退 — 属模型行为问题，非适配层缺陷；进一步提升需
   模型/提示策略评估。audit 新增 `resolved_model_id`（observed profile model
   deepseek-v4-flash）。P8-B2 仍需 Sol 独立验收。
+- **P8-B2-EVAL-001（2026-08-21）**：Harness 质量评估体系已建立并完成首次真实
+  运行 — 客观指标：schema_valid_rate=0.10（门槛 0.70，NOT_MET），legacy 对照
+  0.80；其余 6 项阈值（无伪造/无旁路/审计完整/预算/secret/silent retry）全
+  MET；3 个 failure cases 诚实回退。首次结论：P8-B3 暂不进入，需提升 Harness
+  输出符合率后重跑。已知限制：fallback 记录不携带 provider_usage（LlmClient
+  accepted 语义），token_usage 仅统计成功路径；benchmark 报告位于 gitignored
+  reports/。

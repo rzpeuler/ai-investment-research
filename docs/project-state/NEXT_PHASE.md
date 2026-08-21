@@ -357,3 +357,23 @@ REMAINING RISK（更新）: 多数任务仍因值级问题或无语义 JSON 回�
 NEXT: Sol 验收 R1 → Production Adoption 决策另行授权。
   P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-EVAL-001 — Harness Quality Benchmark 建立（2026-08-21）
+
+```text
+BUILT: benchmark corpus（13 cases：5 equity + 5 research + 3 failure，
+  与 LIVE-01 完全解耦）+ runner（scripts/run_harness_benchmark.py）+
+  metrics collector + 阈值评估 + reports/harness_benchmark_latest.json
+FIRST RUN（run 32444324435, SUCCESS）:
+  schema_valid_rate = 0.10（1/10）— 未达 0.70 门槛（NOT_MET）
+  legacy reference = 0.80（同 cases）→ 客观量化 harness 与 legacy 差距
+  其余阈值全 MET（fake MODEL_INFERENCE=0 / validator bypass=0 /
+  audit completeness=1.0 / budget violation=0 / secret leakage=0 /
+  silent retry=0）
+  failure cases 3/3 诚实回退；full pytest 3824 passed / 0 failed
+P8-B3 建议: 暂不进入 — schema_valid_rate 未达门槛；需 harness 输出符合率
+  专项提升后重跑 benchmark；判断规则 = Benchmark PASS + LIVE-01 PASS +
+  成本评估 + 人工体验确认 → P8-B3 Decision
+NEXT: Sol 验收 EVAL-001 → harness 输出符合率专项 → 重跑 benchmark。
+  P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

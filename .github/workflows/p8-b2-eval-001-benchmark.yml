@@ -8,13 +8,11 @@ name: P8-B2-EVAL-001 Harness Quality Benchmark
 # P8_B2_HARNESS_BENCHMARK=1; default runtime remains legacy.
 # The credential is injected ONLY via the GitHub Actions secret mechanism.
 # workflow_dispatch resolves workflows from the default branch only, so this
-# branch-local workflow also triggers on pushes to the EVAL-001 branch; the
-# push trigger is removed after the benchmark run.
+# branch-local workflow also triggered on pushes to the EVAL-001 branch; the
+# first benchmark run completed (2026-08-21, SUCCESS); the push trigger is
+# removed to prevent accidental re-runs.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - task/P8-B2-EVAL-001-HARNESS-QUALITY-BENCHMARK
 
 permissions:
   contents: read

@@ -3473,3 +3473,19 @@ P8-B2-R1 在 LlmClient 与 Sol schema 校验之间增加**确定性输出规范�
 本 Decision 记录验证事实与适配层边界，不构成 Production Adoption 授权；
 P8-B3 与生产默认切换仍 NOT_AUTHORIZED；P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
+
+## 70. P8-B2-EVAL-001 Harness Quality Benchmark（2026-08-21，ESTABLISHED / AWAITING ACCEPTANCE）
+
+建立 Harness 质量评估体系（corpus 13 cases，与 LIVE-01 acceptance corpus
+完全解耦；runner + metrics + 阈值评估）。首次真实运行（run 32444324435）
+产出客观数据：
+
+- schema_valid_rate=0.10（门槛 0.70 → NOT_MET）；legacy 对照 0.80；
+- fake MODEL_INFERENCE=0 / validator bypass=0 / audit completeness=1.0 /
+  budget violation=0 / secret leakage=0 / silent retry=0（全 MET）；
+- failure cases 3/3 诚实回退；full pytest 3824 passed / 0 failed。
+
+**P8-B3 判断规则（治理）**：Benchmark PASS + LIVE-01 PASS + 成本评估通过 +
+人工研究体验确认 → P8-B3 Decision；单项指标不等于 Production。首次运行
+结论：暂不进入 P8-B3；需 Harness 输出符合率专项提升后重跑。P8-B2 保持
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
