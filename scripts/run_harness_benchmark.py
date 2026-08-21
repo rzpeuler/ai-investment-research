@@ -84,8 +84,8 @@ def _build_request(case: dict[str, Any], prompt: str):
 
 
 def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> dict[str, Any]:
-    evidence = "\n".join(f"- {item}" for item in case["evidence"])
-    prompt = f"{case['prompt']}\n\n证据：\n{evidence}"
+    evidence = "\n".join(f"- {item}" for item in case.get("evidence", []))
+    prompt = f"{case.get('prompt', 'Return JSON')}\n\n证据：\n{evidence}"
     request = _build_request(case, prompt)
     started = time.monotonic()
     resp = client.generate_json(request, load_schema(case["schema_name"]))
@@ -102,7 +102,7 @@ def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
 
 def _run_equity_case(client: LlmClient, case: dict[str, Any], runtime: str) -> dict[str, Any]:
     tasks = EquityLlmTasks(client, depth="fast")  # flash_max=2, pro_max=0 (bounded)
-    excerpts = list(case["evidence"])
+    excerpts = list(case.get("evidence", []))
     started = time.monotonic()
     resp = tasks.run_task(
         case["task"], task_id=f"bench:{case['id']}",
