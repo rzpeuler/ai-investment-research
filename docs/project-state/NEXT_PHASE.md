@@ -398,3 +398,22 @@ P8-B3 建议: 暂不进入 — 下一轮优化（必填字段强制/示例对齐
 NEXT: Sol 验收 R3 → 下一轮输出优化 → 重跑 → 达 0.70 后再评估 P8-B3。
   P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-R4 — Harness Schema Adherence Optimization（2026-08-21）
+
+```text
+IMPLEMENTED: task schema slice + required completion checklist + self-validation
+  instruction + field-level missing stats（benchmark 增强）
+EMPIRICAL ITERATION（同 corpus 13 cases, 4 runs）:
+  R3 结构（完整 schema+约束+示例）: 0.5 / 0.4（测量最优）
+  R4 slice-only: 0.3
+  R4 组合（+checklist+自检）: 0.2 / 0.2（系统性回归，已回退）
+RESULT: schema_valid_rate 0.50 → 0.40（R3 结构重测）；目标 ≥0.70 未达成
+FAILURE FIELD STATS: finding_id 等 20 个必填字段各缺失 ×5 cases —
+  系统性字段完成度问题，prompt 级指令无法修复
+P8-B3 建议: 暂不进入 — 允许的 prompt 杠杆已到测量上限；0.70 需超出本任务
+  范围的杠杆（profile/模型策略、结构化输出强制、测量方法治理 — 均属治理/
+  架构决策）
+NEXT: Sol 验收 R4 → 治理决策下一杠杆方向。P8-B2 保持
+  IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

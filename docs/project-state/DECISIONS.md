@@ -3505,3 +3505,19 @@ Production runtime；示例仅作上下文、不伪造输出。benchmark 增加�
 未达（剩余 4 missing_required_field + 1 json_format）— 需下一轮优化后
 重跑。P8-B3 建议：暂不进入。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
+
+## 72. P8-B2-R4 Harness Schema Adherence Optimization（2026-08-21，VERIFIED / AWAITING ACCEPTANCE）
+
+实施 task-specific contract guidance（schema slice / completion checklist /
+self-validation）+ benchmark 字段级失败统计，并经 4 次真实 benchmark 运行
+实证迭代：checklist 与自检指令系统性回归（0.2×2），slice-only 0.3，R3
+结构（完整 schema + 必填约束 + 示例）为允许范围内的测量最优（0.4-0.5）。
+**目标 ≥0.70 未达成**（如实记录，不伪造、不降标准）；失败字段统计显示
+research_finding 的 20 个必填字段系统性缺失（finding_id 等各 ×5 cases）—
+属模型字段完成度问题，prompt 级杠杆已穷尽。
+
+P8-B3 建议：暂不进入；达到 0.70 需要超出本任务范围的杠杆（Harness
+profile/模型策略变更、provider 层结构化输出强制、benchmark 测量方法治理 —
+均属后续治理/架构决策）。Schema / Validator / Normalizer / Benchmark
+threshold 未变。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
+Agent 不得 self-accept。

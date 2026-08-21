@@ -361,3 +361,11 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   0.70 未达。优化手段为 schema-aware prompt 上下文（必填清单/约束摘要/
   确定性示例）；Schema / Validator / Normalizer 规则未变；失败分类已加入
   benchmark（json_format/missing_required/enum/value_format）。
+- **P8-B2-R4（2026-08-21）**：Harness schema adherence 优化实证迭代完成 —
+  task-specific slice / completion checklist / self-validation 均已实施并经
+  benchmark 实测：checklist 与自检指令系统性降低符合率（0.2×2），slice-only
+  0.3，R3 结构（完整 schema+约束+示例）为测量最优（0.4-0.5）。目标 ≥0.70
+  未达成（如实记录）；失败字段统计显示 finding_id 等 20 个必填字段系统性
+  缺失（各 ×5 cases）— 属模型字段完成度问题，prompt 级杠杆已穷尽；0.70 需
+  治理决策级杠杆（profile/模型策略、结构化输出强制、测量方法）。Schema /
+  Validator / Normalizer / threshold 未变。
