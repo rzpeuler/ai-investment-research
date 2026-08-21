@@ -514,3 +514,27 @@ NEXT: Sol 验收 R6 → 若认可 HARNESS_CANDIDATE 领域，另立独立 taskbo
   P8-B3 结构化生成默认路径维持 legacy；P8-B3 保持 NOT_AUTHORIZED。
   P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-ARCH-001 — Harness Hybrid Runtime Architecture Freeze（2026-08-21）
+
+```text
+GOVERNANCE FREEZE（只改文档；production code 0 changes）:
+  DeepSeek Harness Hybrid Runtime Architecture 正式冻结
+  （DECISIONS #80；docs/architecture/harness-hybrid-runtime-architecture.md；
+  engineering-guide V1.9 §0.9）。
+  - Harness = Agent Orchestration Runtime（Conversation / Durable Session /
+    Goal Management / Skill Loading / Tool Scheduling / Exploration Workflow）；
+    不是默认严格结构化生成 runtime（benchmark harness 0.10 vs legacy 0.90）
+  - Research OS = Research Intelligence Authority（身份/就绪/采集/证据/PIT/
+    图谱/工作流/Validator/报告）
+  - LLM: 保留 research_os.llm；禁止因接入 Harness 重写 LlmClient
+  - MCP: Harness → MCP → Research OS Tools；禁止直连 Data Source/Collector/
+    DB/Graph Write
+  - Skill = 能力说明+工作方法+routing metadata；Tool = 受治理可执行接口
+  - 状态: HARNESS_ARCHITECTURE=DESIGN_FROZEN / HARNESS_IMPLEMENTATION=
+    NOT_IMPLEMENTED / PRODUCTION_ACCEPTANCE=NO
+NEXT: D4 已完成（ACCEPTED / MERGED 2026-08-19，范围不变）→ 后续独立授权
+  P8-A0 Hybrid Agent Runtime Spike（最小范围，另行 taskbook）→ 独立架构验收
+  → 再决定 Harness production adoption。默认 runtime 保持 legacy；
+  P8-B3 / production adoption 保持 NOT_AUTHORIZED。
+```

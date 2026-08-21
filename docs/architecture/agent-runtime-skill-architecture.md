@@ -7,6 +7,13 @@
 >
 > 本文件冻结**目标架构**，不描述已上线系统。当前实际运行的会话入口仍是
 > **P7-UX1 existing chat control layer**；DeepSeek Harness 尚未进入本项目生产。
+>
+> **补充（2026-08-21，Decision #80）**：Hybrid 运行时边界由
+> `docs/architecture/harness-hybrid-runtime-architecture.md`（P8-ARCH-001）
+> 冻结：Harness = Agent Orchestration Runtime，**不作为默认严格结构化生成
+> runtime**（benchmark harness 0.10 vs legacy 0.90）；严格结构化生成继续走
+> Legacy。本文件 #54 的 Authority / Memory / MCP / Skill / Tool / Security
+> 边界全部继承不变，二者不冲突。
 
 ---
 

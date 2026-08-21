@@ -3572,6 +3572,64 @@ P8-B3 建议：**暂不将 Harness 作为默认生产结构化生成 runtime**�
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；P8-B3 保持 `NOT_AUTHORIZED`；
 Agent 不得 self-accept。
 
+## 80. P8-ARCH-001 Harness Hybrid Runtime Architecture Freeze（2026-08-21，DESIGN FROZEN / AWAITING ACCEPTANCE）
+
+将 DeepSeek Harness Hybrid Runtime Architecture 正式冻结进治理文档
+（P8-ARCH-001，纯文档治理任务；production code 0 changes）。基于 P8-B2
+实证（Harness schema_valid_rate 0.10 vs Legacy 0.90，P8-B3 门槛 0.70
+NOT_MET）确认：Harness **不作为默认严格结构化生成 runtime**。
+
+### 80.1 Harness 定位（Agent Orchestration Runtime）
+
+负责：Conversation、Durable Session、Goal Management、Skill Loading、
+Tool Scheduling、Exploration Workflow。
+不负责：Financial Authority、Evidence Authority、Knowledge Authority、
+Structured Artifact Validation。
+
+### 80.2 Research OS 定位（Research Intelligence Authority）
+
+唯一承担：Company identity、DataReadiness、Acquisition、FinancialFact、
+Evidence、PIT、Industry Graph、Research Workflow、Validator、
+Report Generation。
+
+### 80.3 LLM 边界
+
+保留 `research_os.llm`（Structured Generation / Schema Validation / Budget
+Control / Audit / Fallback）。第一阶段允许 Harness Agent LLM 与 Research
+Workflow LLM 并存。**禁止**因接入 Harness 而重写 LlmClient。
+
+### 80.4 MCP 边界
+
+冻结拓扑：`Harness → MCP → Research OS Tools`。Harness 不得直接访问
+Data Source / Collector / Database / Graph Write；所有能力必须经过
+Research OS Tool Boundary（`research-os-mcp/v1`）。
+
+### 80.5 Skill / Tool 边界
+
+- Skill = 能力说明 + 工作方法 + Agent routing metadata；不是业务代码 /
+  数据 Authority / Validator。
+- Tool = 可执行、受治理能力接口。允许：get_company_profile /
+  check_data_readiness / query_industry_graph。限制：apply_graph_change /
+  direct_data_source_access（DENY）。
+
+### 80.6 Memory 边界
+
+继承 #54 三分法：Conversation Memory（Harness Session）/
+Research State（Research OS）/ Knowledge Memory（Research OS
+SQLite/Evidence/Versioned Graph）。
+
+### 80.7 状态
+
+```text
+HARNESS_ARCHITECTURE: DESIGN_FROZEN
+HARNESS_IMPLEMENTATION: NOT_IMPLEMENTED
+PRODUCTION_ACCEPTANCE: NO
+```
+
+默认 runtime 保持 legacy；D4 范围不变（D4 已完成验收，不受本冻结影响）。
+P8-A0 Hybrid Agent Runtime Spike 为未来另行授权的最小 spike。本 Decision
+不授权任何 Harness / MCP / Skill 实施。Agent 不得 self-accept。
+
 ## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
 
 The fixed EVAL-001 corpus contains 13 cases. R5-D completed under benchmark-only

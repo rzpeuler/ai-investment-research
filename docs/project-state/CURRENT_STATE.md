@@ -8,7 +8,7 @@
 > P7-D2：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `55c4ba5`）
 > P7-D3：PASS / INDEPENDENTLY ACCEPTED（2026-08-18，accepted head `e8a4a9f`；已合并进 master）
 > P7-D4：IMPLEMENTED / ACCEPTED（2026-08-19 独立验收通过并 no-squash 合并进 master，accepted baseline `8b153b3`）
-> 权威规范：`docs/engineering-guide.md` V1.8
+> 权威规范：`docs/engineering-guide.md` V1.9
 > 本文件只陈述实际完成状态，不覆盖工程指南或正式决策。
 
 ## 工程基线
@@ -336,6 +336,9 @@ PR5B 已 squash merge（master `cfdeeba7`）。M0-M10 PASS。PR5C #6 MERGED / SQ
 
 ```text
 AGENT_RUNTIME_ARCHITECTURE: DESIGN_FROZEN
+HARNESS_ARCHITECTURE: DESIGN_FROZEN
+HARNESS_IMPLEMENTATION: NOT_IMPLEMENTED
+PRODUCTION_ACCEPTANCE: NO
 DEEPSEEK_HARNESS: TECHNICAL_INTEGRATION_VIABLE / P8-B1 FOUNDATION AUTHORIZED
 HARNESS_INTEGRATION: P8-A0 PASS / INDEPENDENTLY ACCEPTED
 HARNESS_PRODUCTION_ACCEPTANCE: NO
@@ -421,6 +424,27 @@ structured runtime. Deliverables: `docs/tasks/p8-b2-r6-harness-generation-
 strategy-evaluation.md`, `docs/architecture/harness-task-runtime-routing-design.md`.
 P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; P8-B3 remains
 `NOT_AUTHORIZED`.
+
+## P8-ARCH-001 — Harness Hybrid Runtime Architecture Freeze (2026-08-21)
+
+Governance-freeze task (docs only, production code 0 changes). DeepSeek Harness
+Hybrid Runtime Architecture formally frozen into governance (Decision #80;
+`docs/architecture/harness-hybrid-runtime-architecture.md`; engineering-guide
+V1.9 §0.9). Based on P8-B2 evidence (harness schema_valid_rate 0.10 vs legacy
+0.90, P8-B3 gate 0.70 NOT_MET): Harness = Agent Orchestration Runtime
+(Conversation / Durable Session / Goal Management / Skill Loading / Tool
+Scheduling / Exploration Workflow), NOT the default strict structured-generation
+runtime; Research OS = Research Intelligence Authority (identity / readiness /
+acquisition / evidence / PIT / graph / workflow / validator / report). LLM:
+keep `research_os.llm`, allow dual LLM coexistence, no LlmClient rewrite. MCP:
+Harness → MCP → Research OS Tools; no direct Data Source / Collector / DB /
+Graph Write access. Skill = capability description + working method + routing
+metadata; Tool = governed executable interface (allow get_company_profile /
+check_data_readiness / query_industry_graph; deny apply_graph_change /
+direct_data_source_access). Status: `HARNESS_ARCHITECTURE=DESIGN_FROZEN`,
+`HARNESS_IMPLEMENTATION=NOT_IMPLEMENTED`, `PRODUCTION_ACCEPTANCE=NO`.
+D4 scope unchanged (D4 already ACCEPTED/MERGED). Next after D4:
+P8-A0 Hybrid Agent Runtime Spike (separate authorization).
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 

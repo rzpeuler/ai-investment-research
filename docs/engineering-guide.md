@@ -1,7 +1,7 @@
 # AI＋投研 Skill 工程执行说明与指南
 
-**版本：V1.8**
-**变更日期：2026-08-18**
+**版本：V1.9**
+**变更日期：2026-08-21**
 **状态：当前唯一有效工程基线**
 **适用市场：A 股为主，港股、美股、商品与海外宏观仅作为背景或对照**  
 **主要执行环境：Hermes＋DeepSeek V4 Flash，复杂任务路由至 V4 Pro；Codex 作为可选工程审查与复杂重构工具**  
@@ -330,6 +330,37 @@ Agent Runtime 或前端实施。长期目标架构见
 （P7-D4 IS UNAFFECTED）；P7-D4 恢复后继续严格按当前 D4 taskbook 完成。P8-A0
 （DeepSeek Harness Integration Spike）设计意图 APPROVED，但实施 NOT_AUTHORIZED，
 须在 P7-D4 PASS + INDEPENDENTLY_ACCEPTED + MERGED 之后单独授权。
+
+### 0.9 V1.9 Hybrid Agent Runtime 边界冻结（2026-08-21）
+
+基于 P8-B2 实证（Harness schema_valid_rate 0.10 vs Legacy 0.90，P8-B3 门槛
+0.70 NOT_MET），正式冻结 **Hybrid Agent Runtime Architecture**
+（`docs/architecture/harness-hybrid-runtime-architecture.md`，Decision #80）。
+本版本只新增**长期稳定边界原则**，不授权任何实施：
+
+1. Harness = **Agent Orchestration Runtime**：负责 Conversation / Durable
+   Session / Goal Management / Skill Loading / Tool Scheduling /
+   Exploration Workflow；**不负责** Financial / Evidence / Knowledge
+   Authority 与 Structured Artifact Validation。
+2. Research OS = **Research Intelligence Authority**：Company identity /
+   DataReadiness / Acquisition / FinancialFact / Evidence / PIT /
+   Industry Graph / Research Workflow / Validator / Report Generation 唯一权威。
+3. **严格结构化生成默认走 Legacy**（`research_os.llm`），不用 Harness 作默认
+   严格结构化生成 runtime；Harness 定位为 agentic 探索 / 工具 / 多轮 / 自由文本。
+4. 保留 `research_os.llm`；第一阶段允许 Harness Agent LLM 与 Research Workflow
+   LLM 并存；**禁止**因接入 Harness 而重写 LlmClient。
+5. MCP 边界：Harness → MCP → Research OS Tools；Harness 不得直接访问 Data
+   Source / Collector / Database / Graph Write；所有能力经过 Research OS Tool
+   Boundary。
+6. Skill = 能力说明 + 工作方法 + Agent routing metadata；不是业务代码 / 数据
+   Authority / Validator。Tool = 可执行、受治理能力接口（allow：
+   get_company_profile / check_data_readiness / query_industry_graph；
+   deny：apply_graph_change / direct_data_source_access）。
+7. 继承 #54 Memory 三分法：Conversation Memory（Harness Session）/
+   Research State（Research OS）/ Knowledge Memory（Research OS）。
+8. 状态：HARNESS_ARCHITECTURE=DESIGN_FROZEN；HARNESS_IMPLEMENTATION=
+   NOT_IMPLEMENTED；PRODUCTION_ACCEPTANCE=NO。默认 runtime 保持 legacy；
+   D4 范围不变。
 
 # 第一部分：需求确认稿
 

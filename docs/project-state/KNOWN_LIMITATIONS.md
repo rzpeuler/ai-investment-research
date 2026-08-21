@@ -250,6 +250,21 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
 2. DeepSeek Harness P8-A0 技术集成与 P8-B 设计均已独立验收；P8-B 设计已独立验收，P8-B1 foundation implementation 已授权，生产采用仍未授权。
    上游为 Developer Preview，runtime 固定为 `@deepseek-ai/dsh@0.1.0-rc.7`，升级需重新验收。
 
+## 21. Harness Hybrid Runtime 边界冻结限制（2026-08-21，DESIGN FROZEN / NOT IMPLEMENTED）
+
+P8-ARCH-001 治理冻结（Decision #80）如实记录当前能力边界：
+
+1. **当前 Session 仍未迁移到 Harness**：实际会话仍由 P7-UX1 承担（IN_MEMORY_ONLY，
+   服务退出即消失）；Harness durable session 未进入生产。
+2. Harness 定位为 Agent Orchestration Runtime，**不作为默认严格结构化生成
+   runtime**（benchmark：Harness schema_valid_rate 0.10 vs Legacy 0.90，
+   P8-B3 门槛 0.70 NOT_MET）；严格结构化生成继续走 `research_os.llm`（legacy）。
+3. `HARNESS_IMPLEMENTATION = NOT_IMPLEMENTED`：Conversation / Durable Session /
+   Skill / Tool / MCP 的 Harness 生产实现均未开始；`PRODUCTION_ACCEPTANCE = NO`。
+4. MCP 生产边界未实现（P8-B1 仅授权 2 只读工具）；Harness 直连 Data Source /
+   Collector / DB / Graph Write 始终 DENY。
+5. P8-A0 Hybrid Agent Runtime Spike 未授权；D4 已完成验收，范围不变，不受本冻结影响。
+
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。
