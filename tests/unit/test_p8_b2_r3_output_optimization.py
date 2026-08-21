@@ -97,5 +97,7 @@ def test_prompt_includes_completion_checklist_and_self_validation():
     assert "输出前自检" in prompt
     assert "全部必填字段均已存在" in prompt
     assert "不要输出任何自检说明文字" in prompt
-    # Full-schema noise removed: the raw schema dump is no longer in the prompt
-    assert "additionalProperties" not in prompt
+    # Combined strategy: the full schema text IS included (needed for JSON
+    # structure generation) alongside the checklist and self-validation.
+    assert "additionalProperties" in prompt  # full schema kept
+    assert "JSON Schema" in prompt
