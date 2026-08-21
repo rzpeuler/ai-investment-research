@@ -3521,3 +3521,24 @@ profile/模型策略变更、provider 层结构化输出强制、benchmark 测�
 均属后续治理/架构决策）。Schema / Validator / Normalizer / Benchmark
 threshold 未变。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
 Agent 不得 self-accept。
+
+## 73. Harness Generation Control Architecture Design（2026-08-21，DESIGNED / AWAITING ACCEPTANCE）
+
+P8-B2-R5 完成下一代 Harness Generation Control 架构设计
+（`docs/architecture/harness-generation-control-design.md`，设计任务，未实现
+代码）。实证结论：prompt 层优化已达上限（schema-valid 0.4-0.5），瓶颈转移
+至 Generation Control Layer。
+
+方案比较：A Multi-pass generation（分解生成）、B Validator-driven repair
+loop（校验反馈修复）、C Provider structured-output enforcement（JSON 模式）。
+
+**推荐：B（核心）+ C（探测互补）** — 直接针对实测失败模式（字段缺失）；
+完全在既有边界内实现（provider 包装层，Schema/Validator/Normalizer/
+LlmClient/benchmark threshold 不变）；有界成本（≤3 调用/任务，计入既有
+预算）；C 解决 json_format 类、B 解决 missing_required 类；A 作为复杂
+schema 备选。
+
+开发阶段：R5-A（Generation Controller + Repair Layer + 测试）→ R5-B
+（Harness JSON-mode 探测，治理决策）→ R5-C（multi-pass 备选）→ R5-D
+（benchmark 重跑 + P8-B3 评估）。P8-B2 保持
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。

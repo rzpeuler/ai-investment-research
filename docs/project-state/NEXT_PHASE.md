@@ -417,3 +417,19 @@ P8-B3 建议: 暂不进入 — 允许的 prompt 杠杆已到测量上限；0.70 
 NEXT: Sol 验收 R4 → 治理决策下一杠杆方向。P8-B2 保持
   IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-R5 — Harness Generation Control 架构设计（2026-08-21）
+
+```text
+DESIGN（无代码实现）: 下一代 Generation Control 架构 —
+  Generation Controller（provider 包装层，预算/审计/降级单入口保持）
+  + Validation Layer（既有 Validator 不变，字段级错误作为修复输入）
+  + Repair Layer（有界修复轮次，证据锚定）
+  + Provider Adapter（Harness/legacy；JSON-mode 探测互补）
+方案: B Validator-driven repair loop（推荐，核心）+ C structured-output
+  探测（互补）+ A multi-pass（备选）
+阶段: R5-A controller+repair 实现 → R5-B JSON-mode 探测 → R5-C multi-pass
+  备选 → R5-D benchmark 重跑 + P8-B3 评估
+NEXT: Sol 验收设计 → R5-A 实现 taskbook。P8-B2 保持
+  IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```
