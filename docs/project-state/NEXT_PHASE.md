@@ -444,12 +444,14 @@ and documents a supported structured transport.
 
 ## P8-B2-R5-D — Harness Benchmark Reevaluation (2026-08-21)
 
-The 13-case fixed corpus was used and the report path is
-`reports/harness_benchmark_r5d.json`. The live R5 runtime exceeded the
-180-second bounded execution window (`BLOCKED_PROVIDER_TIMEOUT`); provider and
-MCP child processes were cleaned up. No live before/after metric or P8-B3 gate
-decision is available. Re-run in an environment with a bounded, responsive
-Harness runtime; do not change corpus or thresholds.
+The 13-case fixed corpus completed with benchmark-only case timeout 20s and
+global timeout 900s. Preflight/health passed, cleanup passed with no process
+residue, and report `reports/harness_benchmark_r5d.json` records:
+schema_valid_rate `0.10` vs R3 `0.50`, JSON format failures `6` vs R3 `1`,
+recovery success `1/10`, repair success `1.0` for one repaired case, provider
+calls `15`, token usage `0`, and latency p50 `19.656s`. The `0.70` P8-B3 gate
+is `NOT_MET`; fake inference, validator bypass, audit, budget and secret gates
+passed. Do not enter P8-B3; no corpus or threshold changes are authorized.
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 

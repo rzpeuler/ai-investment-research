@@ -57,7 +57,7 @@ class HarnessLlmProvider:
                  max_input_chars: int = _MAX_INPUT_CHARS, resolved_model_id: str | None = None,
                  structured_output: bool = False):
         if adapter is None:
-            adapter, resolved_model_id = build_harness_adapter()
+            adapter, resolved_model_id = build_harness_adapter(timeout_seconds=timeout_seconds)
         self.adapter = adapter
         self.timeout_seconds = timeout_seconds
         self.max_input_chars = max_input_chars
@@ -180,7 +180,8 @@ class HarnessLlmProvider:
                 "retryable": retryable, "usage": usage or {}}
 
 
-def build_harness_adapter(config: AgentRuntimeConfig | None = None):
+def build_harness_adapter(config: AgentRuntimeConfig | None = None,
+                          *, timeout_seconds: int = _TIMEOUT_SECONDS):
     """Boot the pinned Harness (owned process) and return (adapter, resolved_model_id).
 
     Used only under the internal-trial opt-in; the caller owns cleanup via
@@ -191,7 +192,7 @@ def build_harness_adapter(config: AgentRuntimeConfig | None = None):
     from research_os.agent_runtime.harness_adapter import HarnessAgentRuntimeAdapter
 
     config = config or AgentRuntimeConfig(mode="harness", max_turns=2,
-                                          turn_timeout_seconds=_TIMEOUT_SECONDS)
+                                          turn_timeout_seconds=timeout_seconds)
     adapter, evidence = build_production_harness_adapter(config, require_credential=True)
     assert isinstance(adapter, HarnessAgentRuntimeAdapter)
     resolved_model_id = _observe_default_model(evidence)

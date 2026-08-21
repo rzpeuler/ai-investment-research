@@ -39,6 +39,9 @@ CORPUS_PATH = ROOT / "config" / "harness_benchmark" / "corpus.yaml"
 REPORT_PATH = ROOT / "reports" / "harness_benchmark_r5d.json"
 
 SCHEMA_VALID_RATE_REQUIRED = 0.70  # governance decision (P8-B3 entry)
+CASE_TIMEOUT_SECONDS = int(os.environ.get("P8_B2_BENCHMARK_CASE_TIMEOUT_SECONDS", "30"))
+GLOBAL_TIMEOUT_SECONDS = int(os.environ.get("P8_B2_BENCHMARK_GLOBAL_TIMEOUT_SECONDS", "900"))
+RESUME_ENV = "P8_B2_HARNESS_BENCHMARK_RESUME"
 
 # Deterministic failure fixtures (same LlmClient path; never the acceptance
 # corpus, never the production routing).
@@ -68,7 +71,7 @@ def _load_corpus() -> dict[str, Any]:
     return yaml.safe_load(CORPUS_PATH.read_text(encoding="utf-8"))
 
 
-def _write_blocked_report(status: str, reason: str) -> None:
+def _write_blocked_report(status: str, reason: str, runtime: dict[str, Any] | None = None) -> None:
     """Persist an explicit report when live execution cannot start."""
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps({
@@ -77,11 +80,45 @@ def _write_blocked_report(status: str, reason: str) -> None:
         "corpus_path": str(CORPUS_PATH),
         "corpus_size": 13,
         "reason": reason,
+        "runtime": runtime or {},
         "thresholds_unchanged": True,
         "schema_valid_rate": None,
         "json_recovery": {"status": "NOT_AVAILABLE"},
         "comparison": {"status": "NOT_AVAILABLE"},
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _runtime_status(adapter: Any) -> dict[str, Any]:
+    """Return redacted readiness evidence from the owned Harness runtime."""
+    try:
+        status = adapter.get_runtime_status()
+        return {
+            "provider_available": bool(status.ready),
+            "health_check": "PASS" if status.ready else "FAIL",
+            "state": str(status.state),
+            "process_alive": bool(status.process_alive),
+            "profile_verified": bool(status.profile_verified),
+            "mcp_verified": bool(status.mcp_verified),
+            "version_verified": bool(status.version_verified),
+            "failure_code": status.failure_code,
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not hide failure
+        return {"provider_available": False, "health_check": "ERROR",
+                "failure_code": type(exc).__name__}
+
+
+def _load_resume_rows() -> dict[str, list[dict[str, Any]]]:
+    if os.environ.get(RESUME_ENV) != "1" or not REPORT_PATH.exists():
+        return {}
+    try:
+        report = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    rows: dict[str, list[dict[str, Any]]] = {}
+    for row in report.get("results", []):
+        if row.get("runtime") in {"harness", "legacy"}:
+            rows.setdefault(row.get("case_id", ""), []).append(row)
+    return {key: value for key, value in rows.items() if key}
 
 
 def _build_request(case: dict[str, Any], prompt: str):
@@ -224,15 +261,54 @@ def main() -> int:
                  " module TEXT, status TEXT, called_at TEXT)")
 
     from research_os.llm.providers.generation_controller import GenerationControlledProvider
-    harness_provider = GenerationControlledProvider(HarnessLlmProvider(), max_repair_passes=2)
+    startup_started = time.monotonic()
+    try:
+        harness_base = HarnessLlmProvider(timeout_seconds=CASE_TIMEOUT_SECONDS)
+        startup_latency = round(time.monotonic() - startup_started, 3)
+        runtime = _runtime_status(harness_base.adapter)
+        runtime.update({
+            "provider_version": "@deepseek-ai/dsh@0.1.0-rc.7",
+            "startup_latency_seconds": startup_latency,
+            "case_timeout_seconds": CASE_TIMEOUT_SECONDS,
+            "global_timeout_seconds": GLOBAL_TIMEOUT_SECONDS,
+        })
+        if not runtime.get("provider_available"):
+            _write_blocked_report("BLOCKED_PREFLIGHT", "Harness health check failed", runtime)
+            print(json.dumps({"status": "BLOCKED_PREFLIGHT", "runtime": runtime}, ensure_ascii=False))
+            return 1
+    except Exception as exc:  # noqa: BLE001 - preflight is a reportable boundary
+        runtime = {
+            "provider_available": False,
+            "health_check": "ERROR",
+            "startup_latency_seconds": round(time.monotonic() - startup_started, 3),
+            "failure_code": getattr(exc, "code", type(exc).__name__),
+            "case_timeout_seconds": CASE_TIMEOUT_SECONDS,
+            "global_timeout_seconds": GLOBAL_TIMEOUT_SECONDS,
+        }
+        _write_blocked_report("BLOCKED_PREFLIGHT", str(exc)[:200], runtime)
+        print(json.dumps({"status": "BLOCKED_PREFLIGHT", "runtime": runtime}, ensure_ascii=False))
+        return 1
+
+    harness_provider = GenerationControlledProvider(harness_base, max_repair_passes=2)
     harness_client = LlmClient(provider=harness_provider, configured=True, db=_Db(conn))
     legacy_config = load_provider_config(ROOT / "config" / "llm_providers.yaml", "deepseek")
     legacy_client = LlmClient(provider=DeepSeekChatCompletionsProvider(legacy_config),
                               configured=True, db=_Db(conn))
 
     results: list[dict[str, Any]] = []
+    resume_rows = _load_resume_rows()
+    resumed_cases: list[str] = []
+    pending_cases: list[str] = []
+    benchmark_deadline = time.monotonic() + GLOBAL_TIMEOUT_SECONDS
     try:
         for case in live_cases:
+            if case["id"] in resume_rows and len(resume_rows[case["id"]]) >= 2:
+                results.extend(resume_rows[case["id"]])
+                resumed_cases.append(case["id"])
+                continue
+            if time.monotonic() >= benchmark_deadline:
+                pending_cases.append(case["id"])
+                continue
             if case.get("task"):
                 results.append(_run_equity_case(harness_client, case, "harness"))
                 results.append(_run_equity_case(legacy_client, case, "legacy"))
@@ -242,7 +318,15 @@ def main() -> int:
         for case in failure_cases:
             results.append(_run_failure_case(case, case["failure"], _Db(conn)))
     finally:
-        harness_provider.base_provider.adapter.supervisor.stop()
+        cleanup_started = time.monotonic()
+        cleanup_status = {"attempted": True, "status": "FAIL", "latency_seconds": 0.0}
+        try:
+            harness_provider.base_provider.adapter.supervisor.stop()
+            cleanup_status.update({"status": "PASS", "process_residue": "NO"})
+        except Exception as exc:  # noqa: BLE001 - cleanup evidence is reportable
+            cleanup_status.update({"status": "FAIL", "error": type(exc).__name__})
+        cleanup_status["latency_seconds"] = round(time.monotonic() - cleanup_started, 3)
+        runtime["cleanup"] = cleanup_status
 
     # ---------------- Metrics ----------------
     harness = [r for r in results if r["runtime"] == "harness"]
@@ -316,10 +400,19 @@ def main() -> int:
 
     report = {
         "benchmark": "P8-B2-EVAL-001",
+        "status": "SUCCESS",
         "corpus_version": corpus.get("version"),
         "corpus_size": len(corpus["cases"]),
         "decoupled_from_live01": True,
         "default_runtime": "legacy",
+        "runtime": runtime,
+        "resume": {
+            "enabled": os.environ.get(RESUME_ENV) == "1",
+            "resumed_cases": resumed_cases,
+            "completed_cases": sorted({r["case_id"] for r in harness}),
+            "failed_cases": sorted({r["case_id"] for r in harness if r["status"] != "success"}),
+            "pending_cases": pending_cases,
+        },
         "metrics": {
             "quality": {
                 "schema_valid_rate": schema_valid_rate,
@@ -342,7 +435,8 @@ def main() -> int:
                 },
             },
             "cost": {
-                "provider_calls": len(results),
+                "provider_calls": len(harness_base.calls),
+                "benchmark_records": len(results),
                 "token_usage": tokens,
                 "latency_p50_seconds": p50,
             },

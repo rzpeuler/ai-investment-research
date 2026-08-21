@@ -3545,16 +3545,17 @@ schema 备选。
 
 ## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
 
-The fixed EVAL-001 corpus contains 13 cases. R5-D updated the benchmark output
-to `reports/harness_benchmark_r5d.json` and added explicit R3 comparison plus
-JSON recovery, repair, reliability, cost, and threshold metrics. A live run
-with the R5 runtime exceeded the 180-second bounded execution window and ended
-`BLOCKED_PROVIDER_TIMEOUT`; the started Harness/MCP child processes were
-cleaned up. Therefore schema-valid rate, recovery benefit, repair benefit,
-latency, and token-cost deltas are `NOT_AVAILABLE`. No benchmark case,
+The fixed EVAL-001 corpus contains 13 cases. R5-D completed under benchmark-only
+case timeout 20s / global timeout 900s; preflight and health passed, and final
+cleanup passed with `process_residue=NO`. Report:
+`reports/harness_benchmark_r5d.json`. Observed schema_valid_rate is `0.10`
+vs R3 `0.50`, below the unchanged P8-B3 gate `0.70`; JSON format failures are
+`6` vs R3 `1` and R5-A `5`; recovery is `1/10`; repair success is `1.0` for
+one repaired case with 5 added provider calls; provider calls `15`, token usage
+`0`, p50 latency `19.656s`. Fake inference 0, validator bypass 0, audit
+completeness 100%, budget violation 0, and secret leakage 0. No corpus,
 threshold, Schema, Validator, Normalizer, or default runtime changed. P8-B3
-remains not authorized and P8-B2 remains `IMPLEMENTED / PARTIAL / NOT
-ACCEPTED`.
+is not authorized and P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
 
 ## 77. P8-B2-R5-C Harness JSON Boundary Recovery Implementation (2026-08-21)
 

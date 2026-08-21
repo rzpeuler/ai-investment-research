@@ -378,10 +378,11 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   changed.
 
 - **P8-B2-R5-D benchmark reevaluation (2026-08-21)**: fixed EVAL-001 corpus
-  confirmed at 13 cases. The R5 runtime benchmark exceeded the 180-second
-  bounded execution window and ended `BLOCKED_PROVIDER_TIMEOUT`; the report
-  is `reports/harness_benchmark_r5d.json`. Live schema-valid, recovery,
-  repair, latency, and token-cost comparisons remain unavailable.
+  completed under benchmark-only case timeout 20s / global timeout 900s.
+  Preflight and cleanup passed with no process residue. Observed
+  schema_valid_rate `0.10` (R3 `0.50`, gate `0.70`), JSON format failures `6`
+  (R3 `1`, R5-A `5`), recovery success `1/10`, provider calls `15`, provider-
+  reported token usage `0`, and latency p50 `19.656s`. P8-B3 remains blocked.
 
 - **P8-B2-R5-C JSON Boundary Recovery (2026-08-21)**: deterministic recovery
   is implemented for whitespace/BOM, one Markdown fence, and one unique

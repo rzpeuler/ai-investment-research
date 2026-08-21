@@ -390,13 +390,18 @@ validator, threshold, or default runtime changed. The report records
 
 ## P8-B2-R5-D — Harness Benchmark Reevaluation (2026-08-21)
 
-The fixed EVAL-001 corpus was confirmed at 13 cases and the R5-D runner now
-writes `reports/harness_benchmark_r5d.json`. Live execution was attempted with
-the R5 runtime but exceeded the 180-second bound in the Harness/MCP provider
-process and was cleaned up. Final report status is `BLOCKED_PROVIDER_TIMEOUT`;
-schema-valid rate, recovery delta, repair delta, latency, and token cost are
-`NOT_AVAILABLE`. No threshold, corpus, Schema, Validator, Normalizer, or
-runtime default changed. P8-B3 remains not ready.
+The fixed EVAL-001 corpus contains 13 cases. With benchmark-only case timeout
+20s and global timeout 900s, preflight/health passed and cleanup reported
+`process_residue=NO`. Final report `reports/harness_benchmark_r5d.json`:
+schema_valid_rate `0.10`, task success `0.10`, fallback `0.90`, JSON recovery
+10 attempts / 1 success / 9 failures, recovery success rate `0.10`, and
+`json_format_failure` 6 (R3 baseline 1; R5-A baseline 5). Repair success was
+`1.0` for 1 case needing repair, average rounds `1.0`, added provider calls
+5; provider calls 15, provider-reported token usage 0, latency p50 19.656s.
+The P8-B3 schema gate `0.70` is `NOT_MET`; fake inference 0, validator bypass
+0, audit completeness 100%, budget violation 0, and secret leakage 0.
+No threshold, corpus, Schema, Validator, Normalizer, or runtime default
+changed. P8-B3 remains not ready.
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 
