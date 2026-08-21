@@ -442,6 +442,20 @@ bounded real probe timed out before the normal/structured comparison. Keep
 structured mode probe-only. R5-C is not recommended until the provider exposes
 and documents a supported structured transport.
 
+## P8-B2-R5-C — JSON Boundary Recovery Design (2026-08-21)
+
+R5-C design is complete, but no code implementation is authorized in this
+task. The recommended next implementation, if separately approved, is a pure
+bounded recovery adapter between raw provider output and the unchanged
+Validator. It must only recover an unambiguous strict JSON boundary, preserve
+all values and fields, and record recovery outcomes in audit. No schema,
+validator, threshold, provider routing, or default runtime change is planned.
+
+R5-D is not entered. Next action requires a separate implementation task with
+taxonomy tests, fixed-subset comparison, and a benchmark artifact reporting
+format failures separately from schema validity. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`; P8-B3 remains `NOT_AUTHORIZED`.
+
 ## P8-B2-R5-A — Generation Controller 实现（2026-08-21）
 
 ```text

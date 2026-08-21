@@ -3543,6 +3543,24 @@ schema 备选。
 （benchmark 重跑 + P8-B3 评估）。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
 
+## 76. P8-B2-R5-C Harness JSON Boundary Recovery Design (2026-08-21)
+
+R5-C design is complete and implementation is not authorized. The recommended
+architecture is an independent deterministic JSON Boundary Recovery Adapter
+between raw provider output and the unchanged Normalizer/Validator. It may
+remove only unambiguous transport formatting (BOM/whitespace, one JSON fence,
+or one uniquely balanced JSON object) and must use strict parsing. It must not
+repair JSON syntax, create fields, change values, infer content, choose among
+multiple candidates, bypass validation, or add provider calls.
+
+Recovery status, method, reason, candidate count, bounded raw length/hash,
+latency, and post-recovery validation status must be audited. Raw model output
+is not persisted by default. Unrecoverable, ambiguous, oversized, duplicate-
+key, or non-object results remain typed `json_format_failure`/honest fallback.
+R5-D is blocked pending a separate authorized implementation and comparable
+benchmark. P8-B3 and production adoption remain not authorized. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
+
 ## 75. P8-B2-R5-B Harness Structured Output Capability Probe (2026-08-21)
 
 The probe-only implementation adds an explicit capability matrix and bounded

@@ -388,6 +388,18 @@ validator, threshold, or default runtime changed. The report records
 `fake_model_inference=0` and `validator_bypass=0`. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
 
+## P8-B2-R5-C — Harness JSON Boundary Recovery Design (2026-08-21)
+
+Design complete; implementation is not authorized. The recommended future
+position is an independent deterministic recovery adapter between raw provider
+output and the unchanged Normalizer/Validator. It may recover only an
+unambiguous JSON boundary and strict JSON object; it may not change syntax,
+fields, values, or validation requirements. Recovery failures remain typed
+`json_format_failure`/honest fallback and recovery metadata must be audited
+without persisting raw output. R5-D is blocked pending separate implementation
+and benchmark authorization. P8-B2 remains `IMPLEMENTED / PARTIAL / NOT
+ACCEPTED`; P8-B3 and production adoption remain `NOT_AUTHORIZED`.
+
 本治理冻结只改文档（AGENTS.md / README.md / engineering-guide / DECISIONS / 状态文档 /
 architecture 文档 / 任务书）；production code 0 changes、schema count 86 不变、DB v6
 不变、migrations NONE、source registry 不变。
