@@ -116,21 +116,23 @@ def build_task_schema_slice(schema: dict[str, Any]) -> dict[str, Any]:
 
 def build_harness_prompt(request, output_schema: dict[str, Any], *,
                          task_name: str = "", evidence: str = "") -> str:
-    """Task-specific contract guidance prompt (R4).
+    """Combined contract guidance prompt (R4-R1 iteration).
 
-    JSON-only instruction + required-field COMPLETION CHECKLIST (every
-    required field must be present before output) + per-field constraints
-    (required-only slice) + a complete valid example + self-validation
-    instruction. The schema, validator and normalizer are never changed; the
-    example is a context hint only.
+    Keeps the FULL schema text (proven necessary for JSON structure
+    generation) AND adds the task-specific completion checklist and
+    self-validation instruction (R4). The schema, validator and normalizer
+    are never changed; the example is a context hint only.
     """
     import json
+    schema_text = json.dumps(output_schema, ensure_ascii=False, separators=(",", ":"))
     described = describe_schema(output_schema)
     example_text = json.dumps(described["example"], ensure_ascii=False, separators=(",", ":"))
     required = described["required"]
     lines = [
         "你必须只输出一个 JSON 对象。",
         "禁止输出 Markdown，禁止调用任何工具，禁止输出 JSON 之外的任何解释或文字。",
+        "输出必须完全符合以下 JSON Schema 的所有约束：",
+        schema_text,
         "",
         "必填字段完成清单（输出对象必须包含以下全部字段，一个都不能少；",
         "输出前逐项确认每一项都存在，禁止输出缺少必填字段的对象）：",
