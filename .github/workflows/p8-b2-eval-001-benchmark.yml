@@ -102,7 +102,7 @@ jobs:
           code=$?
           set -e
           echo "BENCHMARK_EXIT_CODE=$code"
-          if [ "$code" = "1" ]; then
+          if grep -q "BLOCKED_CREDENTIAL_UNAVAILABLE" <(PYTHONPATH=src python scripts/run_harness_benchmark.py 2>/dev/null || true); then
             echo "BLOCKED_CREDENTIAL_UNAVAILABLE"
             exit 3
           fi
