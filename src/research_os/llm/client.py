@@ -93,6 +93,7 @@ class LlmClient:
         flash_attempts = 0
         pro_attempts = 0
         budget_denied_model: Optional[str] = None
+        provider_usage: Dict[str, Any] = {}
         provider_name = request.provider or type(self.provider).__name__
 
         # 如果请求明确要求 Pro，第一次就使用 Pro（不经过 Flash）
@@ -134,6 +135,7 @@ class LlmClient:
                 continue
 
             if not result.get("ok"):
+                provider_usage.update(result.get("usage") or {})
                 error_type = result.get("error_type") or "provider_error"
                 error_message = redact_text(
                     result.get("error", "provider 返回失败"), secrets=_provider_secrets())
@@ -168,6 +170,7 @@ class LlmClient:
                 self._record(request, resp)
                 return resp
             errors.extend(verr)
+            provider_usage.update(result.get("usage") or {})
             if not is_pro:
                 flash_schema_failures += 1
 
@@ -188,6 +191,7 @@ class LlmClient:
                 "attempts_by_model": {"flash": flash_attempts, "pro": pro_attempts},
                 "task_budget": budget.summary() if budget is not None else None,
                 "budget_denied_model": budget_denied_model,
+                "provider_usage": redact_value(provider_usage),
             },
             latency_seconds=round(perf_counter() - call_started, 6),
             warnings=[

@@ -58,6 +58,7 @@ class GenerationControlledProvider:
 
         result = self._generate(request, output_schema, state)
         if not result.get("ok"):
+            state.usage = self._merge_usage(state, result)
             return self._result(state, ok=False, output=None,
                                 error_type=result.get("error_type") or "provider_error",
                                 message=result.get("error") or "provider call failed",
@@ -127,6 +128,10 @@ class GenerationControlledProvider:
             f"{key}:{len(items)}" for key, items in
             extract_field_errors(state.validation_errors).items() if items
         ]
+        usage.setdefault("json_recovery_attempted", False)
+        usage.setdefault("json_recovery_type", None)
+        usage.setdefault("json_recovery_success", False)
+        usage.setdefault("json_boundary_status", "not_attempted")
         return usage
 
     def _result(self, state: GenerationState, *, ok: bool, output: Any, error_type: str | None,

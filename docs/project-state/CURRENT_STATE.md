@@ -388,7 +388,23 @@ validator, threshold, or default runtime changed. The report records
 `fake_model_inference=0` and `validator_bypass=0`. P8-B2 remains
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
 
-## P8-B2-R5-C — Harness JSON Boundary Recovery Design (2026-08-21)
+## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
+
+Implemented on branch `task/P8-B2-R5-C-JSON-BOUNDARY-RECOVERY-IMPLEMENTATION`.
+The deterministic adapter recovers only whitespace/BOM, one Markdown JSON
+fence, or one unique surrounding JSON object. Malformed, ambiguous,
+duplicate-key, oversized, and unbalanced outputs fail closed. Recovery remains
+before the unchanged Normalizer/Validator path; it never repairs fields or
+values. Audit carries `json_recovery_attempted`, `json_recovery_type`,
+`json_recovery_success`, boundary failure/candidate metadata, and bounded raw
+length/hash.
+
+Targeted regression tests: 56 passed. Schema validation: 86/86 PASS.
+Compileall and diff check: PASS. Full Windows pytest did not complete within
+the 10-minute limit and is not reported as PASS. The live provider benchmark
+was blocked by the bounded Harness/provider process; no live result is claimed.
+P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; default runtime,
+thresholds, Schema, Validator, and Normalizer remain unchanged.
 
 Design complete; implementation is not authorized. The recommended future
 position is an independent deterministic recovery adapter between raw provider

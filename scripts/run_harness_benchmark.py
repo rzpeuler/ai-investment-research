@@ -118,6 +118,7 @@ def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
     request = _build_request(case, prompt)
     started = time.monotonic()
     resp = client.generate_json(request, load_schema(case["schema_name"]))
+    provider_usage = (resp.usage_metadata or {}).get("provider_usage") or {}
     return {
         "case_id": case["id"], "category": case["category"], "runtime": runtime,
         "called": resp.called, "status": resp.status, "schema_valid": resp.schema_valid,
@@ -128,6 +129,10 @@ def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         "failure_classification": _classify_failure((resp.validation_errors or [""])[0]),
         "model_id": resp.model_id,
         "latency_seconds": round(time.monotonic() - started, 3),
+        "json_recovery_attempted": provider_usage.get("json_recovery_attempted", False),
+        "json_recovery_type": provider_usage.get("json_recovery_type"),
+        "json_recovery_success": provider_usage.get("json_recovery_success", False),
+        "json_boundary_status": provider_usage.get("json_boundary_status", "not_attempted"),
     }
 
 
@@ -140,6 +145,7 @@ def _run_equity_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         evidence_excerpts=excerpts, evidence_ids=["e1", "e2"],
         evidence_types=["official_disclosure", "official_disclosure"],
         cutoff="2026-08-01T00:00:00+08:00")
+    provider_usage = (resp.usage_metadata or {}).get("provider_usage") or {}
     return {
         "case_id": case["id"], "category": case["category"], "runtime": runtime,
         "called": resp.called, "status": resp.status, "schema_valid": resp.schema_valid,
@@ -151,6 +157,10 @@ def _run_equity_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         "model_id": resp.model_id,
         "flash_used": tasks.budget.flash_used,
         "latency_seconds": round(time.monotonic() - started, 3),
+        "json_recovery_attempted": provider_usage.get("json_recovery_attempted", False),
+        "json_recovery_type": provider_usage.get("json_recovery_type"),
+        "json_recovery_success": provider_usage.get("json_recovery_success", False),
+        "json_boundary_status": provider_usage.get("json_boundary_status", "not_attempted"),
     }
 
 
@@ -237,6 +247,9 @@ def main() -> int:
         return hits
 
     retry_count = sum(max(0, (r.get("flash_used") or 1) - 1) for r in harness if "flash_used" in r)
+    recovery_attempts = sum(1 for r in harness if r.get("json_recovery_attempted"))
+    recovery_successes = sum(1 for r in harness if r.get("json_recovery_success"))
+    recovery_failures = sum(1 for r in harness if r.get("json_boundary_status") == "failed")
     tokens = 0
     for (payload,) in conn.execute("SELECT payload FROM llm_call_records"):
         try:
@@ -306,6 +319,8 @@ def main() -> int:
                     "enum_violation": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "enum_violation"),
                     "value_format_violation": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "value_format_violation"),
                     "other": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "other"),
+                    "json_boundary_recovered": recovery_successes,
+                    "json_boundary_failed": recovery_failures,
                 },
             },
             "cost": {
@@ -320,6 +335,19 @@ def main() -> int:
         },
         "missing_field_stats": _missing_field_stats(harness),
         "repair_metrics": repair_metrics,
+        "json_recovery": {
+            "attempted": recovery_attempts,
+            "recovered": recovery_successes,
+            "failed": recovery_failures,
+            "success_rate": round(recovery_successes / recovery_attempts, 3)
+            if recovery_attempts else 0.0,
+            "before_json_format_failure": 5,
+            "after_json_format_failure": sum(
+                1 for r in harness
+                if _classify_failure(str(r.get("first_validation_error", ""))) == "json_format_failure"
+            ),
+            "before_source": "P8-B2-R5-A benchmark run 32460687556",
+        },
         "thresholds": thresholds,
         "results": results,
     }

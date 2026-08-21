@@ -3543,6 +3543,24 @@ schema 备选。
 （benchmark 重跑 + P8-B3 评估）。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
 
+## 77. P8-B2-R5-C Harness JSON Boundary Recovery Implementation (2026-08-21)
+
+The approved R5-C design is implemented as `src/research_os/llm/json_recovery.py`
+and integrated at the raw Harness response boundary, with Generation Controller
+and LlmClient carrying the audit metadata through validation and honest
+fallback. Supported recovery is limited to whitespace/BOM, one Markdown JSON
+fence, or one unique surrounding object. Strict parsing rejects malformed JSON,
+duplicate keys, multiple candidates, oversized output, and unbalanced
+boundaries. No field/value repair, Schema/Validator/Normalizer change,
+threshold change, default runtime switch, or hidden provider retry was added.
+
+Targeted tests: 56 passed. Schema: 86/86 PASS. Compileall and diff check PASS.
+Full Windows pytest timed out at 10 minutes without a failure result; live
+provider benchmark was blocked and no live before/after metric is claimed.
+R5-D remains pending a bounded provider-backed benchmark. P8-B2 remains
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`; P8-B3 and production adoption remain
+not authorized.
+
 ## 76. P8-B2-R5-C Harness JSON Boundary Recovery Design (2026-08-21)
 
 R5-C design is complete and implementation is not authorized. The recommended

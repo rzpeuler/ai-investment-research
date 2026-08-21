@@ -25,6 +25,7 @@ from typing import Any
 from research_os.agent_runtime.config import AgentRuntimeConfig
 from research_os.agent_runtime.production_runtime import build_production_harness_adapter
 from research_os.llm.normalization import normalize_harness_output
+from research_os.llm.json_recovery import recover_json_boundary
 from research_os.llm.schema_context import build_harness_prompt
 from research_os.llm.structured_output import detect_structured_output_capability
 
@@ -41,35 +42,10 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     The Harness returns free text; the provider must not accept prose as a
     structured result. Only a balanced ``{...}`` block parses as output.
     """
-    start = text.find("{")
-    if start == -1:
+    recovery = recover_json_boundary(text)
+    if not recovery["recovered"]:
         return None
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    value = json.loads(text[start:index + 1])
-                except json.JSONDecodeError:
-                    return None
-                return value if isinstance(value, dict) else None
-    return None
+    return json.loads(recovery["json_text"])
 
 
 class HarnessLlmProvider:
@@ -151,11 +127,24 @@ class HarnessLlmProvider:
             return self._error(code, getattr(exc, "message", str(exc))[:200], retryable)
 
         response_text = str(result.get("response", ""))
-        output = _extract_json_object(response_text)
+        recovery = recover_json_boundary(response_text)
+        recovery_usage = {
+            "json_recovery_attempted": recovery["json_recovery_attempted"],
+            "json_recovery_type": recovery["recovery_type"],
+            "json_recovery_success": recovery["json_recovery_success"],
+            "json_boundary_status": "recovered" if recovery["recovered"] else "failed",
+            "json_boundary_failure": recovery["failure_type"],
+            "json_boundary_candidate_count": recovery["candidate_count"],
+            "raw_output_length": recovery["raw_output_length"],
+            "raw_output_sha256": recovery["raw_output_sha256"],
+        }
+        output = (json.loads(recovery["json_text"])
+                  if recovery["recovered"] else None)
         if output is None:
             entry["status"] = "invalid_response"
             self.calls.append(entry)
-            return self._error("invalid_response", "Harness 响应缺少有效 JSON content", False)
+            return self._error("invalid_response", "Harness 响应缺少有效 JSON content", False,
+                               usage=recovery_usage)
         # R1: deterministic normalization (unwrap / key conformance / prune).
         # Missing required fields still fail validation honestly.
         output = normalize_harness_output(output, output_schema)
@@ -168,6 +157,7 @@ class HarnessLlmProvider:
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         } if isinstance(usage, dict) else {}
         sanitized_usage["resolved_model_id"] = self.resolved_model_id
+        sanitized_usage.update(recovery_usage)
         entry["status"] = "completed"
         self.calls.append(entry)
         return {
@@ -183,10 +173,11 @@ class HarnessLlmProvider:
         }
 
     @staticmethod
-    def _error(error_type: str, message: str, retryable: bool) -> dict[str, Any]:
+    def _error(error_type: str, message: str, retryable: bool,
+               usage: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"ok": False, "provider": "deepseek-harness", "model_id": None,
                 "output": None, "error": message, "error_type": error_type,
-                "retryable": retryable, "usage": {}}
+                "retryable": retryable, "usage": usage or {}}
 
 
 def build_harness_adapter(config: AgentRuntimeConfig | None = None):

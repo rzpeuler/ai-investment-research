@@ -377,6 +377,15 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   production structured mode is enabled, and no validator/schema threshold was
   changed.
 
+- **P8-B2-R5-C JSON Boundary Recovery (2026-08-21)**: deterministic recovery
+  is implemented for whitespace/BOM, one Markdown fence, and one unique
+  surrounding object. It rejects malformed, ambiguous, duplicate-key,
+  oversized, and unbalanced output; it does not repair schema content. Targeted
+  tests passed and schema validation is 86/86. Full Windows pytest timed out at
+  10 minutes; the live Harness benchmark was blocked, so before/after live
+  `json_format_failure` metrics remain unavailable. R5-D remains pending a
+  bounded provider-backed benchmark.
+
 - **P8-B2-R5-A（2026-08-21）**：GenerationControlledProvider 已实现 —
   有界 validator-driven repair loop 实证有效：missing_required_field 失败
   从 3-5 cases 降至 0（字段级统计为空）；json_format_failure（无 JSON 输出）

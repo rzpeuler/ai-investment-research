@@ -442,7 +442,19 @@ bounded real probe timed out before the normal/structured comparison. Keep
 structured mode probe-only. R5-C is not recommended until the provider exposes
 and documents a supported structured transport.
 
-## P8-B2-R5-C — JSON Boundary Recovery Design (2026-08-21)
+## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
+
+Implemented as a bounded deterministic adapter. Recovery supports whitespace /
+BOM, one Markdown JSON fence, and one unique surrounding JSON object. It does
+not perform syntax repair, field completion, value conversion, or validator
+bypass. Targeted tests and schema/compile validation passed. Full Windows
+pytest timed out at 10 minutes, and the live Harness benchmark was blocked;
+therefore no live before/after claim is made.
+
+Next: run the same fixed benchmark in an environment with a bounded provider
+credential/runtime, then decide R5-D. R5-D is not entered by this commit.
+P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; P8-B3 remains
+`NOT_AUTHORIZED`.
 
 R5-C design is complete, but no code implementation is authorized in this
 task. The recommended next implementation, if separately approved, is a pure
