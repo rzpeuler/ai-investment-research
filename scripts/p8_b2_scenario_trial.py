@@ -102,6 +102,8 @@ def main() -> int:
                     "called": resp.called, "status": resp.status,
                     "schema_valid": resp.schema_valid,
                     "model_id": resp.model_id,
+                    "validation_error_count": len(resp.validation_errors or []),
+                    "first_validation_error": (resp.validation_errors or [""])[0][:160],
                     "flash_used": runner.budget.flash_used,
                     "pro_used": runner.budget.pro_used,
                 }
@@ -127,11 +129,24 @@ def main() -> int:
                 tokens += int(total)
         summary["total_tokens"] = tokens
         summary["default_runtime"] = "legacy"
+        # R1 requirement: at least one EquityLlmTask must pass schema
+        # validation through the harness path (schema-valid success > 0).
+        schema_valid_tasks = [
+            f"{scenario}:{task}"
+            for scenario, r in summary["scenarios"].items()
+            for task, tr in r.get("tasks", {}).items()
+            if tr.get("schema_valid")
+        ]
+        summary["schema_valid_success"] = len(schema_valid_tasks)
+        summary["schema_valid_tasks"] = schema_valid_tasks
         summary["status"] = "COMPLETED"
     finally:
         adapter.adapter.supervisor.stop()
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if summary.get("schema_valid_success", 0) < 1:
+        print("SCHEMA_VALID_SUCCESS_REQUIRED=1")
+        return 4
     return 0
 
 

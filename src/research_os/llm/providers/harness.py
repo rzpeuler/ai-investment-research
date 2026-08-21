@@ -24,12 +24,21 @@ from typing import Any
 
 from research_os.agent_runtime.config import AgentRuntimeConfig
 from research_os.agent_runtime.production_runtime import build_production_harness_adapter
+from research_os.llm.normalization import normalize_harness_output
 
 # Opt-in marker; identical semantics to the trial's P8_B2_INTERNAL_TRIAL=1.
 SCENARIO_TRIAL_ENV = "P8_B2_SCENARIO_TRIAL"
 
 _MAX_INPUT_CHARS = 120_000
 _TIMEOUT_SECONDS = 120
+
+# Prompt instruction for the Harness path (deterministic, part of the harness
+# entry): the model must emit exactly one schema-conforming JSON object and
+# must not invoke any tool or add surrounding text.
+_PROMPT_INSTRUCTION = (
+    "只输出一个 JSON 对象，不要输出 Markdown，不要调用任何工具，"
+    "不要输出 JSON 之外的任何文字。输出必须符合此 JSON Schema："
+)
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -75,12 +84,15 @@ class HarnessLlmProvider:
     provider_id = "deepseek-harness"
 
     def __init__(self, adapter: Any = None, *, timeout_seconds: int = _TIMEOUT_SECONDS,
-                 max_input_chars: int = _MAX_INPUT_CHARS):
+                 max_input_chars: int = _MAX_INPUT_CHARS, resolved_model_id: str | None = None):
         if adapter is None:
-            adapter = build_harness_adapter()
+            adapter, resolved_model_id = build_harness_adapter()
         self.adapter = adapter
         self.timeout_seconds = timeout_seconds
         self.max_input_chars = max_input_chars
+        # Observed from the composed runtime config (agent-default-model);
+        # the Harness session itself does not expose the model per call.
+        self.resolved_model_id = resolved_model_id or "deepseek-v4-flash"
         self.calls: list[dict[str, Any]] = []
 
     def complete_json(self, request, output_schema: dict[str, Any]) -> dict[str, Any]:
@@ -88,8 +100,7 @@ class HarnessLlmProvider:
             return self._error("invalid_response", "Prompt 超过输入上限", False)
         schema_text = json.dumps(output_schema, ensure_ascii=False, separators=(",", ":"))
         prompt = (
-            "只输出一个 JSON 对象，不要输出 Markdown。输出必须符合此 JSON Schema："
-            + schema_text + "\n\n" + request.prompt
+            _PROMPT_INSTRUCTION + schema_text + "\n\n" + request.prompt
         )
         started_at = self.calls.__len__()
         entry = {"call_id": request.call_id, "task_id": request.task_id,
@@ -119,6 +130,9 @@ class HarnessLlmProvider:
             entry["status"] = "invalid_response"
             self.calls.append(entry)
             return self._error("invalid_response", "Harness 响应缺少有效 JSON content", False)
+        # R1: deterministic normalization (unwrap / key conformance / prune).
+        # Missing required fields still fail validation honestly.
+        output = normalize_harness_output(output, output_schema)
         usage = result.get("operational_metadata", {}).get("usage") if isinstance(
             result.get("operational_metadata"), dict) else None
         # Only numeric provider-reported values may enter usage evidence;
@@ -127,12 +141,14 @@ class HarnessLlmProvider:
             key: value for key, value in usage.items()
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         } if isinstance(usage, dict) else {}
+        sanitized_usage["resolved_model_id"] = self.resolved_model_id
         entry["status"] = "completed"
         self.calls.append(entry)
         return {
             "ok": True,
             "provider": self.provider_id,
             "model_id": f"{self.provider_id}/{request.requested_model_class}",
+            "resolved_model_id": self.resolved_model_id,
             "output": output,
             "error": None,
             "error_type": None,
@@ -148,15 +164,27 @@ class HarnessLlmProvider:
 
 
 def build_harness_adapter(config: AgentRuntimeConfig | None = None):
-    """Boot the pinned Harness (owned process) and return its adapter.
+    """Boot the pinned Harness (owned process) and return (adapter, resolved_model_id).
 
     Used only under the internal-trial opt-in; the caller owns cleanup via
     ``adapter.supervisor.stop()`` (owned process-tree cleanup).
+    ``resolved_model_id`` is observed from the composed runtime config
+    (``agent-default-model``), never guessed.
     """
     from research_os.agent_runtime.harness_adapter import HarnessAgentRuntimeAdapter
 
     config = config or AgentRuntimeConfig(mode="harness", max_turns=2,
                                           turn_timeout_seconds=_TIMEOUT_SECONDS)
-    adapter, _evidence = build_production_harness_adapter(config, require_credential=True)
+    adapter, evidence = build_production_harness_adapter(config, require_credential=True)
     assert isinstance(adapter, HarnessAgentRuntimeAdapter)
-    return adapter
+    resolved_model_id = _observe_default_model(evidence)
+    return adapter, resolved_model_id
+
+
+def _observe_default_model(evidence: dict) -> str:
+    """Extract the agent-default-model from the observed composed config."""
+    composed = evidence.get("composed_config") or ""
+    match = re.search(r"(?ms)^- id: agent-default-model.*?^model:\s*(\S+)", composed)
+    if match:
+        return match.group(1).strip()
+    return "deepseek-v4-flash"
