@@ -631,3 +631,31 @@ NEXT: Sol 独立验收 P8-A2（Router 决策 / Policy 配置 / Permission / Audi
   Legacy；不改 LlmClient / Schema / Validator。P8-B3 / production adoption
   保持 NOT_AUTHORIZED。
 ```
+
+## P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION — Hybrid Agent Runtime Pilot Evaluation（2026-08-22）
+
+```text
+EVALUATED（受治理试点评估；验证 Harness 在探索型任务中的真实价值；不是
+  Production Adoption；DECISIONS #84）:
+  - 运行器: scripts/p8_a3_pilot_evaluation.py（opt-in P8_A3_HYBRID_PILOT_EVAL=1）；
+    真实 pinned Harness（rc.7）provider-backed；corpus 8 cases（5 exploration
+    + 3 negative controls）
+  - Governance 全过: audit_completeness=100%（8/8）/ unauthorized_tool=0 /
+    authority_drift=0 / secret_leak=0 / strict_schema_entered_harness=0 /
+    graph_write_attempted=false
+  - 关键实证发现（如实）: 300s 和 600s turn 预算下 5 个开放探索 turn 全部
+    TURN_TIMEOUT（5/5，无改善）→ 不是预算问题；诊断证明简单定向 turn 9.5s
+    完成（含工具调用）→ 根因是开放探索 prompt 触发 agentic 循环（多工具/
+    多轮/空图重试），是生产试点前的可靠性门槛
+  - POSIX 验证: 首次 CI（run 32512091426）FAILED（PROFILE_POLICY_MISMATCH:
+    stdio MCP 需 P8_A0_HYBRID_SPIKE=1，已修复）；p8-a3-pilot-evaluation.yml
+    workflow 就绪，push 到本分支触发重跑取得 process_residue=NO
+  - 测试: tests/unit/test_p8_a3_pilot_evaluation.py（11 offline）；full pytest 绿；
+    schema 86/86；未改 LlmClient/Schema/Validator/Authority；默认 runtime legacy
+NEXT: Sol 独立验收 P8-A3 评估（Governance 全过 / agentic 循环发现 / POSIX CI
+  重跑证据）→ **P8-A4 前置条件**：先将探索 prompt 改为有界定向形态（单次工具
+  调用 / 明确结束条件）、处理空图重试，修复后重跑本评估；再独立 taskbook 授权
+  P8-A4（生产试点运行）。P8-A4 不切换默认 runtime；不删除 Legacy；不改
+  LlmClient / Schema / Validator。P8-B3 / production adoption 保持
+  NOT_AUTHORIZED。
+```

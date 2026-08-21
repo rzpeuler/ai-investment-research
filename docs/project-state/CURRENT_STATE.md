@@ -340,6 +340,7 @@ HARNESS_ARCHITECTURE: DESIGN_FROZEN
 HARNESS_IMPLEMENTATION: SPIKE_COMPLETE
 HARNESS_PILOT_DESIGN: DESIGNED / AWAITING ACCEPTANCE (P8-A1, 2026-08-22)
 HARNESS_PILOT_IMPLEMENTATION: IMPLEMENTED / AWAITING ACCEPTANCE (P8-A2, 2026-08-22; runtime router + policy + permission + audit + corpus + POSIX validation; default runtime legacy)
+HARNESS_PILOT_EVALUATION: EVALUATED / AWAITING ACCEPTANCE (P8-A3, 2026-08-22; real Harness exploration corpus run; governance all-pass; agentic-latency finding on open exploration prompts; report docs/architecture/p8-a3-pilot-evaluation-report.md; default runtime legacy)
 PRODUCTION_ACCEPTANCE: NO
 DEEPSEEK_HARNESS: TECHNICAL_INTEGRATION_VIABLE / P8-B1 FOUNDATION AUTHORIZED
 HARNESS_INTEGRATION: P8-A0 PASS / INDEPENDENTLY ACCEPTED
@@ -354,6 +355,7 @@ P8-A0_ACCEPTED_HEAD: f16a3163814345e9aee2d00615a42dae57fd86fb
 P8-A0_HYBRID_SPIKE: EXECUTED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-21; hybrid 4-tool MCP facade + 3 skills + real continuous session; report docs/architecture/p8-a0-hybrid-runtime-spike-report.md; default runtime legacy; P8-A1 NOT_AUTHORIZED)
 P8-A1_HYBRID_PILOT_DESIGN: DESIGNED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-22; pilot design docs/architecture/p8-a1-hybrid-pilot-design.md: task classification HARNESS_ALLOWED/LEGACY_REQUIRED, deterministic Runtime Router, permission model, session governance, audit boundary, pilot acceptance criteria; docs-only, no runtime switch; P8-A2 implementation NOT_AUTHORIZED)
 P8-A2_HYBRID_PILOT_IMPLEMENTATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-22; runtime router + runtime_policy.yaml + permission policy + audit lineage + pilot corpus + POSIX validation workflow; default runtime legacy; P8-A3 NOT_AUTHORIZED)
+P8-A3_HYBRID_PILOT_EVALUATION: EVALUATED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-22; real Harness exploration corpus executed; governance audit 100% / unauthorized 0 / drift 0 / secret 0 / strict_schema never entered harness; 300s turn budget timeout finding on open exploration prompts; simple directed turn 9.5s; POSIX CI first run FAILED pre-fix, workflow ready for re-run; report docs/architecture/p8-a3-pilot-evaluation-report.md; default runtime legacy; P8-A4 NOT_AUTHORIZED)
 P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B_DESIGN_HEAD: 9aa7071

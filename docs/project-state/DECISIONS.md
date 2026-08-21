@@ -3749,6 +3749,44 @@ completeness 100%, budget violation 0, and secret leakage 0. No corpus,
 threshold, Schema, Validator, Normalizer, or default runtime changed. P8-B3
 is not authorized and P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`.
 
+## 84. P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION Hybrid Agent Runtime Pilot Evaluation（2026-08-22，EVALUATED / AWAITING ACCEPTANCE）
+
+P8-A3 受治理试点评估已执行（`task/P8-A3-HYBRID-AGENT-RUNTIME-PILOT-
+EVALUATION`）：验证 Harness 在探索型研究任务中的真实价值；**不是**验证
+Harness 替代 Legacy；**不是** Production Adoption。使用
+`config/harness_pilot_corpus.yaml`，仅执行 HARNESS_ALLOWED 探索任务
+（industry_exploration / research_preparation / evidence_discovery_assistance /
+analyst_assistant / hypothesis_generation）；Negative controls
+（financial_fact / research_finding / final_report）机械保持 LEGACY_ONLY。
+
+- 运行器：`scripts/p8_a3_pilot_evaluation.py`（opt-in `P8_A3_HYBRID_PILOT_EVAL=1`）；
+  真实 pinned Harness（rc.7）provider-backed 单 durable session 多 turn；
+  完整数据 `reports/p8_a3_pilot_evaluation.json`（gitignored）。
+- **Governance 全过**：audit_completeness=100%（8/8）、unauthorized_tool=0、
+  authority_drift=0、secret_leak=0、strict_schema_entered_harness=0、
+  graph_write_attempted=false。
+- **关键实证发现（如实，两次运行一致）**：300s **和** 600s turn 预算下 5 个
+  开放探索 turn 全部 TURN_TIMEOUT（5/5，无改善）→ **不是预算问题**。诊断证明
+  **简单定向 turn 9.5s 完成**（含真实工具调用）→ 根因是开放探索 prompt 触发
+  agentic 循环（多工具/多轮/空图重试），是 Harness 生产试点前的可靠性门槛。
+- **Reliability**：session_success_rate=0.0（5/5 timeout，300s 与 600s 均）；
+  continuity_rate=1.0；cleanup 本地 NOT_VERIFIED（Windows fail-closed）。
+- **Value / Cost**：因探索 turn 未在预算内完成，Value 无法量化、token usage
+  不可完整采集（timeout turn 无 provider usage 返回）—— 如实记录。
+- **POSIX 验证**：首次 CI（run 32512091426）FAILED —— `PROFILE_POLICY_MISMATCH:
+  Tool allowlist is not exact`（根因：stdio MCP server 需 `P8_A0_HYBRID_SPIKE=1`
+  才暴露 4-tool 表面，posix 脚本未内部设置；已修复）。`p8-a3-pilot-evaluation.yml`
+  workflow 就绪，push 到本分支即触发重跑取得 `process_residue=NO`。
+- 测试：`tests/unit/test_p8_a3_pilot_evaluation.py`（11 offline）；full pytest 绿；
+  schema 86/86；未修改 LlmClient / Schema / Validator / Financial / Evidence /
+  Graph Write authority；默认 runtime 保持 legacy。
+- **P8-A4 建议（前置条件）**：暂不建议直接进入生产试点运行；需先将探索 prompt
+  改为有界定向形态（单次工具调用 / 明确结束条件）、处理空图重试，修复后重跑
+  本评估，再决定 P8-A4。
+
+本 Decision 记录评估结果，不授权生产采用。默认 runtime 保持 legacy；
+P8-B3 / production adoption 保持 NOT_AUTHORIZED；Agent 不得 self-accept。
+
 ## 77. P8-B2-R5-C Harness JSON Boundary Recovery Implementation (2026-08-21)
 
 The approved R5-C design is implemented as `src/research_os/llm/json_recovery.py`

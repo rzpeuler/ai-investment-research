@@ -330,6 +330,29 @@ P8-A2-HYBRID-AGENT-RUNTIME-PILOT-IMPLEMENTATION 如实记录试点基础设施�
 7. **Audit 落库为 JSONL + 可选 llm_call_records 追加**：pilot lineage 记录到
    `reports/pilot_audit/`（gitignored）；正式持久化 / 查询接口属后续任务。
 
+## 25. P8-A3 Hybrid Agent Runtime Pilot Evaluation 限制（2026-08-22，EVALUATED / NOT PRODUCTION）
+
+P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION 如实记录评估边界与发现：
+
+1. **Agentic 循环（关键实证发现，两次运行一致）**：300s 和 600s turn 预算下
+   5 个开放探索 turn 全部 TURN_TIMEOUT（5/5，无改善）→ **不是预算问题**。
+   诊断证明**简单定向 turn 9.5s 完成**（含工具调用）。根因：开放探索 prompt
+   触发 agentic 循环（多工具/多轮/空图重试），是 Harness 生产试点前的
+   可靠性门槛；P8-A4 需先改为有界定向 prompt 并重评估。
+2. **query_industry_graph 空图行为**：图谱表为空（0 行），工具返回
+   insufficient_evidence，agent 可能因此重试/延长回合；属真实数据环境限制。
+3. **Windows 宿主清理证据 fail-closed**（继承 P8-A0）：本地 `process_residue`
+   只能 NOT_VERIFIED；POSIX 机械证据需 CI 重跑（首次 run 32512091426 因
+   `P8_A0_HYBRID_SPIKE=1` 缺失 FAILED，已修复，workflow 就绪）。
+4. **Value 指标为 proxy**：useful_finding_rate / exploration quality /
+   analyst usefulness 为确定性代理信号（非空输出 / 工具调用 / 禁止项扫描 /
+   证据类引用）；定性评估由 Sol 负责（P8-A1 §7.3），未伪造定性结论。
+5. **Cost 数据受 timeout 影响**：300s/600s 运行中 timeout turn 无 provider usage
+   返回（token_usage=0，如实记录）；开放探索场景下成本数据当前不可完整采集。
+6. **Corpus 规模小且 Value 未量化**：5 个探索 case 为试点样本；因探索 turn 均
+   timeout，useful_finding_rate 等 Value 指标当前无法量化（如实记录，不伪造）。
+7. **默认 runtime 仍为 legacy**：Harness 保持 opt-in；`PRODUCTION_ADOPTION = NO`。
+
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。

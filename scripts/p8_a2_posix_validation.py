@@ -39,6 +39,10 @@ def main() -> int:
     sys.path.insert(0, str(ROOT / "src"))
     pythonpath = os.environ.get("PYTHONPATH", "")
     os.environ["PYTHONPATH"] = str(ROOT / "src") + (os.pathsep + pythonpath if pythonpath else "")
+    # The MCP stdio server exposes the 4-tool spike surface only under this
+    # opt-in flag (frozen 2-tool contract is the default); the validation boots
+    # the hybrid spike adapter which requires the 4-tool surface.
+    os.environ["P8_A0_HYBRID_SPIKE"] = "1"
 
     from research_os.agent_runtime.config import AgentRuntimeConfig
     from research_os.agent_runtime.production_runtime import build_hybrid_spike_harness_adapter

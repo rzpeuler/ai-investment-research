@@ -1,0 +1,100 @@
+name: P8-A3 Hybrid Agent Runtime Pilot Evaluation
+
+# P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION: runs the governed hybrid pilot
+# evaluation on a real Ubuntu POSIX runner:
+#   - POSIX process_residue validation (process_residue=NO mechanical proof)
+#   - Real Harness execution of the HARNESS_ALLOWED exploration corpus
+#   - Negative controls must stay LEGACY_ONLY
+#   - Reliability / Governance / Value / Cost metrics + runtime-lineage audit
+# Opt-in via P8_A3_HYBRID_PILOT_EVAL=1; default runtime remains legacy; this
+# is an EVALUATION, not Production Adoption.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - task/P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p8-a3-pilot-evaluation
+  cancel-in-progress: false
+
+jobs:
+  pilot-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Python dependencies
+        run: pip install ".[dev]"
+
+      - name: Install pinned Harness (npm ci)
+        working-directory: agent_runtime
+        run: npm ci
+
+      - name: Environment facts
+        run: |
+          grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release
+          echo "kernel: $(uname -r)"
+          python --version
+          node --version
+          echo "harness: $(agent_runtime/node_modules/.bin/dsh --version)"
+
+      - name: P8-A2 POSIX runtime validation (process_residue=NO)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          P8_A2_POSIX_VALIDATION: "1"
+        run: |
+          set +e
+          PYTHONPATH=src python scripts/p8_a2_posix_validation.py
+          code=$?
+          set -e
+          echo "P8_A2_POSIX_VALIDATION_EXIT_CODE=$code"
+          echo "FORMAL_ACCEPTANCE_TURN=NO"
+          if [ "$code" = "2" ]; then
+            echo "PROCESS_RESIDUE_GATE_FAILED"
+            exit 2
+          fi
+
+      - name: P8-A3 pilot evaluation (real Harness exploration corpus)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          P8_A3_HYBRID_PILOT_EVAL: "1"
+        run: |
+          set +e
+          PYTHONPATH=src python scripts/p8_a3_pilot_evaluation.py
+          code=$?
+          set -e
+          echo "P8_A3_EVALUATION_EXIT_CODE=$code"
+          if [ "$code" != "0" ]; then
+            echo "P8_A3_EVALUATION_FAILED"
+            exit 1
+          fi
+
+      - name: P8-A2 pilot corpus offline run (router/permission/audit)
+        env:
+          P8_A2_HYBRID_PILOT: "1"
+        run: PYTHONPATH=src python scripts/p8_a2_hybrid_pilot.py
+
+      - name: Full pytest
+        run: python -m pytest
+
+      - name: Validate schemas
+        run: python -m research_os.cli.main validate
+
+      - name: Compile
+        run: python -m compileall -q src scripts tests
