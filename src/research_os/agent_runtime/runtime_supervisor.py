@@ -26,11 +26,12 @@ class HarnessRuntimeSupervisor:
         process_factory: Callable[[], OwnedProcess] | None = None,
         recorder: EventRecorder | None = None,
         allow_fixture: bool = False,
+        allowed_tools: frozenset[str] | None = None,
     ):
         self.config = (config or AgentRuntimeConfig()).validate()
         self.process_factory = process_factory
         self.recorder = recorder or EventRecorder()
-        self.verifier = ProfileVerifier(self.config.harness_version)
+        self.verifier = ProfileVerifier(self.config.harness_version, allowed_tools=allowed_tools)
         self.allow_fixture = allow_fixture
         self.process: OwnedProcess | None = None
         self.state = SupervisorState.STOPPED
@@ -102,12 +103,14 @@ class HarnessRuntimeSupervisor:
             self._cleanup_owned_process()
             raise RuntimeNotReady(self.failure_code, str(exc)) from exc
 
-    def complete_mcp_handshake(self, handshake_evidence: dict[str, Any]) -> RuntimeStatus:
+    def complete_mcp_handshake(self, handshake_evidence: dict[str, Any],
+                               expected_tools: tuple[str, ...] | None = None) -> RuntimeStatus:
         if self.state is not SupervisorState.STARTING or not self._status().process_alive:
             raise RuntimeNotReady("MCP_UNAVAILABLE", "runtime is not alive for MCP handshake")
         if not handshake_evidence.get("connected") or handshake_evidence.get("namespace") != self.config.mcp_namespace:
             raise RuntimeNotReady("MCP_UNAVAILABLE", "MCP handshake evidence is invalid")
-        if tuple(sorted(handshake_evidence.get("tools", ()))) != ("check_data_readiness", "get_company_profile"):
+        expected = expected_tools if expected_tools is not None else ("check_data_readiness", "get_company_profile")
+        if tuple(sorted(handshake_evidence.get("tools", ()))) != tuple(sorted(expected)):
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "MCP Tool evidence is not exact")
         self._verification["mcp_verified"] = True
         self.state = SupervisorState.READY

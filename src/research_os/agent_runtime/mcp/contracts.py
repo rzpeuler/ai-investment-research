@@ -55,8 +55,10 @@ def bounded_result(value: dict[str, Any], limit: int = MAX_TOOL_RESULT_BYTES) ->
     return value
 
 
-def handshake(namespace: str, version: str, tools: set[str] | frozenset[str]) -> MCPHandshake:
-    if namespace != MCP_NAMESPACE or tools != ALLOWED_TOOL_NAMES:
+def handshake(namespace: str, version: str, tools: set[str] | frozenset[str],
+              allowed_tools: set[str] | frozenset[str] | None = None) -> MCPHandshake:
+    expected = frozenset(allowed_tools) if allowed_tools is not None else ALLOWED_TOOL_NAMES
+    if namespace != MCP_NAMESPACE or frozenset(tools) != expected:
         raise ToolNotAllowed("catalog")
     return MCPHandshake(namespace=namespace, version=version, tools=tuple(sorted(tools)))
 

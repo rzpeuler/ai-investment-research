@@ -538,3 +538,31 @@ NEXT: D4 已完成（ACCEPTED / MERGED 2026-08-19，范围不变）→ 后续独
   → 再决定 Harness production adoption。默认 runtime 保持 legacy；
   P8-B3 / production adoption 保持 NOT_AUTHORIZED。
 ```
+
+## P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE — Hybrid Runtime Spike（2026-08-21）
+
+```text
+SPIKE EXECUTED（最小 Hybrid Runtime Spike；Harness + Skills + MCP + Research
+  OS Tools 形成完整研究闭环）:
+  - Harness runtime: pinned @deepseek-ai/dsh@0.1.0-rc.7 启动/session create/
+    resume 验证通过（宿主 Windows；Node 24；DEEPSEEK_API_KEY 可用）
+  - MCP facade: 4-tool spike surface（get_company_profile / check_data_readiness
+    / query_industry_graph / run_research_scenario）；冻结 2-tool 契约为默认，
+    spike 为 env-gated opt-in（P8_A0_HYBRID_SPIKE=1）
+  - Skills: stock-research / financial-analysis / industry-graph-research 可发现
+    并加载（使用场景 + Tool 选择 + 工作方法；无业务代码）
+  - Session: 真实连续 4-turn 会话执行（研究宁德时代 → 现金流 → 产业链风险 →
+    比较亿纬锂能）；session continuity / tool invocation chain / audit 记录
+  - Authority: 无 source 直连 / 无 graph write / 无 evidence 修改 /
+    无 validator bypass；secret scan 0
+  - 测试: tests/unit/test_p8_a0_hybrid_spike.py；full pytest 2828 passed /
+    4 skipped / 0 failed；schema 86/86
+  - 报告: docs/architecture/p8-a0-hybrid-runtime-spike-report.md +
+    reports/p8_a0_hybrid_spike.json
+NEXT: Sol 独立验收 spike（MCP 4-tool 表面 / Skill 定义 / Session 结果 /
+  Authority）→ 在 POSIX CI（ubuntu）重跑取得 process_residue=NO 的机械证据
+  → 若通过，独立 taskbook 授权 P8-A1（Hybrid Agent Runtime 正式设计/实施
+  评估；范围仍保持 legacy 默认，Harness 仅限白名单探索类任务；不将 Harness
+  作为默认严格结构化生成 runtime）。默认 runtime 保持 legacy；
+  P8-B3 / production adoption 保持 NOT_AUTHORIZED。
+```

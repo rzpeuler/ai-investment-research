@@ -120,3 +120,95 @@ def bounded(value: dict[str, Any]) -> dict[str, Any]:
     if len(encoded.encode("utf-8")) > MAX_RESULT_BYTES:
         return {"status": "tool_result_invalid", "reason": "bounded_result_limit_exceeded", "truncated": True}
     return value
+
+
+# ---------------------------------------------------------------------------
+# P8-A0 Hybrid spike: two additional read/bounded Tools (opt-in spike surface).
+# ---------------------------------------------------------------------------
+
+
+def query_industry_graph(root_node_id: str, as_of: str, max_depth: int = 1,
+                         direction: str = "both", **_: Any) -> dict[str, Any]:
+    """Read-only industry graph traversal from Research OS authority (spike).
+
+    Uses the existing read-only GraphQueryService; never mutates the graph.
+    Empty/absent graph data is reported honestly (``insufficient_evidence`` /
+    ``data_degraded``); no fabricated nodes or edges are returned.
+    """
+    if not isinstance(root_node_id, str) or not root_node_id.strip():
+        return {"status": "insufficient_evidence", "reason": "root_node_id_required"}
+    if not isinstance(as_of, str) or not as_of.strip():
+        return {"status": "insufficient_evidence", "reason": "as_of_required"}
+    if not isinstance(max_depth, int) or not 1 <= max_depth <= 3:
+        return {"status": "insufficient_evidence", "reason": "max_depth_out_of_bounds"}
+    if direction not in {"in", "out", "both"}:
+        return {"status": "insufficient_evidence", "reason": "direction_out_of_bounds"}
+    db_path = _authority_db_path()
+    if not db_path.is_file():
+        return {"status": "data_degraded", "reason": "authoritative_db_missing"}
+    db = Database.open_read_only(db_path)
+    try:
+        from research_os.knowledge.query import GraphQueryService, QueryError
+
+        service = GraphQueryService(db)
+        result = service.query_graph(root_node_id, as_of, max_depth=max_depth, direction=direction)
+        payload = result.to_dict()
+        status = ("success" if payload.get("nodes") else
+                  "insufficient_evidence")
+        return {
+            "status": status,
+            "root_node_id": root_node_id,
+            "as_of": as_of,
+            "max_depth": max_depth,
+            "direction": direction,
+            "node_count": len(payload.get("nodes", [])),
+            "edge_count": len(payload.get("edges", [])),
+            "nodes": payload.get("nodes", []),
+            "edges": payload.get("edges", []),
+            "limitations": ["graph_read_only_spike", "no_graph_mutation"] + payload.get("limitations", []),
+        }
+    except QueryError as exc:
+        return {"status": "insufficient_evidence", "reason": str(exc),
+                "root_node_id": root_node_id, "as_of": as_of}
+    finally:
+        db.close()
+
+
+def run_research_scenario(scenario: str, target: str, as_of: str | None = None, **_: Any) -> dict[str, Any]:
+    """Trigger an existing Research OS scenario workflow (spike, bounded).
+
+    Validates the scenario against the existing ScenarioRegistry and returns
+    the formal workflow's task/plan/readiness projection. It is a *trigger*
+    surface: it does not reimplement the workflow, does not write the graph or
+    database, and does not bypass the Research Workflow authority. If the
+    scenario is not registered the tool reports ``insufficient_evidence``.
+    """
+    if not isinstance(scenario, str) or not scenario.strip():
+        return {"status": "insufficient_evidence", "reason": "scenario_required"}
+    if not isinstance(target, str) or not target.strip():
+        return {"status": "insufficient_evidence", "reason": "target_required"}
+    from research_os.orchestrator.orchestrator import Orchestrator
+    from research_os.orchestrator.runners import DEFAULT_SCENARIOS
+
+    if scenario not in DEFAULT_SCENARIOS:
+        return {"status": "insufficient_evidence", "reason": "scenario_not_registered",
+                "scenario": scenario}
+    effective_as_of = as_of or now_iso()
+    orch = Orchestrator(ROOT, db=None)
+    try:
+        task = orch.create_task(scenario=scenario, entities=[target], as_of=effective_as_of)
+        plan = orch.create_plan(task, {"entity": target, "as_of": effective_as_of})
+        return {
+            "status": "success",
+            "scenario": scenario,
+            "target": target,
+            "as_of": effective_as_of,
+            "task_id": task.task_id,
+            "plan_steps": [step.get("step") for step in plan.steps],
+            "data_requirement_ids": plan.data_requirement_ids,
+            "runtime_budget": plan.runtime_budget,
+            "limitations": ["spike_trigger_only", "workflow_authority_research_os",
+                            "no_graph_write", "no_database_write"],
+        }
+    except ValueError as exc:
+        return {"status": "insufficient_evidence", "reason": str(exc), "scenario": scenario}

@@ -3630,6 +3630,35 @@ PRODUCTION_ACCEPTANCE: NO
 P8-A0 Hybrid Agent Runtime Spike 为未来另行授权的最小 spike。本 Decision
 不授权任何 Harness / MCP / Skill 实施。Agent 不得 self-accept。
 
+## 81. P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE Hybrid Runtime Spike（2026-08-21，EXECUTED / AWAITING ACCEPTANCE）
+
+最小 Hybrid Runtime Spike 已执行（`task/P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE`）：
+验证 DeepSeek Harness 作为 Research OS Agent Orchestration Runtime 的可行性，
+形成 Harness + Skills + MCP + Research OS Tools 完整研究闭环。
+
+- Harness runtime：pinned `@deepseek-ai/dsh@0.1.0-rc.7` 启动 / session create /
+  resume 验证通过（宿主 Windows；Node 24；DEEPSEEK_API_KEY 可用）。
+- MCP facade：4-tool spike surface（get_company_profile / check_data_readiness /
+  query_industry_graph / run_research_scenario）；**冻结 2-tool 契约为默认**，
+  spike 为 env-gated opt-in（`P8_A0_HYBRID_SPIKE=1`）；DENY 列表机械校验
+  （graph write / source 直连 / sql / collector 全部 0 次）。
+- Skills：stock-research / financial-analysis / industry-graph-research 可发现
+  并加载（使用场景 + Tool 选择 + 工作方法；无业务代码）。
+- Session：真实连续 4-turn 会话（研究宁德时代 → 现金流 → 产业链风险 →
+  比较亿纬锂能）；session continuity / tool invocation chain / audit 记录。
+- Authority：无 source 直连 / 无 graph write / 无 evidence 修改 /
+  无 validator bypass；secret scan 0；默认 runtime 保持 legacy。
+- 测试：`tests/unit/test_p8_a0_hybrid_spike.py`（offline）；full pytest
+  **2828 passed / 4 skipped / 0 failed**；schema **86/86**。
+- 报告：`docs/architecture/p8-a0-hybrid-runtime-spike-report.md` +
+  `reports/p8_a0_hybrid_spike.json`。
+
+限制（如实）：Windows 宿主 process-cleanup 证据为 fail-closed NOT_VERIFIED；
+spike 4-tool surface 未进入生产 catalog；Session 未接入 Research OS 持久化；
+P8-A1 未授权（建议 Sol 验收 + POSIX CI 重跑后独立 taskbook 授权）。默认
+runtime 保持 legacy；P8-B3 / production adoption 保持 NOT_AUTHORIZED；
+Agent 不得 self-accept。
+
 ## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
 
 The fixed EVAL-001 corpus contains 13 cases. R5-D completed under benchmark-only

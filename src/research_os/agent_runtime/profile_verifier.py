@@ -6,7 +6,7 @@ from typing import Any
 
 from .config import EXPECTED_HARNESS_VERSION, MCP_NAMESPACE
 from .errors import RuntimeNotReady
-from .tool_catalog import ALLOWED_TOOL_NAMES
+from .tool_catalog import ALLOWED_TOOL_NAMES, SPIKE_ALLOWED_TOOL_NAMES
 
 EXPECTED_PROFILE = "research-headless"
 DENIED_COMPONENTS = frozenset({
@@ -46,8 +46,10 @@ class ProfileVerification:
 
 
 class ProfileVerifier:
-    def __init__(self, expected_version: str = EXPECTED_HARNESS_VERSION):
+    def __init__(self, expected_version: str = EXPECTED_HARNESS_VERSION,
+                 allowed_tools: frozenset[str] | None = None):
         self.expected_version = expected_version
+        self.allowed_tools = allowed_tools if allowed_tools is not None else ALLOWED_TOOL_NAMES
 
     def verify(self, runtime: dict[str, Any], *, allow_fixture: bool = False) -> ProfileVerification:
         if runtime.get("evidence_source") != "observed_runtime" and not allow_fixture:
@@ -84,7 +86,7 @@ class ProfileVerifier:
         if not allow_fixture and (handshake.get("connected") is not True or handshake.get("namespace") != MCP_NAMESPACE):
             raise RuntimeNotReady("MCP_UNAVAILABLE", "actual MCP handshake evidence is missing")
         tools = frozenset(handshake.get("tools", runtime.get("tools", ())))
-        if tools != ALLOWED_TOOL_NAMES:
+        if tools != self.allowed_tools:
             raise RuntimeNotReady("PROFILE_POLICY_MISMATCH", "Tool allowlist is not exact")
         return ProfileVerification(True, True, True, True, identity)
 

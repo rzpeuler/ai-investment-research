@@ -265,6 +265,29 @@ P8-ARCH-001 治理冻结（Decision #80）如实记录当前能力边界：
    Collector / DB / Graph Write 始终 DENY。
 5. P8-A0 Hybrid Agent Runtime Spike 未授权；D4 已完成验收，范围不变，不受本冻结影响。
 
+## 22. P8-A0 Hybrid Runtime Spike 限制（2026-08-21，SPIKE EXECUTED）
+
+P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE 如实记录 spike 能力边界（spike 非生产）：
+
+1. **Windows 宿主清理证据 fail-closed**：accepted R2 清理证据模型在 Windows 无法
+   机械枚举 owned process tree → `process_residue` 只能 NOT_VERIFIED，不能宣称
+   `NO`；正式接受建议在 POSIX CI（ubuntu）重跑取得机械证据。
+2. **Harness 不是严格结构化生成 runtime**（P8-B2 已实证）：spike 只验证
+   Orchestration / MCP / Tool / Session 闭环，不改变默认生成路径。
+3. **4-tool MCP surface 为 spike opt-in**（`P8_A0_HYBRID_SPIKE=1`）：默认 stdio
+   MCP server 仍暴露冻结 2-tool 表面；spike 工具未进入生产 catalog。
+4. **Agent 自由文本行为**：4-turn Tool 调用由 prompt + Skill 引导；模型未按预期
+   调用时事件日志如实记录，不伪造调用链。
+5. **token 成本**：agentic 多轮 token 用量高于 legacy 单轮；spike 有界
+   （4 turn，180s/turn 超时），usage 如实记录（provider-reported，不推断）。
+6. **run_research_scenario 为 bounded trigger**：返回 task/plan 投影，不执行
+   完整 LLM 研究管线（保持 Research Workflow authority 不变）。
+7. **Skill 目录为 spike 定义**：stock-research / financial-analysis /
+   industry-graph-research 已挂载可发现；正式 Skill 目录（含 routing metadata
+   治理）属 P8-A1 范围。
+8. **Session 未持久化**：spike session 由 Harness 内部管理，未接入 Research OS
+   持久化 / audit 落库（spike 只记录 bounded JSON 报告）。
+
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。

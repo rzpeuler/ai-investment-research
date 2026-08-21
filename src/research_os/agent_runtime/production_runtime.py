@@ -140,6 +140,11 @@ class ProductionEvidenceProbe:
             "DSH_PERMISSION_MODE": "read-only",
             "DSH_TELEMETRY_MODE": "DISABLED",
         })
+        # Subprocesses (stdio MCP server, dsh) must resolve `research_os` from
+        # THIS repository, not a stale editable-install .pth from another
+        # worktree.
+        pythonpath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = str(self.repo_root / "src") + (os.pathsep + pythonpath if pythonpath else "")
         return env
 
     def prepare_profile(self, home: Path) -> Path:
@@ -160,9 +165,15 @@ class ProductionEvidenceProbe:
         return result.stdout.strip()
 
     def probe_mcp(self, timeout: int = 20) -> dict[str, Any]:
+        pythonpath = os.environ.get("PYTHONPATH", "")
+        probe_env = {
+            **os.environ,
+            "P8_B1_EVENT_LOG": "",
+            "PYTHONPATH": str(self.repo_root / "src") + (os.pathsep + pythonpath if pythonpath else ""),
+        }
         process = subprocess.Popen([sys.executable, "scripts/p8_b1_mcp_server.py"], cwd=self.repo_root,
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                   text=False, env={**os.environ, "P8_B1_EVENT_LOG": ""})
+                                   text=False, env=probe_env)
         requests = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
@@ -592,4 +603,38 @@ def build_production_harness_adapter(config=None, *, require_credential: bool = 
     mcp = build_research_os_mcp_server()
     mcp.perform_handshake()
     supervisor.complete_mcp_handshake(evidence["mcp_handshake"])
+    return HarnessAgentRuntimeAdapter(supervisor, mcp, client), evidence
+
+
+def build_hybrid_spike_harness_adapter(config=None, *, require_credential: bool = True):
+    """P8-A0 Hybrid spike boot: pinned Harness + 4-tool Research OS MCP facade.
+
+    Opt-in spike path only. The spike reuses the accepted production runtime
+    binding (HarnessProcessFactory / OfficialHarnessClient / supervisor /
+    owned process-tree cleanup) but exposes the four spike Tools
+    (``query_industry_graph``, ``run_research_scenario``) alongside the frozen
+    two read Tools. Default runtime and the frozen 2-tool MCP contract are
+    unchanged; this builder is used only by the explicit spike runner.
+    """
+    from .config import AgentRuntimeConfig
+    from .harness_adapter import HarnessAgentRuntimeAdapter
+    from .mcp.tools import build_spike_research_os_mcp_server
+    from .runtime_supervisor import HarnessRuntimeSupervisor
+    from .tool_catalog import SPIKE_ALLOWED_TOOL_NAMES
+
+    config = (config or AgentRuntimeConfig(mode="harness")).validate()
+    factory = HarnessProcessFactory()
+    evidence = factory.observed_evidence()
+    supervisor = HarnessRuntimeSupervisor(config=config, process_factory=factory,
+                                          allowed_tools=SPIKE_ALLOWED_TOOL_NAMES)
+    supervisor.start(evidence, require_credential=require_credential)
+    process = supervisor.process
+    if process is None or not hasattr(process, "base_url"):
+        supervisor.stop()
+        raise RuntimeNotReady("HARNESS_BOOT_FAILED", "owned process did not expose loopback API")
+    client = OfficialHarnessClient(process.base_url, config.turn_timeout_seconds)
+    mcp = build_spike_research_os_mcp_server()
+    mcp.perform_handshake()
+    supervisor.complete_mcp_handshake(evidence["mcp_handshake"],
+                                      expected_tools=tuple(sorted(SPIKE_ALLOWED_TOOL_NAMES)))
     return HarnessAgentRuntimeAdapter(supervisor, mcp, client), evidence

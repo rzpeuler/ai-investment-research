@@ -1,4 +1,11 @@
-"""Production stdio MCP transport for the P8-B1 Research OS boundary."""
+"""Production stdio MCP transport for the P8-B1 Research OS boundary.
+
+Env-gated P8-A0 Hybrid spike: when ``P8_A0_HYBRID_SPIKE=1`` is set, the
+stdio server exposes the four spike Tools (the frozen two read Tools plus
+``query_industry_graph`` and ``run_research_scenario``). The default (no env)
+exposes exactly the frozen two read Tools. The spike is opt-in only; the
+default runtime and the frozen MCP contract are unchanged.
+"""
 from __future__ import annotations
 
 import json
@@ -7,7 +14,18 @@ import sys
 from datetime import datetime, timezone
 
 from research_os.agent_runtime.mcp.contracts import negotiate_mcp_protocol_version
-from research_os.agent_runtime.mcp.tools import build_research_os_mcp_server
+from research_os.agent_runtime.mcp.tools import (
+    build_research_os_mcp_server,
+    build_spike_research_os_mcp_server,
+)
+
+P8_A0_HYBRID_SPIKE = "P8_A0_HYBRID_SPIKE"
+
+
+def _build_server():
+    if os.environ.get(P8_A0_HYBRID_SPIKE) == "1":
+        return build_spike_research_os_mcp_server()
+    return build_research_os_mcp_server()
 
 
 def _log(event: dict[str, object]) -> None:
@@ -50,7 +68,7 @@ def _request_target(params: dict[str, object]) -> str | None:
 
 
 def main() -> int:
-    server = build_research_os_mcp_server()
+    server = _build_server()
     for line in sys.stdin:
         if not line.strip():
             continue

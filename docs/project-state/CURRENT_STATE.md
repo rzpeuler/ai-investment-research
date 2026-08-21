@@ -349,6 +349,7 @@ DATA_SOURCE_MANAGEMENT_UI: DESIGNED / NOT_IMPLEMENTED
 FRONTEND_SOURCE_EDITING: NOT_IMPLEMENTED
 P8-A0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-A0_ACCEPTED_HEAD: f16a3163814345e9aee2d00615a42dae57fd86fb
+P8-A0_HYBRID_SPIKE: EXECUTED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-21; hybrid 4-tool MCP facade + 3 skills + real continuous session; report docs/architecture/p8-a0-hybrid-runtime-spike-report.md; default runtime legacy; P8-A1 NOT_AUTHORIZED)
 P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B_DESIGN_HEAD: 9aa7071
@@ -445,6 +446,28 @@ direct_data_source_access). Status: `HARNESS_ARCHITECTURE=DESIGN_FROZEN`,
 `HARNESS_IMPLEMENTATION=NOT_IMPLEMENTED`, `PRODUCTION_ACCEPTANCE=NO`.
 D4 scope unchanged (D4 already ACCEPTED/MERGED). Next after D4:
 P8-A0 Hybrid Agent Runtime Spike (separate authorization).
+
+## P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE — Hybrid Runtime Spike (2026-08-21)
+
+P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE executed (branch
+`task/P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE`): minimal Hybrid Runtime Spike
+(Harness + Skills + MCP + Research OS Tools) forming a complete research loop.
+Pinned `@deepseek-ai/dsh@0.1.0-rc.7` booted on host; MCP facade extended to the
+4-tool spike surface (`get_company_profile` / `check_data_readiness` /
+`query_industry_graph` / `run_research_scenario`) while the frozen 2-tool
+P8-B1/P8-B2 contract stays the default (env-gated `P8_A0_HYBRID_SPIKE=1`).
+3 skills (stock-research / financial-analysis / industry-graph-research)
+discoverable and loaded with use-case/tool-selection/working-method content.
+Real continuous session executed (4 turns: 研究宁德时代 → 现金流 → 产业链风险 →
+比较亿纬锂能) with session continuity, tool invocation chain, audit trail and
+authority checks (no source access / graph write / evidence mutation / validator
+bypass; secret scan 0). Report:
+`docs/architecture/p8-a0-hybrid-runtime-spike-report.md` +
+`reports/p8_a0_hybrid_spike.json`. Tests: `tests/unit/test_p8_a0_hybrid_spike.py`
+(offline); full pytest 2828 passed / 4 skipped / 0 failed; schema 86/86.
+Default runtime remains legacy; P8-B3 / production adoption remain NOT_AUTHORIZED.
+Windows process-cleanup evidence is fail-closed NOT_VERIFIED (accepted R2 model);
+POSIX re-run recommended before P8-A1.
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 

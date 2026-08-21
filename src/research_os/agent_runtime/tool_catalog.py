@@ -13,6 +13,20 @@ DENIED_TOOL_NAMES = frozenset({
     "query_industry_graph", "run_research_scenario", "run_stock_research",
 })
 
+# P8-A0 Hybrid spike: opt-in 4-tool surface (P8-A0-HARNESS-HYBRID-RUNTIME-SPIKE).
+# The frozen P8-B1/P8-B2 2-tool contract (ALLOWED_TOOL_NAMES above) is unchanged;
+# the spike surface is selected only by the explicit spike adapter/builders.
+SPIKE_ALLOWED_TOOL_NAMES = frozenset({
+    "get_company_profile", "check_data_readiness",
+    "query_industry_graph", "run_research_scenario",
+})
+SPIKE_DENIED_TOOL_NAMES = frozenset({
+    "cninfo_fetch", "nbs_fetch", "sina_fetch", "collector_execute", "sql_query",
+    "execute_sql", "query_db", "read_table", "graph_write", "graph_apply",
+    "graph_approve", "apply_graph_change", "direct_data_source_access",
+    "approve_graph_change",
+})
+
 
 @dataclass(frozen=True)
 class ToolDefinition:
@@ -50,8 +64,47 @@ def catalog(handlers: dict[str, Callable[..., dict[str, Any]]] | None = None) ->
     return definitions
 
 
+def spike_catalog(handlers: dict[str, Callable[..., dict[str, Any]]] | None = None) -> dict[str, ToolDefinition]:
+    """P8-A0 Hybrid spike 4-tool catalog (opt-in; never the default surface)."""
+    handlers = handlers or {}
+    definitions = catalog({name: handler for name, handler in handlers.items()
+                           if name in ALLOWED_TOOL_NAMES})
+    definitions.update({
+        "query_industry_graph": ToolDefinition(
+            name="query_industry_graph", version="1.0.0",
+            description="Read-only industry graph traversal from Research OS authority.",
+            input_schema={"type": "object",
+                          "properties": {"root_node_id": {"type": "string"},
+                                         "as_of": {"type": "string"},
+                                         "max_depth": {"type": "integer", "minimum": 1, "maximum": 3},
+                                         "direction": {"type": "string", "enum": ["in", "out", "both"]}},
+                          "required": ["root_node_id", "as_of"], "additionalProperties": False},
+            handler=handlers.get("query_industry_graph"),
+        ),
+        "run_research_scenario": ToolDefinition(
+            name="run_research_scenario", version="1.0.0",
+            description="Trigger an existing Research OS scenario workflow (bounded, dry-run authority).",
+            input_schema={"type": "object",
+                          "properties": {"scenario": {"type": "string"},
+                                         "target": {"type": "string"},
+                                         "as_of": {"type": "string"}},
+                          "required": ["scenario", "target"], "additionalProperties": False},
+            handler=handlers.get("run_research_scenario"),
+        ),
+    })
+    if set(handlers) != SPIKE_ALLOWED_TOOL_NAMES:
+        raise ValueError("spike MCP catalog requires exactly the four spike Tools")
+    return definitions
+
+
 def advertised_tools(handlers: dict[str, Callable[..., dict[str, Any]]] | None = None) -> tuple[str, ...]:
     return tuple(sorted(catalog(handlers)))
 
 
-__all__ = ["ALLOWED_TOOL_NAMES", "DENIED_TOOL_NAMES", "MCP_NAMESPACE", "ToolDefinition", "advertised_tools", "catalog"]
+def advertised_spike_tools(handlers: dict[str, Callable[..., dict[str, Any]]] | None = None) -> tuple[str, ...]:
+    return tuple(sorted(spike_catalog(handlers)))
+
+
+__all__ = ["ALLOWED_TOOL_NAMES", "DENIED_TOOL_NAMES", "SPIKE_ALLOWED_TOOL_NAMES",
+           "SPIKE_DENIED_TOOL_NAMES", "MCP_NAMESPACE", "ToolDefinition",
+           "advertised_tools", "advertised_spike_tools", "catalog", "spike_catalog"]
