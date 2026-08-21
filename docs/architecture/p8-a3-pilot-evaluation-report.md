@@ -27,11 +27,12 @@ Harness 替代 Legacy；**不是** Production Adoption）
 | CI workflow | `.github/workflows/p8-a3-pilot-evaluation.yml`（push 到本分支触发） |
 | 首次 CI 运行 | run 32512091426：POSIX 步骤 FAILED —— `PROFILE_POLICY_MISMATCH: Tool allowlist is not exact`（根因：stdio MCP server 需 `P8_A0_HYBRID_SPIKE=1` 才暴露 4-tool 表面，脚本未内部设置；已修复） |
 | **重跑（run 32520242340，Ubuntu）** | **POSIX 验证 PASS：`process_cleanup: {root: TERMINATED, tree: VERIFIED}`，`process_residue: "NO"`，exit code 0** |
+| **最终绿（run 32525377282，Ubuntu）** | **全绿：POSIX `process_residue=NO` + 真实 corpus 评估 + offline pilot + full pytest 3912 passed / 6 skipped + schema + compile 全 success** |
 | 本地（Windows） | `process_residue` = NOT_VERIFIED（accepted R2 模型 Windows fail-closed，如实记录，不宣称 NO） |
 
-> **Ubuntu 机械证据已取得**：`process_residue=NO`（owned process tree 机械证明
-> 为空）—— 关闭 P8-A0 遗留的 Windows NOT_VERIFIED 缺口。CI run 32520242340
-> step 8 PASS。
+> **Ubuntu 机械证据已取得并确认**：`process_residue=NO`（owned process tree 机械
+> 证明为空）—— 关闭 P8-A0 遗留的 Windows NOT_VERIFIED 缺口。CI run
+> 32525377282 全绿（含 full pytest 3912 passed / 6 skipped）。
 
 ## 3. Corpus Results（300s 预算运行；600s 预算重跑结论一致）
 
