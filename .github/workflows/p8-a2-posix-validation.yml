@@ -1,0 +1,84 @@
+name: P8-A2 POSIX Runtime Validation
+
+# P8-A2-POSIX-RUNTIME-VALIDATION: boots the pinned Harness on a real Ubuntu
+# POSIX runner, runs one bounded provider-backed turn, and mechanically proves
+# the owned process-tree cleanup (process_residue=NO). This closes the P8-A0
+# leftover: the accepted R2 cleanup evidence model cannot enumerate an owned
+# process tree on Windows (NOT_VERIFIED, fail-closed), but CAN prove NO on
+# POSIX. Opt-in via P8_A2_POSIX_VALIDATION=1; the default runtime remains
+# legacy; the turn is POSIX_VALIDATION_ONLY / FORMAL_ACCEPTANCE_TURN=NO.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - task/P8-A2-HYBRID-AGENT-RUNTIME-PILOT-IMPLEMENTATION
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p8-a2-posix-validation
+  cancel-in-progress: false
+
+jobs:
+  posix-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Python dependencies
+        run: pip install ".[dev]"
+
+      - name: Install pinned Harness (npm ci)
+        working-directory: agent_runtime
+        run: npm ci
+
+      - name: Environment facts
+        run: |
+          grep -E "^(PRETTY_NAME|VERSION_ID)=" /etc/os-release
+          echo "kernel: $(uname -r)"
+          echo "arch: $(uname -m)"
+          python --version
+          node --version
+
+      - name: P8-A2 POSIX runtime validation (process_residue=NO)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          P8_A2_POSIX_VALIDATION: "1"
+        run: |
+          set +e
+          PYTHONPATH=src python scripts/p8_a2_posix_validation.py
+          code=$?
+          set -e
+          echo "P8_A2_POSIX_VALIDATION_EXIT_CODE=$code"
+          echo "FORMAL_ACCEPTANCE_TURN=NO"
+          if [ "$code" = "2" ]; then
+            echo "PROCESS_RESIDUE_GATE_FAILED"
+            exit 2
+          fi
+
+      - name: P8-A2 pilot corpus offline run
+        env:
+          P8_A2_HYBRID_PILOT: "1"
+        run: PYTHONPATH=src python scripts/p8_a2_hybrid_pilot.py
+
+      - name: Full pytest
+        run: python -m pytest
+
+      - name: Validate schemas
+        run: python -m research_os.cli.main validate
+
+      - name: Compile
+        run: python -m compileall -q src scripts tests

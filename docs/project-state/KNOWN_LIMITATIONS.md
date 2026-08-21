@@ -308,6 +308,28 @@ P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN 如实记录设计边界（设计非实�
 7. **Session 未接入 Research OS 持久化 / audit 落库**：`final_artifact_source`
    等审计字段尚未落库实现，属 P8-A2 范围。
 
+## 24. P8-A2 Hybrid Agent Runtime Pilot 限制（2026-08-22，IMPLEMENTED / NOT PRODUCTION）
+
+P8-A2-HYBRID-AGENT-RUNTIME-PILOT-IMPLEMENTATION 如实记录试点基础设施边界
+（实现非生产采用）：
+
+1. **Pilot 基础设施未接生产流量**：Runtime Router / Permission / Audit /
+   Corpus 已实现，但未接入任何生产场景调用；`P8_A2_HYBRID_PILOT=1` 为 opt-in，
+   默认路径完全不受影响。
+2. **Corpus 未用真实 Harness 执行**：pilot runner 的 Harness 路径使用 offline
+   runner；真实 Harness 探索执行属 P8-A3（需 Sol 验收 P8-A2 后另行授权）。
+3. **POSIX process_residue 验证待 CI 运行**：`scripts/p8_a2_posix_validation.py`
+   与 workflow `p8-a2-posix-validation.yml` 已就绪，但尚未在 Ubuntu CI 产生
+   `process_residue=NO` 的运行证据（需 workflow_dispatch 或分支 push 触发）。
+4. **Windows 宿主清理证据仍 fail-closed**（继承 P8-A0）：Windows 无法机械枚举
+   owned process tree；正式清理证据以 POSIX CI 为准。
+5. **Agent turn timeout 预算**：设计建议 300s（P8-A0 实测 180s 不足）；真实
+   Harness 探索必须配置充足 turn 预算或拆分更小回合。
+6. **HARNESS_ALLOWED 价值未量化**：exploration quality 尚无基准数据，
+   需 P8-A3 真实 corpus 运行采集。
+7. **Audit 落库为 JSONL + 可选 llm_call_records 追加**：pilot lineage 记录到
+   `reports/pilot_audit/`（gitignored）；正式持久化 / 查询接口属后续任务。
+
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。

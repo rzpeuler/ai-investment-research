@@ -3697,6 +3697,44 @@ Schema / Validator）；P8-A2 生产试点实施需独立 taskbook 授权。默�
 保持 legacy；P8-B3 / production adoption 保持 NOT_AUTHORIZED；Agent 不得
 self-accept。
 
+## 83. P8-A2-HYBRID-AGENT-RUNTIME-PILOT-IMPLEMENTATION Hybrid Agent Runtime Pilot（2026-08-22，IMPLEMENTED / AWAITING ACCEPTANCE）
+
+P8-A2 生产试点基础设施已实现（`task/P8-A2-HYBRID-AGENT-RUNTIME-PILOT-
+IMPLEMENTATION`），将 P8-A1 治理设计转化为可执行组件；默认 runtime 保持
+legacy，Harness 仅白名单 opt-in。
+
+- **Runtime Router**（`agent_runtime/runtime_router.py`）：确定性纯函数（无
+  LLM）；输入 task_type / output_contract / risk_level / authority_requirement，
+  输出 LEGACY_ONLY / HARNESS_ALLOWED / HYBRID；strict_schema 强制 LEGACY_ONLY；
+  未列入白名单默认 LEGACY_ONLY（fail-closed）。
+- **Runtime Policy**（`config/runtime_policy.yaml`，version 1.0.0）：配置驱动，
+  禁止硬编码任务列表；exploration 白名单 5 项
+  （industry_exploration / research_preparation / evidence_discovery_assistance /
+  analyst_assistant / hypothesis_generation）；default_runtime 与
+  strict_schema 均强制 legacy；LEGACY_REQUIRED 任务禁止入白名单。
+- **Permission Policy**（`agent_runtime/permission_policy.py`）：fail-closed；
+  ALLOW = get_company_profile / check_data_readiness / query_industry_graph /
+  run_research_scenario；DENY = graph_write / evidence_mutation /
+  financial_fact_creation / direct_source_access 等；未知工具一律拒绝。
+- **Audit Extension**（`agent_runtime/pilot_audit.py`）：runtime lineage 字段
+  runtime_selection / runtime_selection_reason / harness_session_id /
+  skills_used / tools_called / authority_checks / final_artifact_source；
+  可回答"该 Artifact 由哪个 runtime 产生？"（`artifact_source()`）。
+- **Harness Pilot Entry**（`agent_runtime/pilot_adapter.py`）：Router →
+  Permission → Runtime → Audit 执行层；opt-in（`P8_A2_HYBRID_PILOT=1`）。
+- **Pilot Corpus**（`config/harness_pilot_corpus.yaml` + `pilot_corpus.py`）：
+  8 cases（5 exploration + 3 negative controls）；corpus 不含 FinancialFact /
+  ResearchFinding / final report 的 Harness 任务。
+- **POSIX 验证**（`scripts/p8_a2_posix_validation.py` + workflow
+  `p8-a2-posix-validation.yml`）：Ubuntu CI 验证 `process_residue=NO`
+  （关闭 P8-A0 Windows NOT_VERIFIED 遗留）。
+
+测试：`tests/unit/test_p8_a2_hybrid_pilot.py`（29 offline tests）；full pytest
+含 P8-B1 runtime binding integration；schema 86/86；Legacy 既有测试全部通过。
+本实现不修改 default runtime / LlmClient / Validator / Schema / 各 Authority。
+默认 runtime 保持 legacy；P8-B3 / production adoption 保持 NOT_AUTHORIZED；
+Agent 不得 self-accept。
+
 ## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
 
 The fixed EVAL-001 corpus contains 13 cases. R5-D completed under benchmark-only

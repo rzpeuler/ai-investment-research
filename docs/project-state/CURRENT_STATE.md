@@ -339,6 +339,7 @@ AGENT_RUNTIME_ARCHITECTURE: DESIGN_FROZEN
 HARNESS_ARCHITECTURE: DESIGN_FROZEN
 HARNESS_IMPLEMENTATION: SPIKE_COMPLETE
 HARNESS_PILOT_DESIGN: DESIGNED / AWAITING ACCEPTANCE (P8-A1, 2026-08-22)
+HARNESS_PILOT_IMPLEMENTATION: IMPLEMENTED / AWAITING ACCEPTANCE (P8-A2, 2026-08-22; runtime router + policy + permission + audit + corpus + POSIX validation; default runtime legacy)
 PRODUCTION_ACCEPTANCE: NO
 DEEPSEEK_HARNESS: TECHNICAL_INTEGRATION_VIABLE / P8-B1 FOUNDATION AUTHORIZED
 HARNESS_INTEGRATION: P8-A0 PASS / INDEPENDENTLY ACCEPTED
@@ -352,6 +353,7 @@ P8-A0: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-A0_ACCEPTED_HEAD: f16a3163814345e9aee2d00615a42dae57fd86fb
 P8-A0_HYBRID_SPIKE: EXECUTED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-21; hybrid 4-tool MCP facade + 3 skills + real continuous session; report docs/architecture/p8-a0-hybrid-runtime-spike-report.md; default runtime legacy; P8-A1 NOT_AUTHORIZED)
 P8-A1_HYBRID_PILOT_DESIGN: DESIGNED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-22; pilot design docs/architecture/p8-a1-hybrid-pilot-design.md: task classification HARNESS_ALLOWED/LEGACY_REQUIRED, deterministic Runtime Router, permission model, session governance, audit boundary, pilot acceptance criteria; docs-only, no runtime switch; P8-A2 implementation NOT_AUTHORIZED)
+P8-A2_HYBRID_PILOT_IMPLEMENTATION: IMPLEMENTED / AWAITING INDEPENDENT ACCEPTANCE (2026-08-22; runtime router + runtime_policy.yaml + permission policy + audit lineage + pilot corpus + POSIX validation workflow; default runtime legacy; P8-A3 NOT_AUTHORIZED)
 P8-B: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B1: CLOSED / PASS / INDEPENDENTLY ACCEPTED
 P8-B_DESIGN_HEAD: 9aa7071
@@ -493,6 +495,33 @@ tools_called / authority_checks / final_artifact_source → answers "which
 runtime produced this conclusion?"). Pilot acceptance criteria (Reliability /
 Governance / Value / Cost). No implementation authorized; default runtime
 remains legacy; P8-A2 implementation NOT_AUTHORIZED.
+
+## P8-A2-HYBRID-AGENT-RUNTIME-PILOT-IMPLEMENTATION — Hybrid Agent Runtime Pilot (2026-08-22)
+
+P8-A2 pilot infrastructure implemented (Decision #83; default runtime remains
+legacy; Harness is whitelist opt-in only). Runtime Router
+(`agent_runtime/runtime_router.py`): deterministic, no LLM; inputs task_type /
+output_contract / risk_level / authority_requirement → LEGACY_ONLY /
+HARNESS_ALLOWED / HYBRID; strict_schema forces LEGACY_ONLY; unlisted tasks
+default to legacy (fail-closed). Runtime Policy (`config/runtime_policy.yaml`
+v1.0.0): config-driven exploration whitelist (industry_exploration /
+research_preparation / evidence_discovery_assistance / analyst_assistant /
+hypothesis_generation); default and strict_schema both forced legacy;
+LEGACY_REQUIRED tasks rejected from whitelist. Permission Policy
+(`agent_runtime/permission_policy.py`): fail-closed; ALLOW the 4 exploration
+tools; DENY graph_write / evidence_mutation / financial_fact_creation /
+direct_source_access. Audit Extension (`agent_runtime/pilot_audit.py`): runtime
+lineage fields (runtime_selection / runtime_selection_reason / harness_session_id
+/ skills_used / tools_called / authority_checks / final_artifact_source) and
+`artifact_source()` answers "which runtime produced this artifact?". Harness
+Pilot Entry (`agent_runtime/pilot_adapter.py`): Router → Permission → Runtime →
+Audit; opt-in `P8_A2_HYBRID_PILOT=1`. Pilot Corpus
+(`config/harness_pilot_corpus.yaml`): 8 cases (5 exploration + 3 negative
+controls); no FinancialFact / ResearchFinding / final report Harness tasks.
+POSIX validation (`scripts/p8_a2_posix_validation.py` + workflow
+`p8-a2-posix-validation.yml`): Ubuntu CI `process_residue=NO`. Tests:
+`tests/unit/test_p8_a2_hybrid_pilot.py` (29 offline); full pytest green; schema
+86/86. No default runtime / LlmClient / Validator / Schema / authority changes.
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 

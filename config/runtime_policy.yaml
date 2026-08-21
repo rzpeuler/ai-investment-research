@@ -1,0 +1,52 @@
+# P8-A2 Hybrid Agent Runtime Pilot Policy (config-driven; no hardcoded task lists)
+#
+# Authority: P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN (Decision #82) + P8-ARCH-001
+# (Decision #80). This file is a governance artifact: modifications require an
+# independent taskbook + Sol authorization. The runtime selection is DETERMINISTIC
+# (never LLM-decided); the default for any unlisted task is legacy.
+#
+# Schema keys:
+#   version               - policy version (strict)
+#   default_runtime       - fallback for any unlisted task (must be "legacy")
+#   strict_schema         - runtime for strict-schema output (must be "legacy")
+#   exploration_tasks     - per-task HARNESS_ALLOWED whitelist
+#       <task_id>:
+#         runtime: harness | legacy
+#         enabled: true | false
+#   hybrid_tasks          - per-task HYBRID split
+#       <task_id>:
+#         phase_a: harness    # exploration
+#         phase_b: legacy     # artifact generation
+
+version: "1.0.0"
+default_runtime: legacy
+strict_schema:
+  runtime: legacy
+
+exploration_tasks:
+  industry_exploration:
+    runtime: harness
+    enabled: true
+  research_preparation:
+    runtime: harness
+    enabled: true
+  evidence_discovery_assistance:
+    runtime: harness
+    enabled: true
+  analyst_assistant:
+    runtime: harness
+    enabled: true
+  hypothesis_generation:
+    runtime: harness
+    enabled: true
+
+hybrid_tasks:
+  # Reserved for the two-phase split (Phase A harness exploration -> Phase B
+  # legacy artifact generation). No task is enabled as HYBRID in this pilot.
+  # Enabling requires an independent taskbook + Sol authorization.
+
+# Deny-by-default guard: tasks NOT listed here are routed to legacy.
+# The following are EXPLICITLY EXCLUDED from Harness (LEGACY_REQUIRED, P8-A1):
+#   financial_fact_generation, research_finding_generation,
+#   catalyst_risk_artifact, evidence_binding, final_report_section
+# They are not whitelisted above and therefore always route to legacy.

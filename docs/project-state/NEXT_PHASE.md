@@ -598,3 +598,36 @@ NEXT: Sol 验收 P8-A1 设计 → POSIX CI（ubuntu）重跑 P8-A0 spike 取得
   P8-A2 不切换默认 runtime；不删除 Legacy；不改 LlmClient / Schema /
   Validator。P8-B3 / production adoption 保持 NOT_AUTHORIZED。
 ```
+
+## P8-A2-HYBRID-AGENT-RUNTIME-PILOT-IMPLEMENTATION — Hybrid Agent Runtime Pilot（2026-08-22）
+
+```text
+IMPLEMENTED（生产试点基础设施；默认 runtime 保持 legacy；Harness 仅白名单
+  opt-in；DECISIONS #83）:
+  - Runtime Router（agent_runtime/runtime_router.py）：确定性、无 LLM；
+    task_type/output_contract/risk_level/authority_requirement →
+    LEGACY_ONLY/HARNESS_ALLOWED/HYBRID；strict_schema 强制 legacy；未列入
+    白名单默认 legacy（fail-closed）
+  - Runtime Policy（config/runtime_policy.yaml v1.0.0）：配置驱动；exploration
+    白名单 5 项；default/strict_schema 均强制 legacy；LEGACY_REQUIRED 禁止入白名单
+  - Permission Policy（agent_runtime/permission_policy.py）：fail-closed；
+    ALLOW 4 探索工具；DENY graph_write/evidence_mutation/
+    financial_fact_creation/direct_source_access
+  - Audit Extension（agent_runtime/pilot_audit.py）：runtime lineage 7 字段 +
+    artifact_source() 回答"哪个 runtime 产生该 Artifact"
+  - Harness Pilot Entry（agent_runtime/pilot_adapter.py）：Router → Permission
+    → Runtime → Audit；opt-in P8_A2_HYBRID_PILOT=1
+  - Pilot Corpus（config/harness_pilot_corpus.yaml）：8 cases（5 exploration
+    + 3 negative controls）；不含 FinancialFact/ResearchFinding/final report
+    的 Harness 任务
+  - POSIX 验证（scripts/p8_a2_posix_validation.py + workflow
+    p8-a2-posix-validation.yml）：Ubuntu CI 验证 process_residue=NO
+  - 测试: tests/unit/test_p8_a2_hybrid_pilot.py（29 offline）；full pytest 绿；
+    schema 86/86；Legacy 既有测试全过
+NEXT: Sol 独立验收 P8-A2（Router 决策 / Policy 配置 / Permission / Audit /
+  corpus / POSIX CI 结果）→ 若通过，独立 taskbook 授权 P8-A3（生产试点运行：
+  在受治理环境用真实 Harness 执行 corpus 探索任务，采集 Reliability /
+  Governance / Value / Cost 四类指标）。P8-A3 不切换默认 runtime；不删除
+  Legacy；不改 LlmClient / Schema / Validator。P8-B3 / production adoption
+  保持 NOT_AUTHORIZED。
+```

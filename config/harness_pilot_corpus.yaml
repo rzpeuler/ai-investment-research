@@ -1,0 +1,100 @@
+# P8-A2 Hybrid Agent Runtime Pilot Corpus (Harness exploration task set)
+#
+# Authority: P8-A1-HYBRID-AGENT-RUNTIME-PILOT-DESIGN (Decision #82). This corpus
+# contains ONLY Harness-exploration tasks (P8-A1 HARNESS_ALLOWED). It must NOT
+# contain FinancialFact generation, ResearchFinding generation, or final report
+# section tasks (those are LEGACY_REQUIRED and route to legacy).
+#
+# Case fields:
+#   id           - stable case id (must exist in config/runtime_policy.yaml
+#                  exploration_tasks or be routed deterministically)
+#   category     - exploration | preparation | discovery | analyst
+#   task_type    - exploration (router input)
+#   output_contract - free_text | notes (never strict_schema)
+#   risk_level   - low | medium
+#   authority_requirement - read_only | none
+#   prompt       - bounded exploration prompt (no structured artifact target)
+#   expected     - expected runtime decision for validation
+
+version: "1.0.0"
+updated_at: "2026-08-22"
+
+cases:
+  # ---------------- industry exploration ----------------
+  - id: industry_exploration
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索宁德时代所处动力电池行业的产业链结构：上游材料、中游制造、下游应用，以及主要风险点。输出研究笔记，不要生成正式研报章节。"
+    expected: HARNESS_ALLOWED
+
+  # ---------------- research preparation ----------------
+  - id: research_preparation
+    category: preparation
+    task_type: exploration
+    output_contract: notes
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "为研究贵州茅台做准备：确认公司身份与数据就绪度，列出需要收集的证据类型与待验证问题清单。输出准备笔记。"
+    expected: HARNESS_ALLOWED
+
+  # ---------------- evidence discovery ----------------
+  - id: evidence_discovery_assistance
+    category: discovery
+    task_type: exploration
+    output_contract: free_text
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "辅助定位与宁德时代现金流相关的证据与关注点，归纳值得进一步核实的线索。不要生成权威研究结论。"
+    expected: HARNESS_ALLOWED
+
+  # ---------------- analyst assistant ----------------
+  - id: analyst_assistant
+    category: analyst
+    task_type: exploration
+    output_contract: free_text
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "作为分析师助手：比较宁德时代与亿纬锂能在产业链位置的差异，澄清需要进一步研究的问题。输出会话式探索笔记。"
+    expected: HARNESS_ALLOWED
+
+  # ---------------- hypothesis generation ----------------
+  - id: hypothesis_generation
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: none
+    prompt: "基于证据生成关于锂电池行业价格传导的待验证假设候选（多空主要矛盾）。标注为模型推断候选，不写入正式研究发现。"
+    expected: HARNESS_ALLOWED
+
+  # ---------------- negative control (LEGACY_REQUIRED) ----------------
+  # These cases validate that strict-schema tasks NEVER route to Harness.
+  - id: financial_fact_generation
+    category: control
+    task_type: extraction
+    output_contract: strict_schema
+    risk_level: high
+    authority_requirement: write_artifact
+    prompt: "生成结构化财务事实（FinancialFact）。"
+    expected: LEGACY_ONLY
+
+  - id: research_finding_generation
+    category: control
+    task_type: reasoning
+    output_contract: strict_schema
+    risk_level: high
+    authority_requirement: write_artifact
+    prompt: "生成结构化研究发现（ResearchFinding）。"
+    expected: LEGACY_ONLY
+
+  - id: final_report_section
+    category: control
+    task_type: generation
+    output_contract: strict_schema
+    risk_level: high
+    authority_requirement: write_artifact
+    prompt: "生成研报章节最终成稿。"
+    expected: LEGACY_ONLY
