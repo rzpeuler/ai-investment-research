@@ -25,20 +25,13 @@ from typing import Any
 from research_os.agent_runtime.config import AgentRuntimeConfig
 from research_os.agent_runtime.production_runtime import build_production_harness_adapter
 from research_os.llm.normalization import normalize_harness_output
+from research_os.llm.schema_context import build_harness_prompt
 
 # Opt-in marker; identical semantics to the trial's P8_B2_INTERNAL_TRIAL=1.
 SCENARIO_TRIAL_ENV = "P8_B2_SCENARIO_TRIAL"
 
 _MAX_INPUT_CHARS = 120_000
 _TIMEOUT_SECONDS = 120
-
-# Prompt instruction for the Harness path (deterministic, part of the harness
-# entry): the model must emit exactly one schema-conforming JSON object and
-# must not invoke any tool or add surrounding text.
-_PROMPT_INSTRUCTION = (
-    "只输出一个 JSON 对象，不要输出 Markdown，不要调用任何工具，"
-    "不要输出 JSON 之外的任何文字。输出必须符合此 JSON Schema："
-)
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -98,9 +91,10 @@ class HarnessLlmProvider:
     def complete_json(self, request, output_schema: dict[str, Any]) -> dict[str, Any]:
         if len(request.prompt) > self.max_input_chars:
             return self._error("invalid_response", "Prompt 超过输入上限", False)
-        schema_text = json.dumps(output_schema, ensure_ascii=False, separators=(",", ":"))
-        prompt = (
-            _PROMPT_INSTRUCTION + schema_text + "\n\n" + request.prompt
+        prompt = build_harness_prompt(
+            request, output_schema,
+            task_name=getattr(request, "module", "").split(".")[-1] or "",
+            evidence="\n".join(f"- {item}" for item in getattr(request, "input_evidence_ids", []) or []),
         )
         started_at = self.calls.__len__()
         entry = {"call_id": request.call_id, "task_id": request.task_id,

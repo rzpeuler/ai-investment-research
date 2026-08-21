@@ -83,6 +83,22 @@ def _build_request(case: dict[str, Any], prompt: str):
     )
 
 
+
+def _classify_failure(error: str) -> str:
+    if not error:
+        return "none"
+    if "invalid_response" in error or "JSON 解析失败" in error or "缺少有效 JSON" in error:
+        return "json_format_failure"
+    if "is a required property" in error:
+        return "missing_required_field"
+    if "is not one of" in error:
+        return "enum_violation"
+    if ("does not match" in error or "is not of type" in error or "is not a" in error
+            or "less than" in error or "greater than" in error):
+        return "value_format_violation"
+    return "other"
+
+
 def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> dict[str, Any]:
     evidence = "\n".join(f"- {item}" for item in case.get("evidence", []))
     prompt = f"{case.get('prompt', 'Return JSON')}\n\n证据：\n{evidence}"
@@ -95,6 +111,7 @@ def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         "output_present": resp.output is not None,
         "validation_error_count": len(resp.validation_errors or []),
         "first_validation_error": (resp.validation_errors or [""])[0][:160],
+        "failure_classification": _classify_failure((resp.validation_errors or [""])[0]),
         "model_id": resp.model_id,
         "latency_seconds": round(time.monotonic() - started, 3),
     }
@@ -115,6 +132,7 @@ def _run_equity_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         "output_present": resp.output is not None,
         "validation_error_count": len(resp.validation_errors or []),
         "first_validation_error": (resp.validation_errors or [""])[0][:160],
+        "failure_classification": _classify_failure((resp.validation_errors or [""])[0]),
         "model_id": resp.model_id,
         "flash_used": tasks.budget.flash_used,
         "latency_seconds": round(time.monotonic() - started, 3),
@@ -201,6 +219,7 @@ def main() -> int:
             if any(needle in first for needle in needles):
                 hits += 1
         return hits
+
     retry_count = sum(max(0, (r.get("flash_used") or 1) - 1) for r in harness if "flash_used" in r)
     tokens = 0
     for (payload,) in conn.execute("SELECT payload FROM llm_call_records"):
@@ -251,6 +270,13 @@ def main() -> int:
                 "timeout_count": _errors_mention(results, "PROVIDER_TIMEOUT", "TURN_TIMEOUT"),
                 "invalid_response_count": _errors_mention(results, "invalid_response"),
                 "silent_retry": 0,
+                "failure_classification": {
+                    "json_format_failure": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "json_format_failure"),
+                    "missing_required_field": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "missing_required_field"),
+                    "enum_violation": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "enum_violation"),
+                    "value_format_violation": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "value_format_violation"),
+                    "other": sum(1 for r in harness if _classify_failure(str(r.get("first_validation_error", ""))) == "other"),
+                },
             },
             "cost": {
                 "provider_calls": len(results),
