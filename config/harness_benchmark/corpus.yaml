@@ -1,0 +1,103 @@
+# P8-B2-EVAL-001 Harness Quality Benchmark Corpus
+#
+# Initial corpus (13 cases): 5 equity LLM tasks, 5 research prompt-level cases,
+# 3 deterministic failure cases. The corpus is COMPLETELY DECOUPLED from the
+# P8-B2-LIVE-01 acceptance corpus: benchmark cases never count toward
+# sessions/turns, and the runner is bounded by the frozen cost controls.
+#
+# Case fields:
+#   id            - stable case id
+#   category      - equity | research | failure
+#   task          - registered EquityLlmTasks name (equity cases) or null
+#   schema_name   - Sol schema used for validation (never modified)
+#   prompt        - case prompt (used for prompt-level cases; equity cases use
+#                   the task's canonical prompt builder)
+#   evidence      - deterministic evidence excerpts (same shape as offline tests)
+#   failure       - failure fixture for failure cases:
+#                   invalid_json | timeout | schema_violation
+#   expected      - expected outcome for the case class
+
+version: "1.0.0"
+updated_at: "2026-08-21"
+
+cases:
+  # ---------------- Equity LLM tasks (real EquityLlmTasks path) ----------------
+  - id: eq_catalyst_candidates
+    category: equity
+    task: catalyst_candidates
+    schema_name: catalyst
+    evidence: ["新产品产能投产与业绩公告", "第二条证据"]
+  - id: eq_business_description_normalization
+    category: equity
+    task: business_description_normalization
+    schema_name: research_finding
+    evidence: ["公司主营业务收入增长与经营业绩", "第二条证据"]
+  - id: eq_research_questions
+    category: equity
+    task: research_questions
+    schema_name: research_finding
+    evidence: ["公司收入增长与经营业绩", "第二条证据"]
+  - id: eq_earnings_analysis
+    category: equity
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，分析公司近期盈利趋势与驱动因素，输出符合 Schema 的研究结论。"
+    evidence: ["公司净利润同比增长与毛利率变化", "第二条证据"]
+  - id: eq_company_summary
+    category: equity
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，概括公司主营业务、竞争力与近期经营状况，输出符合 Schema 的研究结论。"
+    evidence: ["公司主营业务收入增长与市场份额", "第二条证据"]
+
+  # ---------------- Research prompt-level cases ----------------
+  - id: rs_industry_summary
+    category: research
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，概括行业景气度、供需格局与主要驱动因素，输出符合 Schema 的研究结论。"
+    evidence: ["行业需求增长与产能扩张", "第二条证据"]
+  - id: rs_theme_analysis
+    category: research
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，分析当前市场主题的催化因素与持续性，输出符合 Schema 的研究结论。"
+    evidence: ["主题催化事件与市场关注度", "第二条证据"]
+  - id: rs_market_context
+    category: research
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，描述市场整体环境与资金面背景，输出符合 Schema 的研究结论。"
+    evidence: ["市场成交与风险偏好变化", "第二条证据"]
+  - id: rs_research_finding_generation
+    category: research
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，生成一条可验证的研究发现（含证据支持与反证），输出符合 Schema 的研究结论。"
+    evidence: ["公司公告与经营数据", "第二条证据"]
+  - id: rs_report_section_generation
+    category: research
+    task: null
+    schema_name: research_finding
+    prompt: "基于证据，撰写研报某一章节的核心结论，输出符合 Schema 的研究结论。"
+    evidence: ["公司经营与财务表现", "第二条证据"]
+
+  # ---------------- Deterministic failure cases (offline fixtures) ----------------
+  - id: fl_invalid_json
+    category: failure
+    task: null
+    schema_name: research_finding
+    failure: invalid_json
+    expected: honest_fallback
+  - id: fl_timeout
+    category: failure
+    task: null
+    schema_name: research_finding
+    failure: timeout
+    expected: honest_fallback
+  - id: fl_schema_violation
+    category: failure
+    task: null
+    schema_name: research_finding
+    failure: schema_violation
+    expected: honest_fallback
