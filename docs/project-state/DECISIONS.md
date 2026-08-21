@@ -3543,6 +3543,35 @@ schema 备选。
 （benchmark 重跑 + P8-B3 评估）。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
 
+## 79. P8-B2-R6 Harness Generation Strategy Evaluation（2026-08-21，EVALUATED / AWAITING ACCEPTANCE）
+
+任务级 Runtime Selection Strategy 已建立（评估/设计任务，未实现代码，无
+runtime 切换）。基于 R5-D 证据（`reports/harness_benchmark_r5d.json`：
+harness schema_valid_rate 0.10 vs legacy 0.90；失败模式 json_format_failure
+6 + TURN_TIMEOUT 3；harness p50 延迟 19.1s vs legacy 9.2s）与 LIVE-01
+RESUME-03（20/20 会话可靠、0 drift、0 leak）。
+
+任务分类（extraction / normalization / reasoning / generation）与
+Suitability Matrix 建议：
+
+- **LEGACY_ONLY**：所有 `output_contract=strict_schema` 的结构化生成 /
+  归一化 / 抽取任务（legacy 0.90 直接满足；harness 0.10 不可用，json_format
+  主导且 R5-B 确认无 provider 级结构化输出支持）。
+- **HARNESS_CANDIDATE**：工具 / 多轮 / 开放研究探索 / 自由文本产出任务
+  （LIVE-01 会话可靠性支持；需独立评估指标，不套用 schema_valid_rate）。
+- **HYBRID**：Harness 探索（Phase A，free_text）+ Legacy 成稿（Phase B，
+  strict_schema），各 phase 单独走规则。
+
+Task Runtime Router 设计（`docs/architecture/harness-task-runtime-routing-
+design.md`）：确定性决策（非 LLM）、默认 legacy、治理策略表为配置工件、
+audit 记录 `runtime_selection`；未实现。
+
+P8-B3 建议：**暂不将 Harness 作为默认生产结构化生成 runtime**；结构化生成
+默认路径维持 legacy；不为 Harness 降低 schema_valid_rate 门槛；Harness
+生产采用仅限白名单探索类任务且需独立 taskbook 授权。P8-B2 保持
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`；P8-B3 保持 `NOT_AUTHORIZED`；
+Agent 不得 self-accept。
+
 ## 78. P8-B2-R5-D Harness Benchmark Reevaluation (2026-08-21)
 
 The fixed EVAL-001 corpus contains 13 cases. R5-D completed under benchmark-only

@@ -495,3 +495,22 @@ BENCHMARK（run 32460687556）: schema_valid_rate 0.3（方差带内）；
 NEXT: Sol 验收 → R5-B（Harness JSON-mode 探测，针对 json_format 主导失败）
   → R5-D benchmark 重跑。P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-R6 — Harness Generation Strategy Evaluation（2026-08-21）
+
+```text
+EVALUATION/DESIGN（只设计，不实现；无 runtime 切换）:
+  任务级 Runtime Selection Strategy — 从 R5-D 证据（harness 0.10 vs legacy
+  0.90 schema_valid_rate）出发，按任务类型（extraction / normalization /
+  reasoning / generation）给出 runtime 建议：
+  - strict_schema 输出 → LEGACY_ONLY（legacy 0.90；harness json_format 主导）
+  - 工具 / 多轮 / 开放探索 → HARNESS_CANDIDATE（governance 白名单；LIVE-01
+    20/20 会话可靠；需独立评估指标，不套用 schema_valid_rate）
+  - HYBRID = Harness 探索 + Legacy 成稿（两阶段，各 phase 单独走规则）
+  Task Runtime Router 已设计（确定性、默认 legacy、audit runtime_selection、
+  治理策略表配置工件），未实现。
+NEXT: Sol 验收 R6 → 若认可 HARNESS_CANDIDATE 领域，另立独立 taskbook 建立
+  "Harness 探索能力评估"（新指标 + 新 corpus，与 EVAL-001 解耦）。
+  P8-B3 结构化生成默认路径维持 legacy；P8-B3 保持 NOT_AUTHORIZED。
+  P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

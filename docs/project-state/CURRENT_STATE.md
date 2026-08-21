@@ -374,6 +374,7 @@ P8-B2_EVAL-001: ESTABLISHED (2026-08-21 harness quality benchmark: corpus 13 cas
 P8-B2_R3: COMPLETE (2026-08-21 harness agent output optimization: schema-aware context injection — JSON-only instruction + required-field list + constraint summary + deterministic example; schema/validator/normalizer unchanged. Benchmark re-run 32447199752: schema_valid_rate 0.10 → 0.50 (phase goal >=0.30 MET; P8-B3 threshold 0.70 NOT met — remaining 4 missing_required_field + 1 json_format); failure classification added; all other thresholds MET; P8-B3 not yet)
 P8-B2_R4: COMPLETE (2026-08-21 harness schema adherence optimization: schema slice + completion checklist + self-validation + field-level missing stats implemented; empirical iteration over 4 benchmark runs — checklist/self-validation regressed (0.2x2), slice-only 0.3, measured-best R3 structure 0.4-0.5; target >=0.70 NOT MET (finding_id etc. 20 required fields missing x5 cases — model field-completion issue, prompt levers exhausted); schema/validator/normalizer/threshold unchanged; P8-B3 not yet)
 P8-B2_R5-A: COMPLETE (2026-08-21 generation controller implemented: GenerationControlledProvider with bounded validator-driven repair loop (max 2 passes) + field-level error extraction + audit extension (generation_pass/repair_round/provider_calls); benchmark run 32460687556: missing_required_field 3-5 → 0 (repair effective); json_format 5 (honest fallback per contract); repair metrics: success 0.333 / avg rounds 1.67 / added calls 10; schema_valid_rate 0.3 (variance band); 0.70 not required in R5-A; schema/validator/normalizer/threshold unchanged; P8-B3 not yet)
+P8-B2_R6: COMPLETE (2026-08-21 harness generation strategy evaluation: task-level runtime selection strategy — classify tasks extraction/normalization/reasoning/generation; R5-D evidence harness 0.10 vs legacy 0.90 (schema_valid_rate); Harness strong on agentic exploration/tools/multi-turn (LIVE-01 20/20), Legacy strong on strict-schema structured generation; recommendation: strict_schema → LEGACY_ONLY, tools/multi-turn → HARNESS_CANDIDATE (governance-flagged), hybrid = explore(Harness)→draft(Legacy); Task Runtime Router design only, no code, no runtime switch; P8-B3 structured-generation default stays legacy; docs/tasks/p8-b2-r6-harness-generation-strategy-evaluation.md + docs/architecture/harness-task-runtime-routing-design.md; P8-B3 NOT_AUTHORIZED)
 FRONTEND IMPLEMENTATION: NOT_AUTHORIZED
 ```
 
@@ -402,6 +403,24 @@ The P8-B3 schema gate `0.70` is `NOT_MET`; fake inference 0, validator bypass
 0, audit completeness 100%, budget violation 0, and secret leakage 0.
 No threshold, corpus, Schema, Validator, Normalizer, or runtime default
 changed. P8-B3 remains not ready.
+
+## P8-B2-R6 — Harness Generation Strategy Evaluation (2026-08-21)
+
+Evaluation/design task (no code, no runtime switch). Task-level Runtime
+Selection Strategy established from R5-D evidence
+(`reports/harness_benchmark_r5d.json`): harness `schema_valid_rate` 0.10 vs
+legacy 0.90, failure modes json_format_failure 6 + TURN_TIMEOUT 3 (harness
+p50 latency 19.1s vs legacy 9.2s). Tasks classified extraction / normalization
+/ reasoning / generation. Recommendation: strict-schema output →
+`LEGACY_ONLY` (legacy 0.90); agentic exploration / tools / multi-turn →
+`HARNESS_CANDIDATE` (governance-flagged, LIVE-01 20/20 sessions reliable);
+hybrid = explore with Harness → draft with Legacy. Task Runtime Router designed
+(deterministic, default legacy, audit `runtime_selection`), not implemented.
+P8-B3 structured-generation default stays legacy; harness not the default
+structured runtime. Deliverables: `docs/tasks/p8-b2-r6-harness-generation-
+strategy-evaluation.md`, `docs/architecture/harness-task-runtime-routing-design.md`.
+P8-B2 remains `IMPLEMENTED / PARTIAL / NOT ACCEPTED`; P8-B3 remains
+`NOT_AUTHORIZED`.
 
 ## P8-B2-R5-C — JSON Boundary Recovery Implementation (2026-08-21)
 
