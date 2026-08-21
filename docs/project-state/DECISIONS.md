@@ -3489,3 +3489,19 @@ P8-B3 与生产默认切换仍 NOT_AUTHORIZED；P8-B2 保持
 人工研究体验确认 → P8-B3 Decision；单项指标不等于 Production。首次运行
 结论：暂不进入 P8-B3；需 Harness 输出符合率专项提升后重跑。P8-B2 保持
 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。
+
+## 71. P8-B2-R3 Harness Agent Output Optimization（2026-08-21，VERIFIED / AWAITING ACCEPTANCE）
+
+失败模式分析（EVAL-001）：9/10 失败 = 5 json_format_failure + 4
+missing_required_field，根因在 Harness Agent Output Layer。实施 schema-aware
+context injection（JSON-only 指令 + 必填字段清单 + 字段约束摘要 + 确定性
+合法示例 + 任务/证据上下文；`src/research_os/llm/schema_context.py`），
+**未修改** Schema / Validator / Normalizer 规则 / Benchmark threshold /
+Production runtime；示例仅作上下文、不伪造输出。benchmark 增加失败分类
+（json_format/missing_required/enum/value_format）。
+
+重新运行 EVAL-001 benchmark（run 32447199752）：**schema_valid_rate
+0.10 → 0.50**（阶段目标 ≥0.30 达成）；其余阈值全 MET。P8-B3 门槛 0.70
+未达（剩余 4 missing_required_field + 1 json_format）— 需下一轮优化后
+重跑。P8-B3 建议：暂不进入。P8-B2 保持
+`IMPLEMENTED / PARTIAL / NOT ACCEPTED`；Agent 不得 self-accept。

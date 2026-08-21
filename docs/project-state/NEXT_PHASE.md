@@ -377,3 +377,24 @@ P8-B3 建议: 暂不进入 — schema_valid_rate 未达门槛；需 harness 输�
 NEXT: Sol 验收 EVAL-001 → harness 输出符合率专项 → 重跑 benchmark。
   P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
 ```
+
+## P8-B2-R3 — Harness Agent 输出优化（2026-08-21）
+
+```text
+FAILURE ANALYSIS（EVAL-001 artifact）: 9/10 失败 = 5 json_format_failure +
+  4 missing_required_field；根因在 Harness Agent Output Layer
+OPTIMIZATION: Schema-aware Context Injection（JSON-only 指令强化 + 必填字段
+  清单 + 字段约束摘要 + 确定性合法示例 + 任务/证据上下文）—
+  schema_context.py + harness provider 接入；Schema/Validator/Normalizer/
+  threshold 未变
+FAILURE CLASSIFICATION: json_format_failure / missing_required_field /
+  enum_violation / value_format_violation 加入 benchmark
+BENCHMARK BEFORE/AFTER（run 32447199752）:
+  schema_valid_rate 0.10 → 0.50（5/10）— 阶段目标 ≥0.30 达成 ✓
+  legacy 对照 0.90；其他阈值全 MET（无伪造/无旁路/审计完整/预算/secret/
+  silent retry）
+  remaining: 4 missing_required_field + 1 json_format → P8-B3 门槛 0.70 未达
+P8-B3 建议: 暂不进入 — 下一轮优化（必填字段强制/示例对齐）后重跑 benchmark
+NEXT: Sol 验收 R3 → 下一轮输出优化 → 重跑 → 达 0.70 后再评估 P8-B3。
+  P8-B2 保持 IMPLEMENTED / PARTIAL / NOT ACCEPTED。
+```

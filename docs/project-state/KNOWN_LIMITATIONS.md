@@ -355,3 +355,9 @@ GOV-ARUX1 治理冻结（Decision #54 / #55）如实记录当前能力边界，�
   输出符合率后重跑。已知限制：fallback 记录不携带 provider_usage（LlmClient
   accepted 语义），token_usage 仅统计成功路径；benchmark 报告位于 gitignored
   reports/。
+- **P8-B2-R3（2026-08-21）**：Harness Agent 输出优化使 schema-valid rate
+  0.10 → 0.50（5/10，阶段目标 ≥0.30 达成）；剩余 4 个 missing_required_field
+  （research_finding 必填字段被省略）+ 1 个 json_format_failure，P8-B3 门槛
+  0.70 未达。优化手段为 schema-aware prompt 上下文（必填清单/约束摘要/
+  确定性示例）；Schema / Validator / Normalizer 规则未变；失败分类已加入
+  benchmark（json_format/missing_required/enum/value_format）。
