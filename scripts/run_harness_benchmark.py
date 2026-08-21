@@ -99,6 +99,19 @@ def _classify_failure(error: str) -> str:
     return "other"
 
 
+def _missing_field_stats(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Field-level missing-required statistics across harness cases (R4)."""
+    import re as _re
+    stats: dict[str, int] = {}
+    for row in rows:
+        for error in row.get("validation_errors", []):
+            match = _re.search(r"'([^']+)' is a required property", str(error))
+            if match:
+                field = match.group(1)
+                stats[field] = stats.get(field, 0) + 1
+    return dict(sorted(stats.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> dict[str, Any]:
     evidence = "\n".join(f"- {item}" for item in case.get("evidence", []))
     prompt = f"{case.get('prompt', 'Return JSON')}\n\n证据：\n{evidence}"
@@ -111,6 +124,7 @@ def _run_prompt_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         "output_present": resp.output is not None,
         "validation_error_count": len(resp.validation_errors or []),
         "first_validation_error": (resp.validation_errors or [""])[0][:160],
+        "validation_errors": [str(e)[:160] for e in (resp.validation_errors or [])][:20],
         "failure_classification": _classify_failure((resp.validation_errors or [""])[0]),
         "model_id": resp.model_id,
         "latency_seconds": round(time.monotonic() - started, 3),
@@ -132,6 +146,7 @@ def _run_equity_case(client: LlmClient, case: dict[str, Any], runtime: str) -> d
         "output_present": resp.output is not None,
         "validation_error_count": len(resp.validation_errors or []),
         "first_validation_error": (resp.validation_errors or [""])[0][:160],
+        "validation_errors": [str(e)[:160] for e in (resp.validation_errors or [])][:20],
         "failure_classification": _classify_failure((resp.validation_errors or [""])[0]),
         "model_id": resp.model_id,
         "flash_used": tasks.budget.flash_used,
@@ -288,6 +303,7 @@ def main() -> int:
                 "legacy_schema_valid_rate": _rate(legacy),
             },
         },
+        "missing_field_stats": _missing_field_stats(harness),
         "thresholds": thresholds,
         "results": results,
     }

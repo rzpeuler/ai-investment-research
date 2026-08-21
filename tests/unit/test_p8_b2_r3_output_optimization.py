@@ -88,3 +88,14 @@ def test_failure_classification_categories():
     assert _classify("version: 0 is less than the minimum of 1") == "value_format_violation"
     assert _classify("") == "none"
     assert _classify("something else") == "other"
+
+
+def test_prompt_includes_completion_checklist_and_self_validation():
+    prompt = build_harness_prompt(None, SIMPLE, task_name="catalyst_candidates")
+    assert "必填字段完成清单" in prompt
+    assert "[ ] id" in prompt and "[ ] company_entity_id" in prompt
+    assert "输出前自检" in prompt
+    assert "全部必填字段均已存在" in prompt
+    assert "不要输出任何自检说明文字" in prompt
+    # Full-schema noise removed: the raw schema dump is no longer in the prompt
+    assert "additionalProperties" not in prompt
