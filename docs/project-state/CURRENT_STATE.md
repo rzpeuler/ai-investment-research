@@ -640,3 +640,13 @@ The 20-case human review artifact is structurally valid but has 0/20 scored
 cases and remains `PENDING_REVIEW`; no automated value score was used. Thus
 P8-A4 is `PARTIAL / NOT_ACCEPTED`, Legacy remains default, and P8-A5 and
 production adoption remain `NOT_AUTHORIZED`.
+## P8-A4-R3 HUMAN REVIEW EVIDENCE BUNDLE (2026-08-22)
+
+Generated `reports/p8_a4_human_review_bundle/` from the real R1 artifact without
+rerunning Harness or changing any output. The bundle contains 20/20 case
+directories with metadata, frozen corpus prompt, and exact R1 audit lineage.
+R1 intentionally did not persist raw Harness responses, so all 20
+`harness_output.txt` files are explicit `NOT_PERSISTED_BY_R1_ARTIFACT` markers;
+no offline output or summary was substituted. Evidence completeness is
+`metadata 20/20`, `prompt 20/20`, `audit 20/20`, `raw output 0/20`, complete
+cases `0/20`. Human review remains blocked pending raw output evidence.

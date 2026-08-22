@@ -554,3 +554,10 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   host remains fail-closed for direct process-tree proof.
 - P8-A4 is `PARTIAL / NOT_ACCEPTED`; P8-A5 and production adoption remain
   unauthorized.
+- **P8-A4-R3 reviewer evidence limitation (2026-08-22)**: The generated
+  reviewer bundle has 20/20 metadata, prompts, and audit records. The R1
+  artifact intentionally excludes raw Harness responses under the audit
+  privacy contract, so raw output is 0/20 and complete traceable cases are
+  0/20. Placeholder files explicitly identify the absence; no offline output,
+  hash, or automatic summary is presented as Harness output. Final human
+  value review remains pending.
