@@ -3944,3 +3944,19 @@ Harness remains an opt-in exploration runtime. No Router, Permission Policy,
 Schema, Validator, LlmClient, or Financial/Evidence/Graph authority changed.
 P8-A5 and production adoption remain `NOT_AUTHORIZED` until human review is
 completed.
+
+## 89. P8-A4-R4 Harness Evaluation Artifact Retention (2026-08-22)
+
+Every new real provider-backed Harness evaluation must retain an immutable,
+reviewer-readable evidence run under `reports/harness_evaluation_runs/<run_id>/`.
+Each `HARNESS_ALLOWED` case stores input, exact prompts, raw Harness output and
+raw response records, event snapshot, tool events, audit lineage, metrics, and
+file hashes. The writer fails closed on overwrite and does not summarize,
+score, alter prompts, rerun tools, or change Harness behavior.
+
+Validated run `a3-eval-657677b514b8` completed retention 20/20 with
+`raw_output_exists=true`; the reviewer bundle regenerated from it is complete
+20/20. Existing R1 artifacts remain immutable and incomplete because they
+never stored raw output. Legacy remains default and all Runtime Router,
+Permission, Schema, Validator, LlmClient, and authority boundaries remain
+unchanged.

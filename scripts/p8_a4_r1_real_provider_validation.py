@@ -97,6 +97,8 @@ def _real_report(upstream: dict[str, Any]) -> dict[str, Any]:
         "task": TASK_ID, "status": "PASS CANDIDATE" if upstream.get("status") == "COMPLETED" else "PARTIAL",
         "run_id": upstream.get("eval_run_id"), "started_at": upstream.get("started_at"),
         "ended_at": upstream.get("ended_at", _now()), "default_runtime": "legacy",
+        "evaluation_artifact_root": upstream.get("evaluation_artifact_root"),
+        "evaluation_artifact": upstream.get("evaluation_artifact", {}),
         "production_adoption": "NOT_AUTHORIZED", "p8_a5": "NOT_AUTHORIZED",
         "REAL_RUN": {"status": upstream.get("status"), "harness": upstream.get("harness", {}),
                       "cases_attempted": len(harness_cases), "cases_completed": len(completed),

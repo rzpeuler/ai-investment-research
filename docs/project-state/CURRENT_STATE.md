@@ -650,3 +650,18 @@ R1 intentionally did not persist raw Harness responses, so all 20
 no offline output or summary was substituted. Evidence completeness is
 `metadata 20/20`, `prompt 20/20`, `audit 20/20`, `raw output 0/20`, complete
 cases `0/20`. Human review remains blocked pending raw output evidence.
+
+## P8-A4-R4 HARNESS EVALUATION ARTIFACT RETENTION (2026-08-22)
+
+Added evaluation artifact retention to the governed real-run evaluator without
+changing Harness behavior, prompt strategy, routing, permissions, or scoring.
+Run `a3-eval-657677b514b8` retained 20/20 Harness case directories under
+`reports/harness_evaluation_runs/<run_id>/`. Each case contains input, prompt,
+raw Harness output, raw response records, session event delta, tool events,
+audit lineage, per-case metrics, and SHA-256 file metadata. The run manifest
+reports `raw_output_exists=true`, raw output 20/20, event snapshots 20/20,
+audit 20/20, and immutable file hashes enabled.
+
+The reviewer bundle was regenerated automatically from the retained run and is
+now complete: metadata/prompt/output/audit 20/20 and complete cases 20/20.
+Historical R1 artifacts remain unchanged and retain their original omission.

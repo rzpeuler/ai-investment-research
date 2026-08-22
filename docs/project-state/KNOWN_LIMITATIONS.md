@@ -561,3 +561,13 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   0/20. Placeholder files explicitly identify the absence; no offline output,
   hash, or automatic summary is presented as Harness output. Final human
   value review remains pending.
+
+## P8-A4-R4 evaluation artifact retention (2026-08-22)
+
+- New real evaluations retain raw Harness response text and exact response
+  records, prompts, event snapshots, tool events, audit lineage, and metrics
+  per case; the validated run is complete 20/20.
+- Historical R1 runs cannot be retroactively repaired because their raw output
+  was never persisted. The R4 retention guarantee applies to new runs only.
+- Retained raw output is evaluation evidence under the ignored reports/
+  workspace and is not a production Research Artifact or authority input.

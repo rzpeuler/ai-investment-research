@@ -12,8 +12,9 @@ replace Legacy, does NOT enter strict-schema artifact generation, and does NOT
 change the default runtime (legacy).
 
 Opt-in: ``P8_A3_HYBRID_PILOT_EVAL=1``. Outputs a bounded JSON report to
-``reports/p8_a3_pilot_evaluation.json``. Raw prompts/responses/credentials
-never enter the report.
+``reports/p8_a3_pilot_evaluation.json`` and immutable evaluation evidence to
+``reports/harness_evaluation_runs/<run_id>/``. Raw prompts/responses never
+enter the bounded report; credentials never enter either artifact.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EVAL_ENV = "P8_A3_HYBRID_PILOT_EVAL"
 REPORT_PATH = ROOT / "reports" / "p8_a3_pilot_evaluation.json"
 EVAL_TASK_ID = "P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION"
+EVALUATION_ARTIFACT_ROOT = ROOT / "reports" / "harness_evaluation_runs"
 
 ALLOWED_TOOL_NAMES = frozenset({
     "get_company_profile", "check_data_readiness",
@@ -105,6 +107,71 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return round(ordered[index], 1)
 
 
+def _json_copy(value: dict) -> dict:
+    """Copy a provider result without changing its serialized contents."""
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def _write_artifact_json(path: Path, value: object) -> dict[str, object]:
+    if path.exists():
+        raise RuntimeError(f"evaluation artifact already exists: {path}")
+    payload = json.dumps(value, ensure_ascii=False, indent=2).encode("utf-8")
+    path.write_bytes(payload)
+    return {"path": str(path.name), "sha256": hashlib.sha256(payload).hexdigest(),
+            "bytes": len(payload)}
+
+
+def _write_artifact_text(path: Path, value: str) -> dict[str, object]:
+    if path.exists():
+        raise RuntimeError(f"evaluation artifact already exists: {path}")
+    payload = value.encode("utf-8")
+    path.write_bytes(payload)
+    return {"path": str(path.name), "sha256": hashlib.sha256(payload).hexdigest(),
+            "bytes": len(payload)}
+
+
+def _write_case_evidence(
+    *,
+    artifact_root: Path,
+    case: object,
+    decision: object,
+    audit_record: object,
+    events: list[dict],
+    turn_records: list[dict],
+    metrics: dict,
+) -> dict[str, object]:
+    case_id = str(case.id)
+    case_dir = artifact_root / f"case_{case_id}"
+    case_dir.mkdir(parents=False, exist_ok=False)
+    input_payload = {
+        "case_id": case.id, "category": case.category, "task_type": case.task_type,
+        "output_contract": case.output_contract, "risk_level": case.risk_level,
+        "authority_requirement": case.authority_requirement, "expected": case.expected,
+        "profile": decision.as_dict(),
+    }
+    prompts = [record["prompt"] for record in turn_records]
+    response_texts = [
+        str((record.get("response") or {}).get("response") or "")
+        for record in turn_records
+    ]
+    tools = [event for event in events if event.get("event_type") == "tool_call"]
+    files = {
+        "input": _write_artifact_json(case_dir / "input.json", input_payload),
+        "prompt": _write_artifact_text(case_dir / "prompt.txt", "\n\n".join(prompts)),
+        "prompts": _write_artifact_json(case_dir / "prompts.json", prompts),
+        "harness_output": _write_artifact_text(
+            case_dir / "harness_output.txt", "\n\n".join(response_texts)),
+        "raw_responses": _write_artifact_json(
+            case_dir / "raw_responses.json", turn_records),
+        "events": _write_artifact_json(case_dir / "events.json", events),
+        "tools": _write_artifact_json(case_dir / "tools.json", tools),
+        "audit": _write_artifact_json(case_dir / "audit.json", audit_record),
+        "metrics": _write_artifact_json(case_dir / "metrics.json", metrics),
+    }
+    return {"case_id": case_id, "raw_output_exists": bool(response_texts),
+            "event_count": len(events), "tool_call_count": len(tools), "files": files}
+
+
 def _response_quality_proxy(response_text: str, tool_count: int) -> dict:
     """Bounded, deterministic proxy signals for Value metrics.
 
@@ -165,6 +232,11 @@ def main() -> int:
         "reliability": {}, "governance": {}, "value": {}, "cost": {},
         "audit_records": [], "risks": [],
     }
+    artifact_root = EVALUATION_ARTIFACT_ROOT / report["eval_run_id"]
+    artifact_root.mkdir(parents=True, exist_ok=False)
+    report["evaluation_artifact_root"] = str(artifact_root.relative_to(ROOT))
+    artifact_cases: list[dict[str, object]] = []
+    expected_case_count = 0
     adapter = None
     permission = HarnessPermissionPolicy()
     router = RuntimeRouter(RuntimePolicy.load())
@@ -187,6 +259,7 @@ def main() -> int:
         corpus = PilotCorpus()
         exploration = corpus.exploration_cases()
         controls = corpus.control_cases()
+        expected_case_count = len(exploration)
 
         from research_os.agent_runtime.exploration_contract import ExplorationContractRegistry
         from research_os.agent_runtime.exploration_controller import (
@@ -217,14 +290,21 @@ def main() -> int:
                           "turn_durations_ms": [],
                           "provider_calls": 0,
                           "usage": {}}
+            turn_records: list[dict] = []
 
             def send_bounded_turn(prompt: str) -> dict:
                 # Per-turn wall-clock budget from the contract (no infinite wait).
                 turn_started = time.monotonic()
                 before = _read_event_log(event_log)
                 turn_result = adapter.send_message(session, prompt)
+                raw_result = _json_copy(turn_result)
                 turn_ms = round((time.monotonic() - turn_started) * 1000)
                 turn_result["_turn_ms"] = turn_ms
+                turn_records.append({
+                    "turn": len(turn_records) + 1,
+                    "prompt": prompt,
+                    "response": raw_result,
+                })
                 turn_state["turn_durations_ms"].append(turn_ms)
                 turn_state["provider_calls"] += 1
                 for key, value in _usage_from_result(turn_result).items():
@@ -279,6 +359,28 @@ def main() -> int:
                 completion_status=run.completion_status,
             )
             audit.record(lineage)
+            case_metrics = {
+                "status": turn_status,
+                "completion_status": run.completion_status,
+                "duration_ms": sum(turn_state["turn_durations_ms"]),
+                "provider_calls": turn_state["provider_calls"],
+                "actual_turns": run.actual_turns,
+                "actual_tool_calls": run.actual_tool_calls,
+                "max_turns": contract.max_turns,
+                "max_tool_calls": contract.max_tool_calls,
+                "data_gaps": run.data_gaps,
+                "usage": turn_state["usage"],
+                "response_sha256": run.response_sha256,
+            }
+            artifact_cases.append(_write_case_evidence(
+                artifact_root=artifact_root,
+                case=case,
+                decision=decision,
+                audit_record=lineage.as_dict(),
+                events=after_events,
+                turn_records=turn_records,
+                metrics=case_metrics,
+            ))
 
             report["cases"].append({
                 "case_id": case.id,
@@ -451,6 +553,32 @@ def main() -> int:
             event.get("tool_name") in DENIED_TOOL_NAMES for event in all_events)
         report["audit_records"] = audit.records()
         report["ended_at"] = _iso()
+        session_files = {
+            "session": _write_artifact_json(
+                artifact_root / "session.json", report.get("session", {})),
+            "session_events": _write_artifact_json(
+                artifact_root / "session_events.json", all_events),
+        }
+        raw_output_count = sum(1 for case in artifact_cases if case["raw_output_exists"])
+        report["evaluation_artifact"] = {
+            "root": str(artifact_root.relative_to(ROOT)),
+            "case_count": len(artifact_cases),
+            "raw_output_exists": raw_output_count == len(artifact_cases) == expected_case_count,
+            "raw_output_cases": raw_output_count,
+            "event_snapshot_cases": sum(1 for case in artifact_cases if case["event_count"] >= 0),
+            "audit_cases": len(artifact_cases),
+            "immutable_file_hashes": True,
+        }
+        _write_artifact_json(artifact_root / "manifest.json", {
+            "artifact_version": "1.0.0",
+            "run_id": report["eval_run_id"],
+            "source_task": EVAL_TASK_ID,
+            "case_count": len(artifact_cases),
+            "cases": artifact_cases,
+            "session_files": session_files,
+            "completeness": report["evaluation_artifact"],
+            "automatic_summary": False,
+        })
         try:
             event_log.unlink()
         except (FileNotFoundError, PermissionError):

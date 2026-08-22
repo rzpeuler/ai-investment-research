@@ -8,12 +8,14 @@ summary.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 R1_ARTIFACT = ROOT / "reports" / "p8_a4_r1_real_provider_validation.json"
 BUNDLE_ROOT = ROOT / "reports" / "p8_a4_human_review_bundle"
+EVALUATION_RUNS_ROOT = ROOT / "reports" / "harness_evaluation_runs"
 MISSING_OUTPUT = (
     "NOT_PERSISTED_BY_R1_ARTIFACT\n"
     "The R1 audit contract intentionally excludes raw Harness responses. "
@@ -32,6 +34,7 @@ def _load_corpus() -> Any:
 
 def build_bundle() -> dict[str, Any]:
     source = json.loads(R1_ARTIFACT.read_text(encoding="utf-8"))
+    run_root = EVALUATION_RUNS_ROOT / str(source.get("run_id"))
     corpus = _load_corpus()
     expected = corpus.exploration_cases()
     audits = {
@@ -47,6 +50,18 @@ def build_bundle() -> dict[str, Any]:
             raise ValueError(f"R1 audit record missing for {case.id}")
         case_dir = BUNDLE_ROOT / f"case_{case.id}"
         case_dir.mkdir(parents=True, exist_ok=True)
+        retained_case_dir = run_root / f"case_{case.id}"
+        retained_files = ("input.json", "prompt.txt", "harness_output.txt",
+                          "events.json", "tools.json", "audit.json", "metrics.json")
+        if retained_case_dir.exists() and all((retained_case_dir / name).exists()
+                                              for name in retained_files):
+            for name in retained_files:
+                shutil.copyfile(retained_case_dir / name, case_dir / name)
+            output_status = "AVAILABLE_FROM_R4_RETENTION"
+            audit_payload = json.loads((case_dir / "audit.json").read_text(encoding="utf-8"))
+        else:
+            output_status = "NOT_AVAILABLE_FROM_R1_ARTIFACT"
+            audit_payload = audit
         metadata = {
             "case_id": case.id,
             "task_type": case.category,
@@ -54,24 +69,26 @@ def build_bundle() -> dict[str, Any]:
             "skills_used": audit.get("skills_used", []),
             "tools_called": audit.get("tools_called", []),
             "source_artifact": str(R1_ARTIFACT.relative_to(ROOT)),
+            "retained_run_root": str(run_root.relative_to(ROOT)) if run_root.exists() else None,
             "prompt_source": "config/harness_pilot_corpus.yaml",
-            "harness_output_status": "NOT_AVAILABLE_FROM_R1_ARTIFACT",
+            "harness_output_status": output_status,
             "audit_status": "AVAILABLE",
             "automatic_summary": False,
         }
         (case_dir / "metadata.json").write_text(
             json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        (case_dir / "prompt.txt").write_text(case.prompt, encoding="utf-8")
-        (case_dir / "harness_output.txt").write_text(MISSING_OUTPUT, encoding="utf-8")
-        (case_dir / "audit.json").write_text(
-            json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        if output_status == "NOT_AVAILABLE_FROM_R1_ARTIFACT":
+            (case_dir / "prompt.txt").write_text(case.prompt, encoding="utf-8")
+            (case_dir / "harness_output.txt").write_text(MISSING_OUTPUT, encoding="utf-8")
+            (case_dir / "audit.json").write_text(
+                json.dumps(audit_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         case_results.append({
             "case_id": case.id,
             "metadata": True,
             "prompt": True,
-            "harness_output": False,
+            "harness_output": output_status == "AVAILABLE_FROM_R4_RETENTION",
             "audit": True,
             "traceable_to_audit": True,
         })
@@ -91,7 +108,8 @@ def build_bundle() -> dict[str, Any]:
             "harness_output": sum(1 for row in case_results if row["harness_output"]),
             "audit": sum(1 for row in case_results if row["audit"]),
             "complete_cases": complete,
-            "status": "PARTIAL_RAW_OUTPUT_NOT_PERSISTED_BY_R1",
+            "status": "COMPLETE" if complete == len(case_results) else
+            "PARTIAL_RAW_OUTPUT_NOT_PERSISTED_BY_R1",
         },
         "automatic_summary": False,
         "harness_rerun": False,
