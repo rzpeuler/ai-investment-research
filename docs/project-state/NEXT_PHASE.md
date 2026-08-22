@@ -701,3 +701,11 @@ accepted. Next actions are independent review of the 25-case evidence,
 completion of the human usefulness template, and process-tree cleanup
 verification if required by acceptance. P8-A5 and production adoption remain
 `NOT_AUTHORIZED` until those gates close.
+
+## P8-A4-R2 follow-up gate (2026-08-22)
+
+Regression and POSIX cleanup gates are closed. The remaining gate is a real
+human reviewer completing all 20 cases in `reports/p8_a4_r1_human_review.json`
+with reviewer identity, scores, review time, and notes. Until that artifact is
+completed and independently reviewed, P8-A4 stays `PARTIAL / NOT_ACCEPTED` and
+P8-A5 remains `NOT_AUTHORIZED`.

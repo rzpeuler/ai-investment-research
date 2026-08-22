@@ -626,3 +626,17 @@ token, and latency evidence is recorded in the R1 report. Human value remains
 root terminated but process-tree verification `NOT_VERIFIED`. Default runtime,
 authorities, and production adoption status are unchanged; P8-A5 remains
 `NOT_AUTHORIZED`.
+
+## P8-A4-R2 HUMAN VALUE AND REGRESSION CLOSURE (2026-08-22)
+
+R2 closed the regression and cleanup evidence gaps. Ubuntu run
+`32570689988` passed full pytest (`3944 passed, 6 skipped, 1 warning`), schema
+validation `86/86`, compile, and POSIX cleanup with `process_residue=NO`.
+Windows full pytest was run under a 600-second bound and timed out after 3406
+observed nodes / approximately 87%; the targeted slow Phase 5 groups passed,
+with no single hung test identified.
+
+The 20-case human review artifact is structurally valid but has 0/20 scored
+cases and remains `PENDING_REVIEW`; no automated value score was used. Thus
+P8-A4 is `PARTIAL / NOT_ACCEPTED`, Legacy remains default, and P8-A5 and
+production adoption remain `NOT_AUTHORIZED`.

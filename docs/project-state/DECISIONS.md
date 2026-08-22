@@ -3928,3 +3928,19 @@ review-only with no automated score, and process-tree cleanup remains
 `NOT_VERIFIED`. No Router, permission direction, Schema, Validator, LlmClient,
 Financial/Evidence/Graph authority, or default runtime changed. P8-A5 and
 production adoption remain `NOT_AUTHORIZED`.
+
+## 88. P8-A4-R2 Human Value and Regression Closure (2026-08-22)
+
+R2 records the 20-case human reviewer artifact as structurally valid but
+`PENDING_REVIEW` with 0/20 scored cases; no LLM or deterministic proxy is
+allowed to substitute for the human reviewer. Ubuntu run `32570689988`
+provided the complete regression baseline (`3944 passed, 6 skipped, 1 warning`),
+schema `86/86`, compile PASS, and mechanical `process_residue=NO`. Windows
+full pytest was bounded at 600 seconds and timed out at 3406 observed nodes;
+targeted Phase 5 slow groups passed and no single hung test was found.
+
+P8-A4 remains `PARTIAL / NOT_ACCEPTED`. Legacy remains the default runtime;
+Harness remains an opt-in exploration runtime. No Router, Permission Policy,
+Schema, Validator, LlmClient, or Financial/Evidence/Graph authority changed.
+P8-A5 and production adoption remain `NOT_AUTHORIZED` until human review is
+completed.

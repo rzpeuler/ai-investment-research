@@ -543,3 +543,14 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   `NOT_VERIFIED`.
 - P8-A5 and production adoption remain unauthorized until review and the
   remaining evidence gates are closed.
+
+## P8-A4-R2 closure limitations (2026-08-22)
+
+- Human review is structurally prepared for all 20 Harness cases, but no human
+  scores were supplied; value remains `PENDING_REVIEW`.
+- Windows full pytest remains cumulative-timeout evidence at 600 seconds. The
+  Ubuntu run is the complete regression baseline: 3944 passed, 6 skipped.
+- POSIX cleanup is mechanically closed at `process_residue=NO`; the Windows
+  host remains fail-closed for direct process-tree proof.
+- P8-A4 is `PARTIAL / NOT_ACCEPTED`; P8-A5 and production adoption remain
+  unauthorized.
