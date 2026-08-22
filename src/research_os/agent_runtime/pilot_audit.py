@@ -56,6 +56,13 @@ class RuntimeLineage:
     status: str = "completed"
     record_id: str = field(default_factory=lambda: f"pilot-{uuid.uuid4().hex[:12]}")
     recorded_at: str = field(default_factory=now_iso)
+    # P8-A3-R1 exploration control lineage (bounded; no raw content).
+    exploration_contract: str = ""          # contract task id / policy version
+    max_turns: int = 0
+    max_tool_calls: int = 0
+    actual_turns: int = 0
+    actual_tool_calls: int = 0
+    completion_status: str = ""             # completed | incomplete | budget_exhausted | data_gap
 
     def as_dict(self) -> dict[str, Any]:
         return {

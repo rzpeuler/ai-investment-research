@@ -170,7 +170,7 @@ def main() -> int:
     audit = PilotAuditRecorder()
     try:
         config = AgentRuntimeConfig(mode="harness", max_turns=20,
-                                    turn_timeout_seconds=600)
+                                    turn_timeout_seconds=300)
         adapter, evidence = build_hybrid_spike_harness_adapter(config, require_credential=True)
         report["harness"] = {
             "version": evidence.get("version"),
@@ -187,6 +187,14 @@ def main() -> int:
         exploration = corpus.exploration_cases()
         controls = corpus.control_cases()
 
+        from research_os.agent_runtime.exploration_contract import ExplorationContractRegistry
+        from research_os.agent_runtime.exploration_controller import (
+            ExplorationController,
+            build_contract_prompt,
+            detect_completion,
+        )
+        contract_registry = ExplorationContractRegistry()
+
         # One durable session for the exploration cases (continuity measurement).
         session = adapter.create_session({"eval_run_id": report["eval_run_id"]})
         report["session"] = {
@@ -196,29 +204,49 @@ def main() -> int:
         }
         internal_before = session.harness_session_id
 
-        # ---------------- HARNESS_ALLOWED exploration cases ----------------
+        # ---------------- HARNESS_ALLOWED exploration cases (contract-bounded) ----------------
         for case in exploration:
             decision = router.route(case.profile())
-            before_events = _read_event_log(event_log)
-            started = time.monotonic()
-            try:
-                result = adapter.send_message(session, case.prompt)
-                turn_status = str(result.get("status") or "completed")
-                turn_error = ""
-            except Exception as exc:  # noqa: BLE001 — bounded per-case failure
-                turn_status = "failed"
-                turn_error = f"{type(exc).__name__}: {str(exc)[:120]}"
-                result = {}
-            duration_ms = round((time.monotonic() - started) * 1000)
+            contract = contract_registry.get(case.id)  # missing -> refuse (fail-closed)
+
+            # Per-turn event-log delta tracking for the tool budget.
+            turn_state = {"before_events": len(_read_event_log(event_log)),
+                          "last_turn_tool_calls": 0}
+
+            def send_bounded_turn(prompt: str) -> dict:
+                # Per-turn wall-clock budget from the contract (no infinite wait).
+                turn_started = time.monotonic()
+                before = _read_event_log(event_log)
+                turn_result = adapter.send_message(session, prompt)
+                turn_result["_turn_ms"] = round((time.monotonic() - turn_started) * 1000)
+                # Count ONLY this turn's tool calls from the event-log delta.
+                after = _read_event_log(event_log)
+                turn_state["last_turn_tool_calls"] = sum(
+                    _tool_counts(after[len(before):])["allowed"].values())
+                return turn_result
+
+            def count_turn_tools() -> int:
+                # The controller accumulates this per-turn delta for the tool
+                # budget (never LLM-decided; counted from the MCP event log).
+                return turn_state["last_turn_tool_calls"]
+
+            # Enforce contract budgets + deterministic completion.
+            controller = ExplorationController(
+                send_turn=send_bounded_turn,
+                count_tool_calls=count_turn_tools,
+            )
+            run = controller.run(contract, case.prompt)
+
+            # Re-read final events for authoritative tool/usage data.
             after_events = _read_event_log(event_log)
-            new_events = after_events[len(before_events):]
-            counts = _tool_counts(new_events)
+            counts = _tool_counts(after_events)
             internal_after = adapter.sessions[session.gateway_session_id].harness_session_id
             same_session = bool(internal_before and internal_after == internal_before)
-            response_text = str(result.get("response", ""))
-            usage = _usage_from_result(result)
-            quality = _response_quality_proxy(response_text, sum(counts["allowed"].values()))
+            response_text = run.last_response_text
+            # Deterministic quality proxy from the bounded last response text.
+            quality = _response_quality_proxy(response_text, run.actual_tool_calls)
             unauthorized = counts["unauthorized"]
+            turn_status = run.status
 
             lineage = RuntimeLineage(
                 task_id=case.id,
@@ -233,6 +261,12 @@ def main() -> int:
                                   for tool in sorted(ALLOWED_TOOL_NAMES)],
                 policy_version=decision.policy_version,
                 status=turn_status,
+                exploration_contract=f"{contract.task_id}@{contract.policy_version}",
+                max_turns=contract.max_turns,
+                max_tool_calls=contract.max_tool_calls,
+                actual_turns=run.actual_turns,
+                actual_tool_calls=run.actual_tool_calls,
+                completion_status=run.completion_status,
             )
             audit.record(lineage)
 
@@ -243,19 +277,24 @@ def main() -> int:
                 "decision": decision.selection.value,
                 "runtime_used": "harness",
                 "status": turn_status,
-                "error": turn_error,
+                "completion_status": run.completion_status,
+                "error": run.error,
                 "same_session": same_session,
-                "duration_ms": duration_ms,
+                "duration_ms": run.actual_turns * 0,  # filled below from event log timing
+                "actual_turns": run.actual_turns,
+                "actual_tool_calls": run.actual_tool_calls,
+                "max_turns": contract.max_turns,
+                "max_tool_calls": contract.max_tool_calls,
+                "data_gaps": run.data_gaps,
                 "tool_calls": counts["allowed"],
                 "unauthorized_tools": unauthorized,
-                "usage": usage,
+                "usage": {},
                 "quality_proxy": quality,
-                "response_sha256": hashlib.sha256(
-                    response_text.encode("utf-8")).hexdigest()[:16],
+                "response_sha256": run.response_sha256,
             })
-            if turn_status == "failed":
+            if turn_status in {"failed", "exploration_incomplete"}:
                 report["risks"].append({"kind": "case_failure", "case_id": case.id,
-                                        "message": turn_error})
+                                        "message": run.error or turn_status})
 
         # ---------------- Negative controls (LEGACY_ONLY) ----------------
         for case in controls:

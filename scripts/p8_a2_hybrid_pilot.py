@@ -38,6 +38,8 @@ def main() -> int:
 
     def harness_runner(case_id: str, prompt: str) -> dict:
         # Offline harness runner for the pilot runner: bounded, no real LLM.
+        # Returns the contract-required output fields so the deterministic
+        # completion detector (ExplorationController) marks the turn complete.
         # The real Harness loop is validated by P8-A0 spike + P8-A2 POSIX script.
         return {
             "status": "completed",
@@ -45,6 +47,7 @@ def main() -> int:
             "skills_used": ["stock-research", "financial-analysis", "industry-graph-research"],
             "tools_called": ["get_company_profile", "check_data_readiness",
                              "query_industry_graph", "run_research_scenario"],
+            "response": "findings: ...; unanswered_questions: ...; next_actions: ...",
         }
 
     adapter = HarnessPilotAdapter(policy=policy, audit=audit,

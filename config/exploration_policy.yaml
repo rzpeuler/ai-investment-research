@@ -1,0 +1,94 @@
+# P8-A3-R1 Exploration Execution Contract (config-driven; no hardcoded task lists)
+#
+# Authority: P8-A3-R1-HARNESS-EXPLORATION-CONTROL. Fixes the P8-A3 open-ended
+# agent-loop finding by giving every HARNESS_ALLOWED task an EXPLICIT execution
+# contract: objective, allowed_tools, budgets (max_turns / max_tool_calls),
+# deterministic completion_rule, and failure_condition. Missing contract =>
+# execution is refused (fail-closed).
+#
+# Fields per task:
+#   objective          - what the exploration must produce (bounded)
+#   allowed_tools      - subset of the Harness ALLOW surface for THIS task
+#   max_turns          - hard turn budget (agent turn budget, not wall-clock)
+#   max_tool_calls     - hard tool-call budget across the whole task
+#   turn_timeout_seconds - per-turn wall-clock budget (no infinite wait)
+#   completion_rule:
+#     required_fields  - deterministic output markers the exploration must
+#                        contain to be considered complete (checked WITHOUT LLM)
+#   empty_data_policy  - what to do when a tool returns empty/insufficient data
+#                        (never auto-retry indefinitely; record data_gap)
+#   failure_condition  - what happens when budgets are exhausted
+
+version: "1.0.0"
+updated_at: "2026-08-22"
+
+tasks:
+  industry_exploration:
+    objective: "生成产业链风险探索笔记：调用图谱/画像工具，输出 findings、unanswered_questions、next_actions 三部分后立即结束。"
+    allowed_tools:
+      - query_industry_graph
+      - get_company_profile
+      - check_data_readiness
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: ["findings", "unanswered_questions", "next_actions"]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "达到 max_turns 或 max_tool_calls 仍未完成 -> exploration_incomplete"
+
+  research_preparation:
+    objective: "为研究做准备：确认公司身份与数据就绪度，列出证据类型与待验证问题清单，输出 findings、unanswered_questions、next_actions 后立即结束。"
+    allowed_tools:
+      - get_company_profile
+      - check_data_readiness
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: ["findings", "unanswered_questions", "next_actions"]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "达到 max_turns 或 max_tool_calls 仍未完成 -> exploration_incomplete"
+
+  evidence_discovery_assistance:
+    objective: "辅助定位与目标相关的证据与关注点，归纳待核实线索，输出 findings、unanswered_questions、next_actions 后立即结束。"
+    allowed_tools:
+      - get_company_profile
+      - check_data_readiness
+      - query_industry_graph
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: ["findings", "unanswered_questions", "next_actions"]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "达到 max_turns 或 max_tool_calls 仍未完成 -> exploration_incomplete"
+
+  analyst_assistant:
+    objective: "作为分析师助手比较两家公司在产业链位置的差异并澄清待研究问题，输出 findings、unanswered_questions、next_actions 后立即结束。"
+    allowed_tools:
+      - get_company_profile
+      - query_industry_graph
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: ["findings", "unanswered_questions", "next_actions"]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "达到 max_turns 或 max_tool_calls 仍未完成 -> exploration_incomplete"
+
+  hypothesis_generation:
+    objective: "基于证据生成待验证假设候选（多空主要矛盾），标注为模型推断候选，输出 findings、unanswered_questions、next_actions 后立即结束。"
+    allowed_tools:
+      - get_company_profile
+      - query_industry_graph
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: ["findings", "unanswered_questions", "next_actions"]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "达到 max_turns 或 max_tool_calls 仍未完成 -> exploration_incomplete"
+
+# Negative controls (LEGACY_REQUIRED) must NEVER appear here: strict-schema
+# artifact tasks are not exploration and have no exploration contract.

@@ -353,6 +353,25 @@ P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION 如实记录评估边界与发现：
    timeout，useful_finding_rate 等 Value 指标当前无法量化（如实记录，不伪造）。
 7. **默认 runtime 仍为 legacy**：Harness 保持 opt-in；`PRODUCTION_ADOPTION = NO`。
 
+## 26. P8-A3-R1 Exploration Control 限制（2026-08-22，IMPLEMENTED / NOT PRODUCTION）
+
+P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现非生产）：
+
+1. **契约配置为治理工件**：`config/exploration_policy.yaml` 修改需独立
+   taskbook + Sol 授权；5 个 HARNESS_ALLOWED 任务的预算（max_turns 2-3 /
+   max_tool_calls 4-6 / turn_timeout 120s）为试点初值，需 P8-A4 正式基线校准。
+2. **Completion 检测为确定性子串标记**：required_fields（findings /
+   unanswered_questions / next_actions）用子串匹配（含中文别名），非 LLM
+   判定；若模型输出格式偏离标记，会误判 incomplete → 保守 budget_exhausted
+   （fail closed，不伪造完成）。
+3. **每回合 tool 计数依赖 MCP event log**：event log 是工具调用的权威计数源；
+   若 event log 缺失/被清理，计数退化为 0（仍受 turn 预算约束，不无限循环）。
+4. **Value / Cost 基线待 P8-A4**：契约消除 timeout 后可采集完整 token/latency，
+   但正式 usefulness 基线仍需 P8-A4 更大 corpus 与 Sol 定性评估。
+5. **Windows 宿主清理证据仍 fail-closed**（继承 P8-A0）：本地 `process_residue`
+   NOT_VERIFIED；POSIX CI 已证明 `process_residue=NO`。
+6. **默认 runtime 仍为 legacy**：Harness 保持 opt-in；`PRODUCTION_ADOPTION = NO`。
+
 ## P8-B 当前限制
 
 - P8-B 设计与 P8-B1 foundation 均已独立验收；P8-B2 internal trial 已实现但为 PARTIAL / NOT ACCEPTED，生产采用仍未授权。

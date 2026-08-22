@@ -26,7 +26,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from research_os.agent_runtime.errors import RuntimeNotReady
+from research_os.agent_runtime.errors import ConfigurationError, RuntimeNotReady
+from research_os.agent_runtime.exploration_contract import (
+    ExplorationContract,
+    ExplorationContractRegistry,
+)
+from research_os.agent_runtime.exploration_controller import ExplorationController
 from research_os.agent_runtime.permission_policy import HarnessPermissionPolicy
 from research_os.agent_runtime.pilot_audit import PilotAuditRecorder, RuntimeLineage
 from research_os.agent_runtime.pilot_corpus import PilotCase
@@ -73,7 +78,7 @@ class PilotOutcome:
 
 
 class HarnessPilotAdapter:
-    """Opt-in pilot execution layer: router -> permission -> runtime -> audit."""
+    """Opt-in pilot execution layer: router -> permission -> contract -> runtime -> audit."""
 
     def __init__(
         self,
@@ -82,6 +87,7 @@ class HarnessPilotAdapter:
         router: RuntimeRouter | None = None,
         permission: HarnessPermissionPolicy | None = None,
         audit: PilotAuditRecorder | None = None,
+        contract_registry: ExplorationContractRegistry | None = None,
         harness_runner: Callable[[str, str], dict[str, Any]] | None = None,
         require_opt_in: bool = True,
     ):
@@ -89,6 +95,7 @@ class HarnessPilotAdapter:
         self.router = router or RuntimeRouter(self.policy)
         self.permission = permission or HarnessPermissionPolicy()
         self.audit = audit or PilotAuditRecorder()
+        self.contracts = contract_registry or ExplorationContractRegistry()
         self.harness_runner = harness_runner  # (case_id, prompt) -> bounded result
         self.require_opt_in = require_opt_in
 
@@ -123,43 +130,60 @@ class HarnessPilotAdapter:
                 status="routed_legacy", final_artifact_source=source,
             )
 
-        # HARNESS_ALLOWED: permission check + harness execution + audit.
+        # HARNESS_ALLOWED: contract + permission + harness execution + audit.
+        # P8-A3-R1: every HARNESS_ALLOWED task MUST have an exploration
+        # contract; a missing contract refuses execution (fail-closed).
+        contract = self.contracts.get(case.id)
         if self.harness_runner is None:
             raise RuntimeNotReady("HARNESS_RUNNER_MISSING",
                                   "pilot adapter has no harness runner configured")
-        # Permission boundary: the tool surface must be within the ALLOW set.
-        unauthorized = sorted(set(EXPLORATION_TOOL_SURFACE) - self.permission.allowed)
+        # Permission boundary: the contract's allowed tools must be within the
+        # Harness ALLOW surface (fail-closed).
+        unauthorized = sorted(set(contract.allowed_tools) - self.permission.allowed)
         if unauthorized:
             raise RuntimeNotReady("PERMISSION_MISMATCH",
-                                  f"pilot surface exceeds allowlist: {unauthorized}")
+                                  f"contract tools exceed allowlist: {unauthorized}")
         authority_checks = [
-            self.permission.check(tool).as_dict() for tool in sorted(EXPLORATION_TOOL_SURFACE)
+            self.permission.check(tool).as_dict() for tool in sorted(contract.allowed_tools)
         ]
         denied = [check for check in authority_checks if not check["allowed"]]
         if denied:
             raise RuntimeNotReady("PERMISSION_DENIED",
                                   f"harness tool surface denied: {denied}")
 
-        result = self.harness_runner(case.id, case.prompt)
-        tools_called = sorted(set(result.get("tools_called") or []))
-        harness_session = str(result.get("harness_session_id") or "")
+        # Contract-bounded execution: the controller enforces turn/tool budgets,
+        # deterministic completion and empty-data stop (no infinite agent loop).
+        controller = ExplorationController(
+            send_turn=lambda prompt: self.harness_runner(case.id, prompt),
+            count_tool_calls=lambda: 0,
+        )
+        run = controller.run(contract, case.prompt)
+
+        harness_session = run.harness_session_id
         lineage = RuntimeLineage(
             task_id=case.id,
             runtime_selection=RuntimeSelection.HARNESS_ALLOWED.value,
             runtime_selection_reason=decision.reason,
             final_artifact_source="harness_exploration",
             harness_session_id=harness_session,
-            skills_used=list(result.get("skills_used") or []),
-            tools_called=tools_called,
+            skills_used=["stock-research", "financial-analysis",
+                         "industry-graph-research"],
+            tools_called=list(contract.allowed_tools),
             authority_checks=authority_checks,
             policy_version=decision.policy_version,
-            status=str(result.get("status") or "completed"),
+            status=run.status,
+            exploration_contract=f"{contract.task_id}@{contract.policy_version}",
+            max_turns=contract.max_turns,
+            max_tool_calls=contract.max_tool_calls,
+            actual_turns=run.actual_turns,
+            actual_tool_calls=run.actual_tool_calls,
+            completion_status=run.completion_status,
         )
         self.audit.record(lineage)
         return PilotOutcome(
             task_id=case.id, decision=decision, runtime_used="harness",
-            status=lineage.status, harness_session_id=harness_session,
-            tools_called=tools_called,
+            status=run.status, harness_session_id=harness_session,
+            tools_called=list(contract.allowed_tools),
             final_artifact_source="harness_exploration",
         )
 

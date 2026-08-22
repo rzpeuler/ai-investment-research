@@ -659,3 +659,29 @@ NEXT: Sol 独立验收 P8-A3 评估（Governance 全过 / agentic 循环发现 /
   LlmClient / Schema / Validator。P8-B3 / production adoption 保持
   NOT_AUTHORIZED。
 ```
+
+## P8-A3-R1-HARNESS-EXPLORATION-CONTROL — Exploration Execution Contract（2026-08-22）
+
+```text
+IMPLEMENTED（修复 P8-A3 开放式 agent loop；DECISIONS #85）:
+  - Exploration Execution Contract（config/exploration_policy.yaml v1.0.0，
+    config-driven）: 每 HARNESS_ALLOWED 任务含 objective / allowed_tools /
+    max_turns / max_tool_calls / turn_timeout_seconds /
+    completion_rule.required_fields / empty_data_policy / failure_condition
+  - 契约强制（agent_runtime/exploration_controller.py）: turn 1 完整契约
+    prompt；turn N>1 有界 follow-up；每回合 MCP event log 计数 tool_calls；
+    确定性 completion 检测（非 LLM）；空数据 record data_gap 并停止；
+    超预算 → exploration_incomplete（fail closed）
+  - Adapter 强制契约（缺失契约拒绝执行）；audit +exploration control lineage；
+    skills +契约元数据
+  - 实测: timeout_count 5 → 0；governance 全过；Negative controls 保持
+    LEGACY_ONLY
+  - 测试: tests/unit/test_p8_a3_r1_exploration_control.py（18 offline）；
+    full pytest 绿；schema 86/86；未改 Router 核心/Legacy/LlmClient/Schema/
+    Validator/Authority
+NEXT: Sol 独立验收 P8-A3-R1（契约设计 / 预算执行 / 测试 / 真实执行结果）→
+  若 Reliability ≥0.95 达成，独立 taskbook 授权 P8-A4（生产试点运行：采集
+  Reliability / Governance / Value / Cost 正式基线）。P8-A4 不切换默认
+  runtime；不删除 Legacy；不改 LlmClient / Schema / Validator。P8-B3 /
+  production adoption 保持 NOT_AUTHORIZED。
+```

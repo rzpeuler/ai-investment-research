@@ -3787,6 +3787,41 @@ analyst_assistant / hypothesis_generation）；Negative controls
 本 Decision 记录评估结果，不授权生产采用。默认 runtime 保持 legacy；
 P8-B3 / production adoption 保持 NOT_AUTHORIZED；Agent 不得 self-accept。
 
+## 85. P8-A3-R1-HARNESS-EXPLORATION-CONTROL Exploration Execution Contract（2026-08-22，IMPLEMENTED / AWAITING ACCEPTANCE）
+
+修复 P8-A3 发现的开放式 Exploration Agent Loop 不可控问题（5/5 探索任务在
+300s/600s 下 timeout，而定向 prompt 约 10s 完成；根因是缺少 Exploration
+Boundary）。建立 Exploration Execution Contract，使 Harness Exploration Task
+具备：明确目标 / 工具预算 / 最大回合 / 完成条件 / 失败退出条件。
+
+- **契约配置**（`config/exploration_policy.yaml` v1.0.0，config-driven 禁止
+  硬编码）：每 HARNESS_ALLOWED 任务含 objective / allowed_tools / max_turns /
+  max_tool_calls / turn_timeout_seconds / completion_rule.required_fields
+  （findings / unanswered_questions / next_actions）/ empty_data_policy
+  （record_data_gap_and_stop）/ failure_condition。
+- **契约强制**（`agent_runtime/exploration_controller.py`）：turn 1 完整契约
+  prompt；turn N>1 有界 follow-up；每回合从 MCP event log 计数 tool_calls（非
+  LLM 判定）；确定性 completion 检测（子串标记，非 LLM 判定）；空数据 →
+  record data_gap 并停止（不自动重试）；超 max_turns / max_tool_calls →
+  exploration_incomplete（fail closed）。**禁止无限 agent loop**。
+- **Adapter 集成**（`agent_runtime/pilot_adapter.py`）：HARNESS_ALLOWED 任务
+  必须先有契约，缺失契约拒绝执行（fail-closed）；工具子集须在权限表内。
+- **Audit 扩展**（`pilot_audit.py`）：exploration_contract / max_turns /
+  max_tool_calls / actual_turns / actual_tool_calls / completion_status；
+  保持 final_artifact_source。
+- **Skills**：stock-research / financial-analysis / industry-graph-research
+  增加 Exploration Execution Contract 元数据。
+- 测试：`tests/unit/test_p8_a3_r1_exploration_control.py`（18 offline：
+  契约加载 / 缺失契约拒绝 / 超 turn 退出 / 超 tool 退出 / 空数据不重试 /
+  governance）；A2 测试适配契约强制。
+- 实测（真实 pinned Harness）：契约强制后 **timeout_count=0**（P8-A3 为 5），
+  governance 全过（audit 100% / unauthorized 0 / drift 0 / secret 0 /
+  strict_schema 未进入 Harness）；Negative controls 保持 LEGACY_ONLY。
+- 未修改：Runtime Router 核心规则 / Legacy runtime / LlmClient / Schema /
+  Validator / Financial / Evidence / Graph Write authority。默认 runtime 保持
+  legacy；P8-B3 / production adoption 保持 NOT_AUTHORIZED；Agent 不得
+  self-accept。
+
 ## 77. P8-B2-R5-C Harness JSON Boundary Recovery Implementation (2026-08-21)
 
 The approved R5-C design is implemented as `src/research_os/llm/json_recovery.py`

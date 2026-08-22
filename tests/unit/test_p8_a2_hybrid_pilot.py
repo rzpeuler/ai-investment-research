@@ -336,9 +336,12 @@ cases:
 # ---------------------------------------------------------------------------
 
 def _offline_harness_runner(case_id: str, prompt: str) -> dict:
+    # Returns the contract-required output fields so the deterministic
+    # completion detector marks the turn complete on the first turn.
     return {"status": "completed", "harness_session_id": f"sess-{case_id}",
             "skills_used": ["stock-research"],
-            "tools_called": ["get_company_profile", "query_industry_graph"]}
+            "tools_called": ["get_company_profile", "query_industry_graph"],
+            "response": "findings: ...; unanswered_questions: ...; next_actions: ..."}
 
 
 def test_pilot_adapter_requires_opt_in(monkeypatch, tmp_path):
@@ -357,7 +360,30 @@ def test_pilot_adapter_routes_exploration_to_harness(monkeypatch, tmp_path):
     assert outcome.runtime_used == "harness"
     assert outcome.decision.selection.value == "HARNESS_ALLOWED"
     assert outcome.final_artifact_source == "harness_exploration"
+    assert outcome.status == "completed"
     assert outcome.harness_session_id == "sess-industry_exploration"
+
+
+def test_pilot_adapter_refuses_missing_contract(monkeypatch, tmp_path):
+    """Every HARNESS_ALLOWED task MUST have an exploration contract (P8-A3-R1)."""
+    monkeypatch.setenv(PILOT_ENV, "1")
+    from research_os.agent_runtime.pilot_corpus import PilotCase
+    from research_os.agent_runtime.runtime_router import RuntimePolicy
+    # A task whitelisted for Harness but with NO exploration contract must be
+    # refused at the contract boundary (fail-closed, P8-A3-R1).
+    policy = RuntimePolicy(
+        version="1.0.0", default_runtime="legacy", strict_schema_runtime="legacy",
+        exploration={"no_contract_task": {"runtime": "harness", "enabled": True}},
+        hybrid={},
+    )
+    adapter = HarnessPilotAdapter(policy=policy, audit=PilotAuditRecorder(audit_dir=tmp_path),
+                                  harness_runner=_offline_harness_runner)
+    ghost = PilotCase(id="no_contract_task", category="exploration",
+                      task_type="exploration", output_contract="notes",
+                      risk_level="low", authority_requirement="read_only",
+                      prompt="p", expected="HARNESS_ALLOWED")
+    with pytest.raises(ConfigurationError, match="contract missing"):
+        adapter.run_case(ghost)
 
 
 def test_pilot_adapter_routes_strict_schema_to_legacy(monkeypatch, tmp_path):
