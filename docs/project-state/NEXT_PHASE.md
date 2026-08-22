@@ -693,3 +693,11 @@ credentials, preserve provider-reported calls/latency/token usage, and have Sol
 complete the human evaluation template. Do not treat the offline 20/20 result
 as real Harness reliability or value evidence. Keep Legacy as the default and
 do not route structured research artifacts through Harness.
+
+## P8-A4-R1 follow-up gate (2026-08-22)
+
+The real provider-backed run is complete as `PASS CANDIDATE`, not independently
+accepted. Next actions are independent review of the 25-case evidence,
+completion of the human usefulness template, and process-tree cleanup
+verification if required by acceptance. P8-A5 and production adoption remain
+`NOT_AUTHORIZED` until those gates close.

@@ -3912,3 +3912,19 @@ Sol and validates only reviewer-supplied scores. Value and cost claims remain
 unavailable until a provider-backed run and human review are completed.
 P8-A5 is not recommended yet; Harness remains opt-in and production adoption
 remains NOT_AUTHORIZED.
+
+## 87. P8-A4-R1 Real Provider-backed Harness Validation (2026-08-22)
+
+The authorized R1 evidence run used the pinned Harness `0.1.0-rc.7` and the
+existing P8-A4 runtime boundary. It completed 20/20 `HARNESS_ALLOWED` cases;
+5/5 `LEGACY_ONLY` negative controls remained outside Harness. Provider-reported
+metrics are recorded separately from offline tests: session success `1.00`,
+continuity `1.00`, timeout `0`, audit completeness `25/25`, unauthorized tool
+`0`, authority drift `0`, validator bypass `0`, secret leak `0`, and
+strict-schema-entered-Harness `0`.
+
+The result is `PASS CANDIDATE / AWAITING INDEPENDENT ACCEPTANCE`. Human value is
+review-only with no automated score, and process-tree cleanup remains
+`NOT_VERIFIED`. No Router, permission direction, Schema, Validator, LlmClient,
+Financial/Evidence/Graph authority, or default runtime changed. P8-A5 and
+production adoption remain `NOT_AUTHORIZED`.

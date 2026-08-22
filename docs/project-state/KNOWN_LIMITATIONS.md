@@ -531,3 +531,15 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   exploration quality, actionability, or noise score is claimed.
 - P8-A5 and production adoption remain unauthorized until those evidence gaps
   are closed and independently reviewed.
+
+## P8-A4-R1 real provider validation limitations (2026-08-22)
+
+- The provider-backed run completed 20/20 Harness cases and 5/5 Legacy controls,
+  but its status is `PASS CANDIDATE`, pending independent acceptance.
+- Human value evaluation remains `PENDING_REVIEW`; no research usefulness,
+  exploration quality, actionability, or noise score is claimed. The nine
+  forbidden-artifact markers are a safety signal, not an automated value score.
+- Harness root termination was recorded, but process-tree cleanup is
+  `NOT_VERIFIED`.
+- P8-A5 and production adoption remain unauthorized until review and the
+  remaining evidence gates are closed.

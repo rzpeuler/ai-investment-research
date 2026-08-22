@@ -609,3 +609,20 @@ The human evaluation interface is implemented and emits a `PENDING_REVIEW`
 template for Sol. P8-A5 is not recommended until a provider-backed expanded run
 and completed human evaluation are available. Default runtime remains legacy;
 Harness production adoption remains NOT_AUTHORIZED.
+
+## P8-A4-R1 REAL PROVIDER-BACKED VALIDATION (2026-08-22)
+
+The explicit provider-backed runner completed 20/20 `HARNESS_ALLOWED` cases and
+kept 5/5 `LEGACY_ONLY` negative controls on Legacy. Harness `0.1.0-rc.7` used
+the existing `research-headless` profile and `research-os-mcp/v1` namespace.
+Reliability was session success `1.00`, continuity `1.00`, timeout count `0`;
+governance recorded audit completeness `25/25`, unauthorized tool `0`,
+authority drift `0`, validator bypass `0`, secret leak `0`, and
+strict-schema-entered-Harness `0`.
+
+The result is `PASS CANDIDATE / AWAITING INDEPENDENT ACCEPTANCE`. Provider cost,
+token, and latency evidence is recorded in the R1 report. Human value remains
+`PENDING_REVIEW` with no automated usefulness score. Harness cleanup records the
+root terminated but process-tree verification `NOT_VERIFIED`. Default runtime,
+authorities, and production adoption status are unchanged; P8-A5 remains
+`NOT_AUTHORIZED`.
