@@ -685,3 +685,11 @@ NEXT: Sol 独立验收 P8-A3-R1（契约设计 / 预算执行 / 测试 / 真实�
   runtime；不删除 Legacy；不改 LlmClient / Schema / Validator。P8-B3 /
   production adoption 保持 NOT_AUTHORIZED。
 ```
+## P8-A4 follow-up gate (2026-08-22)
+
+P8-A4 implementation is complete but evaluation is `PARTIAL / DATA_DEGRADED`.
+Before P8-A5, run the opt-in expanded corpus with approved provider
+credentials, preserve provider-reported calls/latency/token usage, and have Sol
+complete the human evaluation template. Do not treat the offline 20/20 result
+as real Harness reliability or value evidence. Keep Legacy as the default and
+do not route structured research artifacts through Harness.

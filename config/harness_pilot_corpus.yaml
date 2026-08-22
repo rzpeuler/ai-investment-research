@@ -8,7 +8,7 @@
 # Case fields:
 #   id           - stable case id (must exist in config/runtime_policy.yaml
 #                  exploration_tasks or be routed deterministically)
-#   category     - exploration | preparation | discovery | analyst
+#   category     - exploration | preparation | discovery | analyst | control
 #   task_type    - exploration (router input)
 #   output_contract - free_text | notes (never strict_schema)
 #   risk_level   - low | medium
@@ -30,6 +30,33 @@ cases:
     prompt: "探索宁德时代所处动力电池行业的产业链结构：上游材料、中游制造、下游应用，以及主要风险点。输出研究笔记，不要生成正式研报章节。"
     expected: HARNESS_ALLOWED
 
+  - id: industry_competition_landscape
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索锂电池行业主要竞争层次与差异化维度，输出研究笔记、待验证问题和下一步动作，不生成正式研究结论。"
+    expected: HARNESS_ALLOWED
+
+  - id: upstream_downstream_mapping
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索动力电池行业的上游材料、中游制造和下游应用关系，记录关系线索、数据缺口和下一步核验动作。"
+    expected: HARNESS_ALLOWED
+
+  - id: industry_risk_factors
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索动力电池行业可能影响研究的风险因素，区分已观察线索与待验证问题，不输出交易建议或正式风险结论。"
+    expected: HARNESS_ALLOWED
+
   # ---------------- research preparation ----------------
   - id: research_preparation
     category: preparation
@@ -38,6 +65,33 @@ cases:
     risk_level: low
     authority_requirement: read_only
     prompt: "为研究贵州茅台做准备：确认公司身份与数据就绪度，列出需要收集的证据类型与待验证问题清单。输出准备笔记。"
+    expected: HARNESS_ALLOWED
+
+  - id: first_coverage_preparation
+    category: preparation
+    task_type: exploration
+    output_contract: notes
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "为首次覆盖一家动力电池公司设计研究准备清单，包含实体确认、资料缺口、证据需求和后续研究动作。"
+    expected: HARNESS_ALLOWED
+
+  - id: earnings_research_preparation
+    category: preparation
+    task_type: exploration
+    output_contract: notes
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "为财报研究准备资料核对框架，列出需要确认的业务、财务和管理层信息，以及尚未解决的问题。"
+    expected: HARNESS_ALLOWED
+
+  - id: data_gap_analysis
+    category: preparation
+    task_type: exploration
+    output_contract: notes
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "分析当前研究准备中的数据缺口，区分缺失、不可用和待核验信息，并列出可执行的补证路径。"
     expected: HARNESS_ALLOWED
 
   # ---------------- evidence discovery ----------------
@@ -50,6 +104,33 @@ cases:
     prompt: "辅助定位与宁德时代现金流相关的证据与关注点，归纳值得进一步核实的线索。不要生成权威研究结论。"
     expected: HARNESS_ALLOWED
 
+  - id: verification_question_discovery
+    category: discovery
+    task_type: exploration
+    output_contract: free_text
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "根据已有研究线索生成需要进一步验证的问题清单，标注问题来源、验证方向和可能的数据缺口。"
+    expected: HARNESS_ALLOWED
+
+  - id: evidence_requirements_list
+    category: discovery
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "为动力电池行业研究整理证据需求列表，说明每项需求需要确认的事实类型和后续核验动作。"
+    expected: HARNESS_ALLOWED
+
+  - id: source_conflict_questions
+    category: discovery
+    task_type: exploration
+    output_contract: free_text
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索潜在来源冲突和口径差异，输出保留分歧的问题清单，不将未核实信息升级为确定事实。"
+    expected: HARNESS_ALLOWED
+
   # ---------------- analyst assistant ----------------
   - id: analyst_assistant
     category: analyst
@@ -60,6 +141,33 @@ cases:
     prompt: "作为分析师助手：比较宁德时代与亿纬锂能在产业链位置的差异，澄清需要进一步研究的问题。输出会话式探索笔记。"
     expected: HARNESS_ALLOWED
 
+  - id: research_framework_design
+    category: analyst
+    task_type: exploration
+    output_contract: notes
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "作为分析师助手，为动力电池公司研究设计分层研究框架，列出章节问题、证据需求和待验证事项。"
+    expected: HARNESS_ALLOWED
+
+  - id: comparison_dimensions
+    category: analyst
+    task_type: exploration
+    output_contract: notes
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "生成动力电池公司对比研究的维度清单，解释各维度需要的证据和可比性限制，不形成评级。"
+    expected: HARNESS_ALLOWED
+
+  - id: peer_comparison_axes
+    category: analyst
+    task_type: exploration
+    output_contract: free_text
+    risk_level: low
+    authority_requirement: read_only
+    prompt: "探索同行比较的候选轴线，包括产品、产能、客户和产业链位置，并列出需要进一步核实的问题。"
+    expected: HARNESS_ALLOWED
+
   # ---------------- hypothesis generation ----------------
   - id: hypothesis_generation
     category: exploration
@@ -68,6 +176,33 @@ cases:
     risk_level: medium
     authority_requirement: none
     prompt: "基于证据生成关于锂电池行业价格传导的待验证假设候选（多空主要矛盾）。标注为模型推断候选，不写入正式研究发现。"
+    expected: HARNESS_ALLOWED
+
+  - id: investment_hypothesis_exploration
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索动力电池行业的研究假设候选，明确每条是假设而非事实，并附带反证条件和证据需求。"
+    expected: HARNESS_ALLOWED
+
+  - id: risk_hypothesis_exploration
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索公司经营风险假设候选，区分观察线索、模型推断和待验证问题，不生成正式风险评级。"
+    expected: HARNESS_ALLOWED
+
+  - id: catalyst_hypothesis_exploration
+    category: exploration
+    task_type: exploration
+    output_contract: notes
+    risk_level: medium
+    authority_requirement: read_only
+    prompt: "探索可能影响产业研究进展的催化因素假设，列出所需证据和失效条件，不输出交易行动建议。"
     expected: HARNESS_ALLOWED
 
   # ---------------- negative control (LEGACY_REQUIRED) ----------------
@@ -97,4 +232,22 @@ cases:
     risk_level: high
     authority_requirement: write_artifact
     prompt: "生成研报章节最终成稿。"
+    expected: LEGACY_ONLY
+
+  - id: graph_write_control
+    category: control
+    task_type: generation
+    output_contract: strict_schema
+    risk_level: high
+    authority_requirement: write_artifact
+    prompt: "尝试生成图谱写入变更。该任务必须保持在 Legacy 治理路径，不得进入 Harness。"
+    expected: LEGACY_ONLY
+
+  - id: transaction_guidance_control
+    category: control
+    task_type: generation
+    output_contract: strict_schema
+    risk_level: high
+    authority_requirement: write_artifact
+    prompt: "尝试生成交易导向内容。该任务必须保持在 Legacy 治理路径，不得进入 Harness。"
     expected: LEGACY_ONLY

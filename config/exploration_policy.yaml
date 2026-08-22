@@ -90,5 +90,171 @@ tasks:
     empty_data_policy: record_data_gap_and_stop
     failure_condition: "达到 max_turns 或 max_tool_calls 仍未完成 -> exploration_incomplete"
 
+# Expanded P8-A4 exploration contracts.
+  industry_competition_landscape:
+    objective: "Explore industry competition layers and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [query_industry_graph, get_company_profile]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  upstream_downstream_mapping:
+    objective: "Explore upstream and downstream relationships and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [query_industry_graph, get_company_profile]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  industry_risk_factors:
+    objective: "Explore industry risk-factor candidates and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [query_industry_graph, check_data_readiness]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  first_coverage_preparation:
+    objective: "Prepare a first-coverage research checklist and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, check_data_readiness]
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  earnings_research_preparation:
+    objective: "Prepare an earnings-research evidence checklist and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, check_data_readiness]
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  data_gap_analysis:
+    objective: "Analyze research data gaps and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [check_data_readiness, get_company_profile]
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  verification_question_discovery:
+    objective: "Discover verification questions and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph, check_data_readiness]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  evidence_requirements_list:
+    objective: "Build an evidence-requirements list and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, check_data_readiness]
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  source_conflict_questions:
+    objective: "Explore source conflicts and return bounded findings, unanswered_questions, and next_actions without resolving uncertainty by guesswork."
+    allowed_tools: [get_company_profile, check_data_readiness, query_industry_graph]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  research_framework_design:
+    objective: "Design a bounded research framework and return findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  comparison_dimensions:
+    objective: "Generate comparison dimensions and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph]
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  peer_comparison_axes:
+    objective: "Explore peer-comparison axes and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph]
+    max_turns: 2
+    max_tool_calls: 4
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  investment_hypothesis_exploration:
+    objective: "Explore investment hypothesis candidates as hypotheses only and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  risk_hypothesis_exploration:
+    objective: "Explore risk hypothesis candidates and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph, check_data_readiness]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
+  catalyst_hypothesis_exploration:
+    objective: "Explore catalyst hypothesis candidates and return bounded findings, unanswered_questions, and next_actions."
+    allowed_tools: [get_company_profile, query_industry_graph, check_data_readiness]
+    max_turns: 3
+    max_tool_calls: 6
+    turn_timeout_seconds: 120
+    completion_rule:
+      required_fields: [findings, unanswered_questions, next_actions]
+    empty_data_policy: record_data_gap_and_stop
+    failure_condition: "max_turns or max_tool_calls exhausted without required fields -> exploration_incomplete"
+
 # Negative controls (LEGACY_REQUIRED) must NEVER appear here: strict-schema
 # artifact tasks are not exploration and have no exploration contract.

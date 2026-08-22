@@ -56,18 +56,19 @@ def test_eval_runner_requires_provider_credential(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Corpus routing invariants (evaluation uses exactly the HARNESS_ALLOWED set)
+# Corpus routing invariants (P8-A4 expanded corpus remains governed)
 # ---------------------------------------------------------------------------
 
 def test_eval_corpus_harness_allowed_set_is_exact():
     corpus = PilotCorpus()
     exploration = corpus.exploration_cases()
     ids = {case.id for case in exploration}
-    assert ids == {
+    assert len(exploration) == 20
+    assert {
         "industry_exploration", "research_preparation",
         "evidence_discovery_assistance", "analyst_assistant",
         "hypothesis_generation",
-    }
+    } <= ids
     router = RuntimeRouter(RuntimePolicy.load())
     for case in exploration:
         decision = router.route(case.profile())
@@ -77,10 +78,11 @@ def test_eval_corpus_harness_allowed_set_is_exact():
 def test_eval_corpus_negative_controls_stay_legacy():
     corpus = PilotCorpus()
     controls = corpus.control_cases()
-    assert {case.id for case in controls} == {
+    assert len(controls) == 5
+    assert {
         "financial_fact_generation", "research_finding_generation",
         "final_report_section",
-    }
+    } <= {case.id for case in controls}
     router = RuntimeRouter(RuntimePolicy.load())
     for case in controls:
         decision = router.route(case.profile())

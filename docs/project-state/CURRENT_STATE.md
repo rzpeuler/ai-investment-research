@@ -587,3 +587,25 @@ ACCEPTED`; P8-B3 and production adoption remain `NOT_AUTHORIZED`.
 本治理冻结只改文档（AGENTS.md / README.md / engineering-guide / DECISIONS / 状态文档 /
 architecture 文档 / 任务书）；production code 0 changes、schema count 86 不变、DB v6
 不变、migrations NONE、source registry 不变。
+## P8-A4-HYBRID-AGENT-RUNTIME-EXPANDED-PILOT (2026-08-22)
+
+P8-A4 expanded the governed Hybrid Agent Runtime pilot corpus to 25 cases:
+20 exploration cases across industry exploration, research preparation,
+evidence discovery assistance, analyst assistance, and hypothesis generation;
+5 Legacy-only negative controls. `config/exploration_policy.yaml` now contains
+20 complete Exploration Execution Contracts, and missing contracts remain
+fail-closed. The runtime whitelist, permission surface, audit lineage, and
+formal Artifact authorities are unchanged.
+
+Offline governance execution completed 20/20 bounded exploration cases and
+routed 5/5 controls to Legacy. The real opt-in runner
+`scripts/p8_a4_expanded_pilot.py` produced `PARTIAL / DATA_DEGRADED` because
+the current environment lacked provider credentials; no offline result was
+used to claim real reliability, value, or cost. Governance routing evidence is
+100% audit complete with unauthorized_tool=0, authority_drift=0,
+secret_leak=0, validator_bypass=0, and strict_schema_entered_harness=0.
+
+The human evaluation interface is implemented and emits a `PENDING_REVIEW`
+template for Sol. P8-A5 is not recommended until a provider-backed expanded run
+and completed human evaluation are available. Default runtime remains legacy;
+Harness production adoption remains NOT_AUTHORIZED.

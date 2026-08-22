@@ -31,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EVAL_ENV = "P8_A3_HYBRID_PILOT_EVAL"
 REPORT_PATH = ROOT / "reports" / "p8_a3_pilot_evaluation.json"
+EVAL_TASK_ID = "P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION"
 
 ALLOWED_TOOL_NAMES = frozenset({
     "get_company_profile", "check_data_readiness",
@@ -154,7 +155,7 @@ def main() -> int:
     os.environ["P8_B1_EVENT_LOG"] = str(event_log)
 
     report: dict = {
-        "task": "P8-A3-HYBRID-AGENT-RUNTIME-PILOT-EVALUATION",
+        "task": EVAL_TASK_ID,
         "status": "PARTIAL",
         "eval_run_id": f"a3-eval-{uuid.uuid4().hex[:12]}",
         "started_at": _iso(),
@@ -208,17 +209,26 @@ def main() -> int:
         for case in exploration:
             decision = router.route(case.profile())
             contract = contract_registry.get(case.id)  # missing -> refuse (fail-closed)
+            case_event_start = len(_read_event_log(event_log))
 
             # Per-turn event-log delta tracking for the tool budget.
             turn_state = {"before_events": len(_read_event_log(event_log)),
-                          "last_turn_tool_calls": 0}
+                          "last_turn_tool_calls": 0,
+                          "turn_durations_ms": [],
+                          "provider_calls": 0,
+                          "usage": {}}
 
             def send_bounded_turn(prompt: str) -> dict:
                 # Per-turn wall-clock budget from the contract (no infinite wait).
                 turn_started = time.monotonic()
                 before = _read_event_log(event_log)
                 turn_result = adapter.send_message(session, prompt)
-                turn_result["_turn_ms"] = round((time.monotonic() - turn_started) * 1000)
+                turn_ms = round((time.monotonic() - turn_started) * 1000)
+                turn_result["_turn_ms"] = turn_ms
+                turn_state["turn_durations_ms"].append(turn_ms)
+                turn_state["provider_calls"] += 1
+                for key, value in _usage_from_result(turn_result).items():
+                    turn_state["usage"][key] = turn_state["usage"].get(key, 0) + value
                 # Count ONLY this turn's tool calls from the event-log delta.
                 after = _read_event_log(event_log)
                 turn_state["last_turn_tool_calls"] = sum(
@@ -238,7 +248,7 @@ def main() -> int:
             run = controller.run(contract, case.prompt)
 
             # Re-read final events for authoritative tool/usage data.
-            after_events = _read_event_log(event_log)
+            after_events = _read_event_log(event_log)[case_event_start:]
             counts = _tool_counts(after_events)
             internal_after = adapter.sessions[session.gateway_session_id].harness_session_id
             same_session = bool(internal_before and internal_after == internal_before)
@@ -280,7 +290,8 @@ def main() -> int:
                 "completion_status": run.completion_status,
                 "error": run.error,
                 "same_session": same_session,
-                "duration_ms": run.actual_turns * 0,  # filled below from event log timing
+                "duration_ms": sum(turn_state["turn_durations_ms"]),
+                "provider_calls": turn_state["provider_calls"],
                 "actual_turns": run.actual_turns,
                 "actual_tool_calls": run.actual_tool_calls,
                 "max_turns": contract.max_turns,
@@ -288,7 +299,7 @@ def main() -> int:
                 "data_gaps": run.data_gaps,
                 "tool_calls": counts["allowed"],
                 "unauthorized_tools": unauthorized,
-                "usage": {},
+                "usage": turn_state["usage"],
                 "quality_proxy": quality,
                 "response_sha256": run.response_sha256,
             })
@@ -390,7 +401,7 @@ def main() -> int:
                 value = c.get("usage", {}).get(key)
                 if isinstance(value, (int, float)):
                     totals[key] += value
-        provider_calls = sum(sum(c.get("tool_calls", {}).values()) for c in harness_cases)
+        provider_calls = sum(c.get("provider_calls", 0) for c in harness_cases)
         report["cost"] = {
             "latency_ms": {
                 "p50": _percentile(durations, 0.50),

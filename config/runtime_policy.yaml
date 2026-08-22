@@ -27,16 +27,61 @@ exploration_tasks:
   industry_exploration:
     runtime: harness
     enabled: true
+  industry_competition_landscape:
+    runtime: harness
+    enabled: true
+  upstream_downstream_mapping:
+    runtime: harness
+    enabled: true
+  industry_risk_factors:
+    runtime: harness
+    enabled: true
   research_preparation:
+    runtime: harness
+    enabled: true
+  first_coverage_preparation:
+    runtime: harness
+    enabled: true
+  earnings_research_preparation:
+    runtime: harness
+    enabled: true
+  data_gap_analysis:
     runtime: harness
     enabled: true
   evidence_discovery_assistance:
     runtime: harness
     enabled: true
+  verification_question_discovery:
+    runtime: harness
+    enabled: true
+  evidence_requirements_list:
+    runtime: harness
+    enabled: true
+  source_conflict_questions:
+    runtime: harness
+    enabled: true
   analyst_assistant:
     runtime: harness
     enabled: true
+  research_framework_design:
+    runtime: harness
+    enabled: true
+  comparison_dimensions:
+    runtime: harness
+    enabled: true
+  peer_comparison_axes:
+    runtime: harness
+    enabled: true
   hypothesis_generation:
+    runtime: harness
+    enabled: true
+  investment_hypothesis_exploration:
+    runtime: harness
+    enabled: true
+  risk_hypothesis_exploration:
+    runtime: harness
+    enabled: true
+  catalyst_hypothesis_exploration:
     runtime: harness
     enabled: true
 

@@ -521,3 +521,13 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   类按任务书走诚实 fallback（5 cases，repair 不覆盖）；整体 schema_valid_rate
   仍在运行方差带（0.2-0.5，本 run 0.3），0.70 未达。repair 增加每任务
   ≤2 次额外 provider 调用（计入预算与 audit，无隐藏 retry）。
+## P8-A4 expanded pilot limitations (2026-08-22)
+
+- The current P8-A4 real-run snapshot is `DATA_DEGRADED / PROVIDER_AUTH_MISSING`;
+  no provider-backed Harness session was executed.
+- Reliability, provider cost, token usage, and latency are therefore not
+  available for the expanded corpus. Offline completion is test-only.
+- Human value evaluation remains `PENDING_REVIEW`; no research usefulness,
+  exploration quality, actionability, or noise score is claimed.
+- P8-A5 and production adoption remain unauthorized until those evidence gaps
+  are closed and independently reviewed.

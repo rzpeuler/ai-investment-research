@@ -3889,3 +3889,26 @@ Validator / Normalizer / threshold / default runtime 未变。
 下一步：R5-B（Harness JSON-mode 探测，针对 json_format 主导失败）→ R5-D
 benchmark 重跑。P8-B2 保持 `IMPLEMENTED / PARTIAL / NOT ACCEPTED`；
 Agent 不得 self-accept。
+## 86. P8-A4-HYBRID-AGENT-RUNTIME-EXPANDED-PILOT Expanded Exploration Pilot（2026-08-22，IMPLEMENTED / PARTIAL / DATA_DEGRADED）
+
+P8-A4 expanded the governed Harness pilot to 25 cases: 20 exploration cases
+and 5 Legacy-only negative controls. The 20 Harness cases each have a strict
+Exploration Execution Contract with objective, allowed_tools, turn/tool
+budgets, deterministic completion fields, empty-data policy, and failure
+condition. Missing contracts remain fail-closed. The permission surface,
+Runtime Router, default Legacy runtime, Schema, Validator, LlmClient, and all
+Financial/Evidence/Graph authorities were not changed.
+
+Offline bounded governance execution completed 20/20 exploration cases and
+routed 5/5 controls to Legacy. The provider-backed opt-in entry point was
+executed, but the current environment lacked provider credentials; it produced
+an explicit `PARTIAL / DATA_DEGRADED / PROVIDER_AUTH_MISSING` report and did
+not substitute offline results. Routing audit completeness was 100% with
+unauthorized_tool=0, authority_drift=0, secret_leak=0, validator_bypass=0,
+and strict_schema_entered_harness=0.
+
+A deterministic human evaluation interface now emits a pending template for
+Sol and validates only reviewer-supplied scores. Value and cost claims remain
+unavailable until a provider-backed run and human review are completed.
+P8-A5 is not recommended yet; Harness remains opt-in and production adoption
+remains NOT_AUTHORIZED.
