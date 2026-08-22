@@ -571,3 +571,9 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   was never persisted. The R4 retention guarantee applies to new runs only.
 - Retained raw output is evaluation evidence under the ignored reports/
   workspace and is not a production Research Artifact or authority input.
+- **P8-A4-R5 Human Review Excel Interface (2026-08-23)**: The workbook is
+  generated from the latest retained R4 run and exposes all 20 prompts and raw
+  Harness outputs for manual review. The reviewer must enter scores, reviewer
+  identity, review time, and notes; the workbook contains no automatic scoring
+  and is not the raw evidence store. Human value evaluation remains pending
+  until the completed workbook is reviewed and imported into the JSON artifact.

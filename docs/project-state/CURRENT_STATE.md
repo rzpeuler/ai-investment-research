@@ -665,3 +665,11 @@ audit 20/20, and immutable file hashes enabled.
 The reviewer bundle was regenerated automatically from the retained run and is
 now complete: metadata/prompt/output/audit 20/20 and complete cases 20/20.
 Historical R1 artifacts remain unchanged and retain their original omission.
+
+## P8-A4-R5 HUMAN REVIEW EXCEL INTERFACE (2026-08-23)
+
+Generated `reports/p8_a4_human_review_template.xlsx` from the latest retained
+R4 run `a3-eval-657677b514b8`. The workbook has a `Human Review` sheet with
+20 rows containing case metadata, prompt, and raw Harness output, plus empty
+reviewer-owned scoring and identity fields. `Scoring Guide` contains the full
+1-5 / 0-1 rubric. No formulas or automatic scores are included.

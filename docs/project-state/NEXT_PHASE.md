@@ -709,3 +709,10 @@ human reviewer completing all 20 cases in `reports/p8_a4_r1_human_review.json`
 with reviewer identity, scores, review time, and notes. Until that artifact is
 completed and independently reviewed, P8-A4 stays `PARTIAL / NOT_ACCEPTED` and
 P8-A5 remains `NOT_AUTHORIZED`.
+## P8-A4-R5 Human Review Excel Interface (2026-08-23)
+
+The reviewer workbook is available at
+`reports/p8_a4_human_review_template.xlsx`. The next action is human review of
+all 20 retained Harness exploration cases and import of reviewer-owned values
+into `reports/p8_a4_r1_human_review.json`. The workbook is an input interface,
+not raw evidence storage; no automatic scoring is permitted.
