@@ -716,3 +716,22 @@ The reviewer workbook is available at
 all 20 retained Harness exploration cases and import of reviewer-owned values
 into `reports/p8_a4_r1_human_review.json`. The workbook is an input interface,
 not raw evidence storage; no automatic scoring is permitted.
+
+## P8-A5 Hybrid Runtime Capability Roadmap (2026-08-23)
+
+P8-A5 is planning-only and does not authorize Harness production adoption or
+change the default Legacy runtime. The sequence is:
+
+1. Complete and independently review the 20-case human value evaluation using
+   the retained raw evidence and the R5 workbook.
+2. Design a more realistic contextual corpus with entity mapping, as-of dates,
+   evidence context, data gaps, and substantive analyst questions.
+3. Author separate taskbooks for any new skill, read-only MCP tool, or frontend
+   handoff; each must preserve fail-closed contracts, negative controls, and
+   audit lineage.
+4. Reassess reliability, governance, cost, cleanup, and human value together.
+
+Until these gates close, Harness remains an opt-in exploration assistant only;
+formal research artifacts continue through the Legacy workflow and validator.
+Proposed skills and MCP tools in the P8-A5 roadmap are not implemented or
+enabled.

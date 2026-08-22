@@ -3960,3 +3960,23 @@ Validated run `a3-eval-657677b514b8` completed retention 20/20 with
 never stored raw output. Legacy remains default and all Runtime Router,
 Permission, Schema, Validator, LlmClient, and authority boundaries remain
 unchanged.
+
+## 90. P8-A5 Hybrid Agent Runtime Capability Roadmap (2026-08-23)
+
+P8-A5 is approved as architecture planning only, not as production adoption.
+Based on P8-A0~P8-A4, Harness is bounded to opt-in conversation, session,
+planning, and exploration assistance under the existing Runtime Router,
+permission policy, exploration contract, MCP facade, and audit lineage.
+Research OS and the Legacy workflow retain authority over facts, evidence,
+validation, structured research artifacts, persistence, and all Financial,
+Evidence, and Graph Write operations.
+
+The proposed skill expansion, read-only MCP context tools, and frontend
+handoff are candidates only. Each requires a separate taskbook, contract,
+negative controls, tests, and independent evidence before enablement. The
+Human Value Evaluation remains deferred until a realistic contextual corpus
+produces substantive exploration output and a human reviewer completes the
+retained evidence workflow. No automatic model score may substitute for that
+review. Legacy remains the default runtime; no Router policy, Schema,
+Validator, LlmClient, or authority boundary changes are authorized by this
+decision.

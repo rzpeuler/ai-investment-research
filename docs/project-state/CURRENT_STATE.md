@@ -673,3 +673,20 @@ R4 run `a3-eval-657677b514b8`. The workbook has a `Human Review` sheet with
 20 rows containing case metadata, prompt, and raw Harness output, plus empty
 reviewer-owned scoring and identity fields. `Scoring Guide` contains the full
 1-5 / 0-1 rubric. No formulas or automatic scores are included.
+
+## P8-A5 HYBRID RUNTIME CAPABILITY ROADMAP (2026-08-23)
+
+P8-A5 is an architecture roadmap only. P8-A0~P8-A4 evidence supports Harness
+as an opt-in Exploration Agent Runtime, but does not establish usefulness for
+formal research artifacts or authorize production adoption. Human Value
+Evaluation remains deferred because the existing pilot primarily exercised
+governance and data-gap handling rather than substantive research value.
+
+The roadmap preserves Legacy as the default runtime and preserves the Runtime
+Router, permission policy, exploration contract, MCP authority boundary,
+Schema, Validator, LlmClient, Financial Authority, Evidence Authority, and
+Graph Write Authority. Candidate skills, MCP tools, and frontend handoff are
+design proposals only and require separate taskbooks before implementation or
+enablement. The next evidence gate is completion and independent review of the
+20 retained P8-A4 cases, followed by a contextual corpus with substantive
+research questions.

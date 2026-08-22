@@ -577,3 +577,18 @@ P8-A3-R1-HARNESS-EXPLORATION-CONTROL 如实记录契约执行层边界（实现�
   identity, review time, and notes; the workbook contains no automatic scoring
   and is not the raw evidence store. Human value evaluation remains pending
   until the completed workbook is reviewed and imported into the JSON artifact.
+
+## P8-A5 roadmap limitations (2026-08-23)
+
+- The P8-A4 corpus demonstrates governed exploration and data-gap handling;
+  it does not yet provide sufficient evidence of substantive research value.
+- Human Value Evaluation is deferred. No usefulness, exploration-quality,
+  actionability, or noise result is claimed until a human reviewer completes
+  the retained evidence workflow.
+- The proposed skills, MCP context tools, and frontend handoff are not
+  implemented or enabled and require separate taskbooks.
+- The roadmap does not authorize production adoption, change the Legacy
+  default runtime, or expand Harness into Schema, Validator, Financial,
+  Evidence, or Graph Write authority.
+- Evaluation artifacts and the reviewer workbook remain review evidence, not
+  formal Research OS artifacts or authority inputs.
